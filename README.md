@@ -1,23 +1,46 @@
-# Linda Messenger
+# React using GUN for P2P Chatting
 
-Welcome to Linda Messenger. Linda Messenger is built to be decentralized and end-to-end encrypted. This means that your data is not in one place and the messages you send to your friends will be encrypted only for you and them to read.
+## How to use
+This app is using React, Express and Gun as library to run
 
-# Features
+### Preparing
+in `gun-p2p-message/` run
+```
+yarn install
+```
+then, 
+```
+cd ./client/
+yarn install
+```
 
-- [x] Authentication
-- [x] Profile Management
-    - [x] Basic Profile
-    - [ ] Profile Image
-- [x] Appearance Settings
-- [x] Friend Requests
-    - [x] Accept Friend Request
-    - [x] Reject Friend Request
-- [x] Friend List
-- [x] Chat Creation
-- [x] Chat List
-- [x] Messaging
-    - [x] Text Messaging
-    - [x] Voice Recordings
-    - [ ] File Sharing
-- [x] End-To-End Encrypted Messaging
-- [ ] Group Messaging
+### Run the apps
+assume you're in the rootdir
+```
+yarn test
+```
+in new terminal:
+```
+cd ./client/
+yarn start
+```
+new tab will open in browser with `http://localhost:3000`
+
+Enjoyy..
+
+## This is now a working Chat App with Node Radata storage (Radix Tree)
+
+### Feature: 
+- Encrypted Chat App (End-to-End Encryption using DH Key Exchange Method)
+- Add Friend (by PubKey & Stranger)
+- Toast Notification
+- Incoming Message from Stranger
+- File Upload (Image)
+
+### Work-in-Progress:
+- [x] E-E2E Chat Messages
+- [x] Friend & Stranger
+- [x] E2E asymmetric encryption (DH Key Exchange)
+- [x] File upload
+- [ ] Online indicator
+- [ ] ~~MongoDB for persisting data~~
