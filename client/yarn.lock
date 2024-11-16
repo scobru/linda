@@ -7569,10 +7569,10 @@ lilconfig@^3.0.0:
   resolved "https://registry.npmjs.org/lilconfig/-/lilconfig-3.1.2.tgz"
   integrity sha512-eop+wDAvpItUys0FWkHIKeC9ybYrTGbU41U5K7+bttZZeohvnY7M9dZ5kB21GNWiFT2q1OoPTvncPCgSOVO5ow==
 
-linda-protocol@^0.0.30:
-  version "0.0.30"
-  resolved "https://registry.yarnpkg.com/linda-protocol/-/linda-protocol-0.0.30.tgz#926caa3d6a94b5464a519b311d16179b1fbe81bc"
-  integrity sha512-S7TFyxKl1ShjfLs9NG1VkL4t3EvlIop+ZFsfILbwwdlhpPkARN0xiLFEbhZRWrl866WeRBN8SRQD/Iyi3SC5dw==
+linda-protocol@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/linda-protocol/-/linda-protocol-1.0.6.tgz#cf84ad556262cd61bd96512cd621eed7e78c6747"
+  integrity sha512-0RJsQQ+LJwWTOkCr1+dvLiGAN5amZYM8FFtVZa6pqjObKixGB6F/tzXgWfLPoUfSv6j7LTamccidy7Kri+N3mA==
   dependencies:
     "@noble/secp256k1" "^1.7.0"
     "@rollup/plugin-json" "^6.1.0"

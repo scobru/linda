@@ -1,10 +1,11 @@
 import React from 'react';
 import { gun, user } from 'linda-protocol';
 import { messaging } from 'linda-protocol';
-const { groups } = messaging;
 import { toast } from 'react-hot-toast';
 
 export default function Groups({ onSelect }) {
+  const { groups } = messaging;
+
   const [myGroups, setMyGroups] = React.useState([]);
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [showSearchModal, setShowSearchModal] = React.useState(false);

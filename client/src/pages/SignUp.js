@@ -9,6 +9,18 @@ export default function SignUp() {
   const [isLoading, setIsLoading] = React.useState(false);
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    // Verifica se l'utente è già autenticato
+    const checkAuth = async () => {
+      const isAuth = await authentication.sessionManager.validateSession();
+      if (isAuth) {
+        navigate('/homepage', { replace: true });
+      }
+    };
+    
+    checkAuth();
+  }, [navigate]);
+
   const handleRegister = async () => {
     if (isLoading) return;
     if (!username.trim() || !password.trim()) {
@@ -20,20 +32,22 @@ export default function SignUp() {
     const toastId = toast.loading('Registrazione in corso...');
 
     try {
-      const result = await new Promise((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         authentication.registerUser({ username, password }, (response) => {
-          console.log('Register response:', response); // Debug log
-          if (response.errMessage) reject(new Error(response.errMessage));
-          else resolve(response);
+          if (response.success) {
+            resolve(response);
+          } else {
+            reject(new Error(response.errMessage || 'Errore durante la registrazione'));
+          }
         });
       });
 
       toast.success('Registrazione completata', { id: toastId });
       
-      // Attendi un momento prima di reindirizzare
+      // Reindirizza al login dopo un breve delay
       setTimeout(() => {
         navigate('/login', { replace: true });
-      }, 1000);
+      }, 1500);
     } catch (error) {
       console.error('Registration error:', error);
       toast.error(error.message || 'Errore durante la registrazione', { id: toastId });

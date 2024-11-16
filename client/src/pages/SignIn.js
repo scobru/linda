@@ -11,13 +11,6 @@ export default function SignIn() {
   const [isRedirecting, setIsRedirecting] = React.useState(false);
   const navigate = useNavigate();
 
-  // Previeni il reindirizzamento automatico dal router
-  React.useEffect(() => {
-    return () => {
-      setIsRedirecting(false);
-    };
-  }, []);
-
   const handleLogin = async () => {
     if (isLoading || isRedirecting) return;
     if (!username.trim() || !password.trim()) {
@@ -31,33 +24,39 @@ export default function SignIn() {
     try {
       const result = await new Promise((resolve, reject) => {
         authentication.loginUser({ username, password }, (response) => {
-          console.log('Login response:', response); // Debug log
+          console.log('Login response:', response);
           if (response.success) resolve(response);
           else reject(new Error(response.errMessage));
         });
       });
 
       if (result.success) {
-        toast.success('Accesso effettuato', { id: toastId });
-        setIsRedirecting(true);
+        // Attendi un momento per l'inizializzazione
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Attendi che l'utente sia completamente autenticato
-        let attempts = 0;
-        const maxAttempts = 10;
-        
-        const checkAuth = setInterval(() => {
-          attempts++;
-          console.log('Checking auth status:', user.is, 'Attempt:', attempts); // Debug log
+        // Verifica se l'utente è stato autenticato correttamente
+        if (user.is && user.is.pub === result.pub) {
+          toast.success('Accesso effettuato', { id: toastId });
           
-          if (user.is) {
-            clearInterval(checkAuth);
-            // Usa window.location.href invece di navigate
+          // Salva le informazioni dell'utente
+          localStorage.setItem('userPub', user.is.pub);
+          localStorage.setItem('userAlias', user.is.alias || username);
+          
+          // Reindirizza alla homepage
+          window.location.href = '/homepage';
+        } else {
+          // Attendi ancora un po' e riprova
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (user.is && user.is.pub === result.pub) {
+            toast.success('Accesso effettuato', { id: toastId });
+            localStorage.setItem('userPub', user.is.pub);
+            localStorage.setItem('userAlias', user.is.alias || username);
             window.location.href = '/homepage';
-          } else if (attempts >= maxAttempts) {
-            clearInterval(checkAuth);
-            throw new Error('Errore di autenticazione');
+          } else {
+            throw new Error('Errore di autenticazione: utente non inizializzato');
           }
-        }, 100);
+        }
       } else {
         throw new Error(result.errMessage || "Errore durante l'accesso");
       }
@@ -123,7 +122,7 @@ export default function SignIn() {
               <button
                 onClick={handleLogin}
                 disabled={isLoading || isRedirecting}
-                className={`w-80 h-14 mt-3 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full focus:outline-none focus:shadow-outline ${
+                className={`w-80 h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full focus:outline-none focus:shadow-outline ${
                   (isLoading || isRedirecting) ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
@@ -136,14 +135,19 @@ export default function SignIn() {
                   'Login'
                 )}
               </button>
+              
+              <button
+                onClick={() => navigate('/register')}
+                disabled={isLoading || isRedirecting}
+                className="w-80 h-14 bg-white hover:bg-gray-100 text-blue-500 font-bold py-2 px-4 rounded-full border-2 border-blue-500 focus:outline-none focus:shadow-outline"
+              >
+                Crea account
+              </button>
             </div>
           </div>
-          <p className="mt-8">
-            don't have an account?
-            <Link to="/register">
-              <span className="text-blue-500 hover:text-blue-800"> create account </span>
-            </Link>
-          </p>
+          <div className="mt-4 text-sm text-gray-600">
+            Non hai un account? Registrati ora!
+          </div>
         </div>
       </div>
       <Toaster />

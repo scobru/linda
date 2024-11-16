@@ -1,9 +1,10 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { user } from './useGun';
+import { user, addPeer } from 'linda-protocol';
 import Context from './contexts/context';
 import { AuthProvider } from './components/AuthProvider';
 import RequireAuth from './components/RequireAuth';
+import { useEffect } from 'react';
 
 // Importa le pagine
 import LandingPage from './pages/LandingPage';
@@ -35,6 +36,11 @@ function App() {
   const [currentChat, setCurrentChat] = React.useState(null);
   const [connectionState, setConnectionState] = React.useState('disconnected');
 
+  useEffect(() => {
+    addPeer('http://localhost:3030/gun');
+    addPeer('https://gun-manhattan.herokuapp.com/gun');
+  }, []);
+
   return (
     <Context.Provider
       value={{
@@ -53,54 +59,32 @@ function App() {
       }}
     >
       <Router>
-        <AuthProvider>
-          <Routes>
-            <Route 
-              path="/landing" 
-              element={
-                <PublicRoute>
-                  <LandingPage />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/login" 
-              element={
-                <PublicRoute>
-                  <SignIn />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/register" 
-              element={
-                <PublicRoute>
-                  <SignUp />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/homepage" 
-              element={
-                <ProtectedRoute>
-                  <Homepage />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/" 
-              element={
-                <RequireAuth>
-                  <Homepage />
-                </RequireAuth>
-              } 
-            />
-            <Route 
-              path="*" 
-              element={<Navigate to="/landing" replace />} 
-            />
-          </Routes>
-        </AuthProvider>
+        <Routes>
+          {/* Rotte pubbliche senza wrapper */}
+          <Route path="/landing" element={<LandingPage />} />
+          <Route path="/login" element={<SignIn />} />
+          <Route path="/register" element={<SignUp />} />
+
+          {/* Rotta protetta */}
+          <Route 
+            path="/homepage" 
+            element={
+              <RequireAuth>
+                <Homepage />
+              </RequireAuth>
+            } 
+          />
+
+          {/* Reindirizzamenti */}
+          <Route 
+            path="/" 
+            element={<Navigate to="/landing" replace />} 
+          />
+          <Route 
+            path="*" 
+            element={<Navigate to="/landing" replace />} 
+          />
+        </Routes>
       </Router>
     </Context.Provider>
   );
