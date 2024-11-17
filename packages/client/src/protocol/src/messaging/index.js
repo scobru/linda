@@ -6,13 +6,29 @@
 import createChat from './createChat.js';
 import messageList from './messageList.js';
 import sendMessage from './sendMessage.js';
-import groups from './groups.js';
+import channelsService from './channels.js';
 
-export { createChat, messageList, sendMessage, groups };
-
-export default {
+// Servizio per le chat private
+export const chat = {
   createChat,
   messageList,
-  sendMessage,
-  groups,
+  sendMessage
 };
+
+// Servizio per i canali e le bacheche
+export const channels = channelsService;
+
+// Esporta sia il servizio chat che il servizio channels
+export const messaging = {
+  chat,
+  channels
+};
+
+// Esporta anche le singole funzioni per retrocompatibilità
+export {
+  createChat,
+  messageList,
+  sendMessage
+};
+
+export default messaging;

@@ -11,7 +11,9 @@ import Messages from '../components/Homepage/Messages';
 import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
 import { authentication } from '../protocol/src';
-import Groups from '../components/Homepage/Groups';
+import Channels from '../components/Homepage/Channels';
+
+const { chat } = messaging; // Destruttura il servizio chat
 
 export default function Homepage() {
   const [isShown, setIsShown] = React.useState(false);
@@ -75,7 +77,7 @@ export default function Homepage() {
       } else {
         // Per le chat private, usa sempre createChat per ottenere/creare la chat
         chatData = await new Promise((resolve, reject) => {
-          messaging.createChat(user.pub, (response) => {
+          chat.createChat(user.pub, (response) => {
             console.log('Create chat response:', response);
             if (response.success && response.chat) {
               resolve(response.chat);
@@ -380,14 +382,14 @@ export default function Homepage() {
               Chat
             </button>
             <button
-              onClick={() => setActiveView('groups')}
+              onClick={() => setActiveView('channels')}
               className={`flex-1 py-3 text-sm font-medium ${
-                activeView === 'groups'
+                activeView === 'channels'
                   ? 'text-blue-500 border-b-2 border-blue-500'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Gruppi e Canali
+              Bacheche e Canali
             </button>
           </div>
 
@@ -421,7 +423,7 @@ export default function Homepage() {
             </div>
           </div>
 
-          {/* Lista chat o gruppi */}
+          {/* Lista chat o canali */}
           <div className="flex-1 overflow-y-auto">
             {activeView === 'chats' ? (
               <Friends
@@ -431,7 +433,7 @@ export default function Homepage() {
                 selectedUser={selectedRef.current}
               />
             ) : (
-              <Groups onSelect={handleSelect} />
+              <Channels onSelect={handleSelect} />
             )}
           </div>
         </div>

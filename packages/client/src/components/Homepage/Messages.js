@@ -6,6 +6,7 @@ import { messaging, blocking } from '../../protocol';
 import { gun, user, notifications , DAPP_NAME } from '../../protocol';
 
 const { userBlocking } = blocking;
+const { channels } = messaging;
 
 // Custom hook per l'intersection observer
 const useIntersectionObserver = (callback, deps = []) => {
@@ -513,22 +514,55 @@ export default function Messages({ chatData }) {
     }
   };
 
-  // Aggiungi questo effetto per verificare i permessi quando si seleziona un canale/gruppo
+  // Modifica l'effetto che verifica i permessi
   React.useEffect(() => {
     if (!selected?.type || !selected?.roomId) return;
 
     const checkPermissions = async () => {
-      if (selected.type === 'channel' || selected.type === 'group') {
-        const isUserAdmin = await messaging.groups.isAdmin(
-          selected.roomId,
-          user.is.pub
-        );
-        setIsAdmin(isUserAdmin);
+      try {
+        // Se è una chat privata, verifica solo il blocco
+        if (!selected.type || selected.type === 'private') {
+          setCanPost(true); // Per default può scrivere
+          setError(null);
+          return;
+        }
+
+        // Per canali e bacheche usa il servizio channels
+        if (selected.type === 'channel' || selected.type === 'board') {
+          // Se l'utente è il creatore, può sempre scrivere
+          if (selected.creator === user.is.pub) {
+            setCanPost(true);
+            setError(null);
+            return;
+          }
+
+          const canWrite = await channels.canWrite(selected.roomId, user.is.pub);
+          setCanPost(canWrite);
+
+          // Se è un canale e l'utente non è il creatore
+          if (selected.type === 'channel' && !canWrite) {
+            setError('Solo il creatore può pubblicare in questo canale');
+          }
+          // Se è una bacheca
+          else if (selected.type === 'board') {
+            const isMember = await channels.isMember(selected.roomId, user.is.pub);
+            setCanPost(isMember);
+            if (!isMember) {
+              setError('Devi essere membro per scrivere in questa bacheca');
+            } else {
+              setError(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking permissions:', error);
+        setCanPost(false);
+        setError('Errore nella verifica dei permessi');
       }
     };
 
     checkPermissions();
-  }, [selected?.type, selected?.roomId]);
+  }, [selected?.type, selected?.roomId, selected?.creator, user.is.pub]);
 
   // Modifica la funzione sendMessage
   const sendMessage = async () => {
@@ -542,7 +576,6 @@ export default function Messages({ chatData }) {
       id: messageId,
       content: messageContent,
       sender: user.is.pub,
-      recipient: selected.pub,
       timestamp: Date.now(),
       delivered: false,
       read: false
@@ -553,17 +586,20 @@ export default function Messages({ chatData }) {
     try {
       console.log('Sending message:', messageData);
 
-      // Salva il messaggio direttamente nel database
+      // Usa il percorso corretto in base al tipo di chat
+      const path = selected.type === 'private' ? 'chats' : 'channels';
+
+      // Salva il messaggio
       await gun.get(DAPP_NAME)
-        .get('chats')
+        .get(path)
         .get(selected.roomId)
         .get('messages')
         .get(messageId)
         .put(messageData);
 
-      // Aggiorna l'ultimo messaggio della chat
+      // Aggiorna l'ultimo messaggio
       await gun.get(DAPP_NAME)
-        .get('chats')
+        .get(path)
         .get(selected.roomId)
         .get('lastMessage')
         .put({
@@ -648,10 +684,8 @@ export default function Messages({ chatData }) {
   React.useEffect(() => {
     if (!selected?.roomId) return;
 
-    // Imposta isSubscribed a true quando l'effetto viene eseguito
     setIsSubscribed(true);
 
-    // Evita di ricaricare se la chat è la stessa
     if (previousRoomIdRef.current === selected.roomId && !isInitializing) {
       return;
     }
@@ -661,9 +695,8 @@ export default function Messages({ chatData }) {
 
     const setupChat = async () => {
       try {
-        console.log('Setting up chat for:', selected.roomId);
+        console.log('Setting up chat for:', selected);
 
-        // Pulisci la sottoscrizione precedente
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
             messageSubscriptionRef.current();
@@ -673,11 +706,15 @@ export default function Messages({ chatData }) {
           messageSubscriptionRef.current = null;
         }
 
-        // Prima carica i messaggi esistenti
+        // Determina il percorso corretto
+        const path = selected.type === 'private' ? 'chats' : 'channels';
+        console.log('Using path:', path);
+
+        // Carica i messaggi esistenti
         const existingMessages = await new Promise((resolve) => {
           const messages = [];
           gun.get(DAPP_NAME)
-            .get('chats')
+            .get(path)
             .get(selected.roomId)
             .get('messages')
             .map()
@@ -701,10 +738,10 @@ export default function Messages({ chatData }) {
           setMessages([]);
         }
 
-        // Imposta la sottoscrizione per i nuovi messaggi
+        // Sottoscrivi ai nuovi messaggi
         const messageHandler = gun
           .get(DAPP_NAME)
-          .get('chats')
+          .get(path)
           .get(selected.roomId)
           .get('messages')
           .map()
@@ -742,7 +779,6 @@ export default function Messages({ chatData }) {
 
     setupChat();
 
-    // Cleanup function
     return () => {
       setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
@@ -889,34 +925,6 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.roomId, messages.length]); // Usa messages.length invece di messages
 
-  // Aggiungi questo effetto per verificare i permessi di pubblicazione
-  React.useEffect(() => {
-    const checkPostPermissions = async () => {
-      if (!selected?.type || !selected?.roomId) return;
-
-      if (selected.type === 'channel') {
-        // Per i canali, solo gli admin possono postare
-        const isUserAdmin = await messaging.groups.isAdmin(
-          selected.roomId,
-          user.is.pub
-        );
-        setCanPost(isUserAdmin);
-      } else if (selected.type === 'group') {
-        // Per i gruppi, tutti i membri possono postare
-        const isMember = await messaging.groups.isMember(
-          selected.roomId,
-          user.is.pub
-        );
-        setCanPost(isMember);
-      } else {
-        // Per le chat private
-        setCanPost(true);
-      }
-    };
-
-    checkPostPermissions();
-  }, [selected?.type, selected?.roomId]);
-
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -930,146 +938,20 @@ export default function Messages({ chatData }) {
       <div className="flex items-center justify-between p-4 border-b bg-white">
         <div className="flex items-center">
           <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-            {selected.type === 'channel' ? (
-              '📢'
-            ) : selected.type === 'group' ? (
-              '👥'
-            ) : (
-              <img
-                className="h-10 w-10 rounded-full"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.alias || selected.name}&backgroundColor=b6e3f4`}
-                alt=""
-              />
-            )}
+            {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : '👤'}
           </div>
           <div>
             <span className="font-medium">
-              {selected.name || selected.alias}
+              {selected.name}
             </span>
-            {(selected.type === 'channel' || selected.type === 'group') && (
+            {(selected.type === 'channel' || selected.type === 'board') && (
               <span className="text-xs text-gray-500 block">
-                {selected.members?.length || 0} membri •
-                {isAdmin ? ' Admin' : ' Membro'}
+                {selected.membersCount || 0} membri • 
+                {selected.type === 'channel' ? ' Canale' : ' Bacheca'}
+                {selected.creator === user.is.pub && ' (Creatore)'}
               </span>
             )}
           </div>
-        </div>
-
-        {/* Menu azioni chat */}
-        <div className="relative">
-          <button
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            onClick={() => setShowChatMenu(!showChatMenu)}
-            title="Opzioni chat"
-          >
-            <svg
-              className="w-5 h-5 text-gray-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-              />
-            </svg>
-          </button>
-
-          {showChatMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
-              <div className="py-1">
-                {/* Opzioni per chat private */}
-                {!selected.type && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setShowChatMenu(false);
-                        handleClearChat();
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      Pulisci chat
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowChatMenu(false);
-                        isBlocked ? handleUnblock() : handleBlock();
-                      }}
-                      className={`block w-full text-left px-4 py-2 text-sm ${
-                        isBlocked
-                          ? 'text-blue-600 hover:bg-blue-50'
-                          : 'text-red-600 hover:bg-red-50'
-                      }`}
-                    >
-                      {isBlocked ? 'Sblocca utente' : 'Blocca utente'}
-                    </button>
-                  </>
-                )}
-
-                {/* Opzioni per gruppi/canali */}
-                {(selected.type === 'channel' || selected.type === 'group') && (
-                  <>
-                    {isAdmin && (
-                      <button
-                        onClick={async () => {
-                          setShowChatMenu(false);
-                          if (
-                            window.confirm(
-                              `Sei sicuro di voler eliminare questo ${selected.type === 'channel' ? 'canale' : 'gruppo'}?`
-                            )
-                          ) {
-                            try {
-                              await messaging.groups.deleteGroup(
-                                selected.roomId
-                              );
-                              toast.success(
-                                `${selected.type === 'channel' ? 'Canale' : 'Gruppo'} eliminato con successo`
-                              );
-                              setSelected(null);
-                            } catch (error) {
-                              console.error('Error deleting group:', error);
-                              toast.error(error.message);
-                            }
-                          }
-                        }}
-                        className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                      >
-                        Elimina{' '}
-                        {selected.type === 'channel' ? 'canale' : 'gruppo'}
-                      </button>
-                    )}
-                    <button
-                      onClick={async () => {
-                        setShowChatMenu(false);
-                        if (
-                          window.confirm(
-                            `Sei sicuro di voler uscire da questo ${selected.type === 'channel' ? 'canale' : 'gruppo'}?`
-                          )
-                        ) {
-                          try {
-                            await messaging.groups.leaveGroup(selected.roomId);
-                            toast.success(
-                              `Hai lasciato il ${selected.type === 'channel' ? 'canale' : 'gruppo'}`
-                            );
-                            setSelected(null);
-                          } catch (error) {
-                            console.error('Error leaving group:', error);
-                            toast.error(error.message);
-                          }
-                        }
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      Esci dal{' '}
-                      {selected.type === 'channel' ? 'canale' : 'gruppo'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1109,7 +991,7 @@ export default function Messages({ chatData }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area - mostra solo se l'utente può postare */}
+      {/* Input area */}
       {canPost ? (
         <div className="border-t p-4 bg-white">
           <div className="flex items-center">
@@ -1121,8 +1003,8 @@ export default function Messages({ chatData }) {
               placeholder={
                 selected.type === 'channel'
                   ? 'Pubblica un post nel canale...'
-                  : selected.type === 'group'
-                    ? 'Scrivi un messaggio nel gruppo...'
+                  : selected.type === 'board'
+                    ? 'Scrivi nella bacheca...'
                     : 'Scrivi un messaggio...'
               }
               className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1138,14 +1020,9 @@ export default function Messages({ chatData }) {
             </button>
           </div>
         </div>
-      ) : selected.type === 'channel' ? (
-        <div className="border-t p-4 bg-white text-center text-gray-500">
-          Solo gli admin possono pubblicare in questo canale
-        </div>
       ) : (
         <div className="border-t p-4 bg-white text-center text-gray-500">
-          Non hai i permessi per scrivere in questo{' '}
-          {selected.type === 'group' ? 'gruppo' : 'canale'}
+          {error || 'Non hai i permessi per scrivere qui'}
         </div>
       )}
       <Toaster />

@@ -9,6 +9,7 @@ import rejectFriendRequest from '../../protocol/src/friends/rejectFriendRequest'
 
 const friendsService = friends.friendsService;
 const { userBlocking } = blocking;
+const { chat } = messaging;
 
 console.log(friendsService);
 
@@ -712,6 +713,22 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
     } catch (error) {
       console.error('Error handling friend click:', error);
       toast.error('Errore nell\'apertura della chat');
+    }
+  };
+
+  const handleCreateChat = async (pub) => {
+    try {
+      const result = await new Promise((resolve) => {
+        chat.createChat(pub, (response) => {
+          resolve(response);
+        });
+      });
+
+      if (result.success) {
+        // ... resto del codice ...
+      }
+    } catch (error) {
+      console.error('Error creating chat:', error);
     }
   };
 

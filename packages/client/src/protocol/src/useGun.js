@@ -1,25 +1,58 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
 
-
 // Usa solo il peer locale
 const DEFAULT_PEERS = [
   'http://localhost:3030/gun'
 ];
 
-// Inizializza Gun con configurazione semplificata
-const gun = Gun({
-  peers: DEFAULT_PEERS,
-  localStorage: false,
-  radisk: true,
-  timeout: 5000,
-  axe: false
-});
+let isConnected = false;
 
+const initGun = () => {
+  const gunInstance = Gun({
+    peers: DEFAULT_PEERS,
+    localStorage: false,
+    radisk: true,
+    timeout: 5000,
+    axe: false
+  });
 
+  // Gestione degli eventi di connessione
+  gunInstance.on('hi', peer => {
+    if (!peer || !peer.url) return;
+    console.log(`Peer connesso: ${peer.url}`);
+    isConnected = true;
+  });
+
+  gunInstance.on('bye', peer => {
+    if (!peer || !peer.url) return;
+    console.log(`Peer disconnesso: ${peer.url}`);
+    isConnected = false;
+  });
+
+  gunInstance.on('error', error => {
+    console.error('Gun error:', error);
+  });
+
+  // Verifica periodica della connessione
+  setInterval(() => {
+    const connectedPeers = Object.keys(gunInstance._.opt.peers).length;
+    if (connectedPeers === 0 && !isConnected) {
+      console.log('Nessun peer connesso, tentativo di riconnessione...');
+      DEFAULT_PEERS.forEach(peer => {
+        gunInstance.opt({ peers: [peer] });
+      });
+    }
+  }, 5000);
+
+  return gunInstance;
+};
+
+// Inizializza Gun
+export const gun = initGun();
 
 // Inizializza l'utente
-const user = gun.user().recall({ sessionStorage: true });
+export const user = gun.user().recall({ sessionStorage: true });
 
 // Costanti
 export const DAPP_NAME = 'linda-messenger';
@@ -49,6 +82,11 @@ export const getPeers = () => {
 // Verifica connessione
 export const checkConnection = () => {
   return new Promise((resolve) => {
+    if (isConnected) {
+      resolve(true);
+      return;
+    }
+
     const timeout = setTimeout(() => resolve(false), 5000);
     gun.on('hi', () => {
       clearTimeout(timeout);
@@ -65,23 +103,5 @@ export const reconnect = () => {
   }, 1000);
 };
 
-// Eventi base
-gun.on('hi', (peer) => {
-  if (!peer || !peer.url) return;
-  console.log(`Peer connesso: ${peer.url}`);
-});
-
-gun.on('bye', (peer) => {
-  if (!peer || !peer.url) return;
-  console.log(`Peer disconnesso: ${peer.url}`);
-});
-
-gun.on('error', (error) => {
-  console.error('Gun error:', error);
-});
-
-// Connetti al peer locale all'avvio
-addPeer(DEFAULT_PEERS[0]);
-
-// Esporta checkPeerStatus insieme alle altre funzioni
-export { gun, user, SEA };
+// Esporta SEA
+export { SEA };

@@ -10,6 +10,8 @@ export default function SignIn() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [isRedirecting, setIsRedirecting] = React.useState(false);
   const navigate = useNavigate();
+  const maxRetries = 3;
+  const retryDelay = 1000; // 1 secondo tra i tentativi
 
   const handleLogin = async () => {
     if (isLoading || isRedirecting) return;
@@ -21,51 +23,75 @@ export default function SignIn() {
     setIsLoading(true);
     const toastId = toast.loading('Accesso in corso...');
 
-    try {
-      const result = await new Promise((resolve, reject) => {
-        authentication.loginUser({ username, password }, (response) => {
-          console.log('Login response:', response);
-          if (response.success) resolve(response);
-          else reject(new Error(response.errMessage));
+    let retryCount = 0;
+    const tryLogin = async () => {
+      try {
+        // Assicurati che Gun sia connesso prima di procedere
+        await new Promise((resolve) => {
+          const checkConnection = () => {
+            if (Object.keys(gun._.opt.peers).length > 0) {
+              resolve();
+            } else {
+              if (retryCount < maxRetries) {
+                setTimeout(checkConnection, retryDelay);
+              } else {
+                throw new Error('Impossibile connettersi al server');
+              }
+            }
+          };
+          checkConnection();
         });
-      });
 
-      if (result.success) {
-        // Attendi un momento per l'inizializzazione
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const result = await new Promise((resolve, reject) => {
+          authentication.loginUser({ username, password }, (response) => {
+            console.log('Login response:', response);
+            if (response.success) resolve(response);
+            else reject(new Error(response.errMessage));
+          });
+        });
 
-        // Verifica se l'utente è stato autenticato correttamente
-        if (user.is && user.is.pub === result.pub) {
+        if (result.success) {
+          // Attendi che l'utente sia completamente autenticato
+          await new Promise((resolve) => {
+            const checkAuth = () => {
+              if (user.is && user.is.pub === result.pub) {
+                resolve();
+              } else {
+                if (retryCount < maxRetries) {
+                  retryCount++;
+                  setTimeout(checkAuth, retryDelay);
+                } else {
+                  throw new Error('Errore di autenticazione: utente non inizializzato');
+                }
+              }
+            };
+            checkAuth();
+          });
+
           toast.success('Accesso effettuato', { id: toastId });
           
           // Salva le informazioni dell'utente
           localStorage.setItem('userPub', user.is.pub);
           localStorage.setItem('userAlias', user.is.alias || username);
           
-          // Reindirizza alla homepage
+          setIsRedirecting(true);
           window.location.href = '/homepage';
-        } else {
-          // Attendi ancora un po' e riprova
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          if (user.is && user.is.pub === result.pub) {
-            toast.success('Accesso effettuato', { id: toastId });
-            localStorage.setItem('userPub', user.is.pub);
-            localStorage.setItem('userAlias', user.is.alias || username);
-            window.location.href = '/homepage';
-          } else {
-            throw new Error('Errore di autenticazione: utente non inizializzato');
-          }
         }
-      } else {
-        throw new Error(result.errMessage || "Errore durante l'accesso");
+      } catch (error) {
+        console.error('Login error:', error);
+        if (retryCount < maxRetries) {
+          retryCount++;
+          console.log(`Tentativo ${retryCount} di ${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          return tryLogin();
+        }
+        toast.error(error.message || "Errore durante l'accesso", { id: toastId });
+        setIsLoading(false);
+        setIsRedirecting(false);
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      toast.error(error.message || "Errore durante l'accesso", { id: toastId });
-      setIsLoading(false);
-      setIsRedirecting(false);
-    }
+    };
+
+    tryLogin();
   };
 
   const handleKeyPress = (e) => {

@@ -32,20 +32,15 @@ function App() {
     let isCheckingConnection = false;
 
     const checkPeerConnection = async () => {
-      // Evita verifiche multiple simultanee
       if (isCheckingConnection) return;
       
       try {
         isCheckingConnection = true;
-        const isConnected = await Promise.race([
-          checkConnection(),
-          // Timeout dopo 3 secondi
-          new Promise(resolve => setTimeout(() => resolve(false), 3000))
-        ]);
+        const isConnected = await checkConnection();
 
         setConnectionState(isConnected ? 'connected' : 'disconnected');
 
-        // Se non siamo connessi, prova a riconnettere
+        // Tenta la riconnessione solo se non siamo connessi
         if (!isConnected) {
           console.log('Tentativo di riconnessione...');
           gun.get('ping').put({ timestamp: Date.now() });
@@ -64,25 +59,16 @@ function App() {
     // Eventi di connessione
     const hiHandler = (peer) => {
       if (peer && peer.url) {
-        console.log(`Peer connesso: ${peer.url}`);
         setConnectionState('connected');
-        // Resetta il check quando ci connettiamo
-        if (connectionCheck) {
-          clearInterval(connectionCheck);
-          connectionCheck = setInterval(checkPeerConnection, 10000);
-        }
       }
     };
 
     const byeHandler = (peer) => {
       if (peer && peer.url) {
-        console.log(`Peer disconnesso: ${peer.url}`);
-        // Verifica immediata quando un peer si disconnette
         checkPeerConnection();
       }
     };
 
-    // Registra gli handler
     gun.on('hi', hiHandler);
     gun.on('bye', byeHandler);
 
