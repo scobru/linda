@@ -1,0 +1,28 @@
+{
+  "name": "@linda/protocol",
+  "private": false,
+  "version": "1.0.7",
+  "description": "A GunDB plugin for Ethereum, and Web3",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./src/index.js"
+    }
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^1.7.0",
+    "@rollup/plugin-commonjs": "^28.0.1",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "gun": "^0.2020.1240"
+  },
+  "scripts": {
+    "test": "jest",
+    "build": "rollup -c",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
+  }
+}

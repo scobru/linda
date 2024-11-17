@@ -1,0 +1,17 @@
+{
+  "name": "@linda/relay",
+  "version": "1.0.0",
+  "private": false,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@linda/protocol": "^1.0.7",
+    "gun": "^0.2020.1240"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+} 
