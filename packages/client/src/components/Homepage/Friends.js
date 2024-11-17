@@ -4,6 +4,8 @@ import { friends, messaging } from "../../protocol";
 import { blocking } from "../../protocol";
 import { toast } from "react-hot-toast";
 import { gun, user,DAPP_NAME } from "../../protocol"
+import acceptFriendRequest from '../../protocol/src/friends/acceptFriendRequest';
+import rejectFriendRequest from '../../protocol/src/friends/rejectFriendRequest';
 
 const friendsService = friends.friendsService;
 const { userBlocking } = blocking;
@@ -19,6 +21,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
   const [blockedUsers, setBlockedUsers] = React.useState(new Set());
   const mountedRef = React.useRef(true);
   const blockedUsersRef = useRef(new Set());
+  const processedRequestsRef = useRef(new Set());
 
   React.useEffect(() => {
     return () => {
@@ -39,8 +42,32 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       .subscribe({
         next: (request) => {
           if (!mountedRef.current) return;
+
+          // Verifica se la richiesta è già stata processata
+          const requestId = `${request.data.from}_${request.data.timestamp}`;
+          if (processedRequestsRef.current.has(requestId)) return;
+
+          // Verifica se l'utente è già amico
+          const isAlreadyFriend = friendsList.some(f => f.pub === request.data.from);
+          if (isAlreadyFriend) {
+            // Se è già amico, rimuovi la richiesta
+            gun.get(DAPP_NAME)
+              .get('all_friend_requests')
+              .map()
+              .once((req, key) => {
+                if (req && req.from === request.data.from) {
+                  gun.get(DAPP_NAME)
+                    .get('all_friend_requests')
+                    .get(key)
+                    .put(null);
+                }
+              });
+            return;
+          }
+
+          processedRequestsRef.current.add(requestId);
           setPendingRequests(prev => {
-            const exists = prev.some(r => r.pub === request.pub);
+            const exists = prev.some(r => r.pub === request.data.from);
             if (!exists) return [...prev, request];
             return prev;
           });
@@ -52,7 +79,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [friendsList]);
 
   // Effetto per monitorare gli utenti bloccati
   useEffect(() => {
@@ -260,11 +287,69 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
     const toastId = toast.loading("Accettazione richiesta in corso...");
     
     try {
-      // Rimuovi immediatamente la richiesta dalla UI
+      // Rimuovi immediatamente la richiesta dalla UI e dal database
       setPendingRequests(prev => prev.filter(r => r.pub !== request.pub));
 
-      await friendsService.handleAcceptRequest(request);
-      await friends.acceptFriendRequest(request);
+      // Rimuovi la richiesta dal database prima di accettarla
+      await new Promise((resolve) => {
+        gun.get(DAPP_NAME)
+          .get('all_friend_requests')
+          .map()
+          .once((req, key) => {
+            if (req && req.from === request.data.from && req.to === user.is.pub) {
+              gun.get(DAPP_NAME)
+                .get('all_friend_requests')
+                .get(key)
+                .put(null);
+            }
+          });
+        setTimeout(resolve, 500);
+      });
+
+      // Prepara i dati della richiesta nel formato corretto
+      const requestData = {
+        pub: request.data.from,
+        alias: request.data.senderInfo?.alias || request.data.alias,
+        senderInfo: request.data.senderInfo,
+        data: request.data
+      };
+
+      // Accetta la richiesta di amicizia
+      await new Promise((resolve, reject) => {
+        acceptFriendRequest(requestData, (result) => {
+          if (result.success) {
+            resolve(result);
+          } else {
+            reject(new Error(result.errMessage));
+          }
+        });
+      });
+
+      // Crea la chat dopo aver accettato la richiesta
+      const chatId = [user.is.pub, request.data.from].sort().join('_');
+      await new Promise((resolve, reject) => {
+        messaging.createChat(request.data.from, (response) => {
+          if (response.success && response.chat) {
+            resolve(response.chat);
+          } else {
+            reject(new Error(response.errMessage || 'Failed to create chat'));
+          }
+        });
+      });
+
+      // Aggiorna la lista amici
+      const newFriend = {
+        pub: request.data.from,
+        alias: request.data.senderInfo?.alias || request.data.alias,
+        added: Date.now(),
+        status: 'accepted',
+        roomId: chatId
+      };
+
+      setFriendsList(prev => [...prev, newFriend]);
+      if (setContextFriends) {
+        setContextFriends(prev => [...prev, newFriend]);
+      }
 
       toast.success("Richiesta accettata con successo", { id: toastId });
     } catch (error) {
@@ -291,14 +376,42 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
     const toastId = toast.loading('Rifiuto richiesta in corso...');
     
     try {
-      await friendsService.handleRejectRequest(request);
+      // Rimuovi immediatamente la richiesta dalla UI
       setPendingRequests(prev => prev.filter(r => r.pub !== request.pub));
+
+      // Prepara i dati della richiesta nel formato corretto
+      const requestData = {
+        from: request.data.from,
+        id: request.data.id,
+        timestamp: request.data.timestamp
+      };
+
+      // Usa rejectFriendRequest con i dati corretti
+      await new Promise((resolve, reject) => {
+        rejectFriendRequest(requestData, (result) => {
+          if (result.success) {
+            resolve(result);
+          } else {
+            reject(new Error(result.errMessage));
+          }
+        });
+      });
+
       toast.success("Richiesta rifiutata", { id: toastId });
     } catch (error) {
       console.error('Error rejecting request:', error);
-      toast.error("Errore nel rifiutare la richiesta", { id: toastId });
+      
+      // Ripristina la richiesta nella lista in caso di errore
+      setPendingRequests(prev => {
+        const exists = prev.some(r => r.pub === request.pub);
+        if (!exists) return [...prev, request];
+        return prev;
+      });
+      
+      toast.error(error.message || "Errore nel rifiutare la richiesta", { id: toastId });
     } finally {
       setProcessingRequest(false);
+      setTimeout(() => toast.dismiss(toastId), 3000);
     }
   };
 
@@ -467,9 +580,9 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       let isMounted = true;
       
       const loadUsername = async () => {
-        const username = await getUserUsername(request.pub);
+        const username = await getUserUsername(request.data.from);
         if (isMounted) {
-          setDisplayName(username || request.alias || 'Unknown');
+          setDisplayName(username || request.data.senderInfo?.alias || 'Unknown');
         }
       };
 
@@ -493,7 +606,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
               {displayName}
             </span>
             <span className="text-xs text-gray-500 block">
-              {request.pub?.substring(0, 20)}...
+              {request.data.from?.substring(0, 20)}...
             </span>
           </div>
         </div>
@@ -538,25 +651,63 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       // Crea o recupera la chat
       const chatId = [user.is.pub, friend.pub].sort().join('_');
       
-      // Verifica se la chat esiste già
+      // Crea la chat se non esiste
+      const chatResponse = await new Promise((resolve, reject) => {
+        messaging.createChat(friend.pub, (response) => {
+          console.log('Create chat response:', response);
+          if (response.success && response.chat) {
+            resolve(response.chat);
+          } else {
+            reject(new Error(response.errMessage || 'Failed to create chat'));
+          }
+        });
+      });
+
+      console.log('Chat created/retrieved:', chatResponse);
+
+      // Prepara i dati della chat nel formato corretto
+      const chatData = {
+        ...friend,
+        roomId: chatResponse.roomId || chatId,
+        type: 'private',
+        pub: friend.pub,
+        isGroup: false,
+        chat: {
+          ...chatResponse,
+          id: chatResponse.roomId || chatId,
+          user1: user.is.pub,
+          user2: friend.pub,
+          created: chatResponse.created || Date.now(),
+          status: 'active'
+        }
+      };
+
+      console.log('Selecting chat with data:', chatData);
+      
+      // Verifica che la chat sia stata creata correttamente
       const existingChat = await new Promise((resolve) => {
         gun.get(DAPP_NAME)
           .get('chats')
-          .get(chatId)
+          .get(chatData.roomId)
           .once((chat) => resolve(chat));
       });
 
       if (!existingChat) {
-        // Se la chat non esiste, creala
-        await messaging.createChat(friend.pub);
+        // Se la chat non esiste nel database, creala
+        await gun.get(DAPP_NAME)
+          .get('chats')
+          .get(chatData.roomId)
+          .put({
+            id: chatData.roomId,
+            user1: user.is.pub,
+            user2: friend.pub,
+            created: Date.now(),
+            status: 'active'
+          });
       }
 
       // Seleziona la chat
-      onSelect({
-        ...friend,
-        roomId: chatId,
-        type: 'private'
-      });
+      onSelect(chatData);
 
     } catch (error) {
       console.error('Error handling friend click:', error);

@@ -1,5 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
-import SEA from 'gun/sea.js';
+import { gun, user, DAPP_NAME, SEA } from '../useGun.js';
 
 /**
  * Certificate manager for handling digital certificates in the decentralized network

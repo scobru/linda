@@ -297,6 +297,42 @@ const MessageItem = ({ message, isOwnMessage, showSender, user, messageObserver 
   );
 };
 
+// Aggiungi queste funzioni di gestione dei messaggi
+const handleMessages = (data) => {
+  if (!isSubscribed) return;
+  console.log('Received message data:', data);
+
+  if (data.initial) {
+    const validMessages = (data.initial || []).filter(
+      (msg) => msg && msg.content && msg.sender && msg.timestamp
+    );
+    console.log('Setting initial messages:', validMessages);
+    setMessages(validMessages);
+    setLoading(false);
+  } else if (data.individual || data.message) {
+    const messageData = data.individual || data.message;
+    console.log('Received new message:', messageData);
+    if (messageData && messageData.content) {
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === messageData.id);
+        if (!exists) {
+          console.log('Adding new message to list');
+          const newMessages = [...prev, messageData];
+          return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+        }
+        return prev;
+      });
+    }
+  }
+};
+
+const handleError = (error) => {
+  if (!isSubscribed) return;
+  console.error('Error loading messages:', error);
+  setError('Errore nel caricamento dei messaggi');
+  setLoading(false);
+};
+
 export default function Messages({ chatData }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
@@ -317,6 +353,10 @@ export default function Messages({ chatData }) {
   const lastBlockCheckRef = React.useRef(null);
   const [isAdmin, setIsAdmin] = React.useState(false);
   const [canPost, setCanPost] = React.useState(false);
+  const [isInitializing, setIsInitializing] = React.useState(true);
+  const [isSubscribing, setIsSubscribing] = React.useState(false);
+  const previousRoomIdRef = React.useRef(null);
+  const [isSubscribed, setIsSubscribed] = React.useState(true);
 
   const { initMessageTracking } = useMessageTracking();
 
@@ -490,41 +530,50 @@ export default function Messages({ chatData }) {
     checkPermissions();
   }, [selected?.type, selected?.roomId]);
 
-  // Update the sendMessage function
+  // Modifica la funzione sendMessage
   const sendMessage = async () => {
     if (!selected?.roomId || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Crea l'oggetto messaggio
+    const messageData = {
+      id: messageId,
+      content: messageContent,
+      sender: user.is.pub,
+      recipient: selected.pub,
+      timestamp: Date.now(),
+      delivered: false,
+      read: false
+    };
+
     setNewMessage('');
 
     try {
-      if (selected.type === 'channel' || selected.type === 'group') {
-        if (selected.type === 'channel' && !isAdmin) {
-          throw new Error('Solo gli admin possono pubblicare in questo canale');
-        }
+      console.log('Sending message:', messageData);
 
-        await messaging.groups.sendGroupMessage(
-          selected.roomId,
-          messageContent
-        );
-      } else {
-        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Salva il messaggio direttamente nel database
+      await gun.get(DAPP_NAME)
+        .get('chats')
+        .get(selected.roomId)
+        .get('messages')
+        .get(messageId)
+        .put(messageData);
 
-        // Initialize message tracking
-        await initMessageTracking(messageId, selected.roomId);
-
-        await new Promise((resolve, reject) => {
-          messaging.sendMessage(
-            selected.roomId,
-            selected.pub,
-            messageContent,
-            (response) => {
-              if (response.success) resolve(response);
-              else reject(new Error(response.errMessage));
-            }
-          );
+      // Aggiorna l'ultimo messaggio della chat
+      await gun.get(DAPP_NAME)
+        .get('chats')
+        .get(selected.roomId)
+        .get('lastMessage')
+        .put({
+          content: messageContent,
+          timestamp: Date.now(),
+          sender: user.is.pub
         });
-      }
+
+      console.log('Message sent successfully');
+
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error(error.message || "Errore nell'invio del messaggio");
@@ -599,44 +648,22 @@ export default function Messages({ chatData }) {
   React.useEffect(() => {
     if (!selected?.roomId) return;
 
-    let isSubscribed = true;
-    setLoading(true);
-    setError(null);
-    setMessages([]); // Reset messages when changing chat
+    // Imposta isSubscribed a true quando l'effetto viene eseguito
+    setIsSubscribed(true);
 
-    const handleMessages = (data) => {
-      if (!isSubscribed) return;
+    // Evita di ricaricare se la chat è la stessa
+    if (previousRoomIdRef.current === selected.roomId && !isInitializing) {
+      return;
+    }
 
-      if (data.initial) {
-        const validMessages = (data.initial || []).filter(
-          (msg) => msg && msg.content && msg.sender && msg.timestamp
-        );
-        setMessages(validMessages);
-        setLoading(false);
-      } else if (data.individual || data.message) {
-        const messageData = data.individual || data.message;
-        if (messageData && messageData.content) {
-          setMessages((prev) => {
-            const exists = prev.some((m) => m.id === messageData.id);
-            if (!exists) {
-              const newMessages = [...prev, messageData];
-              return newMessages.sort((a, b) => a.timestamp - b.timestamp);
-            }
-            return prev;
-          });
-        }
-      }
-    };
+    previousRoomIdRef.current = selected.roomId;
+    setIsSubscribing(true);
 
-    const handleError = (error) => {
-      if (!isSubscribed) return;
-      console.error('Error loading messages:', error);
-      setError('Errore nel caricamento dei messaggi');
-      setLoading(false);
-    };
-
-    const setupSubscription = async () => {
+    const setupChat = async () => {
       try {
+        console.log('Setting up chat for:', selected.roomId);
+
+        // Pulisci la sottoscrizione precedente
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
             messageSubscriptionRef.current();
@@ -646,40 +673,78 @@ export default function Messages({ chatData }) {
           messageSubscriptionRef.current = null;
         }
 
-        let subscription;
-        if (
-          selected.isGroup ||
-          selected.type === 'channel' ||
-          selected.type === 'group'
-        ) {
-          subscription = messaging.groups
-            .subscribeToGroupMessages(selected.roomId)
-            .subscribe({
-              next: handleMessages,
-              error: handleError,
+        // Prima carica i messaggi esistenti
+        const existingMessages = await new Promise((resolve) => {
+          const messages = [];
+          gun.get(DAPP_NAME)
+            .get('chats')
+            .get(selected.roomId)
+            .get('messages')
+            .map()
+            .once((msg) => {
+              if (msg && msg.content) {
+                messages.push({
+                  ...msg,
+                  id: msg.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                });
+              }
             });
+          setTimeout(() => resolve(messages), 500);
+        });
+
+        if (!isSubscribed) return;
+
+        console.log('Loaded existing messages:', existingMessages);
+        if (existingMessages.length > 0) {
+          setMessages(existingMessages.sort((a, b) => a.timestamp - b.timestamp));
         } else {
-          console.log(
-            'Setting up private chat subscription for roomId:',
-            selected.roomId
-          );
-          subscription = messaging.messageList(selected.roomId).subscribe({
-            next: handleMessages,
-            error: handleError,
-          });
+          setMessages([]);
         }
 
-        messageSubscriptionRef.current = subscription;
+        // Imposta la sottoscrizione per i nuovi messaggi
+        const messageHandler = gun
+          .get(DAPP_NAME)
+          .get('chats')
+          .get(selected.roomId)
+          .get('messages')
+          .map()
+          .on((msg, id) => {
+            if (!isSubscribed) return;
+            if (!msg || !msg.content) return;
+
+            console.log('New message received:', msg);
+
+            setMessages(prev => {
+              const exists = prev.some(m => m.id === id);
+              if (!exists) {
+                const newMessages = [...prev, { ...msg, id }];
+                return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+              }
+              return prev;
+            });
+          });
+
+        messageSubscriptionRef.current = messageHandler;
+        setIsInitializing(false);
+        setIsSubscribing(false);
+        setLoading(false);
+        setError(null);
+
       } catch (error) {
-        console.error('Error setting up subscription:', error);
-        handleError(error);
+        console.error('Error setting up chat:', error);
+        if (isSubscribed) {
+          setError('Errore nel caricamento della chat');
+          setLoading(false);
+          setIsSubscribing(false);
+        }
       }
     };
 
-    setupSubscription();
+    setupChat();
 
+    // Cleanup function
     return () => {
-      isSubscribed = false;
+      setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
         try {
           if (typeof messageSubscriptionRef.current === 'function') {
@@ -693,7 +758,7 @@ export default function Messages({ chatData }) {
         messageSubscriptionRef.current = null;
       }
     };
-  }, [selected?.roomId, selected?.type]);
+  }, [selected?.roomId]);
 
   // Aggiungi un effetto separato per mantenere la chat corrente
   React.useEffect(() => {
@@ -860,79 +925,6 @@ export default function Messages({ chatData }) {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Caricamento chat...</p>
-      </div>
-    );
-  }
-
-  if (blockStatus.blockedByMe) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center p-4 border-b bg-white">
-          <img
-            className="h-10 w-10 rounded-full mr-2"
-            src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.alias}&backgroundColor=b6e3f4`}
-            alt=""
-          />
-          <span className="font-medium">{selected.alias}</span>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-red-500">Hai bloccato questo utente.</p>
-            <button
-              onClick={handleUnblock}
-              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            >
-              Sblocca
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  } else if (blockStatus.blockedByOther) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center p-4 border-b bg-white">
-          <img
-            className="h-10 w-10 rounded-full mr-2"
-            src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.alias}&backgroundColor=b6e3f4`}
-            alt=""
-          />
-          <span className="font-medium">{selected.alias}</span>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-red-500">Sei stato bloccato da questo utente.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && error !== 'Sei stato bloccato') {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-red-500">{error}</p>
-      </div>
-    );
-  }
-
-  if (error === 'Amicizia terminata') {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <p className="text-gray-500 mb-2">Amicizia terminata</p>
-          <p className="text-sm text-gray-400">
-            Seleziona un altro amico per chattare
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b bg-white">
@@ -1082,9 +1074,10 @@ export default function Messages({ chatData }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
+        {isInitializing || isSubscribing ? (
+          <div className="flex flex-col items-center justify-center h-full space-y-2">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            <p className="text-gray-500">Caricamento chat...</p>
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-full">

@@ -1,6 +1,7 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
 
+
 // Usa solo il peer locale
 const DEFAULT_PEERS = [
   'http://localhost:3030/gun'
@@ -14,6 +15,8 @@ const gun = Gun({
   timeout: 5000,
   axe: false
 });
+
+
 
 // Inizializza l'utente
 const user = gun.user().recall({ sessionStorage: true });
