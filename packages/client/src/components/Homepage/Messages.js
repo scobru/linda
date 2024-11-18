@@ -232,8 +232,17 @@ const getUserUsername = async (userPub) => {
 };
 
 // Sposta il componente MessageItem fuori dal componente principale
-const MessageItem = ({ message, isOwnMessage, showSender, user, messageObserver }) => {
+const MessageItem = ({ 
+  message, 
+  isOwnMessage, 
+  showSender, 
+  user, 
+  messageObserver,
+  handleDeleteMessage
+}) => {
   const [senderName, setSenderName] = React.useState(message.senderAlias || 'Utente');
+  const { selected } = React.useContext(Context);
+  const isCreator = selected?.creator === user.is.pub;
 
   React.useEffect(() => {
     if (showSender && !isOwnMessage) {
@@ -294,6 +303,15 @@ const MessageItem = ({ message, isOwnMessage, showSender, user, messageObserver 
           })}
         </span>
       </div>
+
+      {isCreator && selected.type === 'board' && (
+        <button
+          onClick={() => handleDeleteMessage(message.id)}
+          className="text-red-500 text-xs hover:text-red-700 mt-1"
+        >
+          Elimina
+        </button>
+      )}
     </div>
   );
 };
@@ -522,36 +540,34 @@ export default function Messages({ chatData }) {
       try {
         // Se è una chat privata, verifica solo il blocco
         if (!selected.type || selected.type === 'private') {
-          setCanPost(true); // Per default può scrivere
+          setCanPost(true);
           setError(null);
           return;
         }
 
-        // Per canali e bacheche usa il servizio channels
+        // Per canali e bacheche
         if (selected.type === 'channel' || selected.type === 'board') {
-          // Se l'utente è il creatore, può sempre scrivere
+          // Se è il creatore, può sempre scrivere
           if (selected.creator === user.is.pub) {
             setCanPost(true);
             setError(null);
             return;
           }
 
-          const canWrite = await channels.canWrite(selected.roomId, user.is.pub);
-          setCanPost(canWrite);
-
-          // Se è un canale e l'utente non è il creatore
-          if (selected.type === 'channel' && !canWrite) {
-            setError('Solo il creatore può pubblicare in questo canale');
-          }
-          // Se è una bacheca
-          else if (selected.type === 'board') {
-            const isMember = await channels.isMember(selected.roomId, user.is.pub);
-            setCanPost(isMember);
-            if (!isMember) {
-              setError('Devi essere membro per scrivere in questa bacheca');
-            } else {
-              setError(null);
+          // Se è un canale, solo il creatore può scrivere
+          if (selected.type === 'channel') {
+            setCanPost(selected.creator === user.is.pub);
+            if (!canPost) {
+              setError('Solo il creatore può pubblicare in questo canale');
             }
+            return;
+          }
+
+          // Se è una board, tutti i membri possono scrivere
+          if (selected.type === 'board') {
+            const isMember = await channels.isMember(selected.roomId, user.is.pub);
+            setCanPost(true); // Permetti a tutti di scrivere nella board
+            setError(null);
           }
         }
       } catch (error) {
@@ -564,32 +580,30 @@ export default function Messages({ chatData }) {
     checkPermissions();
   }, [selected?.type, selected?.roomId, selected?.creator, user.is.pub]);
 
-  // Modifica la funzione sendMessage
+  // Modifica la funzione sendMessage per gestire tutti i tipi di chat
   const sendMessage = async () => {
     if (!selected?.roomId || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Crea l'oggetto messaggio
     const messageData = {
       id: messageId,
       content: messageContent,
       sender: user.is.pub,
+      senderAlias: user.is.alias || 'Unknown',
       timestamp: Date.now(),
-      delivered: false,
-      read: false
+      delivered: true, // Per le board e i canali, sempre true
+      read: true
     };
 
     setNewMessage('');
 
     try {
-      console.log('Sending message:', messageData);
+      const path = selected.type === 'private' ? 'chats' : 
+                   selected.type === 'board' ? 'boards' : 'channels';
 
-      // Usa il percorso corretto in base al tipo di chat
-      const path = selected.type === 'private' ? 'chats' : 'channels';
-
-      // Salva il messaggio
+      // Salva il messaggio nel percorso corretto
       await gun.get(DAPP_NAME)
         .get(path)
         .get(selected.roomId)
@@ -597,16 +611,15 @@ export default function Messages({ chatData }) {
         .get(messageId)
         .put(messageData);
 
-      // Aggiorna l'ultimo messaggio
-      await gun.get(DAPP_NAME)
-        .get(path)
-        .get(selected.roomId)
-        .get('lastMessage')
-        .put({
-          content: messageContent,
-          timestamp: Date.now(),
-          sender: user.is.pub
-        });
+      // Per le board, aggiorna anche il nodo pubblico dei messaggi
+      if (selected.type === 'board') {
+        await gun.get(DAPP_NAME)
+          .get('public_boards')
+          .get(selected.roomId)
+          .get('messages')
+          .get(messageId)
+          .put(messageData);
+      }
 
       console.log('Message sent successfully');
 
@@ -680,23 +693,17 @@ export default function Messages({ chatData }) {
     };
   }, [selected?.pub, checkBlockStatus]);
 
-  // Modifica l'effetto che gestisce i messaggi
+  // Modifica l'effetto principale che gestisce il setup della chat
   React.useEffect(() => {
     if (!selected?.roomId) return;
 
     setIsSubscribed(true);
-
-    if (previousRoomIdRef.current === selected.roomId && !isInitializing) {
-      return;
-    }
-
-    previousRoomIdRef.current = selected.roomId;
-    setIsSubscribing(true);
+    setLoading(true);
+    console.log('Setting up chat for:', selected);
 
     const setupChat = async () => {
       try {
-        console.log('Setting up chat for:', selected);
-
+        // Pulisci le sottoscrizioni precedenti
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
             messageSubscriptionRef.current();
@@ -706,9 +713,12 @@ export default function Messages({ chatData }) {
           messageSubscriptionRef.current = null;
         }
 
-        // Determina il percorso corretto
-        const path = selected.type === 'private' ? 'chats' : 'channels';
-        console.log('Using path:', path);
+        // Resetta i messaggi
+        setMessages([]);
+
+        // Determina il percorso corretto in base al tipo
+        const path = selected.type === 'private' ? 'chats' : 
+                     selected.type === 'board' ? 'boards' : 'channels';
 
         // Carica i messaggi esistenti
         const existingMessages = await new Promise((resolve) => {
@@ -718,29 +728,24 @@ export default function Messages({ chatData }) {
             .get(selected.roomId)
             .get('messages')
             .map()
-            .once((msg) => {
+            .once((msg, id) => {
               if (msg && msg.content) {
-                messages.push({
-                  ...msg,
-                  id: msg.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-                });
+                messages.push({ ...msg, id });
               }
             });
+          
           setTimeout(() => resolve(messages), 500);
         });
 
         if (!isSubscribed) return;
 
-        console.log('Loaded existing messages:', existingMessages);
+        // Imposta i messaggi iniziali
         if (existingMessages.length > 0) {
           setMessages(existingMessages.sort((a, b) => a.timestamp - b.timestamp));
-        } else {
-          setMessages([]);
         }
 
         // Sottoscrivi ai nuovi messaggi
-        const messageHandler = gun
-          .get(DAPP_NAME)
+        const messageHandler = gun.get(DAPP_NAME)
           .get(path)
           .get(selected.roomId)
           .get('messages')
@@ -748,8 +753,6 @@ export default function Messages({ chatData }) {
           .on((msg, id) => {
             if (!isSubscribed) return;
             if (!msg || !msg.content) return;
-
-            console.log('New message received:', msg);
 
             setMessages(prev => {
               const exists = prev.some(m => m.id === id);
@@ -762,10 +765,67 @@ export default function Messages({ chatData }) {
           });
 
         messageSubscriptionRef.current = messageHandler;
+
+        // Imposta gli stati finali
         setIsInitializing(false);
         setIsSubscribing(false);
         setLoading(false);
         setError(null);
+
+        // Per le board, carica anche i messaggi dal nodo pubblico
+        if (selected.type === 'board') {
+          const publicMessages = await new Promise((resolve) => {
+            const messages = [];
+            gun.get(DAPP_NAME)
+              .get('public_boards')
+              .get(selected.roomId)
+              .get('messages')
+              .map()
+              .once((msg, id) => {
+                if (msg && msg.content) {
+                  messages.push({ ...msg, id });
+                }
+              });
+            
+            setTimeout(() => resolve(messages), 500);
+          });
+
+          if (!isSubscribed) return;
+
+          // Combina e ordina tutti i messaggi
+          const allMessages = [...existingMessages, ...publicMessages];
+          const uniqueMessages = Array.from(
+            new Map(allMessages.map(msg => [msg.id, msg])).values()
+          );
+          setMessages(uniqueMessages.sort((a, b) => a.timestamp - b.timestamp));
+
+          // Sottoscrivi ai nuovi messaggi pubblici
+          const publicMessageHandler = gun.get(DAPP_NAME)
+            .get('public_boards')
+            .get(selected.roomId)
+            .get('messages')
+            .map()
+            .on((msg, id) => {
+              if (!isSubscribed) return;
+              if (!msg || !msg.content) return;
+
+              setMessages(prev => {
+                const exists = prev.some(m => m.id === id);
+                if (!exists) {
+                  const newMessages = [...prev, { ...msg, id }];
+                  return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+                }
+                return prev;
+              });
+            });
+
+          // Aggiungi il handler pubblico alle sottoscrizioni
+          const originalHandler = messageSubscriptionRef.current;
+          messageSubscriptionRef.current = () => {
+            if (typeof originalHandler === 'function') originalHandler();
+            if (typeof publicMessageHandler === 'function') publicMessageHandler();
+          };
+        }
 
       } catch (error) {
         console.error('Error setting up chat:', error);
@@ -925,6 +985,39 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.roomId, messages.length]); // Usa messages.length invece di messages
 
+  // Aggiungi la funzione handleDeleteMessage qui
+  const handleDeleteMessage = async (messageId) => {
+    if (!selected?.roomId || !selected?.creator || selected.creator !== user.is.pub) {
+      return;
+    }
+
+    try {
+      // Rimuovi dal nodo privato
+      await gun.get(DAPP_NAME)
+        .get('boards')
+        .get(selected.roomId)
+        .get('messages')
+        .get(messageId)
+        .put(null);
+
+      // Rimuovi anche dal nodo pubblico
+      await gun.get(DAPP_NAME)
+        .get('public_boards')
+        .get(selected.roomId)
+        .get('messages')
+        .get(messageId)
+        .put(null);
+      
+      toast.success('Messaggio rimosso');
+      
+      // Aggiorna la lista dei messaggi localmente
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast.error('Errore nella rimozione del messaggio');
+    }
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -984,6 +1077,7 @@ export default function Messages({ chatData }) {
                   showSender={showSender}
                   user={user}
                   messageObserver={messageObserver}
+                  handleDeleteMessage={handleDeleteMessage}
                 />
               );
             })

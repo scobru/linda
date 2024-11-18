@@ -162,6 +162,36 @@ export default function Channels({ onSelect }) {
       setIsChannel(false);
       setShowCreateModal(false);
 
+      if (!isChannel) {
+        const boardId = `board_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Inizializza sia il nodo privato che quello pubblico
+        await Promise.all([
+          gun.get(DAPP_NAME)
+            .get('boards')
+            .get(boardId)
+            .put({
+              id: boardId,
+              name: newChannelName.trim(),
+              type: 'board',
+              creator: user.is.pub,
+              created: Date.now(),
+              messages: {}
+            }),
+          gun.get(DAPP_NAME)
+            .get('public_boards')
+            .get(boardId)
+            .put({
+              id: boardId,
+              name: newChannelName.trim(),
+              type: 'board',
+              creator: user.is.pub,
+              created: Date.now(),
+              messages: {}
+            })
+        ]);
+      }
+
     } catch (error) {
       console.error('Errore durante la creazione:', error);
       toast.error(error.message || 'Errore durante la creazione');
