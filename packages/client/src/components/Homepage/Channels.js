@@ -33,7 +33,9 @@ export default function Channels({ onSelect }) {
     const loadChannels = async () => {
       try {
         const channelsList = new Map();
+        let loadingPromises = [];
 
+        // Caricamento parallelo dei canali
         await new Promise((resolve) => {
           gun.user()
             .get(DAPP_NAME)
@@ -42,39 +44,41 @@ export default function Channels({ onSelect }) {
             .once(async (data) => {
               if (!data || !data.channelId) return;
 
-              const membersCount = await channels.countMembers(data.channelId);
-              const channel = await new Promise((resolveChannel) => {
-                gun.get(DAPP_NAME)
-                  .get('channels')
-                  .get(data.channelId)
-                  .once((channelData) => {
-                    if (channelData) {
-                      resolveChannel({
-                        ...channelData,
-                        id: data.channelId,
-                        joined: data.joined || channelData.created || Date.now(),
-                        membersCount
+              // Aggiungi ogni promessa all'array
+              loadingPromises.push(
+                Promise.all([
+                  channels.countMembers(data.channelId),
+                  new Promise((resolveChannel) => {
+                    gun.get(DAPP_NAME)
+                      .get('channels')
+                      .get(data.channelId)
+                      .once((channelData) => {
+                        resolveChannel(channelData);
                       });
-                    } else {
-                      resolveChannel(null);
-                    }
-                  });
-              });
-
-              if (channel) {
-                channelsList.set(data.channelId, {
-                  ...channel,
-                  uniqueKey: generateUniqueKey(channel)
-                });
-              }
+                  })
+                ]).then(([membersCount, channelData]) => {
+                  if (channelData) {
+                    channelsList.set(data.channelId, {
+                      ...channelData,
+                      id: data.channelId,
+                      joined: data.joined || channelData.created || Date.now(),
+                      membersCount,
+                      uniqueKey: generateUniqueKey(channelData)
+                    });
+                  }
+                })
+              );
             });
 
-          setTimeout(resolve, 1000);
+          // Risolvi dopo un timeout più breve
+          setTimeout(resolve, 500); 
         });
+
+        // Attendi che tutti i canali siano caricati
+        await Promise.all(loadingPromises);
 
         if (mounted) {
           const channelsArray = Array.from(channelsList.values());
-          console.log('Canali caricati:', channelsArray);
           setMyChannels(channelsArray.sort((a, b) => b.joined - a.joined));
         }
       } catch (error) {
@@ -96,32 +100,29 @@ export default function Channels({ onSelect }) {
         if (!mounted || !data || !data.channelId) return;
 
         try {
-          const membersCount = await channels.countMembers(data.channelId);
-          const channel = await new Promise((resolve) => {
-            gun.get(DAPP_NAME)
-              .get('channels')
-              .get(data.channelId)
-              .once((channelData) => {
-                if (channelData) {
-                  resolve({
-                    ...channelData,
-                    id: data.channelId,
-                    joined: data.joined || channelData.created || Date.now(),
-                    membersCount
-                  });
-                } else {
-                  resolve(null);
-                }
-              });
-          });
+          const [membersCount, channel] = await Promise.all([
+            channels.countMembers(data.channelId),
+            new Promise((resolve) => {
+              gun.get(DAPP_NAME)
+                .get('channels')
+                .get(data.channelId)
+                .once((channelData) => {
+                  resolve(channelData);
+                });
+            })
+          ]);
 
           if (channel) {
             setMyChannels(prev => {
               const withoutCurrent = prev.filter(c => c.id !== data.channelId);
-              return [...withoutCurrent, {
+              const updatedChannel = {
                 ...channel,
+                id: data.channelId,
+                joined: data.joined || channel.created || Date.now(),
+                membersCount,
                 uniqueKey: generateUniqueKey(channel)
-              }].sort((a, b) => b.joined - a.joined);
+              };
+              return [...withoutCurrent, updatedChannel].sort((a, b) => b.joined - a.joined);
             });
           }
         } catch (error) {
@@ -257,6 +258,20 @@ export default function Channels({ onSelect }) {
     }
   };
 
+  // Modifica la gestione della selezione del canale
+  const handleChannelSelect = (channel) => {
+    // Reset dello stato dei messaggi prima di cambiare canale
+    onSelect({
+      ...channel,
+      roomId: channel.id,
+      type: channel.type,
+      name: channel.name,
+      isGroup: false,
+      pub: channel.id,
+      timestamp: Date.now() // Aggiungi timestamp per forzare il refresh
+    });
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header con bottoni */}
@@ -284,14 +299,7 @@ export default function Channels({ onSelect }) {
           >
             <div 
               className="flex-1 flex items-center"
-              onClick={() => onSelect({
-                ...channel,
-                roomId: channel.id,
-                type: channel.type,
-                name: channel.name,
-                isGroup: false,
-                pub: channel.id
-              })}
+              onClick={() => handleChannelSelect(channel)}
             >
               <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                 {channel.type === 'channel' ? '📢' : '📋'}

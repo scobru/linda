@@ -231,28 +231,31 @@ const getUserUsername = async (userPub) => {
   });
 };
 
-// Sposta il componente MessageItem fuori dal componente principale
+// Modifica il componente MessageItem per gestire meglio il layout e le scritte tagliate
 const MessageItem = ({ 
   message, 
   isOwnMessage, 
   showSender, 
   user, 
   messageObserver,
-  handleDeleteMessage
+  handleDeleteMessage,
+  selected
 }) => {
   const [senderName, setSenderName] = React.useState(message.senderAlias || 'Utente');
-  const { selected } = React.useContext(Context);
-  const isCreator = selected?.creator === user.is.pub;
+  const { selected: selectedContext } = React.useContext(Context);
+  const isCreator = selectedContext?.creator === user.is.pub;
+  
+  const shouldShowSender = selected?.type === 'board' || selected?.type === 'channel' || showSender;
 
   React.useEffect(() => {
-    if (showSender && !isOwnMessage) {
+    if (shouldShowSender && !isOwnMessage) {
       getUserUsername(message.sender).then(username => {
         if (username) {
           setSenderName(username);
         }
       });
     }
-  }, [message.sender, showSender, isOwnMessage]);
+  }, [message.sender, shouldShowSender, isOwnMessage]);
 
   return (
     <div
@@ -262,52 +265,55 @@ const MessageItem = ({
           messageObserver.observe(el);
         }
       }}
-      className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
+      className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} mb-4 max-w-[85%] ${isOwnMessage ? 'ml-auto' : 'mr-auto'}`}
     >
-      {showSender && !isOwnMessage && (
-        <span className="text-xs text-gray-500 mb-1 ml-12">
-          {senderName}
-        </span>
-      )}
-
-      <div className="flex items-end">
-        {showSender && !isOwnMessage && (
-          <div className="w-8 h-8 rounded-full mr-2 flex-shrink-0">
+      {/* Header del messaggio con mittente e timestamp */}
+      {shouldShowSender && (
+        <div className="flex items-center mb-1 w-full">
+          <div className="w-8 h-8 rounded-full flex-shrink-0">
             <img
               className="w-full h-full rounded-full"
               src={`https://api.dicebear.com/7.x/bottts/svg?seed=${senderName}&backgroundColor=b6e3f4`}
               alt=""
             />
           </div>
-        )}
+          <div className="ml-2 flex flex-col">
+            <span className="text-sm text-gray-600 font-medium break-words">
+              {isOwnMessage ? 'Tu' : senderName}
+            </span>
+            <span className="text-xs text-gray-400">
+              {new Date(message.timestamp).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </span>
+          </div>
+        </div>
+      )}
 
+      {/* Contenuto del messaggio */}
+      <div className="flex items-end w-full">
         <div
-          className={`rounded-lg px-4 py-2 max-w-[70%] ${
+          className={`rounded-lg px-4 py-2 break-words ${
             isOwnMessage
-              ? 'bg-blue-500 text-white rounded-br-none'
+              ? 'bg-blue-500 text-white rounded-br-none ml-auto'
               : 'bg-gray-200 rounded-bl-none'
-          }`}
+          } max-w-full`}
         >
-          {typeof message.content === 'string'
-            ? message.content
-            : '[Messaggio non valido]'}
+          <span className="whitespace-pre-wrap">
+            {typeof message.content === 'string'
+              ? message.content
+              : '[Messaggio non valido]'}
+          </span>
         </div>
         {isOwnMessage && <MessageStatus message={message} />}
       </div>
 
-      <div className={`flex items-center mt-1 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-        <span className="text-xs text-gray-500">
-          {new Date(message.timestamp).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </span>
-      </div>
-
-      {isCreator && selected.type === 'board' && (
+      {/* Pulsante elimina */}
+      {isCreator && selected?.type === 'board' && (
         <button
           onClick={() => handleDeleteMessage(message.id)}
-          className="text-red-500 text-xs hover:text-red-700 mt-1"
+          className="text-red-500 text-xs hover:text-red-700 mt-1 self-end"
         >
           Elimina
         </button>
@@ -376,6 +382,8 @@ export default function Messages({ chatData }) {
   const [isSubscribing, setIsSubscribing] = React.useState(false);
   const previousRoomIdRef = React.useRef(null);
   const [isSubscribed, setIsSubscribed] = React.useState(true);
+  const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
+  const lastMessageRef = React.useRef(null);
 
   const { initMessageTracking } = useMessageTracking();
 
@@ -1018,6 +1026,43 @@ export default function Messages({ chatData }) {
     }
   };
 
+  // Aggiungi questa funzione per gestire lo scroll
+  const scrollToBottom = (behavior = 'smooth') => {
+    if (messagesEndRef.current && shouldScrollToBottom) {
+      messagesEndRef.current.scrollIntoView({ behavior });
+    }
+  };
+
+  // Aggiungi questo effetto per gestire lo scroll automatico
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      // Salva l'ultimo messaggio come riferimento
+      lastMessageRef.current = messages[messages.length - 1];
+      
+      // Scroll immediato al primo caricamento
+      if (messages.length === 1) {
+        scrollToBottom('auto');
+      } else {
+        scrollToBottom();
+      }
+    }
+  }, [messages]);
+
+  // Aggiungi questo effetto per resettare lo scroll quando cambia la chat
+  React.useEffect(() => {
+    setShouldScrollToBottom(true);
+    if (messagesEndRef.current) {
+      scrollToBottom('auto');
+    }
+  }, [selected?.roomId]);
+
+  // Aggiungi questo handler per il controllo dello scroll
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShouldScrollToBottom(isNearBottom);
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1048,7 +1093,10 @@ export default function Messages({ chatData }) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div 
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        onScroll={handleScroll}
+      >
         {isInitializing || isSubscribing ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
@@ -1067,22 +1115,22 @@ export default function Messages({ chatData }) {
             .filter((message) => message && message.content)
             .map((message) => {
               const isOwnMessage = message.sender === user.is.pub;
-              const showSender = selected.type === 'group' || selected.type === 'channel';
-
+              
               return (
                 <MessageItem
                   key={message.id}
                   message={message}
                   isOwnMessage={isOwnMessage}
-                  showSender={showSender}
+                  showSender={true} // Sempre true per le board
                   user={user}
                   messageObserver={messageObserver}
                   handleDeleteMessage={handleDeleteMessage}
+                  selected={selected} // Passa selected come prop
                 />
               );
             })
         )}
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
 
       {/* Input area */}
