@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": false,
   "dependencies": {
+    "@rainbow-me/rainbowkit": "^1.0.11",
     "@tailwindcss/forms": "^0.5.9",
+    "@tanstack/react-query": "^5.60.5",
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.2.0",
     "@testing-library/user-event": "^13.5.0",
@@ -19,6 +21,8 @@
     "react-router-dom": "^6.3.0",
     "react-scripts": "5.0.1",
     "tailwindcss": "^3.1.6",
+    "viem": "^1.19.11",
+    "wagmi": "^1.4.7",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
@@ -38,5 +42,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
   }
 }

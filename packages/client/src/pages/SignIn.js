@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { authentication } from '../protocol';
 import toast, { Toaster } from 'react-hot-toast';
 import { Link, useNavigate } from 'react-router-dom';
 import { gun, user } from '../protocol';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount } from '../config/wagmi';
 
 export default function SignIn() {
   const [username, setUsername] = React.useState('');
@@ -12,6 +14,7 @@ export default function SignIn() {
   const navigate = useNavigate();
   const maxRetries = 3;
   const retryDelay = 1000; // 1 secondo tra i tentativi
+  const { address, isConnected } = useAccount();
 
   const handleLogin = async () => {
     if (isLoading || isRedirecting) return;
@@ -100,6 +103,40 @@ export default function SignIn() {
     }
   };
 
+  // Effetto per gestire l'autenticazione con MetaMask
+  useEffect(() => {
+    if (isConnected && address) {
+      handleMetaMaskLogin();
+    }
+  }, [isConnected, address]);
+
+  const handleMetaMaskLogin = async () => {
+    if (!address) return;
+
+    setIsLoading(true);
+    const toastId = toast.loading('Accesso con MetaMask in corso...');
+
+    try {
+      // Qui puoi implementare la logica per verificare/creare l'utente con l'indirizzo MetaMask
+      // Per esempio:
+      const result = await authentication.loginWithMetaMask(address);
+      
+      if (result.success) {
+        toast.success('Accesso effettuato', { id: toastId });
+        localStorage.setItem('userPub', address);
+        localStorage.setItem('userAlias', `eth:${address.slice(0, 6)}...${address.slice(-4)}`);
+        
+        setIsRedirecting(true);
+        window.location.href = '/homepage';
+      }
+    } catch (error) {
+      console.error('MetaMask login error:', error);
+      toast.error(error.message || "Errore durante l'accesso con MetaMask", { id: toastId });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Se stiamo già reindirizzando, mostra un loader
   if (isRedirecting) {
     return (
@@ -177,6 +214,10 @@ export default function SignIn() {
         </div>
       </div>
       <Toaster />
+      
+      
+
+     
     </>
   );
 }

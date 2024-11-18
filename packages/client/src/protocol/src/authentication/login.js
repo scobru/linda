@@ -3,6 +3,52 @@ import { createFriendRequestCertificate, createNotificationCertificate } from '.
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
+export const loginWithMetaMask = async (address) => {
+  return new Promise((resolve, reject) => {
+    // Verifica se l'utente esiste già
+    gun.get(DAPP_NAME)
+      .get('userList')
+      .get('users')
+      .map()
+      .once((userData) => {
+        if (userData && userData.address === address) {
+          // Utente esistente
+          resolve({
+            success: true,
+            user: {
+              pub: address,
+              alias: `eth:${address.slice(0, 6)}...${address.slice(-4)}`
+            }
+          });
+        } else {
+          // Crea nuovo utente
+          const newUser = {
+            address,
+            username: `eth:${address.slice(0, 6)}...${address.slice(-4)}`,
+            pub: address,
+            timestamp: Date.now()
+          };
+
+          gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .set(newUser, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve({
+                success: true,
+                user: {
+                  pub: address,
+                  alias: newUser.username
+                }
+              });
+            });
+        }
+      });
+  });
+};
+
+
+
 /**
  * Authenticates a registered user with their credentials.
  *

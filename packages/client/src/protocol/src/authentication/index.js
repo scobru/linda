@@ -5,6 +5,7 @@
 
 import { checkAuth, isAuthenticated, observeAuthState } from './isAuthenticated.js';
 import loginUser from './login.js';
+import {loginWithMetaMask} from './login.js';
 import registerUser from './register.js';
 import logout from './logout.js';
 import getKeyPair from './getKeyPair.js';
@@ -19,6 +20,7 @@ const authentication = {
   isAuthenticated,
   observeAuthState,
   loginUser,
+  loginWithMetaMask,
   registerUser,
   logout,
   getKeyPair,
@@ -30,6 +32,7 @@ export {
   isAuthenticated,
   observeAuthState,
   loginUser,
+  loginWithMetaMask,
   registerUser,
   logout,
   getKeyPair,
