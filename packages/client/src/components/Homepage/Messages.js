@@ -269,7 +269,7 @@ const MessageItem = ({
     >
       {/* Header del messaggio con mittente e timestamp */}
       {shouldShowSender && (
-        <div className="flex items-center mb-1 w-full">
+        <div className="flex items-center mb-1">
           <div className="w-8 h-8 rounded-full flex-shrink-0">
             <img
               className="w-full h-full rounded-full"
