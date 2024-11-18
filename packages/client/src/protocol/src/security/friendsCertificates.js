@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME,SEA } from '../useGun.js';
 import { certificateManager } from './certificateManager.js';
 
 /**
@@ -6,14 +6,41 @@ import { certificateManager } from './certificateManager.js';
  *
  * @async
  * @function createFriendRequestCertificate
+ * @param {string} targetPub - Public key of the user to add as friend
  * @returns {Promise<string>} The created certificate
  * @throws {Error} If user is not authenticated
  */
-export const createFriendRequestCertificate = async () => {
+export const createFriendRequestCertificate = async (targetPub) => {
+  if (!user.is) throw new Error('User not authenticated');
+
+  // Crea un certificato di autorizzazione specifico per le richieste di amicizia
+  const authCertificate = await certificateManager.createAuthorizationCertificate(
+    targetPub,
+    ['write_friend_requests']
+  );
+
+  // Salva il certificato nello spazio privato del destinatario in modo cifrato
+  const encryptedCert = await SEA.encrypt(
+    authCertificate,
+    await SEA.secret(user._.sea.epub, targetPub)
+  );
+
+  await gun
+    .user(targetPub)
+    .get(DAPP_NAME)
+    .get('private_certificates')
+    .get(user.is.pub)
+    .get('friend_requests')
+    .put(encryptedCert);
+
+  return authCertificate;
+};
+
+export const createNotificationCertificate = async () => {
   if (!user.is) throw new Error('User not authenticated');
 
   const certificate = await certificateManager.createCertificate({
-    type: 'friendRequest',
+    type: 'notification',
     pub: user.is.pub,
     exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
   });
@@ -22,7 +49,7 @@ export const createFriendRequestCertificate = async () => {
     .user()
     .get(DAPP_NAME)
     .get('certificates')
-    .get('friendRequests')
+    .get('notifications')
     .put(certificate);
 
   return certificate;
@@ -74,13 +101,12 @@ export const generateAddFriendCertificate = async (targetPub) => {
 
     console.log('Certificate saved successfully');
     return { errorMessage: null, errCode: null, success: true };
-
   } catch (error) {
     console.error('Error generating certificate:', error);
     return {
       errorMessage: error.message,
       errCode: 'certificate-error',
-      success: false
+      success: false,
     };
   }
 };

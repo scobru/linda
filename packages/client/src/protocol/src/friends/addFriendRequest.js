@@ -1,5 +1,6 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { generateAddFriendCertificate } from '../security/index.js';
+import { certificateManager } from '../security/certificateManager.js';
 
 /**
  * Sends a friend request to another user
@@ -183,7 +184,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       throw new Error('Siete già amici');
     }
 
-    console.log('Existing friendship:', existingFriendship);  
+    console.log('Existing friendship:', existingFriendship);
 
     // Prepara i dati della richiesta
     const requestId = `${userPub}_${targetPub}_${Date.now()}`;
@@ -212,7 +213,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
     // Prima di salvare la richiesta, generiamo e verifichiamo i certificati
     try {
-      console.log("Getting addFriendRequestCertificate")
+      console.log('Getting addFriendRequestCertificate');
       const addFriendRequestCertificate = await gun
         .user(targetPub)
         .get(DAPP_NAME)
@@ -228,9 +229,11 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
       // Modifica qui: chiamata diretta senza Promise wrapper
       const certResult = await generateAddFriendCertificate(targetPub);
-      
+
       if (!certResult.success) {
-        throw new Error(certResult.errorMessage || 'Errore nella generazione del certificato');
+        throw new Error(
+          certResult.errorMessage || 'Errore nella generazione del certificato'
+        );
       }
 
       console.log('AddFriendCertificate generated, saving request...');
@@ -255,32 +258,87 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
           });
       });
 
+      // segna requestData con sea sign
+      const signedRequestData = await SEA.sign(
+        JSON.stringify({
+          type: 'friendRequest',
+          from: userPub,
+          timestamp: Date.now(),
+          data: requestData,
+        }),
+        user.pair()
+      );
+
       // Notifica il destinatario
-      gun.get(`~${targetPub}`).get('notifications').get('friendRequests').set({
-        type: 'friendRequest',
-        from: userPub,
-        timestamp: Date.now(),
-        data: requestData
-      });
+      await notifyUser(targetPub, signedRequestData);
 
       return callback({
         success: true,
-        message: 'Richiesta di amicizia inviata con successo'
+        message: 'Richiesta di amicizia inviata con successo',
       });
-
     } catch (error) {
       console.error('Errore nella gestione dei certificati:', error);
       return callback({
         success: false,
-        errMessage: error.message || "Errore nell'invio della richiesta"
+        errMessage: error.message || "Errore nell'invio della richiesta",
       });
     }
   } catch (error) {
     console.error('Error in addFriendRequest:', error);
     return callback({
       success: false,
-      errMessage: error.message || "Errore nell'invio della richiesta"
+      errMessage: error.message || "Errore nell'invio della richiesta",
     });
+  }
+};
+
+const notifyUser = async (targetPub, signedRequestData) => {
+  try {
+    // Recupera e verifica il certificato di autorizzazione
+    const encryptedCert = await gun
+      .user(targetPub)
+      .get(DAPP_NAME)
+      .get('private_certificates')
+      .get(user.is.pub)
+      .get('friend_requests')
+      .then();
+
+    if (!encryptedCert) {
+      throw new Error('Certificato di autorizzazione non trovato');
+    }
+
+    // Decifra il certificato
+    const decryptedCert = await SEA.decrypt(
+      encryptedCert,
+      await SEA.secret(user._.sea.epub, targetPub)
+    );
+
+    // Verifica l'autorizzazione
+    const isAuthorized = await certificateManager.verifyAuthorization(
+      decryptedCert,
+      'write_friend_requests'
+    );
+
+    if (!isAuthorized) {
+      throw new Error('Non autorizzato a inviare richieste di amicizia');
+    }
+
+    // Cifra la notifica per il destinatario
+    const encryptedNotification = await SEA.encrypt(
+      signedRequestData,
+      await SEA.secret(user._.sea.epub, targetPub)
+    );
+
+    // Salva la notifica cifrata nello spazio privato del destinatario
+    await gun
+      .user(targetPub)
+      .get(DAPP_NAME)
+      .get('private_notifications')
+      .get('friend_requests')
+      .set(encryptedNotification);
+
+  } catch (error) {
+    throw new Error(`Errore nell'invio della notifica: ${error.message}`);
   }
 };
 

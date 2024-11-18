@@ -15,6 +15,7 @@ import {
 import {
   createFriendRequestCertificate,
   generateAddFriendCertificate,
+  createNotificationCertificate,
 } from './friendsCertificates.js';
 
 export {
@@ -25,6 +26,7 @@ export {
   revokeMessagesCertificate,
   createFriendRequestCertificate,
   generateAddFriendCertificate,
+  createNotificationCertificate,
 };
 
 export default {
@@ -35,4 +37,5 @@ export default {
   revokeMessagesCertificate,
   createFriendRequestCertificate,
   generateAddFriendCertificate,
+  createNotificationCertificate,
 };

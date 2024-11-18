@@ -1,5 +1,5 @@
 import { gun, user } from '../useGun.js';
-import { createFriendRequestCertificate } from '../security/index.js';
+import { createFriendRequestCertificate, createNotificationCertificate } from '../security/index.js';
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
@@ -43,7 +43,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
 
           try {
             await createFriendRequestCertificate();
-
+            await createNotificationCertificate();
             // Wait for user.is to be available
             let attempts = 0;
             const maxAttempts = 10;

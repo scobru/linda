@@ -1075,21 +1075,41 @@ export default function Messages({ chatData }) {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b bg-white">
         <div className="flex items-center">
-          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-            {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : '👤'}
-          </div>
-          <div>
-            <span className="font-medium">
-              {selected.name}
-            </span>
-            {(selected.type === 'channel' || selected.type === 'board') && (
-              <span className="text-xs text-gray-500 block">
-                {selected.membersCount || 0} membri • 
-                {selected.type === 'channel' ? ' Canale' : ' Bacheca'}
-                {selected.creator === user.is.pub && ' (Creatore)'}
-              </span>
-            )}
-          </div>
+          {selected.type === 'private' ? (
+            <>
+              <img
+                className="w-10 h-10 rounded-full mr-3"
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.alias || 'default'}&backgroundColor=b6e3f4`}
+                alt=""
+              />
+              <div>
+                <span className="font-medium">
+                  {selected.alias || 'Utente'}  {/* Mostra l'alias dell'utente */}
+                </span>
+                <span className="text-xs text-gray-500 block">
+                  {selected.pub?.slice(0, 8)}...
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : '👤'}
+              </div>
+              <div>
+                <span className="font-medium">
+                  {selected.name}
+                </span>
+                {(selected.type === 'channel' || selected.type === 'board') && (
+                  <span className="text-xs text-gray-500 block">
+                    {selected.membersCount || 0} membri • 
+                    {selected.type === 'channel' ? ' Canale' : ' Bacheca'}
+                    {selected.creator === user.is.pub && ' (Creatore)'}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

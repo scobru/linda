@@ -12,45 +12,64 @@ export default function Profile() {
 
   // Effetto per ottenere le informazioni dell'utente
   React.useEffect(() => {
-    const getUserInfo = () => {
+    const getUserInfo = async () => {
       try {
         if (!user.is) return;
 
-        // Prima cerca l'username nella lista utenti
+        // Prima cerca nella lista utenti
+        const userPromise = new Promise((resolve) => {
+          gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .map()
+            .once((userData) => {
+              if (userData && userData.pub === user.is.pub) {
+                resolve(userData.username);
+              }
+            });
+          
+          // Timeout dopo 2 secondi
+          setTimeout(() => resolve(null), 2000);
+        });
+
+        const username = await userPromise;
+        
+        if (username) {
+          setAlias(username);
+          setPub(user.is.pub);
+        } else {
+          // Se non trova nella lista utenti, cerca nel profilo
+          gun.user().get('profile').get('alias').once((profileAlias) => {
+            if (profileAlias && typeof profileAlias === 'string' && !profileAlias.includes('.')) {
+              setAlias(profileAlias);
+              setPub(user.is.pub);
+            } else {
+              // Fallback all'alias di base
+              const displayAlias = user.is.alias.includes('.') 
+                ? user.is.alias.split('.')[0].substring(0, 8)
+                : user.is.alias;
+              setAlias(displayAlias);
+              setPub(user.is.pub);
+            }
+          });
+        }
+
+        // Salva/aggiorna l'alias nella lista utenti
         gun.get(DAPP_NAME)
           .get('userList')
           .get('users')
-          .map()
-          .once((userData) => {
-            if (userData && userData.pub === user.is.pub) {
-              setAlias(userData.username);
-              setPub(user.is.pub);
-            } else {
-              // Se non trova l'username, usa l'alias dal profilo
-              gun.user().get('profile').get('alias').once((profileAlias) => {
-                if (profileAlias && typeof profileAlias === 'string' && !profileAlias.includes('.')) {
-                  setAlias(profileAlias);
-                } else {
-                  // Come fallback, usa l'alias di base
-                  authentication.isAuthenticated().then(authState => {
-                    if (authState.success) {
-                      setPub(authState.user.pub);
-                      // Estrai l'username dall'alias se è una chiave pubblica
-                      const displayAlias = authState.user.alias.includes('.') 
-                        ? authState.user.alias.split('.')[0].substring(0, 8) // Prendi i primi 8 caratteri prima del punto
-                        : authState.user.alias;
-                      setAlias(displayAlias);
-                    }
-                  });
-                }
-              });
-            }
+          .set({
+            pub: user.is.pub,
+            username: alias,
+            timestamp: Date.now(),
           });
 
       } catch (error) {
         console.error('Errore nel recupero info utente:', error);
+        toast.error('Errore nel recupero delle informazioni utente');
       }
     };
+
     getUserInfo();
   }, [setPub, setAlias]);
 

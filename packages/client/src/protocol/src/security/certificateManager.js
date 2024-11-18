@@ -100,6 +100,30 @@ const certificateManager = {
 
     return !!revoked;
   },
+
+  async createAuthorizationCertificate(targetPub, permissions) {
+    if (!user.is) throw new Error('User not authenticated');
+    
+    const certificate = {
+      type: 'authorization',
+      issuer: user.is.pub,
+      target: targetPub,
+      permissions,
+      exp: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 giorni
+      iat: Date.now()
+    };
+
+    const signed = await SEA.sign(certificate, user._.sea);
+    return signed;
+  },
+
+  async verifyAuthorization(certificate, requiredPermission) {
+    const verified = await SEA.verify(certificate, certificate.issuer);
+    if (!verified) return false;
+    
+    if (Date.now() > verified.exp) return false;
+    return verified.permissions.includes(requiredPermission);
+  }
 };
 
 export default certificateManager;

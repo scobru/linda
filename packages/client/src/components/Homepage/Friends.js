@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Context from "../../contexts/context";
 import { friends, messaging } from "../../protocol";
 import { blocking } from "../../protocol";
@@ -37,7 +37,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
     }
   }, [externalPendingRequests]);
 
-  // Effetto per monitorare le richieste di amicizia
+  // Modifica l'effetto che monitora le richieste di amicizia
   useEffect(() => {
     const subscription = friendsService.observeFriendRequests()
       .subscribe({
@@ -66,12 +66,15 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
             return;
           }
 
-          processedRequestsRef.current.add(requestId);
-          setPendingRequests(prev => {
-            const exists = prev.some(r => r.pub === request.data.from);
-            if (!exists) return [...prev, request];
-            return prev;
-          });
+          // Aggiungi questo controllo: mostra solo le richieste ricevute
+          if (request.data.to === user.is.pub) {
+            processedRequestsRef.current.add(requestId);
+            setPendingRequests(prev => {
+              const exists = prev.some(r => r.pub === request.data.from);
+              if (!exists) return [...prev, request];
+              return prev;
+            });
+          }
         },
         error: (error) => {
           if (!mountedRef.current) return;
