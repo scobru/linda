@@ -45,7 +45,7 @@ export const registerWithMetaMask = async (address) => {
                 });
 
                 let addFriendRequestCertificate = gun
-                  .user(user.is.pub)
+                  .user()
                   .get(DAPP_NAME)
                   .get('certificates')
                   .get('friendRequests');
@@ -164,7 +164,7 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                   });
 
                   let addFriendRequestCertificate = gun
-                    .user(user.is.pub)
+                    .user()
                     .get(DAPP_NAME)
                     .get('certificates')
                     .get('friendRequests');

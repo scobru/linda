@@ -1,5 +1,5 @@
 import React from 'react';
-import { authentication } from '../protocol';
+import { authentication ,DAPP_NAME } from '../protocol';
 import toast, { Toaster } from 'react-hot-toast';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAccount } from '../config/wagmi';

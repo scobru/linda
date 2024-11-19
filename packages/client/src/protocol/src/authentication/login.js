@@ -1,26 +1,29 @@
-import { gun, user } from '../useGun.js';
-import { createFriendRequestCertificate, createNotificationCertificate } from '../security/index.js';
+import { gun, user, DAPP_NAME } from '../useGun.js';
+import {
+  createFriendRequestCertificate,
+  createNotificationCertificate,
+} from '../security/index.js';
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
-console.log(gun)
+console.log(gun);
 
 export const loginWithMetaMask = async (address) => {
   const signer = await gun.getSigner;
-  console.log("Signer:", signer);
+  console.log('Signer:', signer);
 
   const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-  console.log("Signature:", signature);
-  
+  console.log('Signature:', signature);
+
   const pair = await gun.getAndDecryptPair(signer.address, signature);
-  console.log("Pair:", pair);
+  console.log('Pair:', pair);
 
   if (!pair) {
     throw new Error('Utente non registrato. Per favore registrati prima.');
   }
 
   return new Promise((resolve, reject) => {
-    console.log("Login With Metamask")
+    console.log('Login With Metamask');
     try {
       gun.user().auth(pair, async (ack) => {
         if (ack.err) {
@@ -29,9 +32,18 @@ export const loginWithMetaMask = async (address) => {
         }
 
         try {
-          await createFriendRequestCertificate();
+          let addFriendRequestCertificate = gun
+            .user()
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('friendRequests');
+
+          if (!addFriendRequestCertificate) {
+            await createFriendRequestCertificate();
+          }
+
           await createNotificationCertificate();
-          
+
           let attempts = 0;
           const maxAttempts = 10;
 
@@ -61,8 +73,6 @@ export const loginWithMetaMask = async (address) => {
     }
   });
 };
-
-
 
 /**
  * Authenticates a registered user with their credentials.
@@ -103,7 +113,16 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
-            await createFriendRequestCertificate();
+            let addFriendRequestCertificate = gun
+              .user()
+              .get(DAPP_NAME)
+              .get('certificates')
+              .get('friendRequests');
+
+            if (!addFriendRequestCertificate) {
+              await createFriendRequestCertificate();
+            }
+
             await createNotificationCertificate();
             // Wait for user.is to be available
             let attempts = 0;

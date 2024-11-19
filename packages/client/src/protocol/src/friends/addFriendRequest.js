@@ -214,7 +214,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     // Prima di salvare la richiesta, generiamo e verifichiamo i certificati
     try {
       console.log('Getting addFriendRequestCertificate');
-      const addFriendRequestCertificate = await gun
+      const addFriendRequestCertificate = gun
         .user(targetPub)
         .get(DAPP_NAME)
         .get('certificates')

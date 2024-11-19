@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { authentication } from '../protocol';
 import toast, { Toaster } from 'react-hot-toast';
 import { Link, useNavigate } from 'react-router-dom';
-import { gun, user } from '../protocol';
+import { gun, user,DAPP_NAME } from '../protocol';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from '../config/wagmi';
 
