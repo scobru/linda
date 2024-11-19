@@ -132,12 +132,11 @@ export default function SignIn() {
         localStorage.setItem('walletAddress', address);
         
         setIsRedirecting(true);
-        window.location.href = '/homepage';
+        navigate('/homepage', { replace: true });
       }
     } catch (error) {
       console.error('Errore login MetaMask:', error);
       if (error.message.includes('non registrato')) {
-        // Reindirizza alla registrazione se l'utente non esiste
         navigate('/register', { 
           state: { isMetaMask: true, address } 
         });

@@ -10,7 +10,7 @@ import AddFriend from '../components/Homepage/AddFriend';
 import Messages from '../components/Homepage/Messages';
 import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
-import { authentication } from '../protocol/src';
+import { authentication, DAPP_NAME } from '../protocol';
 import Channels from '../components/Homepage/Channels';
 
 const { chat } = messaging; // Destruttura il servizio chat
@@ -257,6 +257,74 @@ export default function Homepage() {
       }, 30000); // Aumentato a 30 secondi
     }
 
+    const validateSession = async () => {
+      try {
+        // Verifica prima l'autenticazione MetaMask
+        const walletAuth = localStorage.getItem('walletAuth');
+        if (walletAuth) {
+          const { address } = JSON.parse(walletAuth);
+          const isValid = await authentication.sessionManager.validateSession();
+          
+          if (!isValid && mounted) {
+            // Se la sessione non è valida, prova a riautenticare
+            try {
+              const result = await authentication.loginWithMetaMask(address);
+              if (!result.success) {
+                navigate('/login', { replace: true });
+              }
+            } catch (error) {
+              console.error('Errore riautenticazione:', error);
+              navigate('/login', { replace: true });
+            }
+          }
+          return;
+        }
+
+        // Verifica sessione normale
+        const isValid = await authentication.sessionManager.validateSession();
+        if (!isValid && mounted) {
+          navigate('/login', { replace: true });
+        }
+      } catch (error) {
+        console.error('Errore validazione sessione:', error);
+        if (mounted) navigate('/login', { replace: true });
+      }
+    };
+
+    // Osserva lo stato di autenticazione
+    const subscription = authentication.observeAuthState().subscribe({
+      next: (authState) => {
+        if (!mounted) return;
+        
+        if (authState.success) {
+          console.log('Utente autenticato:', authState.user);
+          
+          // Aggiorna i dati utente nel gun
+          if (user.is) {
+            gun.get(DAPP_NAME)
+              .get('userList')
+              .get('users')
+              .set({
+                pub: user.is.pub,
+                username: user.is.alias,
+                timestamp: Date.now(),
+                lastSeen: Date.now()
+              });
+          }
+
+          validateSession();
+        } else {
+          console.log('Utente non autenticato');
+          navigate('/login', { replace: true });
+        }
+      },
+      error: (error) => {
+        console.error('Errore osservazione stato auth:', error);
+        if (mounted) navigate('/login', { replace: true });
+      }
+    });
+
+    // Cleanup
     return () => {
       mounted = false;
       if (debugIntervalId) clearInterval(debugIntervalId);
@@ -266,8 +334,11 @@ export default function Homepage() {
       if (typeof unsubFriendships === 'function') unsubFriendships();
       processedRequestsRef.current.clear();
       friendsRef.current.clear();
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
     };
-  }, [setFriends]);
+  }, [setFriends, navigate]);
 
   useEffect(() => {
     const handlePreLogout = () => {
@@ -307,46 +378,37 @@ export default function Homepage() {
     }
   };
 
+  // Aggiungi un effetto per il ping periodico
   React.useEffect(() => {
-    let mounted = true;
-
-    // Verifica la sessione
-    const validateSession = async () => {
-      const isValid = await authentication.sessionManager.validateSession();
-      if (!isValid && mounted) {
-        navigate('/login', { replace: true });
+    const pingInterval = setInterval(() => {
+      if (user.is) {
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .get(user.is.pub)
+          .get('lastSeen')
+          .put(Date.now());
       }
+    }, 30000); // Ogni 30 secondi
+
+    return () => clearInterval(pingInterval);
+  }, []);
+
+  // Aggiungi questo effetto per gestire gli errori di rete
+  React.useEffect(() => {
+    const handleNetworkError = () => {
+      toast.error('Errore di connessione. Tentativo di riconnessione...');
+      handleReconnect();
     };
 
-    // Osserva lo stato di autenticazione
-    const subscription = authentication.observeAuthState().subscribe({
-      next: (authState) => {
-        if (!mounted) return;
-        
-        if (authState.success) {
-          console.log('Utente autenticato:', authState.user);
-          validateSession(); // Verifica la sessione quando l'utente è autenticato
-        } else {
-          console.log('Utente non autenticato');
-          navigate('/login', { replace: true });
-        }
-      },
-      error: (error) => {
-        console.error('Errore nell\'osservazione dello stato di autenticazione:', error);
-        if (mounted) {
-          navigate('/login', { replace: true });
-        }
-      }
-    });
+    window.addEventListener('offline', handleNetworkError);
+    gun.on('disconnect', handleNetworkError);
 
-    // Cleanup
     return () => {
-      mounted = false;
-      if (subscription && typeof subscription.unsubscribe === 'function') {
-        subscription.unsubscribe();
-      }
+      window.removeEventListener('offline', handleNetworkError);
+      gun.off('disconnect', handleNetworkError);
     };
-  }, [navigate]);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -356,7 +418,6 @@ export default function Homepage() {
           <div className="flex justify-between items-center h-16">
             {/* Logo e profilo allineati a sinistra */}
             <div className="flex items-center space-x-8">
-              <h1 className="text-xl font-bold text-black">linda</h1>
 
               <Profile />
             </div>

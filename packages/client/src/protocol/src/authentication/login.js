@@ -6,82 +6,53 @@ import {
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
-console.log(gun);
-
 export const loginWithMetaMask = async (address) => {
-  const signer = await gun.getSigner;
-  console.log('Signer:', signer);
+  try {
+    const signer = await gun.getSigner;
+    console.log('Signer:', signer);
 
-  const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-  console.log('Signature:', signature);
+    const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+    console.log('Signature:', signature);
 
-  const pair = await gun.getAndDecryptPair(signer.address, signature);
-  console.log('Pair:', pair);
+    const pair = await gun.getAndDecryptPair(signer.address, signature);
+    console.log('Pair:', pair);
 
-  if (!pair) {
-    throw new Error('Utente non registrato. Per favore registrati prima.');
-  }
+    if (!pair) {
+      throw new Error('Utente non registrato. Per favore registrati prima.');
+    }
 
-  return new Promise((resolve, reject) => {
-    console.log('Login With Metamask');
-    try {
+    // Aggiungi questa parte per salvare la sessione
+    localStorage.setItem(
+      'walletAuth',
+      JSON.stringify({
+        address: signer.address,
+        timestamp: Date.now(),
+      })
+    );
+
+    return new Promise((resolve, reject) => {
       gun.user().auth(pair, async (ack) => {
         if (ack.err) {
           reject(new Error(ack.err));
           return;
         }
 
-        try {
-          // Controlla il certificato per le richieste di amicizia
-          let addFriendRequestCertificate = gun
-            .user()
-            .get(DAPP_NAME)
-            .get('certificates')
-            .get('friendRequests');
+        // Salva i dati di autenticazione
+        sessionStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.setItem('userPub', pair.pub);
 
-          if (!addFriendRequestCertificate) {
-            await createFriendRequestCertificate();
-          }
-
-          // Controlla il certificato per le notifiche
-          let notificationCertificate = gun
-            .user()
-            .get(DAPP_NAME)
-            .get('certificates')
-            .get('notifications');
-
-          if (!notificationCertificate) {
-            await createNotificationCertificate();
-          }
-
-          let attempts = 0;
-          const maxAttempts = 10;
-
-          const checkUser = setInterval(() => {
-            attempts++;
-            console.log('Checking user.is:', user.is, 'Attempt:', attempts);
-
-            if (user.is) {
-              clearInterval(checkUser);
-              resolve({
-                success: true,
-                pub: user.is.pub,
-                message: 'Autenticazione completata con successo.',
-                user: user.is,
-              });
-            } else if (attempts >= maxAttempts) {
-              clearInterval(checkUser);
-              reject(new Error('Impossibile ottenere i dati utente'));
-            }
-          }, 100);
-        } catch (error) {
-          reject(error);
-        }
+        resolve({
+          success: true,
+          pub: pair.pub,
+          message: 'Autenticazione completata con successo.',
+          user: { pub: pair.pub, address: signer.address },
+        });
       });
-    } catch (error) {
-      reject(error);
-    }
-  });
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
 };
 
 /**

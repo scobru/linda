@@ -33,10 +33,15 @@ const sessionManager = {
         return false;
       }
 
-      gun.user().get(DAPP_NAME).get('session').put({
-        lastActive: Date.now(),
-        device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
-      });
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('session')
+        .put({
+          lastActive: Date.now(),
+          device:
+            typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        });
       return true;
     } catch (error) {
       console.error('Session validation error:', error);
@@ -54,7 +59,7 @@ const sessionManager = {
    */
   async invalidateSession() {
     if (!gun || !user || !user.is) return;
-    
+
     try {
       await gun.user().get('session').put(null);
       user.leave();

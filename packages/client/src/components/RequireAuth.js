@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { isAuthenticated } from '../protocol/src';
-import { useContext } from 'react';
-import Context from '../contexts/context';
+import React, { useEffect, useState } from "react";
+import { Navigate, useLocation } from "react-router-dom";
+import { isAuthenticated } from "../protocol";
+import { useContext } from "react";
+import Context from "../contexts/context";
 
 const RequireAuth = ({ children }) => {
   const [authChecked, setAuthChecked] = useState(false);
@@ -13,6 +13,21 @@ const RequireAuth = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        // Verifica autenticazione wallet
+        const walletAuth = localStorage.getItem("walletAuth");
+        if (walletAuth) {
+          const { address, timestamp } = JSON.parse(walletAuth);
+          // Verifica se l'autenticazione è ancora valida (24h)
+          if (Date.now() - timestamp < 24 * 60 * 60 * 1000) {
+            setIsAuth(true);
+            setAuthChecked(true);
+            return;
+          } else {
+            localStorage.removeItem("walletAuth");
+          }
+        }
+
+        // Verifica autenticazione normale
         const authResult = await isAuthenticated();
         if (authResult.success) {
           setPub(authResult.user.pub);
@@ -22,30 +37,23 @@ const RequireAuth = ({ children }) => {
           setIsAuth(false);
         }
       } catch (error) {
-        console.error('Errore nella verifica dell\'autenticazione:', error);
+        console.error("Errore nella verifica dell'autenticazione:", error);
         setIsAuth(false);
       } finally {
         setAuthChecked(true);
       }
     };
 
-    // Aggiungi un piccolo delay per assicurarsi che Gun sia inizializzato
-    setTimeout(checkAuth, 500);
+    checkAuth();
 
-    // Polling per verificare lo stato di autenticazione
-    const authCheck = setInterval(async () => {
-      const authResult = await isAuthenticated();
-      if (!authResult.success && isAuth) {
-        setIsAuth(false);
-      }
-    }, 5000);
+    // Polling ridotto a 30 secondi
+    const authCheck = setInterval(checkAuth, 30000);
 
     return () => {
       clearInterval(authCheck);
     };
   }, [setPub, setAlias]);
 
-  // Mostra un loader mentre verifichiamo l'autenticazione
   if (!authChecked) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -59,13 +67,11 @@ const RequireAuth = ({ children }) => {
     );
   }
 
-  // Se non autenticato, reindirizza al login
   if (!isAuth) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Se autenticato, mostra il contenuto protetto
   return children;
 };
 
-export default RequireAuth; 
+export default RequireAuth;

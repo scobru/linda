@@ -6,8 +6,8 @@ import { toast } from "react-hot-toast";
 import { gun, user,DAPP_NAME } from "../../protocol"
 import acceptFriendRequest from '../../protocol/src/friends/acceptFriendRequest';
 import rejectFriendRequest from '../../protocol/src/friends/rejectFriendRequest';
+import { friendsService } from '../../protocol/src/friends';
 
-const friendsService = friends.friendsService;
 const { userBlocking } = blocking;
 const { chat } = messaging;
 
@@ -23,6 +23,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
   const mountedRef = React.useRef(true);
   const blockedUsersRef = useRef(new Set());
   const processedRequestsRef = useRef(new Set());
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
 
   React.useEffect(() => {
     return () => {
@@ -37,8 +38,49 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
     }
   }, [externalPendingRequests]);
 
+  // Modifica l'effetto di inizializzazione
+  React.useEffect(() => {
+    let mounted = true;
+    let authCheckInterval;
+
+    const checkAuth = async () => {
+      if (!mounted) return;
+      
+      // Verifica autenticazione wallet
+      const walletAuth = localStorage.getItem('walletAuth');
+      if (walletAuth) {
+        const { address } = JSON.parse(walletAuth);
+        if (user.is && user.is.pub) {
+          setIsAuthenticated(true);
+          return;
+        }
+      }
+
+      // Verifica autenticazione normale
+      if (user.is && user.is.pub) {
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    };
+
+    // Verifica iniziale
+    checkAuth();
+
+    // Polling per verificare l'autenticazione
+    authCheckInterval = setInterval(checkAuth, 1000);
+
+    // Cleanup
+    return () => {
+      mounted = false;
+      clearInterval(authCheckInterval);
+    };
+  }, []);
+
   // Modifica l'effetto che monitora le richieste di amicizia
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const subscription = friendsService.observeFriendRequests()
       .subscribe({
         next: (request) => {
@@ -83,7 +125,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       });
 
     return () => subscription.unsubscribe();
-  }, [friendsList]);
+  }, [isAuthenticated]);
 
   // Effetto per monitorare gli utenti bloccati
   useEffect(() => {
@@ -203,6 +245,8 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
 
   // Modifica l'effetto che monitora la lista amici per integrare meglio il blocco
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const processedFriends = new Set();
     
     const subscription = friendsService.observeFriendsList()
@@ -269,7 +313,7 @@ export default function Friends({ pendingRequests: externalPendingRequests, onSe
       }
       processedFriends.clear();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Aggiungi questo effetto per sincronizzare con il contesto
   useEffect(() => {
