@@ -32,6 +32,7 @@ export const loginWithMetaMask = async (address) => {
         }
 
         try {
+          // Controlla il certificato per le richieste di amicizia
           let addFriendRequestCertificate = gun
             .user()
             .get(DAPP_NAME)
@@ -42,7 +43,16 @@ export const loginWithMetaMask = async (address) => {
             await createFriendRequestCertificate();
           }
 
-          await createNotificationCertificate();
+          // Controlla il certificato per le notifiche
+          let notificationCertificate = gun
+            .user()
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('notifications');
+
+          if (!notificationCertificate) {
+            await createNotificationCertificate();
+          }
 
           let attempts = 0;
           const maxAttempts = 10;
@@ -123,7 +133,16 @@ const loginUser = (credentials = {}, callback = () => {}) => {
               await createFriendRequestCertificate();
             }
 
-            await createNotificationCertificate();
+            // Controlla il certificato per le notifiche
+            let notificationCertificate = gun
+              .user()
+              .get(DAPP_NAME)
+              .get('certificates')
+              .get('notifications');
+
+            if (!notificationCertificate) {
+              await createNotificationCertificate();
+            }
             // Wait for user.is to be available
             let attempts = 0;
             const maxAttempts = 10;

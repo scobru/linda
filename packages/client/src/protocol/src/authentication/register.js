@@ -9,15 +9,15 @@ export const registerWithMetaMask = async (address) => {
   const registrationPromise = new Promise(async (resolve, reject) => {
     try {
       const signer = await gun.getSigner;
-      console.log("Signer:", signer);
+      console.log('Signer:', signer);
 
       const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-      console.log("Signature:", signature);
+      console.log('Signature:', signature);
 
       await gun.createAndStoreEncryptedPair(signer.address, signature);
 
       const pair = await gun.getAndDecryptPair(signer.address, signature);
-      console.log("Pair:", pair);
+      console.log('Pair:', pair);
 
       user.create(pair, async (ack) => {
         if (ack.err) {
@@ -54,6 +54,17 @@ export const registerWithMetaMask = async (address) => {
                   await createFriendRequestCertificate();
                 }
 
+                // Controlla il certificato per le notifiche
+                let notificationCertificate = gun
+                  .user()
+                  .get(DAPP_NAME)
+                  .get('certificates')
+                  .get('notifications');
+
+                if (!notificationCertificate) {
+                  await createNotificationCertificate();
+                }
+
                 resolve();
               });
           });
@@ -85,7 +96,7 @@ export const registerWithMetaMask = async (address) => {
       clearTimeout(timeoutId);
       return {
         success: true,
-        ...result
+        ...result,
       };
     })
     .catch((error) => {
@@ -171,6 +182,17 @@ const registerUser = (credentials = {}, callback = () => {}) => {
 
                   if (!addFriendRequestCertificate) {
                     await createFriendRequestCertificate();
+                  }
+
+                  // Controlla il certificato per le notifiche
+                  let notificationCertificate = gun
+                    .user()
+                    .get(DAPP_NAME)
+                    .get('certificates')
+                    .get('notifications');
+
+                  if (!notificationCertificate) {
+                    await createNotificationCertificate();
                   }
 
                   resolve();
