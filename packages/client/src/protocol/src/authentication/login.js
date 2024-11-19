@@ -37,6 +37,27 @@ export const loginWithMetaMask = async (address) => {
           return;
         }
 
+        let addFriendRequestCertificate = gun
+          .user()
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('friendRequests');
+
+        if (!addFriendRequestCertificate) {
+          await createFriendRequestCertificate();
+        }
+
+        // Controlla il certificato per le notifiche
+        let notificationCertificate = gun
+          .user()
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('notifications');
+
+        if (!notificationCertificate) {
+          await createNotificationCertificate();
+        }
+
         // Salva i dati di autenticazione
         sessionStorage.setItem('isAuthenticated', 'true');
         sessionStorage.setItem('userPub', pair.pub);
@@ -94,7 +115,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
-            let addFriendRequestCertificate = gun
+            let addFriendRequestCertificate = await gun
               .user()
               .get(DAPP_NAME)
               .get('certificates')
@@ -105,12 +126,12 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             }
 
             // Controlla il certificato per le notifiche
-            let notificationCertificate = gun
+            let notificationCertificate = await gun
               .user()
               .get(DAPP_NAME)
               .get('certificates')
-              .get('notifications');
-
+              .get('notifications')
+  
             if (!notificationCertificate) {
               await createNotificationCertificate();
             }

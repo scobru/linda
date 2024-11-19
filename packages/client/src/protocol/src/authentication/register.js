@@ -36,14 +36,24 @@ export const registerWithMetaMask = async (address) => {
               .once(async (currentCount) => {
                 const newCount = (currentCount || 0) + 1;
                 gun.get(DAPP_NAME).get('userList').get('count').put(newCount);
-
                 gun.get(DAPP_NAME).get('userList').get('users').set({
                   pub: pair.pub,
                   address: signer.address,
                   username: signer.address,
+                  nickname: signer.address,
                   timestamp: Date.now(),
                 });
 
+                gun.get(DAPP_NAME).get('userList').get('users').set({
+                  pub,
+                  username: credentials.username,
+                  timestamp: Date.now(),
+                });
+
+                let nickname = signer.address
+
+                gun.get(DAPP_NAME).get('userList').get('nicknames').put(pair.pub).put(nickname)
+                
                 let addFriendRequestCertificate = gun
                   .user()
                   .get(DAPP_NAME)
@@ -174,6 +184,15 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                     timestamp: Date.now(),
                   });
 
+                  let nickname = signer.address
+
+                  gun.get(DAPP_NAME).get('userList').get('nicknames').put(pair.pub).put(nickname)
+                  
+                  gun.user().get(DAPP_NAME).get('profile').put({
+                    nickname: signer.address,
+                    avatarSeed: '',
+                  })
+                  
                   let addFriendRequestCertificate = gun
                     .user()
                     .get(DAPP_NAME)

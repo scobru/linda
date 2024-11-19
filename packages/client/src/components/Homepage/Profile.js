@@ -1,191 +1,209 @@
-import React from "react";
-import { authentication } from "../../protocol";
-import { useNavigate } from "react-router-dom";
-import Context from "../../contexts/context";
-import { toast } from "react-hot-toast";
-import { gun, user, DAPP_NAME } from "../../protocol";
+import React from 'react';
+import { user } from '../../protocol';
+import { useNavigate } from 'react-router-dom';
+import { authentication } from '../../protocol';
+import { toast } from 'react-hot-toast';
+import { gun, DAPP_NAME } from '../../protocol';
+import { userUtils } from '../../protocol/src/utils/userUtils';
 
 export default function Profile() {
-  const {
-    alias,
-    pub,
-    setPub,
-    setAlias,
-    setSelected,
-    setFriends,
-    setCurrentChat,
-  } = React.useContext(Context);
   const navigate = useNavigate();
-  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
+  const [username, setUsername] = React.useState('');
+  const [publicKey, setPublicKey] = React.useState('');
+  const [isEditingProfile, setIsEditingProfile] = React.useState(false);
+  const [nickname, setNickname] = React.useState('');
+  const [avatarSeed, setAvatarSeed] = React.useState('');
 
-  // Effetto per ottenere le informazioni dell'utente
   React.useEffect(() => {
-    const getUserInfo = async () => {
-      try {
-        if (!user.is) {
-          console.error("Utente non autenticato");
-          return;
-        }
+    const loadUserProfile = async () => {
+      // Carica il nickname dal nodo pubblico
+      const nickname = await gun.get(DAPP_NAME)
+        .get('userList')
+        .get('nicknames')
+        .get(user?.is?.pub)
+        .then();
 
-        // Prima cerca nella lista utenti
-        const userPromise = new Promise((resolve) => {
-          gun
-            .get(DAPP_NAME)
-            .get("userList")
-            .get("users")
-            .map()
-            .once((userData) => {
-              if (userData && userData.pub === user.is.pub) {
-                resolve(userData.username);
-              }
-            });
+      if (nickname) {
+        setUsername(nickname);
+        setNickname(nickname);
+      }
 
-          // Timeout dopo 2 secondi
-          setTimeout(() => resolve(null), 2000);
-        });
-
-        const username = await userPromise;
-
-        if (username) {
-          setAlias(username);
-          setPub(user.is.pub);
-        } else {
-          // Se non trova nella lista utenti, cerca nel profilo
-          gun
-            .user()
-            .get("profile")
-            .get("alias")
-            .once((profileAlias) => {
-              if (
-                profileAlias &&
-                typeof profileAlias === "string" &&
-                !profileAlias.includes(".")
-              ) {
-                setAlias(profileAlias);
-                setPub(user.is.pub);
-              } else {
-                // Fallback all'alias di base
-                const displayAlias = user.is.alias.includes(".")
-                  ? user.is.alias.split(".")[0].substring(0, 8)
-                  : user.is.alias;
-                setAlias(displayAlias);
-                setPub(user.is.pub);
-              }
-            });
-        }
-
-        // Salva/aggiorna l'alias nella lista utenti
-        gun.get(DAPP_NAME).get("userList").get("users").set({
-          pub: user.is.pub,
-          username: alias,
-          timestamp: Date.now(),
-        });
-      } catch (error) {
-        console.error("Errore nel recupero info utente:", error);
-        toast.error("Errore nel recupero delle informazioni utente");
+      if (user?.is?.pub) {
+        setPublicKey(user.is.pub);
       }
     };
 
-    getUserInfo();
-  }, [setPub, setAlias]);
+    loadUserProfile();
+  }, [user?.is]);
+
+  const handleSaveProfile = async () => {
+    try {
+      // Aggiorna solo il nickname nel nodo pubblico
+      await gun.get(DAPP_NAME)
+        .get('userList')
+        .get('nicknames')
+        .get(user.is.pub)
+        .put(nickname.trim());
+
+      setUsername(nickname.trim());
+      setIsEditingProfile(false);
+      toast.success('Profilo aggiornato con successo!');
+    } catch (error) {
+      console.error('Errore aggiornamento profilo:', error);
+      toast.error('Errore durante l\'aggiornamento del profilo');
+    }
+  };
+
+  const generateNewAvatar = () => {
+    const newSeed = Math.random().toString(36).substring(7);
+    setAvatarSeed(newSeed);
+  };
 
   const handleLogout = async () => {
-    if (isLoggingOut) return;
-
-    setIsLoggingOut(true);
-    const toastId = toast.loading("Logout in corso...");
-
     try {
-      // Pulisci prima tutti gli stati
-      setSelected(null);
-      setFriends([]);
-      setCurrentChat(null);
-      setPub(null);
-      setAlias(null);
-
-      // Emetti l'evento pre-logout
-      window.dispatchEvent(new Event("pre-logout"));
-
-      // Attendi un momento per permettere la pulizia
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      // Esegui il logout
+      window.dispatchEvent(new Event('pre-logout'));
       await authentication.logout();
-
-      toast.success("Logout effettuato con successo", { id: toastId });
-
-      // Forza il reload della pagina dopo il logout
-      window.location.href = "/";
+      
+      // Pulisci il localStorage
+      localStorage.removeItem('user');
+      localStorage.removeItem('selectedUser');
+      localStorage.removeItem('walletAuth');
+      
+      navigate('/login', { replace: true });
     } catch (error) {
-      console.error("Errore durante il logout:", error);
-      toast.error("Errore durante il logout", { id: toastId });
-      setIsLoggingOut(false);
+      console.error('Errore durante il logout:', error);
     }
   };
 
-  const copyToClipboard = async () => {
-    try {
-      if (!pub) throw new Error("Chiave pubblica non disponibile");
-
-      await navigator.clipboard.writeText(pub);
-      toast.success("Chiave pubblica copiata!", {
-        duration: 2000,
-        icon: "✨",
-      });
-    } catch (error) {
-      console.error("Errore copia chiave:", error);
-      toast.error("Errore nella copia della chiave");
+  const copyPublicKey = () => {
+    if (publicKey) {
+      navigator.clipboard.writeText(publicKey)
+        .then(() => toast.success('Chiave pubblica copiata!'))
+        .catch(() => toast.error('Errore durante la copia'));
     }
   };
-
-  if (!alias || !pub) {
-    return <div className="animate-pulse">Caricamento...</div>;
-  }
 
   return (
-    <div className="flex items-center gap-3">
-      <img
-        className="w-10 h-10 rounded-full"
-        src={`https://api.dicebear.com/7.x/bottts/svg?seed=${alias || "default"}&backgroundColor=b6e3f4`}
-        alt=""
-      />
-      <div className="flex-1 min-w-0">
-        <h2 className="text-sm font-medium truncate">{alias || "Utente"}</h2>
-        <div className="flex items-center gap-2">
-          <p
-            className="text-xs text-gray-500 truncate cursor-pointer hover:text-blue-500"
-            onClick={copyToClipboard}
-            title="Clicca per copiare"
-          >
-            {pub}
-          </p>
+    <div className="flex items-center space-x-4">
+      {isEditingProfile ? (
+        // Modal di modifica profilo
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
+            
+            <div className="space-y-4">
+              {/* Preview Avatar */}
+              <div className="flex items-center justify-center space-x-2">
+                <img
+                  className="w-16 h-16 rounded-full"
+                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed || nickname}&backgroundColor=b6e3f4`}
+                  alt="Avatar"
+                />
+                <button
+                  onClick={generateNewAvatar}
+                  className="p-2 hover:bg-gray-100 rounded-full"
+                  title="Genera nuovo avatar"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Input Nickname */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Nickname
+                </label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Inserisci un nickname"
+                />
+              </div>
+
+              {/* Pulsanti */}
+              <div className="flex justify-end space-x-2 mt-4">
+                <button
+                  onClick={() => setIsEditingProfile(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={handleSaveProfile}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md"
+                >
+                  Salva
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        // Vista normale
+        <div className="flex items-center space-x-2">
+          {/* Avatar cliccabile */}
+          <button
+            onClick={() => setIsEditingProfile(true)}
+            className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center hover:bg-blue-600 transition-colors"
+            title="Modifica profilo"
+          >
+            <img
+              className="w-full h-full rounded-full"
+              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed || username}&backgroundColor=b6e3f4`}
+              alt=""
+            />
+          </button>
+
+          <span className="text-sm font-medium text-gray-700">
+            {username || 'Utente'}
+          </span>
+          
+          {/* Pulsante copia chiave pubblica */}
+          <button 
+            onClick={copyPublicKey}
+            className="ml-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+            title="Copia chiave pubblica"
+          >
+            <svg
+              className="w-4 h-4 text-gray-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Pulsante logout */}
       <button
         onClick={handleLogout}
-        disabled={isLoggingOut}
-        className={`p-2 hover:bg-gray-100 rounded-full transition-colors ${
-          isLoggingOut ? "opacity-50 cursor-not-allowed" : ""
-        }`}
+        className="p-2 hover:bg-gray-100 rounded-full transition-colors"
         title="Logout"
       >
-        {isLoggingOut ? (
-          <div className="animate-spin w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full" />
-        ) : (
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-            />
-          </svg>
-        )}
+        <svg
+          className="w-5 h-5 text-gray-500"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+          />
+        </svg>
       </button>
     </div>
   );

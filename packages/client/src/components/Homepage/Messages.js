@@ -4,6 +4,8 @@ import { toast, Toaster } from 'react-hot-toast';
 import { AiOutlineSend } from 'react-icons/ai';
 import { messaging, blocking } from '../../protocol';
 import { gun, user, notifications , DAPP_NAME } from '../../protocol';
+import { userUtils } from '../../protocol/src/utils/userUtils';
+import { createMessagesCertificate } from '../../protocol/src/security';
 
 const { userBlocking } = blocking;
 const { channels } = messaging;
@@ -218,14 +220,11 @@ const getUserUsername = async (userPub) => {
   return new Promise((resolve) => {
     gun.get(DAPP_NAME)
       .get('userList')
-      .get('users')
-      .map()
-      .once((userData) => {
-        if (userData && userData.pub === userPub) {
-          resolve(userData.username);
-        }
+      .get('nicknames')
+      .get(userPub)
+      .once((nickname) => {
+        resolve(nickname);
       });
-    
     // Timeout dopo 2 secondi, usa l'alias come fallback
     setTimeout(() => resolve(null), 2000);
   });
@@ -384,6 +383,7 @@ export default function Messages({ chatData }) {
   const [isSubscribed, setIsSubscribed] = React.useState(true);
   const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
   const lastMessageRef = React.useRef(null);
+  const [displayName, setDisplayName] = React.useState('');
 
   const { initMessageTracking } = useMessageTracking();
 
@@ -540,57 +540,66 @@ export default function Messages({ chatData }) {
     }
   };
 
-  // Modifica l'effetto che verifica i permessi
+  // Aggiungi stato per i permessi
+  const [canWrite, setCanWrite] = React.useState(false);
+
+  // Effetto per verificare i permessi
   React.useEffect(() => {
-    if (!selected?.type || !selected?.roomId) return;
+    if (!chatData || !user?.is) return;
 
     const checkPermissions = async () => {
       try {
-        // Se è una chat privata, verifica solo il blocco
-        if (!selected.type || selected.type === 'private') {
-          setCanPost(true);
-          setError(null);
-          return;
-        }
+        // Se è una chat privata
+        if (!chatData.type || chatData.type === 'private') {
+          // Verifica se esiste un certificato per i messaggi
+          const messageCert = await gun.get(DAPP_NAME)
+            .get('certificates')
+            .get(chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1)
+            .get('messages')
+            .then();
 
-        // Per canali e bacheche
-        if (selected.type === 'channel' || selected.type === 'board') {
+          if (!messageCert) {
+            // Se non esiste il certificato, crealo
+            const otherPub = chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1;
+            const cert = await createMessagesCertificate(otherPub);
+            if (cert) {
+              setCanWrite(true);
+            }
+          } else {
+            setCanWrite(true);
+          }
+        } 
+        // Se è un canale o una bacheca
+        else if (chatData.type === 'channel' || chatData.type === 'board') {
           // Se è il creatore, può sempre scrivere
-          if (selected.creator === user.is.pub) {
-            setCanPost(true);
-            setError(null);
+          if (chatData.creator === user.is.pub) {
+            setCanWrite(true);
             return;
           }
 
           // Se è un canale, solo il creatore può scrivere
-          if (selected.type === 'channel') {
-            setCanPost(selected.creator === user.is.pub);
-            if (!canPost) {
-              setError('Solo il creatore può pubblicare in questo canale');
-            }
+          if (chatData.type === 'channel') {
+            setCanWrite(chatData.creator === user.is.pub);
             return;
           }
 
-          // Se è una board, tutti i membri possono scrivere
-          if (selected.type === 'board') {
-            const isMember = await channels.isMember(selected.roomId, user.is.pub);
-            setCanPost(true); // Permetti a tutti di scrivere nella board
-            setError(null);
+          // Se è una bacheca, tutti i membri possono scrivere
+          if (chatData.type === 'board') {
+            setCanWrite(true);
           }
         }
       } catch (error) {
-        console.error('Error checking permissions:', error);
-        setCanPost(false);
-        setError('Errore nella verifica dei permessi');
+        console.error('Errore verifica permessi:', error);
+        setCanWrite(false);
       }
     };
 
     checkPermissions();
-  }, [selected?.type, selected?.roomId, selected?.creator, user.is.pub]);
+  }, [chatData, user?.is]);
 
-  // Modifica la funzione sendMessage per gestire tutti i tipi di chat
+  // Modifica la funzione di invio messaggi
   const sendMessage = async () => {
-    if (!selected?.roomId || !newMessage.trim()) return;
+    if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -600,37 +609,20 @@ export default function Messages({ chatData }) {
       content: messageContent,
       sender: user.is.pub,
       senderAlias: user.is.alias || 'Unknown',
-      timestamp: Date.now(),
-      delivered: true, // Per le board e i canali, sempre true
-      read: true
+      timestamp: Date.now()
     };
 
     setNewMessage('');
 
     try {
-      const path = selected.type === 'private' ? 'chats' : 
-                   selected.type === 'board' ? 'boards' : 'channels';
-
-      // Salva il messaggio nel percorso corretto
-      await gun.get(DAPP_NAME)
-        .get(path)
+      // Salva il messaggio nel percorso corretto per le chat private
+      await gun.get('chats')
         .get(selected.roomId)
         .get('messages')
         .get(messageId)
         .put(messageData);
 
-      // Per le board, aggiorna anche il nodo pubblico dei messaggi
-      if (selected.type === 'board') {
-        await gun.get(DAPP_NAME)
-          .get('public_boards')
-          .get(selected.roomId)
-          .get('messages')
-          .get(messageId)
-          .put(messageData);
-      }
-
       console.log('Message sent successfully');
-
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error(error.message || "Errore nell'invio del messaggio");
@@ -724,15 +716,10 @@ export default function Messages({ chatData }) {
         // Resetta i messaggi
         setMessages([]);
 
-        // Determina il percorso corretto in base al tipo
-        const path = selected.type === 'private' ? 'chats' : 
-                     selected.type === 'board' ? 'boards' : 'channels';
-
         // Carica i messaggi esistenti
         const existingMessages = await new Promise((resolve) => {
           const messages = [];
-          gun.get(DAPP_NAME)
-            .get(path)
+          gun.get('chats')  // Usa il percorso corretto per le chat private
             .get(selected.roomId)
             .get('messages')
             .map()
@@ -753,8 +740,7 @@ export default function Messages({ chatData }) {
         }
 
         // Sottoscrivi ai nuovi messaggi
-        const messageHandler = gun.get(DAPP_NAME)
-          .get(path)
+        const messageHandler = gun.get('chats')  // Usa il percorso corretto per le chat private
           .get(selected.roomId)
           .get('messages')
           .map()
@@ -779,61 +765,6 @@ export default function Messages({ chatData }) {
         setIsSubscribing(false);
         setLoading(false);
         setError(null);
-
-        // Per le board, carica anche i messaggi dal nodo pubblico
-        if (selected.type === 'board') {
-          const publicMessages = await new Promise((resolve) => {
-            const messages = [];
-            gun.get(DAPP_NAME)
-              .get('public_boards')
-              .get(selected.roomId)
-              .get('messages')
-              .map()
-              .once((msg, id) => {
-                if (msg && msg.content) {
-                  messages.push({ ...msg, id });
-                }
-              });
-            
-            setTimeout(() => resolve(messages), 500);
-          });
-
-          if (!isSubscribed) return;
-
-          // Combina e ordina tutti i messaggi
-          const allMessages = [...existingMessages, ...publicMessages];
-          const uniqueMessages = Array.from(
-            new Map(allMessages.map(msg => [msg.id, msg])).values()
-          );
-          setMessages(uniqueMessages.sort((a, b) => a.timestamp - b.timestamp));
-
-          // Sottoscrivi ai nuovi messaggi pubblici
-          const publicMessageHandler = gun.get(DAPP_NAME)
-            .get('public_boards')
-            .get(selected.roomId)
-            .get('messages')
-            .map()
-            .on((msg, id) => {
-              if (!isSubscribed) return;
-              if (!msg || !msg.content) return;
-
-              setMessages(prev => {
-                const exists = prev.some(m => m.id === id);
-                if (!exists) {
-                  const newMessages = [...prev, { ...msg, id }];
-                  return newMessages.sort((a, b) => a.timestamp - b.timestamp);
-                }
-                return prev;
-              });
-            });
-
-          // Aggiungi il handler pubblico alle sottoscrizioni
-          const originalHandler = messageSubscriptionRef.current;
-          messageSubscriptionRef.current = () => {
-            if (typeof originalHandler === 'function') originalHandler();
-            if (typeof publicMessageHandler === 'function') publicMessageHandler();
-          };
-        }
 
       } catch (error) {
         console.error('Error setting up chat:', error);
@@ -1063,6 +994,90 @@ export default function Messages({ chatData }) {
     setShouldScrollToBottom(isNearBottom);
   };
 
+  // Funzione per ottenere il nome visualizzato
+  const getDisplayName = async (pubKey) => {
+    // Se è l'utente corrente
+    if (pubKey === user?.is?.pub) {
+      // Se è un wallet
+      const walletAuth = localStorage.getItem('walletAuth');
+      if (walletAuth) {
+        try {
+          const { address } = JSON.parse(walletAuth);
+          return `${address.slice(0, 6)}...${address.slice(-4)}`;
+        } catch (error) {
+          console.error('Errore nel parsing del wallet auth:', error);
+        }
+      }
+      // Se è un account Gun
+      if (user?.is?.alias) {
+        return user.is.alias.split('.')[0];
+      }
+    }
+
+    // Per altri utenti
+    try {
+      const userData = await new Promise((resolve) => {
+        gun.get(`~${pubKey}`).once((data) => {
+          resolve(data);
+        });
+      });
+
+      if (userData?.alias) {
+        return userData.alias.split('.')[0];
+      }
+    } catch (error) {
+      console.error('Errore nel recupero username:', error);
+    }
+
+    // Fallback alla versione abbreviata della chiave pubblica
+    return `${pubKey.slice(0, 6)}...${pubKey.slice(-4)}`;
+  };
+
+  React.useEffect(() => {
+    if (chatData) {
+      const otherPub = chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
+      
+      // Sottoscrizione al nickname dell'altro utente
+      const unsub = gun.get(DAPP_NAME)
+        .get('userList')
+        .get('nicknames')
+        .get(otherPub)
+        .on((nickname) => {
+          if (nickname) {
+            setDisplayName(nickname);
+          } else {
+            // Fallback all'indirizzo abbreviato
+            setDisplayName(`${otherPub.slice(0, 6)}...${otherPub.slice(-4)}`);
+          }
+        });
+
+      return () => {
+        if (typeof unsub === 'function') unsub();
+      };
+    }
+  }, [chatData]);
+
+  React.useEffect(() => {
+    if (selected?.pub) {
+      // Sottoscrizione agli aggiornamenti del profilo utente
+      const unsubUserProfile = gun.get(DAPP_NAME)
+        .get('userList')
+        .get('users')
+        .map()
+        .on((userData) => {
+          if (userData?.pub === selected.pub) {
+            setDisplayName(userData.nickname || userData.username || selected.alias);
+          }
+        });
+
+      return () => {
+        if (typeof unsubUserProfile === 'function') {
+          unsubUserProfile();
+        }
+      };
+    }
+  }, [selected?.pub]);
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1075,41 +1090,21 @@ export default function Messages({ chatData }) {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b bg-white">
         <div className="flex items-center">
-          {selected.type === 'private' ? (
-            <>
-              <img
-                className="w-10 h-10 rounded-full mr-3"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.alias || 'default'}&backgroundColor=b6e3f4`}
-                alt=""
-              />
-              <div>
-                <span className="font-medium">
-                  {selected.alias || 'Utente'}  {/* Mostra l'alias dell'utente */}
-                </span>
-                <span className="text-xs text-gray-500 block">
-                  {selected.pub?.slice(0, 8)}...
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : '👤'}
-              </div>
-              <div>
-                <span className="font-medium">
-                  {selected.name}
-                </span>
-                {(selected.type === 'channel' || selected.type === 'board') && (
-                  <span className="text-xs text-gray-500 block">
-                    {selected.membersCount || 0} membri • 
-                    {selected.type === 'channel' ? ' Canale' : ' Bacheca'}
-                    {selected.creator === user.is.pub && ' (Creatore)'}
-                  </span>
-                )}
-              </div>
-            </>
-          )}
+          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+            <img
+              className="w-full h-full rounded-full"
+              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.avatarSeed || displayName}&backgroundColor=b6e3f4`}
+              alt=""
+            />
+          </div>
+          <div className="ml-3">
+            <p className="text-sm font-medium text-gray-900">
+              {displayName || selected.alias || 'Utente'}
+            </p>
+            <p className="text-xs text-gray-500">
+              {selected.pub.slice(0, 8)}...
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1154,21 +1149,15 @@ export default function Messages({ chatData }) {
       </div>
 
       {/* Input area */}
-      {canPost ? (
+      {canWrite ? (
         <div className="border-t p-4 bg-white">
           <div className="flex items-center">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={
-                selected.type === 'channel'
-                  ? 'Pubblica un post nel canale...'
-                  : selected.type === 'board'
-                    ? 'Scrivi nella bacheca...'
-                    : 'Scrivi un messaggio...'
-              }
+              onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              placeholder="Scrivi un messaggio..."
               className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
@@ -1184,7 +1173,7 @@ export default function Messages({ chatData }) {
         </div>
       ) : (
         <div className="border-t p-4 bg-white text-center text-gray-500">
-          {error || 'Non hai i permessi per scrivere qui'}
+          Non hai i permessi per scrivere qui
         </div>
       )}
       <Toaster />
