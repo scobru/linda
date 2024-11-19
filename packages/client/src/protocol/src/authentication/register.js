@@ -3,6 +3,97 @@ import { createFriendRequestCertificate } from '../security/index.js';
 
 const REGISTRATION_TIMEOUT = 10000; // 10 seconds
 
+export const registerWithMetaMask = async (address) => {
+  let timeoutId;
+
+  const registrationPromise = new Promise(async (resolve, reject) => {
+    try {
+      const signer = await gun.getSigner;
+      console.log("Signer:", signer);
+
+      const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+      console.log("Signature:", signature);
+
+      await gun.createAndStoreEncryptedPair(signer.address, signature);
+
+      const pair = await gun.getAndDecryptPair(signer.address, signature);
+      console.log("Pair:", pair);
+
+      user.create(pair, async (ack) => {
+        if (ack.err) {
+          reject(new Error(ack.err));
+          return;
+        }
+
+        await user.auth(pair);
+
+        try {
+          await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get('userList')
+              .get('count')
+              .once(async (currentCount) => {
+                const newCount = (currentCount || 0) + 1;
+                gun.get(DAPP_NAME).get('userList').get('count').put(newCount);
+
+                gun.get(DAPP_NAME).get('userList').get('users').set({
+                  pub: pair.pub,
+                  address: signer.address,
+                  username: signer.address,
+                  timestamp: Date.now(),
+                });
+
+                let addFriendRequestCertificate = gun
+                  .user(user.is.pub)
+                  .get(DAPP_NAME)
+                  .get('certificates')
+                  .get('friendRequests');
+
+                if (!addFriendRequestCertificate) {
+                  await createFriendRequestCertificate();
+                }
+
+                resolve();
+              });
+          });
+
+          resolve({
+            success: true,
+            pub: pair.pub,
+            message: 'Utente creato con successo tramite MetaMask.',
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+  // Set timeout
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('Timeout durante la registrazione'));
+    }, REGISTRATION_TIMEOUT);
+  });
+
+  // Execute registration with timeout
+  return Promise.race([registrationPromise, timeoutPromise])
+    .then((result) => {
+      clearTimeout(timeoutId);
+      return {
+        success: true,
+        ...result
+      };
+    })
+    .catch((error) => {
+      clearTimeout(timeoutId);
+      throw error;
+    });
+};
+
 /**
  * Registers a new user in the system.
  *

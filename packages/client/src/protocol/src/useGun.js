@@ -1,51 +1,52 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
+import 'gun-eth';
 
 // Usa solo il peer locale
-const DEFAULT_PEERS = [
-  'http://localhost:3030/gun'
-];
+const DEFAULT_PEERS = ['http://localhost:3030/gun'];
 
 let isConnected = false;
 
 const initGun = () => {
-  const gunInstance = Gun({
-    peers: DEFAULT_PEERS,
-    localStorage: false,
-    radisk: true,
-    timeout: 5000,
-    axe: false
-  });
+  if (window.Gun === undefined) {
+    const gunInstance = Gun(DEFAULT_PEERS);
 
-  // Gestione degli eventi di connessione
-  gunInstance.on('hi', peer => {
-    if (!peer || !peer.url) return;
-    console.log(`Peer connesso: ${peer.url}`);
-    isConnected = true;
-  });
+    // Gestione degli eventi di connessione
+    gunInstance.on('hi', (peer) => {
+      if (!peer || !peer.url) return;
+      console.log(`Peer connesso: ${peer.url}`);
+      isConnected = true;
+    });
 
-  gunInstance.on('bye', peer => {
-    if (!peer || !peer.url) return;
-    console.log(`Peer disconnesso: ${peer.url}`);
-    isConnected = false;
-  });
+    gunInstance.on('bye', (peer) => {
+      if (!peer || !peer.url) return;
+      console.log(`Peer disconnesso: ${peer.url}`);
+      isConnected = false;
+    });
 
-  gunInstance.on('error', error => {
-    console.error('Gun error:', error);
-  });
+    gunInstance.on('error', (error) => {
+      console.error('Gun error:', error);
+    });
 
-  // Verifica periodica della connessione
-  setInterval(() => {
-    const connectedPeers = Object.keys(gunInstance._.opt.peers).length;
-    if (connectedPeers === 0 && !isConnected) {
-      console.log('Nessun peer connesso, tentativo di riconnessione...');
-      DEFAULT_PEERS.forEach(peer => {
-        gunInstance.opt({ peers: [peer] });
-      });
-    }
-  }, 5000);
+    // Verifica periodica della connessione
+    setInterval(() => {
+      const connectedPeers = Object.keys(gunInstance._.opt.peers).length;
+      if (connectedPeers === 0 && !isConnected) {
+        console.log('Nessun peer connesso, tentativo di riconnessione...');
+        DEFAULT_PEERS.forEach((peer) => {
+          gunInstance.opt({ peers: [peer] });
+        });
+      }
+    }, 5000);
 
-  return gunInstance;
+    return gunInstance;
+  } else {
+    return window.Gun({
+      peers: DEFAULT_PEERS,
+      localStorage:false,
+      axe:true
+    });
+  }
 };
 
 // Inizializza Gun

@@ -6734,7 +6734,7 @@ ethereum-cryptography@^2.0.0:
     "@scure/bip32" "1.4.0"
     "@scure/bip39" "1.3.0"
 
-ethers@^6.13.4:
+ethers@^6.0.0, ethers@^6.13.4:
   version "6.13.4"
   resolved "https://registry.yarnpkg.com/ethers/-/ethers-6.13.4.tgz#bd3e1c3dc1e7dc8ce10f9ffb4ee40967a651b53c"
   integrity sha512-21YtnZVg4/zKkCQPjrDj38B1r4nQvTZLopUGMLQ1ePU2zV/joCfDC3t3iKQjWRzjjjbzR+mdAIoikeBRNkdllA==
@@ -6823,7 +6823,7 @@ expect@^29.0.0:
     jest-message-util "^29.7.0"
     jest-util "^29.7.0"
 
-express@^4.17.3:
+express@^4.17.3, express@^4.21.1:
   version "4.21.1"
   resolved "https://registry.yarnpkg.com/express/-/express-4.21.1.tgz#9dae5dda832f16b4eec941a4e44aa89ec481b281"
   integrity sha512-YSFlK1Ee0/GC8QaO91tHcDxJiE/X4FbpAyQWkxAvG6AXCuR65YzK8ua6D9hvi/TzUfZMpc+BwuM1IPw8fmQBiQ==
@@ -7390,6 +7390,24 @@ gun-avatar@^1.3.5:
     gun "0.2020.1239"
     vue "^3.2.45"
 
+gun-eth@^1.4.14:
+  version "1.4.14"
+  resolved "https://registry.yarnpkg.com/gun-eth/-/gun-eth-1.4.14.tgz#efa252a82667e76df799e31509d5a7701945398a"
+  integrity sha512-xd8s9nbd7dZHbFhY+cIcjxpI0KwRk7YUISu4tdjb+v/s604n4MGoUUpATMLm4Z/mFlOlYBrTV4MbvEB0o9CX7g==
+  dependencies:
+    ethers "^6.0.0"
+    express "^4.21.1"
+    gun "^0.2020.1239"
+
+gun-eth@^1.4.16:
+  version "1.4.16"
+  resolved "https://registry.yarnpkg.com/gun-eth/-/gun-eth-1.4.16.tgz#fd388fdb5245c1a6239bed349a3bdf699ef8a934"
+  integrity sha512-JhSyp+PynIZ7v10Qhz7mxZRjV1m+WtYW0Tynt6QAltyWUyO//CqOLGPqQz2H2bjH7NcDGt/HzIKmKniGtCrSYg==
+  dependencies:
+    ethers "^6.0.0"
+    express "^4.21.1"
+    gun "^0.2020.1239"
+
 gun-schema@^0.1.0:
   version "0.1.0"
   resolved "https://registry.yarnpkg.com/gun-schema/-/gun-schema-0.1.0.tgz#286c7747d4782e27fed296566362cad52b498621"
@@ -7407,7 +7425,7 @@ gun@0.2020.1239:
   optionalDependencies:
     "@peculiar/webcrypto" "^1.1.1"
 
-gun@^0.2020.1240:
+gun@^0.2020.1239, gun@^0.2020.1240:
   version "0.2020.1240"
   resolved "https://registry.yarnpkg.com/gun/-/gun-0.2020.1240.tgz#759ad9a736bc41eaaa5801e0b83a9e106684e098"
   integrity sha512-uhnyadZTywn0HHgBjS2DePqpcdwLeVm6nFeSZZBPJRltm9O8MjFPyltaxk2PBKS+O8wSZac9qlbCIriJDgQQog==
@@ -11224,6 +11242,11 @@ pump@^3.0.0:
     end-of-stream "^1.1.0"
     once "^1.3.1"
 
+punycode@^1.4.1:
+  version "1.4.1"
+  resolved "https://registry.yarnpkg.com/punycode/-/punycode-1.4.1.tgz#c0d5a63b2718800ad8e1eb0fa5269c84dd41845e"
+  integrity sha512-jmYNElW7yvO7TV33CjSmvSiE2yco3bV2czu/OzDKdMNVZQWfxCblURLhf+47syQRBntjfLdd/H0egrzIG+oaFQ==
+
 punycode@^2.1.0, punycode@^2.1.1, punycode@^2.3.1:
   version "2.3.1"
   resolved "https://registry.yarnpkg.com/punycode/-/punycode-2.3.1.tgz#027422e2faec0b25e1549c3e1bd8309b9133b6e5"
@@ -11269,6 +11292,13 @@ qs@6.13.0:
   version "6.13.0"
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.13.0.tgz#6ca3bd58439f7e245655798997787b0d88a51906"
   integrity sha512-+38qI9SOr8tfZ4QmJNplMUxqjbe7LKvvZgWdExBOmd+egZTtjLB67Gu0HRX3u/XOq7UU2Nx6nsjvS16Z9uwfpg==
+  dependencies:
+    side-channel "^1.0.6"
+
+qs@^6.12.3:
+  version "6.13.1"
+  resolved "https://registry.yarnpkg.com/qs/-/qs-6.13.1.tgz#3ce5fc72bd3a8171b85c99b93c65dd20b7d1b16e"
+  integrity sha512-EJPeIn0CYrGu+hli1xilKAPXODtJ12T0sP63Ijx2/khC2JtuaN3JyNIpvmnkmaEtha9ocbG4A4cMcr+TvqvwQg==
   dependencies:
     side-channel "^1.0.6"
 
@@ -13465,6 +13495,14 @@ url-parse@^1.5.3:
   dependencies:
     querystringify "^2.1.1"
     requires-port "^1.0.0"
+
+url@^0.11.4:
+  version "0.11.4"
+  resolved "https://registry.yarnpkg.com/url/-/url-0.11.4.tgz#adca77b3562d56b72746e76b330b7f27b6721f3c"
+  integrity sha512-oCwdVC7mTuWiPyjLUz/COz5TLk6wgp0RCsN+wHZ2Ekneac9w8uuV0njcbbie2ME+Vs+d6duwmYuR3HgQXs1fOg==
+  dependencies:
+    punycode "^1.4.1"
+    qs "^6.12.3"
 
 use-callback-ref@^1.3.0:
   version "1.3.2"

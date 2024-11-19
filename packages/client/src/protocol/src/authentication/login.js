@@ -3,47 +3,62 @@ import { createFriendRequestCertificate, createNotificationCertificate } from '.
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
-export const loginWithMetaMask = async (address) => {
-  return new Promise((resolve, reject) => {
-    // Verifica se l'utente esiste già
-    gun.get(DAPP_NAME)
-      .get('userList')
-      .get('users')
-      .map()
-      .once((userData) => {
-        if (userData && userData.address === address) {
-          // Utente esistente
-          resolve({
-            success: true,
-            user: {
-              pub: address,
-              alias: `eth:${address.slice(0, 6)}...${address.slice(-4)}`
-            }
-          });
-        } else {
-          // Crea nuovo utente
-          const newUser = {
-            address,
-            username: `eth:${address.slice(0, 6)}...${address.slice(-4)}`,
-            pub: address,
-            timestamp: Date.now()
-          };
+console.log(gun)
 
-          gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
-            .set(newUser, (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve({
+export const loginWithMetaMask = async (address) => {
+  const signer = await gun.getSigner;
+  console.log("Signer:", signer);
+
+  const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+  console.log("Signature:", signature);
+  
+  const pair = await gun.getAndDecryptPair(signer.address, signature);
+  console.log("Pair:", pair);
+
+  if (!pair) {
+    throw new Error('Utente non registrato. Per favore registrati prima.');
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log("Login With Metamask")
+    try {
+      gun.user().auth(pair, async (ack) => {
+        if (ack.err) {
+          reject(new Error(ack.err));
+          return;
+        }
+
+        try {
+          await createFriendRequestCertificate();
+          await createNotificationCertificate();
+          
+          let attempts = 0;
+          const maxAttempts = 10;
+
+          const checkUser = setInterval(() => {
+            attempts++;
+            console.log('Checking user.is:', user.is, 'Attempt:', attempts);
+
+            if (user.is) {
+              clearInterval(checkUser);
+              resolve({
                 success: true,
-                user: {
-                  pub: address,
-                  alias: newUser.username
-                }
+                pub: user.is.pub,
+                message: 'Autenticazione completata con successo.',
+                user: user.is,
               });
-            });
+            } else if (attempts >= maxAttempts) {
+              clearInterval(checkUser);
+              reject(new Error('Impossibile ottenere i dati utente'));
+            }
+          }, 100);
+        } catch (error) {
+          reject(error);
         }
       });
+    } catch (error) {
+      reject(error);
+    }
   });
 };
 
