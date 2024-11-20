@@ -240,7 +240,7 @@ const MessageItem = ({
   handleDeleteMessage,
   selected
 }) => {
-  const [senderName, setSenderName] = React.useState(message.senderAlias || 'Utente');
+  const [senderName, setSenderName] = React.useState('');
   const { selected: selectedContext } = React.useContext(Context);
   const isCreator = selectedContext?.creator === user.is.pub;
   
@@ -312,7 +312,7 @@ const MessageItem = ({
       {isCreator && selected?.type === 'board' && (
         <button
           onClick={() => handleDeleteMessage(message.id)}
-          className="text-red-500 text-xs hover:text-red-700 mt-1 self-end"
+          className="text-red-500 text-xs hover:text-red-700 mt-1 "
         >
           Elimina
         </button>
@@ -550,7 +550,7 @@ export default function Messages({ chatData }) {
     const checkPermissions = async () => {
       try {
         // Se è una chat privata
-        if (!chatData.type || chatData.type === 'private') {
+        if (!chatData.type || chatData.type === 'friend') {
           // Verifica se esiste un certificato per i messaggi
           const messageCert = await gun.get(DAPP_NAME)
             .get('certificates')
@@ -572,7 +572,7 @@ export default function Messages({ chatData }) {
         // Se è un canale o una bacheca
         else if (chatData.type === 'channel' || chatData.type === 'board') {
           // Se è il creatore, può sempre scrivere
-          if (chatData.creator === user.is.pub) {
+          if (chatData.creator === user?.is?.pub) {
             setCanWrite(true);
             return;
           }
@@ -599,7 +599,7 @@ export default function Messages({ chatData }) {
 
   // Modifica la funzione di invio messaggi
   const sendMessage = async () => {
-    if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
+    if (!canWrite || (!selected?.roomId && !selected?.id) || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -615,9 +615,27 @@ export default function Messages({ chatData }) {
     setNewMessage('');
 
     try {
-      // Salva il messaggio nel percorso corretto per le chat private
-      await gun.get('chats')
-        .get(selected.roomId)
+      // Determina il percorso corretto
+      let path;
+      let id;
+
+      if (selected.type === 'friend') {
+        path = 'chats';
+        id = selected.roomId;
+      } else if (selected.type === 'channel') {
+        path = 'channels';
+        id = selected.id;
+      } else if (selected.type === 'board') {
+        path = 'boards';
+        id = selected.id;
+      }
+
+      console.log('Saving message to:', { path, id, type: selected.type });
+
+      // Salva il messaggio
+      await gun.get(DAPP_NAME)
+        .get(path)
+        .get(id)
         .get('messages')
         .get(messageId)
         .put(messageData);
@@ -695,7 +713,7 @@ export default function Messages({ chatData }) {
 
   // Modifica l'effetto principale che gestisce il setup della chat
   React.useEffect(() => {
-    if (!selected?.roomId) return;
+    if (!selected?.roomId && !selected?.id) return;
 
     setIsSubscribed(true);
     setLoading(true);
@@ -707,8 +725,6 @@ export default function Messages({ chatData }) {
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
             messageSubscriptionRef.current();
-          } else if (messageSubscriptionRef.current.unsubscribe) {
-            messageSubscriptionRef.current.unsubscribe();
           }
           messageSubscriptionRef.current = null;
         }
@@ -716,16 +732,34 @@ export default function Messages({ chatData }) {
         // Resetta i messaggi
         setMessages([]);
 
+        // Determina il percorso corretto in base al tipo
+        let path;
+        let id;
+
+        if (selected.type === 'friend') {
+          path = 'chats';
+          id = selected.roomId;
+        } else if (selected.type === 'channel') {
+          path = 'channels';
+          id = selected.id;
+        } else if (selected.type === 'board') {
+          path = 'boards';
+          id = selected.id;
+        }
+
+        console.log('Loading messages from:', { path, id, type: selected.type });
+
         // Carica i messaggi esistenti
         const existingMessages = await new Promise((resolve) => {
           const messages = [];
-          gun.get('chats')  // Usa il percorso corretto per le chat private
-            .get(selected.roomId)
+          gun.get(DAPP_NAME)
+            .get(path)
+            .get(id)
             .get('messages')
             .map()
-            .once((msg, id) => {
+            .once((msg, msgId) => {
               if (msg && msg.content) {
-                messages.push({ ...msg, id });
+                messages.push({ ...msg, id: msgId });
               }
             });
           
@@ -740,18 +774,19 @@ export default function Messages({ chatData }) {
         }
 
         // Sottoscrivi ai nuovi messaggi
-        const messageHandler = gun.get('chats')  // Usa il percorso corretto per le chat private
-          .get(selected.roomId)
+        const messageHandler = gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
           .get('messages')
           .map()
-          .on((msg, id) => {
+          .on((msg, msgId) => {
             if (!isSubscribed) return;
             if (!msg || !msg.content) return;
 
             setMessages(prev => {
-              const exists = prev.some(m => m.id === id);
+              const exists = prev.some(m => m.id === msgId);
               if (!exists) {
-                const newMessages = [...prev, { ...msg, id }];
+                const newMessages = [...prev, { ...msg, id: msgId }];
                 return newMessages.sort((a, b) => a.timestamp - b.timestamp);
               }
               return prev;
@@ -781,19 +816,13 @@ export default function Messages({ chatData }) {
     return () => {
       setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
-        try {
-          if (typeof messageSubscriptionRef.current === 'function') {
-            messageSubscriptionRef.current();
-          } else if (messageSubscriptionRef.current.unsubscribe) {
-            messageSubscriptionRef.current.unsubscribe();
-          }
-        } catch (error) {
-          console.warn('Error during cleanup:', error);
+        if (typeof messageSubscriptionRef.current === 'function') {
+          messageSubscriptionRef.current();
         }
         messageSubscriptionRef.current = null;
       }
     };
-  }, [selected?.roomId]);
+  }, [selected]);
 
   // Aggiungi un effetto separato per mantenere la chat corrente
   React.useEffect(() => {
@@ -849,6 +878,7 @@ export default function Messages({ chatData }) {
         return;
 
       const unsubscribe = gun
+        .get(DAPP_NAME)
         .get(`chats/${selected.roomId}/receipts`)
         .get(message.id)
         .on((receipt) => {
@@ -897,6 +927,7 @@ export default function Messages({ chatData }) {
     // Se è un nostro messaggio, sottoscrivi alle sue ricevute
     if (lastMessage && lastMessage.sender === user.is.pub) {
       const unsubscribe = gun
+        .get(DAPP_NAME)
         .get(`chats/${selected.roomId}/receipts`)
         .get(lastMessage.id)
         .on((receipt) => {
@@ -924,33 +955,68 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.roomId, messages.length]); // Usa messages.length invece di messages
 
-  // Aggiungi la funzione handleDeleteMessage qui
+  // Modifica la funzione handleDeleteMessage
   const handleDeleteMessage = async (messageId) => {
     if (!selected?.roomId || !selected?.creator || selected.creator !== user.is.pub) {
       return;
     }
 
     try {
-      // Rimuovi dal nodo privato
-      await gun.get(DAPP_NAME)
-        .get('boards')
-        .get(selected.roomId)
-        .get('messages')
-        .get(messageId)
-        .put(null);
+      // Determina il percorso corretto
+      let path;
+      let id;
 
-      // Rimuovi anche dal nodo pubblico
-      await gun.get(DAPP_NAME)
-        .get('public_boards')
-        .get(selected.roomId)
-        .get('messages')
-        .get(messageId)
-        .put(null);
-      
-      toast.success('Messaggio rimosso');
+      if (selected.type === 'friend') {
+        path = 'chats';
+        id = selected.roomId;
+      } else if (selected.type === 'channel') {
+        path = 'channels';
+        id = selected.id;
+      } else if (selected.type === 'board') {
+        path = 'boards';
+        id = selected.id;
+      }
+
+      console.log('Deleting message from:', { path, id, messageId });
+
+      // Rimuovi il messaggio usando una Promise per assicurarsi che l'operazione sia completata
+      await new Promise((resolve, reject) => {
+        gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get('messages')
+          .get(messageId)
+          .put(null, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve();
+            }
+          });
+      });
+
+      // Se è una bacheca, rimuovi anche dal nodo pubblico
+      if (selected.type === 'board') {
+        await new Promise((resolve, reject) => {
+          gun.get(DAPP_NAME)
+            .get('public_boards')
+            .get(id)
+            .get('messages')
+            .get(messageId)
+            .put(null, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+              } else {
+                resolve();
+              }
+            });
+        });
+      }
       
       // Aggiorna la lista dei messaggi localmente
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      
+      toast.success('Messaggio rimosso');
     } catch (error) {
       console.error('Error deleting message:', error);
       toast.error('Errore nella rimozione del messaggio');
@@ -1088,26 +1154,36 @@ export default function Messages({ chatData }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b bg-white">
+      {/* Header della chat - aggiunto padding orizzontale per allinearlo */}
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
         <div className="flex items-center">
-          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
-            <img
-              className="w-full h-full rounded-full"
-              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.avatarSeed || displayName}&backgroundColor=b6e3f4`}
-              alt=""
-            />
+          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+            {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : (
+              <img
+                className="w-full h-full rounded-full"
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.avatarSeed || displayName}&backgroundColor=b6e3f4`}
+                alt=""
+              />
+            )}
           </div>
           <div className="ml-3">
             <p className="text-sm font-medium text-gray-900">
-              {displayName || selected.alias || 'Utente'}
+              {selected.type === 'channel' || selected.type === 'board' 
+                ? selected.name 
+                : (displayName || selected.alias || 'Utente')}
             </p>
             <p className="text-xs text-gray-500">
-              {selected.pub.slice(0, 8)}...
+              {selected.type === 'channel' 
+                ? 'Canale' 
+                : selected.type === 'board' 
+                  ? 'Bacheca' 
+                  : selected.pub.slice(0, 8) + '...'}
             </p>
           </div>
         </div>
       </div>
 
+      {/* Area messaggi */}
       <div 
         className="flex-1 overflow-y-auto p-4 space-y-4"
         onScroll={handleScroll}

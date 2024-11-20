@@ -95,6 +95,8 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       throw new Error('Non puoi inviare una richiesta a te stesso');
     }
 
+    console.log('Target pub:', targetPub);
+
     // Verifica se l'utente esiste
     const targetUser = await new Promise((resolve) => {
       gun.get(`~${targetPub}`).once((data) => {

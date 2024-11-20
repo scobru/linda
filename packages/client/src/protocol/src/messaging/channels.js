@@ -3,7 +3,7 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 const channels = {
   // Crea un nuovo canale o bacheca
   create: async (name, type = 'board') => {
-    if (!user.is) throw new Error('User not authenticated');
+    if (!user?.is) throw new Error('User not authenticated');
 
     if (type !== 'board' && type !== 'channel') {
       throw new Error('Tipo non valido. Usa "board" o "channel"');
@@ -21,7 +21,7 @@ const channels = {
         name: name,
         type: type,
         created: Date.now(),
-        creator: user.is.pub,
+        creator: user?.is?.pub,
         membersCount: 1,
         writeAccess: type === 'channel' ? 'creator' : 'members'
       };
@@ -282,18 +282,11 @@ const channels = {
     try {
       console.log('Checking write permissions for:', { channelId, userPub });
 
-      // Pulisci l'ID del canale se contiene l'ID dell'utente
-      const cleanChannelId = channelId.includes('_channel_') 
-        ? channelId.split('_channel_')[1] 
-        : channelId;
-
-      console.log('Using clean channel ID:', cleanChannelId);
-
-      // Prima ottieni i dettagli del canale
+      // Ottieni i dettagli del canale
       const channel = await new Promise((resolve) => {
         gun.get(DAPP_NAME)
           .get('channels')
-          .get(cleanChannelId)
+          .get(channelId)
           .once((data) => {
             console.log('Channel data:', data);
             resolve(data);
@@ -305,6 +298,12 @@ const channels = {
         return false;
       }
 
+      // Se è il creatore, può sempre scrivere
+      if (channel.creator === userPub) {
+        console.log('User is creator, can write');
+        return true;
+      }
+
       // Se è un canale, solo il creatore può scrivere
       if (channel.type === 'channel') {
         const isCreator = channel.creator === userPub;
@@ -314,7 +313,7 @@ const channels = {
 
       // Se è una bacheca, verifica solo se l'utente è membro
       if (channel.type === 'board') {
-        const isMember = await channels.isMember(cleanChannelId, userPub);
+        const isMember = await channels.isMember(channelId, userPub);
         console.log('Board type, member check result:', isMember);
         return isMember;
       }

@@ -72,7 +72,8 @@ export default function Homepage() {
           type: user.type,
           name: user.name,
           isGroup: true,
-          members: user.members
+          members: user.members,
+          creator: user.creator
         };
       } else {
         // Per le chat private, usa sempre createChat per ottenere/creare la chat
@@ -94,7 +95,7 @@ export default function Homepage() {
       const selectedData = {
         ...user,
         roomId: chatData.roomId || chatData.id,
-        type: user.type || 'private',
+        type: user.type || 'friend',
         chat: chatData
       };
 
@@ -656,19 +657,19 @@ export default function Homepage() {
 
         {/* Area chat */}
         <div className="hidden md:flex flex-1 flex-col bg-gray-50">
-        {console.log("SELECTED", selected)}
+          {console.log("SELECTED", selected)}
 
           {selected ? (
             <Messages 
               key={selected.roomId || selected.id} 
-              chatData={currentChatData}
+              chatData={selected}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-gray-500">
                 {activeView === 'chats' 
                   ? "Seleziona un amico per chattare"
-                  : "Seleziona un gruppo o canale"}
+                  : "Seleziona una bacheca o un canale"}
               </p>
             </div>
           )}

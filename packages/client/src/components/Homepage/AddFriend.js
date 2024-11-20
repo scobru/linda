@@ -10,6 +10,16 @@ export default function AddFriend({ onClose }) {
 
   // Funzione per cercare l'utente
   const searchUser = async (value) => {
+    // Se il valore sembra essere una chiave pubblica, ritornalo direttamente
+    if (value.includes('.')) {
+      const result = await gun.get("~"+value).get('alias')
+      console.log('Result:', result);
+      return {
+        pub: value,
+        alias: result
+      };
+    }
+
     return new Promise((resolve) => {
       gun.get(`~@${value}`).once((data) => {
         if (data) {
