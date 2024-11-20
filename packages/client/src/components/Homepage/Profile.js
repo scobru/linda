@@ -1,56 +1,51 @@
-import React from 'react';
-import { user } from '../../protocol';
-import { useNavigate } from 'react-router-dom';
-import { authentication } from '../../protocol';
-import { toast } from 'react-hot-toast';
-import { gun, DAPP_NAME } from '../../protocol';
-import { userUtils } from '../../protocol/src/utils/userUtils';
+import React from "react";
+import { user } from "../../protocol";
+import { useNavigate } from "react-router-dom";
+import { authentication } from "../../protocol";
+import { toast } from "react-hot-toast";
+import { gun, DAPP_NAME } from "../../protocol";
+import { userUtils } from "../../protocol/src/utils/userUtils";
 
 export default function Profile() {
   const navigate = useNavigate();
-  const [username, setUsername] = React.useState('');
-  const [publicKey, setPublicKey] = React.useState('');
+  const [username, setUsername] = React.useState("");
+  const [publicKey, setPublicKey] = React.useState("");
   const [isEditingProfile, setIsEditingProfile] = React.useState(false);
-  const [nickname, setNickname] = React.useState('');
-  const [avatarSeed, setAvatarSeed] = React.useState('');
+  const [nickname, setNickname] = React.useState("");
+  const [avatarSeed, setAvatarSeed] = React.useState("");
 
   React.useEffect(() => {
-    const loadUserProfile = async () => {
-      // Carica il nickname dal nodo pubblico
-      const nickname = await gun.get(DAPP_NAME)
-        .get('userList')
-        .get('nicknames')
-        .get(user?.is?.pub)
-        .then();
-
-      if (nickname) {
-        setUsername(nickname);
-        setNickname(nickname);
+    const loadUserData = async () => {
+      const userProfile = await gun.user().get(DAPP_NAME).get("profile").once();
+      console.log(userProfile);
+      if (userProfile && userProfile.nickname) {
+        setUsername(userProfile.nickname);
       }
-
-      if (user?.is?.pub) {
-        setPublicKey(user.is.pub);
+      const currentPub = user.is?.pub;
+      if (currentPub) {
+        setPublicKey(currentPub);
       }
     };
 
-    loadUserProfile();
-  }, [user?.is]);
+    loadUserData();
+  }, []);
 
   const handleSaveProfile = async () => {
     try {
       // Aggiorna solo il nickname nel nodo pubblico
-      await gun.get(DAPP_NAME)
-        .get('userList')
-        .get('nicknames')
+      await gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("nicknames")
         .get(user.is.pub)
         .put(nickname.trim());
 
       setUsername(nickname.trim());
       setIsEditingProfile(false);
-      toast.success('Profilo aggiornato con successo!');
+      toast.success("Profilo aggiornato con successo!");
     } catch (error) {
-      console.error('Errore aggiornamento profilo:', error);
-      toast.error('Errore durante l\'aggiornamento del profilo');
+      console.error("Errore aggiornamento profilo:", error);
+      toast.error("Errore durante l'aggiornamento del profilo");
     }
   };
 
@@ -61,25 +56,32 @@ export default function Profile() {
 
   const handleLogout = async () => {
     try {
-      window.dispatchEvent(new Event('pre-logout'));
+      window.dispatchEvent(new Event("pre-logout"));
       await authentication.logout();
-      
+
       // Pulisci il localStorage
-      localStorage.removeItem('user');
-      localStorage.removeItem('selectedUser');
-      localStorage.removeItem('walletAuth');
-      
-      navigate('/login', { replace: true });
+      localStorage.removeItem("user");
+      localStorage.removeItem("selectedUser");
+      localStorage.removeItem("walletAuth");
+
+      navigate("/login", { replace: true });
     } catch (error) {
-      console.error('Errore durante il logout:', error);
+      console.error("Errore durante il logout:", error);
     }
   };
 
   const copyPublicKey = () => {
-    if (publicKey) {
-      navigator.clipboard.writeText(publicKey)
-        .then(() => toast.success('Chiave pubblica copiata!'))
-        .catch(() => toast.error('Errore durante la copia'));
+    const currentPub = user.is?.pub;
+    if (currentPub) {
+      navigator.clipboard
+        .writeText(currentPub)
+        .then(() => toast.success("Chiave pubblica copiata negli appunti!"))
+        .catch((err) => {
+          console.error("Errore durante la copia:", err);
+          toast.error("Errore durante la copia della chiave pubblica");
+        });
+    } else {
+      toast.error("Chiave pubblica non disponibile");
     }
   };
 
@@ -90,7 +92,7 @@ export default function Profile() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-96">
             <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
-            
+
             <div className="space-y-4">
               {/* Preview Avatar */}
               <div className="flex items-center justify-center space-x-2">
@@ -104,8 +106,18 @@ export default function Profile() {
                   className="p-2 hover:bg-gray-100 rounded-full"
                   title="Genera nuovo avatar"
                 >
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <svg
+                    className="w-5 h-5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
                   </svg>
                 </button>
               </div>
@@ -159,11 +171,11 @@ export default function Profile() {
           </button>
 
           <span className="text-sm font-medium text-gray-700">
-            {username || 'Utente'}
+            {username || "Utente"}
           </span>
-          
+
           {/* Pulsante copia chiave pubblica */}
-          <button 
+          <button
             onClick={copyPublicKey}
             className="ml-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
             title="Copia chiave pubblica"

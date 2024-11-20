@@ -35,8 +35,12 @@ export const registerWithMetaMask = async (address) => {
               .get('count')
               .once(async (currentCount) => {
                 const newCount = (currentCount || 0) + 1;
-                gun.get(DAPP_NAME).get('userList').get('count').put(newCount);
-                gun.get(DAPP_NAME).get('userList').get('users').set({
+                await gun
+                  .get(DAPP_NAME)
+                  .get('userList')
+                  .get('count')
+                  .put(newCount);
+                await gun.get(DAPP_NAME).get('userList').get('users').set({
                   pub: pair.pub,
                   address: signer.address,
                   username: signer.address,
@@ -44,17 +48,27 @@ export const registerWithMetaMask = async (address) => {
                   timestamp: Date.now(),
                 });
 
-                gun.get(DAPP_NAME).get('userList').get('users').set({
+                await gun.get(DAPP_NAME).get('userList').get('users').set({
                   pub,
                   username: credentials.username,
                   timestamp: Date.now(),
                 });
 
-                let nickname = signer.address
+                let nickname = signer.address;
 
-                gun.get(DAPP_NAME).get('userList').get('nicknames').put(pair.pub).put(nickname)
-                
-                let addFriendRequestCertificate = gun
+                await gun
+                  .get(DAPP_NAME)
+                  .get('userList')
+                  .get('nicknames')
+                  .put(pair.pub)
+                  .put(nickname);
+
+                await gun.user().get(DAPP_NAME).get('profile').put({
+                  nickname: signer.address,
+                  avatarSeed: '',
+                });
+
+                let addFriendRequestCertificate = await gun
                   .user()
                   .get(DAPP_NAME)
                   .get('certificates')
@@ -65,7 +79,7 @@ export const registerWithMetaMask = async (address) => {
                 }
 
                 // Controlla il certificato per le notifiche
-                let notificationCertificate = gun
+                let notificationCertificate = await gun
                   .user()
                   .get(DAPP_NAME)
                   .get('certificates')
@@ -175,25 +189,34 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                 .get('count')
                 .once(async (currentCount) => {
                   const newCount = (currentCount || 0) + 1;
-                  gun.get(DAPP_NAME).get('userList').get('count').put(newCount);
+                  await gun
+                    .get(DAPP_NAME)
+                    .get('userList')
+                    .get('count')
+                    .put(newCount);
 
                   // Add user to list
-                  gun.get(DAPP_NAME).get('userList').get('users').set({
+                  await gun.get(DAPP_NAME).get('userList').get('users').set({
                     pub,
                     username: credentials.username,
                     timestamp: Date.now(),
                   });
 
-                  let nickname = signer.address
+                  let nickname = credentials.username;
 
-                  gun.get(DAPP_NAME).get('userList').get('nicknames').put(pair.pub).put(nickname)
-                  
-                  gun.user().get(DAPP_NAME).get('profile').put({
-                    nickname: signer.address,
+                  await gun
+                    .get(DAPP_NAME)
+                    .get('userList')
+                    .get('nicknames')
+                    .put(pub)
+                    .put(nickname);
+
+                  await gun.user().get(DAPP_NAME).get('profile').put({
+                    nickname: credentials.username,
                     avatarSeed: '',
-                  })
-                  
-                  let addFriendRequestCertificate = gun
+                  });
+
+                  let addFriendRequestCertificate = await gun
                     .user()
                     .get(DAPP_NAME)
                     .get('certificates')
@@ -204,7 +227,7 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                   }
 
                   // Controlla il certificato per le notifiche
-                  let notificationCertificate = gun
+                  let notificationCertificate = await gun
                     .user()
                     .get(DAPP_NAME)
                     .get('certificates')
