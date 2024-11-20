@@ -557,7 +557,7 @@ export default function Homepage() {
       {/* Header */}
       <div className="w-full border-b border-gray-100 bg-white">
         <div className="w-full px-4">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center">
             {/* Logo e profilo allineati a sinistra */}
             <div className="flex items-center space-x-8">
               <Profile onProfileUpdate={(updatedData) => {

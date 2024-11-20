@@ -252,7 +252,6 @@ function App() {
           >
             <Router>
               <div style={{ paddingTop: '60px' }}>
-                <Header />
                 <Routes>
                   <Route path="/landing" element={<LandingPage />} />
                   <Route path="/login" element={<SignIn />} />
