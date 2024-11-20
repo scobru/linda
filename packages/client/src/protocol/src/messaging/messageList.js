@@ -86,16 +86,27 @@ const messageList = {
     }
   },
 
-  loadMessages: async (path, id) => {
+  loadMessages: async (path, id, limit = 20, lastTimestamp = Date.now()) => {
     return new Promise((resolve) => {
       const messages = [];
-      gun.get(DAPP_NAME)
+      let loaded = false;
+      let count = 0;
+
+      const messageHandler = gun.get(DAPP_NAME)
         .get(path)
         .get(id)
         .get('messages')
         .map()
         .once(async (msg, msgId) => {
-          if (msg && msg.content) {
+          // Se abbiamo già raggiunto il limite, non aggiungere altri messaggi
+          if (count >= limit) {
+            if (messageHandler && typeof messageHandler === 'function') {
+              messageHandler(); // Interrompi la sottoscrizione
+            }
+            return;
+          }
+
+          if (msg && msg.content && msg.timestamp < lastTimestamp) {
             const cacheKey = `${msgId}_${msg.timestamp}`;
             
             if (messageCache.has(cacheKey)) {
@@ -103,15 +114,34 @@ const messageList = {
             } else {
               messages.push({ ...msg, id: msgId });
             }
+            count++;
           }
+          loaded = true;
         });
       
-      setTimeout(() => resolve(messages.sort((a, b) => a.timestamp - b.timestamp)), 500);
+      const checkLoaded = () => {
+        if (loaded || messages.length > 0) {
+          const sortedMessages = messages
+            .sort((a, b) => b.timestamp - a.timestamp) // Ordine decrescente
+            .slice(0, limit); // Extra sicurezza per il limite
+          
+          if (messageHandler && typeof messageHandler === 'function') {
+            messageHandler(); // Pulisci la sottoscrizione
+          }
+          
+          resolve(sortedMessages);
+        } else {
+          setTimeout(checkLoaded, 100);
+        }
+      };
+
+      setTimeout(checkLoaded, 100);
     });
   },
 
   subscribeToMessages: (path, id, callback) => {
     const processedMessages = new Set();
+    let initialLoadComplete = false;
     
     return gun.get(DAPP_NAME)
       .get(path)
@@ -123,9 +153,17 @@ const messageList = {
         
         const messageKey = `${msgId}_${msg.timestamp}`;
         if (processedMessages.has(messageKey)) return;
-        processedMessages.add(messageKey);
         
-        callback({ ...msg, id: msgId });
+        if (!initialLoadComplete) {
+          setTimeout(() => {
+            initialLoadComplete = true;
+            processedMessages.add(messageKey);
+            callback({ ...msg, id: msgId });
+          }, 500);
+        } else {
+          processedMessages.add(messageKey);
+          callback({ ...msg, id: msgId });
+        }
       });
   },
 
@@ -197,6 +235,41 @@ const messageList = {
       console.error('Errore durante la crittografia:', error);
       throw error;
     }
+  },
+
+  deleteAllMessages: async (path, id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Prima ottieni tutti i messaggi
+        gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get('messages')
+          .map()
+          .once((msg, msgId) => {
+            if (msg) {
+              // Cancella ogni messaggio
+              gun.get(DAPP_NAME)
+                .get(path)
+                .get(id)
+                .get('messages')
+                .get(msgId)
+                .put(null);
+            }
+          });
+
+        // Pulisci anche il nodo dei messaggi
+        gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get('messages')
+          .put(null);
+
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 };
 

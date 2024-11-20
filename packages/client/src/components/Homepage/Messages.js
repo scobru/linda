@@ -652,6 +652,10 @@ export default function Messages({ chatData }) {
   const lastMessageRef = React.useRef(null);
   const [displayName, setDisplayName] = React.useState('');
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(Date.now());
+  const messagesContainerRef = useRef(null);
 
   // Usa useMemo per creare una singola istanza del messageTracking
   const messageTracking = useMemo(() => createMessageTracking(), []);
@@ -724,13 +728,103 @@ export default function Messages({ chatData }) {
     selected?.roomId,
   ]);
 
-  // Modifica l'effetto che gestisce il setup della chat
+  // Funzione per caricare più messaggi
+  const loadMoreMessages = async () => {
+    if (isLoadingMore || !hasMoreMessages) return;
+
+    try {
+      setIsLoadingMore(true);
+
+      let path;
+      let id;
+
+      if (selected.type === 'friend') {
+        path = 'chats';
+        id = selected.roomId;
+      } else if (selected.type === 'channel') {
+        path = 'channels';
+        id = selected.id;
+      } else if (selected.type === 'board') {
+        path = 'boards';
+        id = selected.id;
+      }
+
+      const olderMessages = await messaging.chat.messageList.loadMessages(
+        path, 
+        id,
+        20, // Carica 20 messaggi alla volta
+        oldestMessageTimestamp
+      );
+
+      if (olderMessages.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      // Processa i messaggi come prima
+      let processedMessages = [];
+      if (selected.type === 'friend') {
+        processedMessages = await Promise.all(
+          olderMessages.map(async (msg) => {
+            try {
+              if (typeof msg.content === 'string' && !msg.content.startsWith('SEA{')) {
+                return msg;
+              }
+              return await messaging.chat.messageList.decryptMessage(msg, selected.pub);
+            } catch (error) {
+              console.warn('Error decrypting message:', error);
+              return {
+                ...msg,
+                content: '[Messaggio non decifrabile]'
+              };
+            }
+          })
+        );
+      } else {
+        processedMessages = olderMessages;
+      }
+
+      // Aggiorna il timestamp del messaggio più vecchio
+      const newOldestTimestamp = Math.min(
+        ...processedMessages.map(msg => msg.timestamp)
+      );
+      setOldestMessageTimestamp(newOldestTimestamp);
+
+      // Aggiungi i nuovi messaggi mantenendo l'ordine
+      setMessages(prevMessages => {
+        const allMessages = [...prevMessages, ...processedMessages];
+        return allMessages.sort((a, b) => a.timestamp - b.timestamp);
+      });
+
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  // Gestione dello scroll
+  const handleScroll = useCallback((e) => {
+    const container = e.target;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+
+    // Controlla se siamo vicini al top per caricare più messaggi
+    if (scrollTop <= 100) {
+      loadMoreMessages();
+    }
+
+    // Controlla se siamo vicini al bottom per l'auto-scroll
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShouldScrollToBottom(isNearBottom);
+  }, [loadMoreMessages]);
+
+  // Modifica l'effetto setupChat
   useEffect(() => {
     if (!selected?.roomId && !selected?.id) return;
 
     setIsSubscribed(true);
     setLoading(true);
-    console.log('Setting up chat for:', selected);
+    setIsInitializing(true);
 
     const setupChat = async () => {
       try {
@@ -744,105 +838,77 @@ export default function Messages({ chatData }) {
           messageSubscriptionRef.current = null;
         }
 
-        // Resetta i messaggi
+        // Resetta gli stati
         setMessages([]);
+        setHasMoreMessages(true);
+        setOldestMessageTimestamp(Date.now());
 
-        // Determina il percorso corretto in base al tipo
-        let path;
-        let id;
+        // Determina il percorso
+        let path = selected.type === 'friend' ? 'chats' : 
+                   selected.type === 'channel' ? 'channels' : 'boards';
+        let id = selected.type === 'friend' ? selected.roomId : selected.id;
 
-        if (selected.type === 'friend') {
-          path = 'chats';
-          id = selected.roomId;
-        } else if (selected.type === 'channel') {
-          path = 'channels';
-          id = selected.id;
-        } else if (selected.type === 'board') {
-          path = 'boards';
-          id = selected.id;
-        }
+        // Carica i messaggi iniziali
+        const existingMessages = await messaging.chat.messageList.loadMessages(
+          path, 
+          id,
+          20,
+          Date.now()
+        );
 
-        // Carica i messaggi esistenti
-        const existingMessages = await messaging.chat.messageList.loadMessages(path, id);
         if (!isSubscribed) return;
 
-        // Decrittazione e filtraggio messaggi per chat private
-        let processedMessages = [];
-        if (selected.type === 'friend') {
-          processedMessages = await Promise.all(
+        // Processa i messaggi
+        let processedMessages = selected.type === 'friend' ?
+          await Promise.all(
             existingMessages.map(async (msg) => {
               try {
-                if (typeof msg.content === 'string' && !msg.content.startsWith('SEA{')) {
-                  return msg;
-                }
-                
-                const decryptedMsg = await messaging.chat.messageList.decryptMessage(
-                  msg,
-                  selected.pub
-                );
-                return decryptedMsg;
+                if (!msg.content.startsWith('SEA{')) return msg;
+                return await messaging.chat.messageList.decryptMessage(msg, selected.pub);
               } catch (error) {
                 console.warn('Error decrypting message:', error);
-                return {
-                  ...msg,
-                  content: '[Messaggio non decifrabile]'
-                };
+                return { ...msg, content: '[Messaggio non decifrabile]' };
               }
             })
-          );
-        } else {
-          processedMessages = existingMessages;
+          ) : existingMessages;
+
+        // Aggiorna i messaggi
+        if (processedMessages.length > 0) {
+          setMessages(processedMessages.sort((a, b) => a.timestamp - b.timestamp));
+          setOldestMessageTimestamp(Math.min(...processedMessages.map(m => m.timestamp)));
         }
 
-        // Filtra i duplicati
-        const uniqueMessages = processedMessages.reduce((acc, curr) => {
-          if (!acc.find(msg => msg.id === curr.id)) {
-            acc.push(curr);
-          }
-          return acc;
-        }, []);
-
-        setMessages(uniqueMessages);
-
         // Sottoscrivi ai nuovi messaggi
-        const messageHandler = messaging.chat.messageList.subscribeToMessages(path, id, async (msg) => {
-          if (!isSubscribed) return;
-
-          try {
-            let processedMsg = msg;
-            if (selected.type === 'friend') {
-              if (typeof msg.content === 'string' && msg.content.startsWith('SEA{')) {
-                processedMsg = await messaging.chat.messageList.decryptMessage(
-                  msg,
-                  selected.pub
-                );
+        const messageHandler = messaging.chat.messageList.subscribeToMessages(
+          path,
+          id,
+          async (msg) => {
+            if (!isSubscribed) return;
+            try {
+              let processedMsg = msg;
+              if (selected.type === 'friend' && msg.content.startsWith('SEA{')) {
+                processedMsg = await messaging.chat.messageList.decryptMessage(msg, selected.pub);
               }
-            }
-
-            setMessages(prev => {
-              const exists = prev.some(m => m.id === processedMsg.id);
-              if (!exists) {
+              setMessages(prev => {
+                if (prev.some(m => m.id === processedMsg.id)) return prev;
                 return [...prev, processedMsg].sort((a, b) => a.timestamp - b.timestamp);
-              }
-              return prev;
-            });
-          } catch (error) {
-            console.warn('Error processing new message:', error);
+              });
+            } catch (error) {
+              console.warn('Error processing new message:', error);
+            }
           }
-        });
+        );
 
         messageSubscriptionRef.current = messageHandler;
         setIsInitializing(false);
-        setIsSubscribing(false);
         setLoading(false);
-        setError(null);
 
       } catch (error) {
         console.error('Error setting up chat:', error);
         if (isSubscribed) {
           setError('Errore nel caricamento della chat');
           setLoading(false);
-          setIsSubscribing(false);
+          setIsInitializing(false);
         }
       }
     };
@@ -862,7 +928,7 @@ export default function Messages({ chatData }) {
         messageSubscriptionRef.current = null;
       }
     };
-  }, [selected?.roomId, selected?.id]);
+  }, [selected?.roomId, selected?.id, selected?.type, selected?.pub]);
 
   // Usa useEffect con controllo di montaggio per le sottoscrizioni al profilo
   useEffect(() => {
@@ -1069,13 +1135,6 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.roomId]);
 
-  // Aggiungi questo handler per il controllo dello scroll
-  const handleScroll = (e) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.target;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-    setShouldScrollToBottom(isNearBottom);
-  };
-
   // Funzione per ottenere il nome visualizzato
   const getDisplayName = async (pubKey) => {
     // Se è l'utente corrente
@@ -1231,6 +1290,33 @@ export default function Messages({ chatData }) {
     }
   };
 
+  // Aggiungi questa funzione nel componente Messages
+  const handleDeleteAllMessages = async () => {
+    if (!selected?.roomId) return;
+
+    try {
+      const isConfirmed = window.confirm('Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata.');
+      
+      if (!isConfirmed) return;
+
+      setLoading(true);
+
+      let path = selected.type === 'friend' ? 'chats' : 
+                 selected.type === 'channel' ? 'channels' : 'boards';
+      let id = selected.type === 'friend' ? selected.roomId : selected.id;
+
+      await messaging.chat.messageList.deleteAllMessages(path, id);
+      
+      setMessages([]);
+      toast.success('Tutti i messaggi sono stati eliminati');
+    } catch (error) {
+      console.error('Error deleting all messages:', error);
+      toast.error('Errore durante l\'eliminazione dei messaggi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1268,7 +1354,29 @@ export default function Messages({ chatData }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center space-x-2">
+          {/* Aggiungi il pulsante per eliminare tutti i messaggi */}
+          {selected.type === 'friend' && (
+            <button
+              onClick={handleDeleteAllMessages}
+              className="p-2 hover:bg-red-100 rounded-full text-red-500"
+              title="Elimina tutti i messaggi"
+            >
+              <svg 
+                className="w-5 h-5" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
+                />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setIsWalletModalOpen(true)}
             className="p-2 hover:bg-gray-100 rounded-full"
@@ -1281,11 +1389,18 @@ export default function Messages({ chatData }) {
         </div>
       </div>
 
-      {/* Area messaggi */}
+      {/* Area messaggi con ref e handler scroll */}
       <div 
+        ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
         onScroll={handleScroll}
       >
+        {isLoadingMore && (
+          <div className="text-center py-2">
+            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
+          </div>
+        )}
+        
         {isInitializing || isSubscribing ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
