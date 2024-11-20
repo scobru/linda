@@ -37,20 +37,44 @@ export default function Profile() {
   const navigate = useNavigate();
   const [username, setUsername] = React.useState("");
   const [publicKey, setPublicKey] = React.useState("");
+  const [address, setAddress] = React.useState("");
   const [isEditingProfile, setIsEditingProfile] = React.useState(false);
   const [nickname, setNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
 
   React.useEffect(() => {
     const loadUserData = async () => {
-      const userProfile = await gun.user().get(DAPP_NAME).get("profile").once();
-      console.log(userProfile);
-      if (userProfile && userProfile.nickname) {
-        setUsername(userProfile.nickname);
-      }
-      const currentPub = user.is?.pub;
-      if (currentPub) {
+      try {
+        const currentPub = user.is?.pub;
+        if (!currentPub) return;
+
         setPublicKey(currentPub);
+
+        const userNode = await new Promise((resolve) => {
+          gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .map()
+            .once((data, key) => {
+              if (data.pub === currentPub) {
+                resolve(data);
+              }
+            });
+        });
+
+        if (userNode) {
+          setUsername(userNode.username || '');
+          setNickname(userNode.nickname || '');
+          setAddress(userNode.address || '');
+        }
+
+        const userProfile = await gun.user().get(DAPP_NAME).get("profile").once();
+        if (userProfile && userProfile.nickname && !userNode?.nickname) {
+          setUsername(userProfile.nickname);
+          setNickname(userProfile.nickname);
+        }
+      } catch (error) {
+        console.error("Errore nel caricamento dei dati utente:", error);
       }
     };
 
@@ -65,6 +89,21 @@ export default function Profile() {
         .get("nicknames")
         .get(user.is.pub)
         .put(nickname.trim());
+
+      await gun
+        .user()
+        .get(DAPP_NAME)
+        .get("profile")
+        .put({ nickname: nickname.trim() });
+
+      await gun.get(DAPP_NAME).get("userList").get("users").set({
+        pub: user.is.pub,
+        nickname: nickname.trim(),
+        username: user.is.alias,
+        timestamp: Date.now(),
+        lastSeen: Date.now(),
+        authType: localStorage.getItem('walletAuth') ? 'wallet' : 'gun'
+      });
 
       setUsername(nickname.trim());
       setIsEditingProfile(false);
@@ -113,6 +152,11 @@ export default function Profile() {
   const truncatePubKey = (key) => {
     if (!key) return "";
     return `${key.slice(0, 6)}...${key.slice(-4)}`;
+  };
+
+  const truncateAddress = (addr) => {
+    if (!addr) return '';
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
   return (
@@ -203,6 +247,11 @@ export default function Profile() {
               <span className="text-xs text-gray-500">
                 {truncatePubKey(publicKey)}
               </span>
+              {address && (
+                <span className="text-xs text-gray-500">
+                  {truncateAddress(address)}
+                </span>
+              )}
             </div>
 
             <button

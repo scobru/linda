@@ -40,6 +40,7 @@ export const registerWithMetaMask = async (address) => {
                   .get('userList')
                   .get('count')
                   .put(newCount);
+
                 await gun.get(DAPP_NAME).get('userList').get('users').set({
                   pub: pair.pub,
                   address: signer.address,
@@ -48,11 +49,6 @@ export const registerWithMetaMask = async (address) => {
                   timestamp: Date.now(),
                 });
 
-                await gun.get(DAPP_NAME).get('userList').get('users').set({
-                  pub,
-                  username: credentials.username,
-                  timestamp: Date.now(),
-                });
 
                 let nickname = signer.address;
 
@@ -64,7 +60,7 @@ export const registerWithMetaMask = async (address) => {
                   .put(nickname);
 
                 await gun.user().get(DAPP_NAME).get('profile').put({
-                  nickname: signer.address,
+                  nickname: nickname,
                   avatarSeed: '',
                 });
 
@@ -195,10 +191,20 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                     .get('count')
                     .put(newCount);
 
+                  const privateKey = user._.sea.priv;
+                  const userWallet = gun.gunToEthAccount(privateKey); 
+
+                  console.log('userWallet', userWallet);
+
+
+
+
                   // Add user to list
                   await gun.get(DAPP_NAME).get('userList').get('users').set({
                     pub,
                     username: credentials.username,
+                    nickname: credentials.username,
+                    address: userWallet.account.address,
                     timestamp: Date.now(),
                   });
 
