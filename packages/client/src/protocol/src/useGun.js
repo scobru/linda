@@ -8,44 +8,48 @@ const DEFAULT_PEERS = ['http://localhost:3030/gun'];
 let isConnected = false;
 
 const initGun = () => {
+  const options = {
+    peers: ['http://localhost:3030/gun'], // Mantieni il relay come peer
+    localStorage: true, // Abilita localStorage
+    radisk: true,      // Abilita radisk per storage persistente
+    store: true,       // Abilita lo store locale
+    axe: true,         // Mantieni axe per la mesh network
+    multicast: false,  // Disabilita multicast per evitare connessioni non volute
+    retry: Infinity,   // Riprova sempre a riconnettersi
+  };
+
   if (window.Gun === undefined) {
-    const gunInstance = Gun(DEFAULT_PEERS);
+    const gunInstance = Gun(options);
 
     // Gestione degli eventi di connessione
-    gunInstance.on('hi', (peer) => {
+    gunInstance.on('hi', peer => {
       if (!peer || !peer.url) return;
       console.log(`Peer connesso: ${peer.url}`);
       isConnected = true;
     });
 
-    gunInstance.on('bye', (peer) => {
+    gunInstance.on('bye', peer => {
       if (!peer || !peer.url) return;
       console.log(`Peer disconnesso: ${peer.url}`);
       isConnected = false;
     });
 
-    gunInstance.on('error', (error) => {
-      console.error('Gun error:', error);
-    });
-
-    // Verifica periodica della connessione
-    setInterval(() => {
-      const connectedPeers = Object.keys(gunInstance._.opt.peers).length;
-      if (connectedPeers === 0 && !isConnected) {
-        console.log('Nessun peer connesso, tentativo di riconnessione...');
-        DEFAULT_PEERS.forEach((peer) => {
-          gunInstance.opt({ peers: [peer] });
-        });
+    // Aggiungi gestione dello storage locale
+    gunInstance.on('put', function(msg) {
+      // Salva i dati localmente
+      if (msg.put) {
+        try {
+          const data = JSON.stringify(msg.put);
+          localStorage.setItem(`gun/${msg.put['#']}`, data);
+        } catch (e) {
+          console.warn('Errore nel salvataggio locale:', e);
+        }
       }
-    }, 5000);
+    });
 
     return gunInstance;
   } else {
-    return window.Gun({
-      peers: DEFAULT_PEERS,
-      localStorage:false,
-      axe:true
-    });
+    return window.Gun(options);
   }
 };
 
@@ -106,3 +110,25 @@ export const reconnect = () => {
 
 // Esporta SEA
 export { SEA };
+
+// Funzione per pulire la cache locale
+export const clearLocalCache = () => {
+  const keys = Object.keys(localStorage);
+  keys.forEach(key => {
+    if (key.startsWith('gun/')) {
+      localStorage.removeItem(key);
+    }
+  });
+};
+
+// Funzione per ottenere la dimensione della cache locale
+export const getLocalCacheSize = () => {
+  let size = 0;
+  const keys = Object.keys(localStorage);
+  keys.forEach(key => {
+    if (key.startsWith('gun/')) {
+      size += localStorage.getItem(key).length;
+    }
+  });
+  return size;
+};
