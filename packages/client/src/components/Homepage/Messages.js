@@ -825,6 +825,7 @@ export default function Messages({ chatData }) {
     setIsSubscribed(true);
     setLoading(true);
     setIsInitializing(true);
+    setMessages([]); // Reset immediato dei messaggi
 
     const setupChat = async () => {
       try {
@@ -837,11 +838,6 @@ export default function Messages({ chatData }) {
           }
           messageSubscriptionRef.current = null;
         }
-
-        // Resetta gli stati
-        setMessages([]);
-        setHasMoreMessages(true);
-        setOldestMessageTimestamp(Date.now());
 
         // Determina il percorso
         let path = selected.type === 'friend' ? 'chats' : 
@@ -872,10 +868,14 @@ export default function Messages({ chatData }) {
             })
           ) : existingMessages;
 
-        // Aggiorna i messaggi
-        if (processedMessages.length > 0) {
-          setMessages(processedMessages.sort((a, b) => a.timestamp - b.timestamp));
-          setOldestMessageTimestamp(Math.min(...processedMessages.map(m => m.timestamp)));
+        // Aggiorna i messaggi solo se siamo ancora sottoscritti
+        if (isSubscribed) {
+          if (processedMessages.length > 0) {
+            setMessages(processedMessages.sort((a, b) => a.timestamp - b.timestamp));
+            setOldestMessageTimestamp(Math.min(...processedMessages.map(m => m.timestamp)));
+          }
+          setLoading(false);
+          setIsInitializing(false);
         }
 
         // Sottoscrivi ai nuovi messaggi
@@ -900,8 +900,6 @@ export default function Messages({ chatData }) {
         );
 
         messageSubscriptionRef.current = messageHandler;
-        setIsInitializing(false);
-        setLoading(false);
 
       } catch (error) {
         console.error('Error setting up chat:', error);
@@ -1389,47 +1387,61 @@ export default function Messages({ chatData }) {
         </div>
       </div>
 
-      {/* Area messaggi con ref e handler scroll */}
+      {/* Area messaggi - Modifica questa parte */}
       <div 
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
         onScroll={handleScroll}
       >
+        {/* Stato di caricamento iniziale */}
+        {(isInitializing || loading) && (
+          <div className="flex flex-col items-center justify-center h-full space-y-2">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            <p className="text-gray-500">Caricamento chat...</p>
+          </div>
+        )}
+
+        {/* Stato di errore */}
+        {!isInitializing && !loading && error && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-red-500">{error}</p>
+          </div>
+        )}
+
+        {/* Stato nessun messaggio */}
+        {!isInitializing && !loading && !error && messages.length === 0 && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-gray-500">Nessun messaggio</p>
+          </div>
+        )}
+
+        {/* Loader per caricamento messaggi aggiuntivi */}
         {isLoadingMore && (
           <div className="text-center py-2">
             <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
           </div>
         )}
-        
-        {isInitializing || isSubscribing ? (
-          <div className="flex flex-col items-center justify-center h-full space-y-2">
-            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-            <p className="text-gray-500">Caricamento chat...</p>
-          </div>
-        ) : error ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-red-500">{error}</p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-500">Nessun messaggio</p>
-          </div>
-        ) : (
-          messages
-            .filter((message) => message && message.content)
-            .map((message) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                isOwnMessage={message.sender === user.is.pub}
-                showSender={true}
-                user={user}
-                messageObserver={messageObserver}
-                handleDeleteMessage={handleDeleteMessage}
-                selected={selected}
-              />
-            ))
+
+        {/* Lista messaggi - mostra solo se non siamo in stato di caricamento iniziale */}
+        {!isInitializing && !loading && !error && messages.length > 0 && (
+          <>
+            {messages
+              .filter((message) => message && message.content)
+              .map((message) => (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  isOwnMessage={message.sender === user.is.pub}
+                  showSender={true}
+                  user={user}
+                  messageObserver={messageObserver}
+                  handleDeleteMessage={handleDeleteMessage}
+                  selected={selected}
+                />
+              ))}
+          </>
         )}
+
         <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
 

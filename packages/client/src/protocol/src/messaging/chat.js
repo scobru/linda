@@ -1,15 +1,4 @@
-/**
- * @module Linda/Messenger/Messaging
- * @description Gestione della messaggistica
- */
-
-import createChat from './createChat.js';
-import messageList from './messageList.js';
-import sendMessage from './sendMessage.js';
-import channelsService from './channels.js';
-import { gun, user, DAPP_NAME } from '../useGun.js';
-
-// Funzioni per la gestione del blocco chat
+// Funzione per bloccare una chat
 const blockChat = async (chatId) => {
   return new Promise((resolve) => {
     gun.get(DAPP_NAME)
@@ -21,6 +10,7 @@ const blockChat = async (chatId) => {
   });
 };
 
+// Funzione per sbloccare una chat
 const unblockChat = async (chatId) => {
   return new Promise((resolve) => {
     gun.get(DAPP_NAME)
@@ -32,6 +22,7 @@ const unblockChat = async (chatId) => {
   });
 };
 
+// Funzione per ottenere le chat bloccate
 const getBlockedChats = async () => {
   return new Promise((resolve) => {
     const blockedChats = [];
@@ -48,30 +39,9 @@ const getBlockedChats = async () => {
   });
 };
 
-// Esporta le funzioni di chat
 export const chat = {
+  // ... altre funzioni esistenti ...
   blockChat,
   unblockChat,
-  getBlockedChats,
-  createChat,
-  messageList,
-  sendMessage
-};
-
-// Servizio per i canali e le bacheche
-export const channels = channelsService;
-
-// Esporta sia il servizio chat che il servizio channels
-export const messaging = {
-  chat,
-  channels
-};
-
-// Esporta anche le singole funzioni per retrocompatibilità
-export {
-  createChat,
-  messageList,
-  sendMessage
-};
-
-export default messaging;
+  getBlockedChats
+}; 

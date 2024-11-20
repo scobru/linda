@@ -1,8 +1,11 @@
 import React from 'react';
-import { gun, user, DAPP_NAME } from '../../protocol';
+import { gun, user, DAPP_NAME, blocking, messaging } from '../../protocol';
 import { userUtils } from '../../protocol/src/utils/userUtils';
 import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/src/friends';
 import { toast } from 'react-hot-toast';
+
+const { userBlocking } = blocking;
+const { chat } = messaging;
 
 // Componente per la richiesta di amicizia
 const FriendRequest = ({ request, onRequestProcessed }) => {
@@ -196,6 +199,8 @@ export default function Friends({ onSelect, loading, selectedUser }) {
   const [pendingRequests, setPendingRequests] = React.useState([]);
   const friendsRef = React.useRef(new Map());
   const [activeMenu, setActiveMenu] = React.useState(null);
+  const [blockedUsers, setBlockedUsers] = React.useState(new Set());
+  const blockedUsersRef = React.useRef(new Set());
 
   // Funzione per gestire la rimozione delle richieste processate
   const handleRequestProcessed = (fromPub) => {
@@ -303,6 +308,81 @@ export default function Friends({ onSelect, loading, selectedUser }) {
     };
   }, []);
 
+  React.useEffect(() => {
+    let isSubscribed = true;
+
+    const loadBlockedUsers = async () => {
+      try {
+        // Usa Promise.allSettled invece di Promise.all per gestire meglio gli errori
+        const [blockedListResult, blockedChatsResult] = await Promise.allSettled([
+          userBlocking.getBlockedUsers(),
+          chat.getBlockedChats()
+        ]);
+        
+        if (!isSubscribed) return;
+
+        const blockedList = blockedListResult.status === 'fulfilled' ? blockedListResult.value : [];
+        const blockedChats = blockedChatsResult.status === 'fulfilled' ? blockedChatsResult.value : [];
+
+        const blockedSet = new Set(blockedList.map(user => user.pub));
+        setBlockedUsers(blockedSet);
+        blockedUsersRef.current = blockedSet;
+
+        // Aggiorna la lista amici per riflettere lo stato di blocco
+        setFriends(prev => prev.map(friend => {
+          const chatId = [user.is.pub, friend.pub].sort().join('_');
+          const isChatBlocked = blockedChats.includes(chatId);
+          
+          return {
+            ...friend,
+            isBlocked: blockedSet.has(friend.pub),
+            canChat: !blockedSet.has(friend.pub) && !isChatBlocked
+          };
+        }));
+      } catch (error) {
+        console.error('Error loading blocked users:', error);
+      }
+    };
+
+    loadBlockedUsers();
+
+    // Ascolta gli eventi di cambio stato utente
+    const handleUserStatusChange = async (event) => {
+      const { type, userPub } = event.detail;
+      
+      if (type === 'block') {
+        setBlockedUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.add(userPub);
+          blockedUsersRef.current = newSet;
+          return newSet;
+        });
+
+        setFriends(prev => prev.map(friend => 
+          friend.pub === userPub ? { ...friend, isBlocked: true } : friend
+        ));
+      } else if (type === 'unblock') {
+        setBlockedUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(userPub);
+          blockedUsersRef.current = newSet;
+          return newSet;
+        });
+
+        setFriends(prev => prev.map(friend => 
+          friend.pub === userPub ? { ...friend, isBlocked: false } : friend
+        ));
+      }
+    };
+
+    window.addEventListener('userStatusChanged', handleUserStatusChange);
+
+    return () => {
+      isSubscribed = false;
+      window.removeEventListener('userStatusChanged', handleUserStatusChange);
+    };
+  }, [setFriends]);
+
   const handleRemoveFriend = async (friend) => {
     try {
       if (window.confirm('Sei sicuro di voler rimuovere questo amico?')) {
@@ -318,13 +398,14 @@ export default function Friends({ onSelect, loading, selectedUser }) {
 
   const renderFriend = (friend) => {
     const isSelected = selectedUser?.pub === friend.pub;
+    const isBlocked = friend.isBlocked;
 
     return (
       <div
         key={friend.pub}
         className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
           isSelected ? 'bg-blue-50' : ''
-        }`}
+        } ${isBlocked ? 'opacity-50' : ''}`}
       >
         <div 
           className="flex-1 flex items-center"
@@ -380,12 +461,86 @@ export default function Friends({ onSelect, loading, selectedUser }) {
                 >
                   Rimuovi amico
                 </button>
+                {isBlocked ? (
+                  <button
+                    onClick={() => handleUnblock(friend)}
+                    className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                  >
+                    Sblocca utente
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleBlock(friend)}
+                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Blocca utente
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
+
+        {/* Indicatore di blocco */}
+        {isBlocked && (
+          <div className="absolute top-0 right-0 m-2">
+            <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
+              Bloccato
+            </span>
+          </div>
+        )}
       </div>
     );
+  };
+
+  const handleBlock = async (friend) => {
+    try {
+      // Blocca l'utente
+      const blockResult = await userBlocking.blockUser(friend.pub);
+      if (!blockResult.success) {
+        throw new Error(blockResult.message);
+      }
+      
+      // Blocca anche la chat
+      const chatId = [user.is.pub, friend.pub].sort().join('_');
+      const chatBlockResult = await chat.blockChat(chatId);
+      if (!chatBlockResult.success) {
+        throw new Error('Errore nel blocco della chat');
+      }
+      
+      // Aggiorna lo stato locale
+      setFriends(prev => prev.map(f => 
+        f.pub === friend.pub ? { ...f, isBlocked: true, canChat: false } : f
+      ));
+      
+      toast.success(`${friend.alias} è stato bloccato`);
+      setActiveMenu(null);
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      toast.error(`Errore durante il blocco: ${error.message}`);
+    }
+  };
+
+  const handleUnblock = async (friend) => {
+    try {
+      // Sblocca l'utente
+      await userBlocking.unblockUser(friend.pub);
+      
+      // Sblocca anche la chat
+      const chatId = [user.is.pub, friend.pub].sort().join('_');
+      await chat.unblockChat(chatId);
+      
+      // Aggiorna lo stato locale
+      setFriends(prev => prev.map(f => 
+        f.pub === friend.pub ? { ...f, isBlocked: false, canChat: true } : f
+      ));
+      
+      toast.success(`${friend.alias} è stato sbloccato`);
+      setActiveMenu(null);
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+      toast.error("Errore durante lo sblocco dell'utente");
+    }
   };
 
   return (
