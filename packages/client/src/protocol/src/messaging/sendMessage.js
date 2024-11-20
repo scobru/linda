@@ -5,7 +5,7 @@
 
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { messageNotifications } from '../notifications/index.js';
-import SEA from 'gun/sea.js';
+import messageList from './messageList.js';
 
 /**
  * Sends an encrypted message to a recipient in a chat
@@ -55,38 +55,13 @@ const sendMessage = async (
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     console.log('Generated message ID:', messageId);
 
-    const recipientEpub = await new Promise((resolve) => {
-      gun.user(recipientPub).once((data) => {
-        resolve(data.epub);
-      });
-    });
-
-    // Cripta il contenuto del messaggio usando la chiave esistente
-    const secret = await SEA.secret(recipientEpub, user.pair());
-    const encryptedContent = await SEA.encrypt(content, secret);
-
-    console.log('Generated secret for encryption:', {
-      recipientPub,
-      ourPub: user.is.pub,
-      secret,
-    });
-
-    console.log('Encryption result:', {
-      originalContent: content,
-      encryptedContent,
-    });
-
-    if (!encryptedContent) {
-      throw new Error('Encryption failed');
-    }
-
-    // Rimuovi i log sensibili
+    // Usa la funzione di crittografia da messageList
+    const encryptedContent = await messageList.encryptMessage(content, recipientPub);
     console.log('Message encrypted successfully');
 
-    // Cripta l'anteprima usando la stessa chiave ma con un flag
-    const previewContent =
-      content.substring(0, 50) + (content.length > 50 ? '...' : '');
-    const encryptedPreview = await SEA.encrypt(previewContent, secret);
+    // Cripta l'anteprima
+    const previewContent = content.substring(0, 50) + (content.length > 50 ? '...' : '');
+    const encryptedPreview = await messageList.encryptMessage(previewContent, recipientPub);
 
     // Prepara i dati del messaggio
     const messageData = {

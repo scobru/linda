@@ -11,6 +11,7 @@ import { JsonRpcProvider, formatEther } from 'ethers';
 
 const { userBlocking } = blocking;
 const { channels } = messaging;
+const { chat } = messaging;
 
 // Custom hook per l'intersection observer
 const useIntersectionObserver = (callback, deps = []) => {
@@ -340,29 +341,20 @@ const MessageItem = ({
 // Aggiungi queste funzioni di gestione dei messaggi
 const handleMessages = (data) => {
   if (!isSubscribed) return;
-  console.log('Received message data:', data);
-
+  
   if (data.initial) {
     const validMessages = (data.initial || []).filter(
       (msg) => msg && msg.content && msg.sender && msg.timestamp
     );
-    console.log('Setting initial messages:', validMessages);
-    setMessages(validMessages);
-    setLoading(false);
-  } else if (data.individual || data.message) {
-    const messageData = data.individual || data.message;
-    console.log('Received new message:', messageData);
-    if (messageData && messageData.content) {
-      setMessages((prev) => {
-        const exists = prev.some((m) => m.id === messageData.id);
-        if (!exists) {
-          console.log('Adding new message to list');
-          const newMessages = [...prev, messageData];
-          return newMessages.sort((a, b) => a.timestamp - b.timestamp);
-        }
-        return prev;
-      });
-    }
+    
+    const processedMessages = selected.type === 'friend' 
+      ? validMessages.map(msg => messageList.decryptMessage(msg, msg.sender))
+      : validMessages;
+      
+    Promise.all(processedMessages).then(decryptedMessages => {
+      setMessages(decryptedMessages);
+      setLoading(false);
+    });
   }
 };
 
@@ -770,60 +762,76 @@ export default function Messages({ chatData }) {
           id = selected.id;
         }
 
-        console.log('Loading messages from:', { path, id, type: selected.type });
-
         // Carica i messaggi esistenti
-        const existingMessages = await new Promise((resolve) => {
-          const messages = [];
-          gun.get(DAPP_NAME)
-            .get(path)
-            .get(id)
-            .get('messages')
-            .map()
-            .once((msg, msgId) => {
-              if (msg && msg.content) {
-                messages.push({ ...msg, id: msgId });
-              }
-            });
-          
-          setTimeout(() => resolve(messages), 500);
-        });
-
+        const existingMessages = await messaging.chat.messageList.loadMessages(path, id);
         if (!isSubscribed) return;
 
-        // Imposta i messaggi iniziali
-        if (existingMessages.length > 0) {
-          setMessages(existingMessages.sort((a, b) => a.timestamp - b.timestamp));
+        // Decrittazione e filtraggio messaggi per chat private
+        let processedMessages = [];
+        if (selected.type === 'friend') {
+          processedMessages = await Promise.all(
+            existingMessages.map(async (msg) => {
+              try {
+                if (typeof msg.content === 'string' && !msg.content.startsWith('SEA{')) {
+                  return msg;
+                }
+                
+                const decryptedMsg = await messaging.chat.messageList.decryptMessage(
+                  msg,
+                  selected.pub
+                );
+                return decryptedMsg;
+              } catch (error) {
+                console.warn('Error decrypting message:', error);
+                return {
+                  ...msg,
+                  content: '[Messaggio non decifrabile]'
+                };
+              }
+            })
+          );
+        } else {
+          processedMessages = existingMessages;
         }
 
+        // Filtra i duplicati
+        const uniqueMessages = processedMessages.reduce((acc, curr) => {
+          if (!acc.find(msg => msg.id === curr.id)) {
+            acc.push(curr);
+          }
+          return acc;
+        }, []);
+
+        setMessages(uniqueMessages);
+
         // Sottoscrivi ai nuovi messaggi
-        const messageHandler = gun.get(DAPP_NAME)
-          .get(path)
-          .get(id)
-          .get('messages')
-          .map()
-          .on((msg, msgId) => {
-            if (!isSubscribed) return;
-            if (!msg || !msg.content) return;
+        const messageHandler = messaging.chat.messageList.subscribeToMessages(path, id, async (msg) => {
+          if (!isSubscribed) return;
+
+          try {
+            let processedMsg = msg;
+            if (selected.type === 'friend') {
+              if (typeof msg.content === 'string' && msg.content.startsWith('SEA{')) {
+                processedMsg = await messaging.chat.messageList.decryptMessage(
+                  msg,
+                  selected.pub
+                );
+              }
+            }
 
             setMessages(prev => {
-              const exists = prev.some(m => m.id === msgId);
+              const exists = prev.some(m => m.id === processedMsg.id);
               if (!exists) {
-                const newMessages = [...prev, { ...msg, id: msgId }];
-                return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+                return [...prev, processedMsg].sort((a, b) => a.timestamp - b.timestamp);
               }
               return prev;
             });
-          });
-
-        // Modifica come memorizziamo la sottoscrizione
-        messageSubscriptionRef.current = () => {
-          if (typeof messageHandler === 'function') {
-            messageHandler();
+          } catch (error) {
+            console.warn('Error processing new message:', error);
           }
-        };
+        });
 
-        // Imposta gli stati finali
+        messageSubscriptionRef.current = messageHandler;
         setIsInitializing(false);
         setIsSubscribing(false);
         setLoading(false);
@@ -841,7 +849,6 @@ export default function Messages({ chatData }) {
 
     setupChat();
 
-    // Cleanup function
     return () => {
       setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
@@ -936,26 +943,20 @@ export default function Messages({ chatData }) {
       if (message.sender !== user.is.pub || subscriptions.has(message.id))
         return;
 
-      const unsubscribe = gun
-        .get(DAPP_NAME)
-        .get(`chats/${selected.roomId}/receipts`)
-        .get(message.id)
-        .on((receipt) => {
-          if (!receipt) return;
-
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === receipt.messageId) {
-                return {
-                  ...msg,
-                  delivered: receipt.type === 'delivery' || msg.delivered,
-                  read: receipt.type === 'read' || msg.read,
-                };
-              }
-              return msg;
-            })
-          );
-        });
+      const unsubscribe = chat.messageList.subscribeToReceipts(selected.roomId, message.id, (receipt) => {
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === receipt.messageId) {
+              return {
+                ...msg,
+                delivered: receipt.type === 'delivery' || msg.delivered,
+                read: receipt.type === 'read' || msg.read,
+              };
+            }
+            return msg;
+          })
+        );
+      });
 
       if (typeof unsubscribe === 'function') {
         subscriptions.set(message.id, unsubscribe);
@@ -985,26 +986,22 @@ export default function Messages({ chatData }) {
 
     // Se è un nostro messaggio, sottoscrivi alle sue ricevute
     if (lastMessage && lastMessage.sender === user.is.pub) {
-      const unsubscribe = gun
-        .get(DAPP_NAME)
-        .get(`chats/${selected.roomId}/receipts`)
-        .get(lastMessage.id)
-        .on((receipt) => {
-          if (!receipt) return;
+      const unsubscribe = chat.messageList.subscribeToReceipts(selected.roomId, lastMessage.id, (receipt) => {
+        if (!receipt) return;
 
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === receipt.messageId) {
-                return {
-                  ...msg,
-                  delivered: receipt.type === 'delivery' || msg.delivered,
-                  read: receipt.type === 'read' || msg.read,
-                };
-              }
-              return msg;
-            })
-          );
-        });
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === receipt.messageId) {
+              return {
+                ...msg,
+                delivered: receipt.type === 'delivery' || msg.delivered,
+                read: receipt.type === 'read' || msg.read,
+              };
+            }
+            return msg;
+          })
+        );
+      });
 
       return () => {
         if (typeof unsubscribe === 'function') {
@@ -1021,10 +1018,7 @@ export default function Messages({ chatData }) {
     }
 
     try {
-      // Determina il percorso corretto
-      let path;
-      let id;
-
+      let path, id;
       if (selected.type === 'friend') {
         path = 'chats';
         id = selected.roomId;
@@ -1036,49 +1030,12 @@ export default function Messages({ chatData }) {
         id = selected.id;
       }
 
-      console.log('Deleting message from:', { path, id, messageId });
-
-      // Rimuovi il messaggio usando una Promise per assicurarsi che l'operazione sia completata
-      await new Promise((resolve, reject) => {
-        gun.get(DAPP_NAME)
-          .get(path)
-          .get(id)
-          .get('messages')
-          .get(messageId)
-          .put(null, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve();
-            }
-          });
-      });
-
-      // Se è una bacheca, rimuovi anche dal nodo pubblico
-      if (selected.type === 'board') {
-        await new Promise((resolve, reject) => {
-          gun.get(DAPP_NAME)
-            .get('public_boards')
-            .get(id)
-            .get('messages')
-            .get(messageId)
-            .put(null, (ack) => {
-              if (ack.err) {
-                reject(new Error(ack.err));
-              } else {
-                resolve();
-              }
-            });
-        });
-      }
-      
-      // Aggiorna la lista dei messaggi localmente
+      await chat.messageList.deleteMessage(path, id, messageId);
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
-      
-      toast.success('Messaggio rimosso');
+      toast.success('Messaggio eliminato');
     } catch (error) {
       console.error('Error deleting message:', error);
-      toast.error('Errore nella rimozione del messaggio');
+      toast.error('Errore durante l\'eliminazione del messaggio');
     }
   };
 
@@ -1123,7 +1080,7 @@ export default function Messages({ chatData }) {
   const getDisplayName = async (pubKey) => {
     // Se è l'utente corrente
     if (pubKey === user?.is?.pub) {
-      // Se è un wallet
+      // Se  un wallet
       const walletAuth = localStorage.getItem('walletAuth');
       if (walletAuth) {
         try {
@@ -1218,48 +1175,55 @@ export default function Messages({ chatData }) {
     if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const messageData = {
-      id: messageId,
-      content: messageContent,
-      sender: user.is.pub,
-      senderAlias: user.is.alias || 'Unknown',
-      timestamp: Date.now()
-    };
-
     setNewMessage('');
 
     try {
-      // Determina il percorso corretto
-      let path;
-      let id;
-
       if (selected.type === 'friend') {
-        path = 'chats';
-        id = selected.roomId;
-      } else if (selected.type === 'channel') {
-        path = 'channels';
-        id = selected.id;
-      } else if (selected.type === 'board') {
-        path = 'boards';
-        id = selected.id;
+        // Prima cripta il messaggio
+        const encryptedContent = await messaging.chat.messageList.encryptMessage(
+          messageContent,
+          selected.pub
+        );
+
+        if (!encryptedContent) {
+          throw new Error('Errore durante la crittografia del messaggio');
+        }
+
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const messageData = {
+          id: messageId,
+          content: encryptedContent,
+          sender: user.is.pub,
+          timestamp: Date.now()
+        };
+
+        // Salva il messaggio criptato
+        await gun.get(DAPP_NAME)
+          .get('chats')
+          .get(selected.roomId)
+          .get('messages')
+          .get(messageId)
+          .put(messageData);
+
+      } else {
+        // Per canali e bacheche il messaggio non viene criptato
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const messageData = {
+          id: messageId,
+          content: messageContent,
+          sender: user.is.pub,
+          senderAlias: user.is.alias || 'Unknown',
+          timestamp: Date.now()
+        };
+
+        let path = selected.type === 'channel' ? 'channels' : 'boards';
+        await gun.get(DAPP_NAME)
+          .get(path)
+          .get(selected.id)
+          .get('messages')
+          .get(messageId)
+          .put(messageData);
       }
-
-      console.log('Saving message to:', { path, id, type: selected.type });
-
-      // Salva il messaggio
-      await gun.get(DAPP_NAME)
-        .get(path)
-        .get(id)
-        .get('messages')
-        .get(messageId)
-        .put(messageData);
-
-      // Inizializza il tracking del messaggio
-      await messageTracking.initMessageTracking(messageId, id);
-
-      console.log('Message sent successfully');
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error(error.message || "Errore nell'invio del messaggio");
