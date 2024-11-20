@@ -1,4 +1,5 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
+import { walletService } from '../wallet.js';
 import {
   createFriendRequestCertificate,
   createNotificationCertificate,
@@ -36,6 +37,23 @@ export const loginWithMetaMask = async (address) => {
           reject(new Error(ack.err));
           return;
         }
+
+        // Aggiorna i dati del wallet
+        await gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .set({
+            pub: pair.pub,
+            address: signer.address,
+            timestamp: Date.now(),
+            lastSeen: Date.now(),
+            authType: 'wallet'
+          });
+
+        // Aggiorna anche il profilo utente
+        await gun.user().get(DAPP_NAME).get('profile').put({
+          address: signer.address
+        });
 
         let addFriendRequestCertificate = gun
           .user()
@@ -115,6 +133,32 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
+            // Usa gun.gunToEthAccount invece di walletService
+            const privateKey = user._.sea.priv;
+            const userWallet = await gun.gunToEthAccount(privateKey);
+            console.log('Retrieved wallet:', userWallet);
+
+            // salva wallet in localstorage
+            localStorage.setItem('gunWallet', JSON.stringify(userWallet));
+
+            // Aggiorna i dati del wallet
+            await gun.get(DAPP_NAME)
+              .get('userList')
+              .get('users')
+              .set({
+                pub: user.is.pub,
+                username: credentials.username,
+                address: userWallet?.account.address,
+                timestamp: Date.now(),
+                lastSeen: Date.now(),
+                authType: 'gun'
+              });
+
+            // Aggiorna anche il profilo utente
+            await gun.user().get(DAPP_NAME).get('profile').put({
+              address: userWallet?.account.address
+            });
+
             let addFriendRequestCertificate = await gun
               .user()
               .get(DAPP_NAME)
@@ -130,11 +174,12 @@ const loginUser = (credentials = {}, callback = () => {}) => {
               .user()
               .get(DAPP_NAME)
               .get('certificates')
-              .get('notifications')
-  
+              .get('notifications');
+
             if (!notificationCertificate) {
               await createNotificationCertificate();
             }
+
             // Wait for user.is to be available
             let attempts = 0;
             const maxAttempts = 10;

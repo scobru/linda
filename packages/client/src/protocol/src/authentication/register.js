@@ -1,5 +1,6 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { createFriendRequestCertificate } from '../security/index.js';
+import { walletService } from '../wallet.js';
 
 const REGISTRATION_TIMEOUT = 10000; // 10 seconds
 
@@ -192,21 +193,28 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                     .put(newCount);
 
                   const privateKey = user._.sea.priv;
-                  const userWallet = gun.gunToEthAccount(privateKey); 
+                  const userWallet = await gun.gunToEthAccount(privateKey);
 
-                  console.log('userWallet', userWallet);
+                  console.log('Generated wallet:', userWallet);
 
+                  // Salva l'indirizzo sia nei dati utente che nel profilo
+                  await Promise.all([
+                    // Salva nei dati utente pubblici
+                    gun.get(DAPP_NAME).get('userList').get('users').set({
+                      pub,
+                      username: credentials.username,
+                      nickname: credentials.username,
+                      address: userWallet.account.address,
+                      timestamp: Date.now(),
+                    }),
 
-
-
-                  // Add user to list
-                  await gun.get(DAPP_NAME).get('userList').get('users').set({
-                    pub,
-                    username: credentials.username,
-                    nickname: credentials.username,
-                    address: userWallet.account.address,
-                    timestamp: Date.now(),
-                  });
+                    // Salva anche nel profilo utente
+                    gun.user().get(DAPP_NAME).get('profile').put({
+                      nickname: credentials.username,
+                      avatarSeed: '',
+                      address: userWallet.account.address
+                    })
+                  ]);
 
                   let nickname = credentials.username;
 

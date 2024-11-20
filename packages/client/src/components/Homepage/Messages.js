@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import Context from '../../contexts/context';
 import { toast, Toaster } from 'react-hot-toast';
 import { AiOutlineSend } from 'react-icons/ai';
@@ -6,6 +6,8 @@ import { messaging, blocking } from '../../protocol';
 import { gun, user, notifications , DAPP_NAME } from '../../protocol';
 import { userUtils } from '../../protocol/src/utils/userUtils';
 import { createMessagesCertificate } from '../../protocol/src/security';
+import { walletService } from '../../protocol/src/wallet';
+import { JsonRpcProvider, formatEther } from 'ethers';
 
 const { userBlocking } = blocking;
 const { channels } = messaging;
@@ -157,63 +159,77 @@ const MessageStatus = ({ message }) => {
   );
 };
 
-// New hook to handle message visibility and receipts
-const useMessageVisibility = (messages, setMessages, selected) => {
-  const { sendDeliveryReceipt, sendReadReceipt } = useSendReceipt();
-
-  const handleMessageVisible = React.useCallback(
-    async (messageId) => {
-      if (!selected?.pub || !selected?.roomId) return;
-
-      // Trova il messaggio
-      const message = messages.find((m) => m.id === messageId);
-
-      // Invia notifica di lettura solo se il messaggio non è nostro e non è già stato segnato come letto
-      if (message && message.sender !== user.is.pub && !message.read) {
-        try {
-          await sendDeliveryReceipt(messageId, selected.roomId);
-          await sendReadReceipt(messageId, selected.roomId);
-
-          // Aggiorna lo stato del messaggio localmente
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === messageId
-                ? { ...msg, delivered: true, read: true }
-                : msg
-            )
-          );
-        } catch (error) {
-          console.warn('Error sending read receipt:', error);
-        }
-      }
-    },
-    [
-      selected?.pub,
-      selected?.roomId,
-      messages,
-      setMessages,
-      sendDeliveryReceipt,
-      sendReadReceipt,
-    ]
-  );
-
-  return handleMessageVisible;
-};
-
-// Add this custom hook for message tracking
-const useMessageTracking = () => {
-  const initMessageTracking = React.useCallback(async (messageId, roomId) => {
+// Modifica createMessageTracking per includere tutti i metodi necessari
+const createMessageTracking = () => ({
+  initMessageTracking: async (messageId, roomId) => {
     if (!user.is) return;
-
     await gun.get('chats').get(roomId).get('receipts').get(messageId).put({
       type: 'sent',
       timestamp: Date.now(),
       by: user.is.pub,
     });
-  }, []);
+  },
 
-  return { initMessageTracking };
-};
+  updateMessageStatus: async (messageId, roomId, status) => {
+    if (!user.is || !messageId || !roomId) return;
+    try {
+      await gun.get('chats').get(roomId).get('receipts').get(messageId).put({
+        type: status,
+        timestamp: Date.now(),
+        by: user.is.pub,
+      });
+    } catch (error) {
+      console.warn(`Error updating message status to ${status}:`, error);
+    }
+  },
+
+  observeMessageStatus: (messageId, roomId) => {
+    return new Observable(subscriber => {
+      if (!messageId || !roomId) {
+        subscriber.complete();
+        return;
+      }
+
+      const handler = gun.get('chats').get(roomId).get('receipts').get(messageId).on((receipt) => {
+        if (receipt) {
+          subscriber.next({
+            delivered: receipt.type === 'delivery' || receipt.type === 'read',
+            read: receipt.type === 'read',
+            timestamp: receipt.timestamp,
+            by: receipt.by
+          });
+        }
+      });
+
+      return () => {
+        if (typeof handler === 'function') {
+          handler();
+        }
+      };
+    });
+  },
+
+  observeReadReceipts: (messageId, roomId) => {
+    return new Observable(subscriber => {
+      if (!messageId || !roomId) {
+        subscriber.complete();
+        return;
+      }
+
+      const handler = gun.get('chats').get(roomId).get('receipts').get(messageId).on((receipt) => {
+        if (receipt && receipt.type === 'read') {
+          subscriber.next(receipt);
+        }
+      });
+
+      return () => {
+        if (typeof handler === 'function') {
+          handler();
+        }
+      };
+    });
+  }
+});
 
 // Aggiungi questa funzione per ottenere lo username
 const getUserUsername = async (userPub) => {
@@ -357,6 +373,265 @@ const handleError = (error) => {
   setLoading(false);
 };
 
+// Modifica il WalletModal per includere le informazioni del wallet
+const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
+  const [amount, setAmount] = useState('');
+  const [customAddress, setCustomAddress] = useState('');
+  const [sendType, setSendType] = useState('contact');
+  const [isLoading, setIsLoading] = useState(false);
+  const [myWalletInfo, setMyWalletInfo] = useState(null);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [recipientWalletInfo, setRecipientWalletInfo] = useState(null);
+  const [balance, setBalance] = useState(null);
+  const [network, setNetwork] = useState(null);
+
+  // Carica le informazioni dei wallet all'apertura del modale
+  React.useEffect(() => {
+    const loadWalletInfo = async () => {
+      try {
+        // Carica il wallet dell'utente corrente
+        const wallet = await walletService.getCurrentWallet();
+        console.log('Loaded wallet info:', wallet);
+        setMyWalletInfo(wallet);
+
+        // Carica il balance
+        const provider = new JsonRpcProvider("https://sepolia.optimism.io");
+        const balance = await provider.getBalance(wallet.address);
+        setBalance(formatEther(balance));
+
+        // Imposta la rete
+        setNetwork({
+          name: 'Optimism Sepolia',
+          chainId: 11155420
+        });
+
+        // Carica il wallet del destinatario se in modalità contatto
+        if (selectedUser?.pub) {
+          const recipientAddress = await walletService.getUserWalletAddress(selectedUser.pub);
+          console.log('Loaded recipient wallet:', recipientAddress);
+          setRecipientWalletInfo({ address: recipientAddress });
+        }
+      } catch (error) {
+        console.error('Error loading wallet info:', error);
+        toast.error('Errore nel caricamento delle informazioni del wallet');
+      }
+    };
+
+    if (isOpen) {
+      loadWalletInfo();
+    }
+  }, [isOpen, selectedUser?.pub]);
+
+  const handleCopyAddress = () => {
+    if (myWalletInfo?.address) {
+      navigator.clipboard.writeText(myWalletInfo.address);
+      toast.success('Indirizzo copiato negli appunti!');
+    }
+  };
+
+  const handleCopyPrivateKey = () => {
+    if (myWalletInfo?.privateKey) {
+      navigator.clipboard.writeText(myWalletInfo.privateKey);
+      toast.success('Chiave privata copiata negli appunti!');
+    }
+  };
+
+  const handleSend = async () => {
+    try {
+      setIsLoading(true);
+      
+      if (sendType === 'contact') {
+        // Invia al contatto selezionato
+        await onSend(selectedUser.pub, amount);
+      } else {
+        // Invia all'indirizzo custom
+        await walletService.sendTransaction(customAddress, amount);
+      }
+
+      toast.success('Transazione inviata con successo!');
+      onClose();
+      setAmount('');
+      setCustomAddress('');
+    } catch (error) {
+      console.error('Error sending transaction:', error);
+      toast.error(error.message || 'Errore durante l\'invio');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-96 max-w-full">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-medium">Wallet</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Il mio wallet */}
+        {myWalletInfo ? (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg break-all">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Il mio wallet</h4>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Indirizzo:</span>
+                <div className="flex items-center">
+                  <span className="text-xs font-mono mr-2">
+                    {myWalletInfo.address ? 
+                      `${myWalletInfo.address.slice(0, 6)}...${myWalletInfo.address.slice(-4)}` :
+                      'Caricamento...'
+                    }
+                  </span>
+                  <button
+                    onClick={handleCopyAddress}
+                    className="p-1 hover:bg-gray-200 rounded"
+                    title="Copia indirizzo"
+                    disabled={!myWalletInfo.address}
+                  >
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Balance */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Balance:</span>
+                <span className="text-xs font-medium">
+                  {balance ? `${Number(balance).toFixed(8)} ETH` : 'Caricamento...'}
+                </span>
+              </div>
+
+              {/* Network */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Rete:</span>
+                <span className="text-xs font-medium">
+                  {network ? (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      {network.name}
+                    </span>
+                  ) : 'Caricamento...'}
+                </span>
+              </div>
+
+              {/* Chiave privata (solo per wallet derivati) */}
+              {myWalletInfo.type === 'derived' && myWalletInfo.privateKey && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    className="text-xs text-blue-500 hover:text-blue-600"
+                  >
+                    {showPrivateKey ? 'Nascondi' : 'Mostra'} chiave privata
+                  </button>
+                  {showPrivateKey && (
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="text-xs font-mono truncate max-w-[180px]">
+                        {myWalletInfo.privateKey}
+                      </span>
+                      <button
+                        onClick={handleCopyPrivateKey}
+                        className="p-1 hover:bg-gray-200 rounded"
+                        title="Copia chiave privata"
+                      >
+                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500">
+                Tipo: {myWalletInfo.type === 'metamask' ? 'MetaMask' : 'Wallet Derivato'}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-center">
+            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+          </div>
+        )}
+
+        {/* Destinatario */}
+        {sendType === 'contact' ? (
+          <div className="break-all">
+            <label className="block text-sm font-medium text-gray-700 mb-1 ">
+              Destinatario
+            </label>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium">{selectedUser.alias}</p>
+              <p className="text-xs text-gray-500">{selectedUser.pub.slice(0, 8)}...</p>
+              {recipientWalletInfo?.address && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Indirizzo: {recipientWalletInfo.address.slice(0, 6)}...{recipientWalletInfo.address.slice(-4)}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Indirizzo ETH
+            </label>
+            <input
+              type="text"
+              value={customAddress}
+              onChange={(e) => setCustomAddress(e.target.value)}
+              placeholder="0x..."
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        )}
+
+        {/* Importo */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Importo (ETH)
+          </label>
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.0"
+            step="0.0001"
+            min="0"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        {/* Pulsante invio */}
+        <button
+          onClick={handleSend}
+          disabled={isLoading || !amount || (sendType === 'custom' && !customAddress)}
+          className={`w-full py-2 rounded-lg bg-blue-500 text-white transition-colors ${
+            isLoading || !amount || (sendType === 'custom' && !customAddress)
+              ? 'opacity-50 cursor-not-allowed'
+              : 'hover:bg-blue-600'
+          }`}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center">
+              <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
+              Invio in corso...
+            </div>
+          ) : (
+            'Invia'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function Messages({ chatData }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
@@ -376,7 +651,7 @@ export default function Messages({ chatData }) {
   const blockCheckTimeoutRef = React.useRef(null);
   const lastBlockCheckRef = React.useRef(null);
   const [isAdmin, setIsAdmin] = React.useState(false);
-  const [canPost, setCanPost] = React.useState(false);
+  const [canWrite, setCanWrite] = React.useState(false);
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [isSubscribing, setIsSubscribing] = React.useState(false);
   const previousRoomIdRef = React.useRef(null);
@@ -384,174 +659,22 @@ export default function Messages({ chatData }) {
   const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
   const lastMessageRef = React.useRef(null);
   const [displayName, setDisplayName] = React.useState('');
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
-  const { initMessageTracking } = useMessageTracking();
+  // Usa useMemo per creare una singola istanza del messageTracking
+  const messageTracking = useMemo(() => createMessageTracking(), []);
 
-  // Use the new hook
-  const handleMessageVisible = useMessageVisibility(
-    messages,
-    setMessages,
-    selected
-  );
-
-  // Use the intersection observer with the handler from our hook
-  const messageObserver = useIntersectionObserver(handleMessageVisible, [
-    selected?.pub,
-    chatData?.roomId,
-  ]);
-
-  // Reset quando cambia l'utente selezionato
-  React.useEffect(() => {
-    const cleanup = () => {
-      if (messageSubscriptionRef.current) {
-        try {
-          if (typeof messageSubscriptionRef.current === 'function') {
-            messageSubscriptionRef.current();
-          } else if (messageSubscriptionRef.current.unsubscribe) {
-            messageSubscriptionRef.current.unsubscribe();
-          }
-          messageSubscriptionRef.current = null;
-        } catch (error) {
-          console.warn('Error during messages cleanup:', error);
-        }
-      }
-      if (toastIdRef.current) {
-        toast.dismiss(toastIdRef.current);
-        toastIdRef.current = null;
-      }
-    };
-
-    cleanup();
-    setMessages([]);
-    setCurrentChat(null);
-    setError(null);
-    setLoading(false);
-
-    return cleanup;
-  }, [selected?.pub, setCurrentChat]);
-
-  // Funzione per pulire la chat
-  const handleClearChat = async () => {
-    if (!selected?.pub || !chatData?.roomId) return;
-
-    if (
-      window.confirm(
-        'Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata.'
-      )
-    ) {
-      try {
-        // Rimuovi tutti i messaggi manualmente
-        gun
-          .get('chats')
-          .get(chatData.roomId)
-          .get('messages')
-          .map()
-          .once((msg, key) => {
-            if (msg) {
-              gun
-                .get('chats')
-                .get(chatData.roomId)
-                .get('messages')
-                .get(key)
-                .put(null);
-            }
-          });
-
-        setMessages([]);
-        toast.success('Chat pulita con successo');
-      } catch (error) {
-        console.error('Error clearing chat:', error);
-        toast.error('Errore durante la pulizia della chat');
-      }
-    }
-  };
-
-  // Funzione per verificare lo stato di blocco con throttling
-  const checkBlockStatus = React.useCallback(async (userPub) => {
-    // Evita controlli troppo frequenti (minimo 2 secondi tra un controllo e l'altro)
-    const now = Date.now();
-    if (lastBlockCheckRef.current && now - lastBlockCheckRef.current < 2000) {
-      return;
-    }
-
-    lastBlockCheckRef.current = now;
-
-    try {
-      // Usa i metodi del servizio blocking
-      const blockedByMe = await userBlocking.isBlocked(userPub);
-      const blockedByOther = await userBlocking.isBlockedBy(userPub);
-
-      console.log('Block status:', { blockedByMe, blockedByOther }); // Debug log
-
-      // Aggiorna lo stato solo se è cambiato
-      setBlockStatus((prev) => {
-        if (
-          prev.blockedByMe !== blockedByMe ||
-          prev.blockedByOther !== blockedByOther
-        ) {
-          return { blockedByMe, blockedByOther };
-        }
-        return prev;
-      });
-
-      setIsBlocked(blockedByMe);
-      setCanSendMessages(!blockedByMe && !blockedByOther);
-
-      if (blockedByMe) {
-        setError('blocked_by_me');
-      } else if (blockedByOther) {
-        setError('blocked_by_other');
-      } else {
-        setError(null);
-      }
-    } catch (error) {
-      console.error('Error checking block status:', error);
-    }
-  }, []);
-
-  // Funzione per sbloccare un utente
-  const handleUnblock = async () => {
-    if (!selected?.pub) return;
-
-    try {
-      await userBlocking.unblockUser(selected.pub);
-      setIsBlocked(false);
-      setCanSendMessages(true);
-      setError(null);
-      toast.success(`${selected.alias} è stato sbloccato`);
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      toast.error("Errore durante lo sblocco dell'utente");
-    }
-  };
-
-  // Aggiungi una funzione per bloccare l'utente
-  const handleBlock = async () => {
-    if (!selected?.pub) return;
-
-    try {
-      await userBlocking.blockUser(selected.pub);
-      setIsBlocked(true);
-      setCanSendMessages(false);
-      toast.success(`${selected.alias} è stato bloccato`);
-    } catch (error) {
-      console.error('Error blocking user:', error);
-      toast.error("Errore durante il blocco dell'utente");
-    }
-  };
-
-  // Aggiungi stato per i permessi
-  const [canWrite, setCanWrite] = React.useState(false);
-
-  // Effetto per verificare i permessi
-  React.useEffect(() => {
-    if (!chatData || !user?.is) return;
-
+  // Effetto per verificare i permessi di scrittura
+  useEffect(() => {
     const checkPermissions = async () => {
+      if (!chatData || !user?.is) {
+        setCanWrite(false);
+        return;
+      }
+
       try {
         // Se è una chat privata
         if (!chatData.type || chatData.type === 'friend') {
-          // Verifica se esiste un certificato per i messaggi
           const messageCert = await gun.get(DAPP_NAME)
             .get('certificates')
             .get(chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1)
@@ -559,12 +682,9 @@ export default function Messages({ chatData }) {
             .then();
 
           if (!messageCert) {
-            // Se non esiste il certificato, crealo
             const otherPub = chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1;
             const cert = await createMessagesCertificate(otherPub);
-            if (cert) {
-              setCanWrite(true);
-            }
+            setCanWrite(!!cert);
           } else {
             setCanWrite(true);
           }
@@ -597,122 +717,23 @@ export default function Messages({ chatData }) {
     checkPermissions();
   }, [chatData, user?.is]);
 
-  // Modifica la funzione di invio messaggi
-  const sendMessage = async () => {
-    if (!canWrite || (!selected?.roomId && !selected?.id) || !newMessage.trim()) return;
-
-    const messageContent = newMessage.trim();
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const messageData = {
-      id: messageId,
-      content: messageContent,
-      sender: user.is.pub,
-      senderAlias: user.is.alias || 'Unknown',
-      timestamp: Date.now()
-    };
-
-    setNewMessage('');
-
-    try {
-      // Determina il percorso corretto
-      let path;
-      let id;
-
-      if (selected.type === 'friend') {
-        path = 'chats';
-        id = selected.roomId;
-      } else if (selected.type === 'channel') {
-        path = 'channels';
-        id = selected.id;
-      } else if (selected.type === 'board') {
-        path = 'boards';
-        id = selected.id;
-      }
-
-      console.log('Saving message to:', { path, id, type: selected.type });
-
-      // Salva il messaggio
-      await gun.get(DAPP_NAME)
-        .get(path)
-        .get(id)
-        .get('messages')
-        .get(messageId)
-        .put(messageData);
-
-      console.log('Message sent successfully');
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast.error(error.message || "Errore nell'invio del messaggio");
-      setNewMessage(messageContent);
+  // Usa useCallback per le funzioni che non devono essere ricreate
+  const handleMessageVisible = useCallback((messageId) => {
+    if (!selected?.pub || !selected?.roomId) return;
+    const message = messages.find((m) => m.id === messageId);
+    if (message && message.sender !== user.is.pub && !message.read) {
+      messageTracking.updateMessageStatus(messageId, selected.roomId, 'read');
     }
-  };
+  }, [selected?.pub, selected?.roomId, messages]);
 
-  // Aggiungi anche un handler per l'invio con il tasto Enter
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      console.log('Enter key pressed, attempting to send message');
-      sendMessage();
-    }
-  };
+  // Crea l'observer per i messaggi
+  const messageObserver = useIntersectionObserver(handleMessageVisible, [
+    selected?.pub,
+    selected?.roomId,
+  ]);
 
-  // Modifica l'effetto che monitora lo stato di blocco
-  React.useEffect(() => {
-    if (!selected?.pub) return;
-
-    let isSubscribed = true;
-
-    // Verifica iniziale dello stato di blocco
-    checkBlockStatus(selected.pub);
-
-    // Monitora i cambiamenti dello stato di blocco per entrambi gli utenti
-    const unsubMyBlocks = gun
-      .user()
-      .get('blocked_users')
-      .map()
-      .on(() => {
-        if (!isSubscribed) return;
-
-        // Usa il throttling per le verifiche di stato
-        if (blockCheckTimeoutRef.current) {
-          clearTimeout(blockCheckTimeoutRef.current);
-        }
-
-        blockCheckTimeoutRef.current = setTimeout(() => {
-          checkBlockStatus(selected.pub);
-        }, 1000);
-      });
-
-    const unsubOtherBlocks = gun
-      .get(`~${selected.pub}`)
-      .get('blocked_users')
-      .map()
-      .on(() => {
-        if (!isSubscribed) return;
-
-        // Usa il throttling per le verifiche di stato
-        if (blockCheckTimeoutRef.current) {
-          clearTimeout(blockCheckTimeoutRef.current);
-        }
-
-        blockCheckTimeoutRef.current = setTimeout(() => {
-          checkBlockStatus(selected.pub);
-        }, 1000);
-      });
-
-    return () => {
-      isSubscribed = false;
-      if (typeof unsubMyBlocks === 'function') unsubMyBlocks();
-      if (typeof unsubOtherBlocks === 'function') unsubOtherBlocks();
-      if (blockCheckTimeoutRef.current) {
-        clearTimeout(blockCheckTimeoutRef.current);
-      }
-    };
-  }, [selected?.pub, checkBlockStatus]);
-
-  // Modifica l'effetto principale che gestisce il setup della chat
-  React.useEffect(() => {
+  // Modifica l'effetto che gestisce il setup della chat
+  useEffect(() => {
     if (!selected?.roomId && !selected?.id) return;
 
     setIsSubscribed(true);
@@ -725,6 +746,8 @@ export default function Messages({ chatData }) {
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
             messageSubscriptionRef.current();
+          } else if (messageSubscriptionRef.current.unsubscribe) {
+            messageSubscriptionRef.current.unsubscribe();
           }
           messageSubscriptionRef.current = null;
         }
@@ -793,7 +816,12 @@ export default function Messages({ chatData }) {
             });
           });
 
-        messageSubscriptionRef.current = messageHandler;
+        // Modifica come memorizziamo la sottoscrizione
+        messageSubscriptionRef.current = () => {
+          if (typeof messageHandler === 'function') {
+            messageHandler();
+          }
+        };
 
         // Imposta gli stati finali
         setIsInitializing(false);
@@ -813,26 +841,57 @@ export default function Messages({ chatData }) {
 
     setupChat();
 
+    // Cleanup function
     return () => {
       setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
         if (typeof messageSubscriptionRef.current === 'function') {
-          messageSubscriptionRef.current();
+          try {
+            messageSubscriptionRef.current();
+          } catch (error) {
+            console.warn('Error during cleanup:', error);
+          }
         }
         messageSubscriptionRef.current = null;
       }
     };
-  }, [selected]);
+  }, [selected?.roomId, selected?.id]);
+
+  // Usa useEffect con controllo di montaggio per le sottoscrizioni al profilo
+  useEffect(() => {
+    if (!chatData) return;
+    
+    let mounted = true;
+    const otherPub = chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
+    
+    const unsub = gun.get(DAPP_NAME)
+      .get('userList')
+      .get('nicknames')
+      .get(otherPub)
+      .on((nickname) => {
+        if (!mounted) return;
+        if (nickname) {
+          setDisplayName(nickname);
+        } else {
+          setDisplayName(`${otherPub.slice(0, 6)}...${otherPub.slice(-4)}`);
+        }
+      });
+
+    return () => {
+      mounted = false;
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [chatData]);
 
   // Aggiungi un effetto separato per mantenere la chat corrente
-  React.useEffect(() => {
+  useEffect(() => {
     if (chatData) {
       console.log('Current chat updated:', chatData);
     }
   }, [chatData]);
 
   // Aggiungi un effetto per resettare la chat quando l'amico viene rimosso
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selected?.pub) return;
 
     const unsubFriendRemoval = gun
@@ -868,7 +927,7 @@ export default function Messages({ chatData }) {
   }, [selected?.pub, setCurrentChat]);
 
   // Modifica l'effetto che monitora le ricevute
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selected?.roomId) return;
     const subscriptions = new Map(); // Usa una Map per tenere traccia delle sottoscrizioni
 
@@ -918,7 +977,7 @@ export default function Messages({ chatData }) {
   }, [selected?.roomId]); // Rimuovi messages dalle dipendenze
 
   // Aggiungi un effetto separato per gestire i nuovi messaggi
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selected?.roomId || !messages.length) return;
 
     // Trova l'ultimo messaggio
@@ -1031,7 +1090,7 @@ export default function Messages({ chatData }) {
   };
 
   // Aggiungi questo effetto per gestire lo scroll automatico
-  React.useEffect(() => {
+  useEffect(() => {
     if (messages.length > 0) {
       // Salva l'ultimo messaggio come riferimento
       lastMessageRef.current = messages[messages.length - 1];
@@ -1046,7 +1105,7 @@ export default function Messages({ chatData }) {
   }, [messages]);
 
   // Aggiungi questo effetto per resettare lo scroll quando cambia la chat
-  React.useEffect(() => {
+  useEffect(() => {
     setShouldScrollToBottom(true);
     if (messagesEndRef.current) {
       scrollToBottom('auto');
@@ -1144,6 +1203,70 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.pub]);
 
+  const handleSendTip = async (recipientPub, amount) => {
+    try {
+      await walletService.sendTip(recipientPub, amount);
+      toast.success('Transazione completata con successo!');
+    } catch (error) {
+      console.error('Error sending tip:', error);
+      toast.error(error.message || 'Errore nell\'invio');
+    }
+  };
+
+  // Aggiungi la funzione sendMessage
+  const sendMessage = async () => {
+    if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
+
+    const messageContent = newMessage.trim();
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const messageData = {
+      id: messageId,
+      content: messageContent,
+      sender: user.is.pub,
+      senderAlias: user.is.alias || 'Unknown',
+      timestamp: Date.now()
+    };
+
+    setNewMessage('');
+
+    try {
+      // Determina il percorso corretto
+      let path;
+      let id;
+
+      if (selected.type === 'friend') {
+        path = 'chats';
+        id = selected.roomId;
+      } else if (selected.type === 'channel') {
+        path = 'channels';
+        id = selected.id;
+      } else if (selected.type === 'board') {
+        path = 'boards';
+        id = selected.id;
+      }
+
+      console.log('Saving message to:', { path, id, type: selected.type });
+
+      // Salva il messaggio
+      await gun.get(DAPP_NAME)
+        .get(path)
+        .get(id)
+        .get('messages')
+        .get(messageId)
+        .put(messageData);
+
+      // Inizializza il tracking del messaggio
+      await messageTracking.initMessageTracking(messageId, id);
+
+      console.log('Message sent successfully');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error(error.message || "Errore nell'invio del messaggio");
+      setNewMessage(messageContent);
+    }
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1181,6 +1304,17 @@ export default function Messages({ chatData }) {
             </p>
           </div>
         </div>
+        <div className="flex items-center">
+          <button
+            onClick={() => setIsWalletModalOpen(true)}
+            className="p-2 hover:bg-gray-100 rounded-full"
+            title="Apri wallet"
+          >
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Area messaggi */}
@@ -1204,22 +1338,18 @@ export default function Messages({ chatData }) {
         ) : (
           messages
             .filter((message) => message && message.content)
-            .map((message) => {
-              const isOwnMessage = message.sender === user.is.pub;
-              
-              return (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  isOwnMessage={isOwnMessage}
-                  showSender={true} // Sempre true per le board
-                  user={user}
-                  messageObserver={messageObserver}
-                  handleDeleteMessage={handleDeleteMessage}
-                  selected={selected} // Passa selected come prop
-                />
-              );
-            })
+            .map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                isOwnMessage={message.sender === user.is.pub}
+                showSender={true}
+                user={user}
+                messageObserver={messageObserver}
+                handleDeleteMessage={handleDeleteMessage}
+                selected={selected}
+              />
+            ))
         )}
         <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
@@ -1253,6 +1383,12 @@ export default function Messages({ chatData }) {
         </div>
       )}
       <Toaster />
+      <WalletModal
+        isOpen={isWalletModalOpen}
+        onClose={() => setIsWalletModalOpen(false)}
+        onSend={handleSendTip}
+        selectedUser={selected}
+      />
     </div>
   );
 }
