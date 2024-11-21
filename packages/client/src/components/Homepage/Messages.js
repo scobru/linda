@@ -384,7 +384,6 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
       try {
         // Carica il wallet dell'utente corrente
         const wallet = await walletService.getCurrentWallet();
-        console.log('Loaded wallet info:', wallet);
         setMyWalletInfo(wallet);
 
         // Carica il balance
@@ -398,11 +397,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           chainId: 11155420
         });
 
-        // Carica il wallet del destinatario se in modalità contatto
+        // Carica il wallet del destinatario
         if (selectedUser?.pub) {
           const recipientAddress = await walletService.getUserWalletAddress(selectedUser.pub);
-          console.log('Loaded recipient wallet:', recipientAddress);
-          setRecipientWalletInfo({ address: recipientAddress });
+          console.log('Recipient address:', recipientAddress);
+          setRecipientWalletInfo({ 
+            address: recipientAddress,
+            type: 'derived'
+          });
         }
       } catch (error) {
         console.error('Error loading wallet info:', error);
@@ -558,15 +560,17 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Destinatario */}
         {sendType === 'contact' ? (
           <div className="break-all">
-            <label className="block text-sm font-medium text-gray-700 mb-1 ">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Destinatario
             </label>
             <div className="p-3 bg-gray-50 rounded-lg">
               <p className="text-sm font-medium">{selectedUser.alias}</p>
-              <p className="text-xs text-gray-500">{selectedUser.pub.slice(0, 8)}...</p>
+              <p className="text-xs text-gray-500">
+                Chiave pubblica: {selectedUser.pub.slice(0, 8)}...
+              </p>
               {recipientWalletInfo?.address && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Indirizzo: {recipientWalletInfo.address.slice(0, 6)}...{recipientWalletInfo.address.slice(-4)}
+                  Indirizzo Wallet: {recipientWalletInfo.address}
                 </p>
               )}
             </div>

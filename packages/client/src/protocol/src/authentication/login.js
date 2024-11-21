@@ -29,71 +29,85 @@ export const loginWithMetaMask = async (address) => {
           return;
         }
 
-        // Genera/recupera il wallet interno
-        const privateKey = user._.sea.priv;
-        const internalWallet = await gun.gunToEthAccount(privateKey);
-        
-        // Salva il wallet interno
-        localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
+        try {
+          // Genera/recupera il wallet interno
+          const privateKey = user._.sea.priv;
+          const internalWallet = await gun.gunToEthAccount(privateKey);
+          
+          // Salva il wallet interno
+          localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
 
-        // Salva anche l'auth di MetaMask
-        localStorage.setItem(
-          'walletAuth',
-          JSON.stringify({
-            address: signer.address,
-            timestamp: Date.now(),
-          })
-        );
+          // Salva l'auth di MetaMask
+          localStorage.setItem(
+            'walletAuth',
+            JSON.stringify({
+              address: signer.address,
+              timestamp: Date.now(),
+            })
+          );
 
-        // Aggiorna i dati utente
-        await gun.get(DAPP_NAME)
-          .get('userList')
-          .get('users')
-          .set({
-            pub: pair.pub,
-            address: signer.address, // indirizzo MetaMask
-            internalAddress: internalWallet.account.address, // indirizzo wallet interno
-            timestamp: Date.now(),
-            lastSeen: Date.now(),
-            authType: 'wallet'
+          // Aggiorna i dati utente usando l'indirizzo interno
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .set({
+              pub: pair.pub,
+              address: internalWallet.account.address, // Usa l'indirizzo del wallet interno
+              metamaskAddress: signer.address, // Mantieni riferimento a MetaMask
+              timestamp: Date.now(),
+              lastSeen: Date.now(),
+              authType: 'wallet'
+            });
+
+          // Aggiorna anche il profilo utente
+          await gun.user().get(DAPP_NAME).get('profile').put({
+            address: internalWallet.account.address // Usa l'indirizzo del wallet interno
           });
 
-        // Aggiorna anche il profilo utente
-        await gun.user().get(DAPP_NAME).get('profile').put({
-          address: signer.address
-        });
+          // Aggiorna il nickname se necessario
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('nicknames')
+            .get(pair.pub)
+            .put(internalWallet.account.address.slice(0, 8));
 
-        let addFriendRequestCertificate = gun
-          .user()
-          .get(DAPP_NAME)
-          .get('certificates')
-          .get('friendRequests');
+          let addFriendRequestCertificate = gun
+            .user()
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('friendRequests');
 
-        if (!addFriendRequestCertificate) {
-          await createFriendRequestCertificate();
+          if (!addFriendRequestCertificate) {
+            await createFriendRequestCertificate();
+          }
+
+          // Controlla il certificato per le notifiche
+          let notificationCertificate = gun
+            .user()
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('notifications');
+
+          if (!notificationCertificate) {
+            await createNotificationCertificate();
+          }
+
+          // Salva i dati di autenticazione
+          sessionStorage.setItem('isAuthenticated', 'true');
+          sessionStorage.setItem('userPub', pair.pub);
+
+          resolve({
+            success: true,
+            pub: pair.pub,
+            message: 'Autenticazione completata con successo.',
+            user: { 
+              pub: pair.pub, 
+              address: internalWallet.account.address // Usa l'indirizzo del wallet interno
+            },
+          });
+        } catch (error) {
+          reject(error);
         }
-
-        // Controlla il certificato per le notifiche
-        let notificationCertificate = gun
-          .user()
-          .get(DAPP_NAME)
-          .get('certificates')
-          .get('notifications');
-
-        if (!notificationCertificate) {
-          await createNotificationCertificate();
-        }
-
-        // Salva i dati di autenticazione
-        sessionStorage.setItem('isAuthenticated', 'true');
-        sessionStorage.setItem('userPub', pair.pub);
-
-        resolve({
-          success: true,
-          pub: pair.pub,
-          message: 'Autenticazione completata con successo.',
-          user: { pub: pair.pub, address: signer.address },
-        });
       });
     });
   } catch (error) {

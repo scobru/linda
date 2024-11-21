@@ -36,67 +36,76 @@ export const registerWithMetaMask = async (address) => {
           // Salva il wallet interno nel localStorage
           localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
 
-          await new Promise((resolve) => {
-            gun
-              .get(DAPP_NAME)
-              .get('userList')
-              .get('count')
-              .once(async (currentCount) => {
-                const newCount = (currentCount || 0) + 1;
-                await gun
-                  .get(DAPP_NAME)
-                  .get('userList')
-                  .get('count')
-                  .put(newCount);
+          // Salva l'auth di MetaMask
+          localStorage.setItem(
+            'walletAuth',
+            JSON.stringify({
+              address: signer.address,
+              timestamp: Date.now(),
+            })
+          );
 
-                await gun.get(DAPP_NAME).get('userList').get('users').set({
-                  pub: pair.pub,
-                  address: signer.address,
-                  internalAddress: internalWallet.account.address,
-                  username: signer.address,
-                  nickname: signer.address,
-                  timestamp: Date.now(),
-                });
-
-
-                let nickname = signer.address;
-
-                await gun
-                  .get(DAPP_NAME)
-                  .get('userList')
-                  .get('nicknames')
-                  .put(pair.pub)
-                  .put(nickname);
-
-                await gun.user().get(DAPP_NAME).get('profile').put({
-                  nickname: nickname,
-                  avatarSeed: '',
-                });
-
-                let addFriendRequestCertificate = await gun
-                  .user()
-                  .get(DAPP_NAME)
-                  .get('certificates')
-                  .get('friendRequests');
-
-                if (!addFriendRequestCertificate) {
-                  await createFriendRequestCertificate();
-                }
-
-                // Controlla il certificato per le notifiche
-                let notificationCertificate = await gun
-                  .user()
-                  .get(DAPP_NAME)
-                  .get('certificates')
-                  .get('notifications');
-
-                if (!notificationCertificate) {
-                  await createNotificationCertificate();
-                }
-
-                resolve();
-              });
+          // Usa una sola chiamata per salvare i dati utente
+          await gun.get(DAPP_NAME).get('userList').get('users').set({
+            pub: pair.pub,
+            address: internalWallet.account.address, // Usa l'indirizzo del wallet interno come principale
+            metamaskAddress: signer.address, // Mantieni riferimento a MetaMask
+            username: internalWallet.account.address.slice(0, 8),
+            nickname: internalWallet.account.address.slice(0, 8),
+            timestamp: Date.now(),
+            authType: 'wallet'
           });
+
+          // Rimuovi la seconda chiamata che stava sovrascrivendo l'indirizzo
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('count')
+            .once(async (currentCount) => {
+              const newCount = (currentCount || 0) + 1;
+              await gun
+                .get(DAPP_NAME)
+                .get('userList')
+                .get('count')
+                .put(newCount);
+
+              let nickname = internalWallet.account.address.slice(0, 8);
+
+              await gun
+                .get(DAPP_NAME)
+                .get('userList')
+                .get('nicknames')
+                .put(pair.pub)
+                .put(nickname);
+
+              await gun.user().get(DAPP_NAME).get('profile').put({
+                nickname: nickname,
+                address: internalWallet.account.address, // Usa l'indirizzo del wallet interno
+                avatarSeed: ''
+              });
+
+              let addFriendRequestCertificate = await gun
+                .user()
+                .get(DAPP_NAME)
+                .get('certificates')
+                .get('friendRequests');
+
+              if (!addFriendRequestCertificate) {
+                await createFriendRequestCertificate();
+              }
+
+              // Controlla il certificato per le notifiche
+              let notificationCertificate = await gun
+                .user()
+                .get(DAPP_NAME)
+                .get('certificates')
+                .get('notifications');
+
+              if (!notificationCertificate) {
+                await createNotificationCertificate();
+              }
+
+              resolve();
+            });
 
           resolve({
             success: true,

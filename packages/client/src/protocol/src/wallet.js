@@ -83,6 +83,7 @@ export const walletService = {
 
       console.log('Found user data:', userData);
 
+      // Usa l'indirizzo del wallet interno se presente
       if (userData?.address) {
         return userData.address;
       }
@@ -93,6 +94,13 @@ export const walletService = {
 
       if (userProfile?.address) {
         return userProfile.address;
+      }
+
+      // Se ancora non trovato, genera un nuovo wallet dalle chiavi dell'utente
+      const userKeys = await gun.user(userPub).then();
+      if (userKeys?.priv) {
+        const derivedWallet = await gun.gunToEthAccount(userKeys.priv);
+        return derivedWallet.account.address;
       }
 
       throw new Error('Indirizzo wallet non trovato per questo utente');
@@ -111,57 +119,74 @@ export const walletService = {
     try {
       console.log('Sending tip to:', recipientPub, 'amount:', amount, 'stealth mode:', isStealthMode);
 
-      if (!isStealthMode) {
-        // Usa il metodo di invio tip esistente
-        // ... codice esistente del sendTip ...
-        return;
-      }
-
-      // Usa sempre il wallet interno per i tip
+      // Ottieni il wallet del mittente (sempre quello derivato)
       const senderWallet = await walletService.getCurrentWallet();
       const signer = new Wallet(senderWallet.privateKey).connect(provider);
 
-      // Ottieni l'indirizzo del destinatario
+      // Ottieni l'indirizzo del destinatario (sempre quello derivato)
       const recipientAddress = await walletService.getUserWalletAddress(recipientPub);
 
-      // Genera indirizzo stealth per il destinatario
-      const stealthInfo = await gun.generateStealthAddress(recipientAddress, signer.address);
-      
-      // Annuncia il pagamento stealth
-      await gun.announceStealthPayment(
-        stealthInfo.stealthAddress,
-        signer.address,
-        signer.address,
-        signer.address,
-        { onChain: true }
-      );
+      if (isStealthMode) {
+        // Logica per pagamenti stealth
+        const stealthInfo = await gun.generateStealthAddress(recipientAddress, signer.address);
+        
+        await gun.announceStealthPayment(
+          stealthInfo.stealthAddress,
+          stealthInfo.senderPublicKey,
+          stealthInfo.spendingPublicKey,
+          signature,
+          { onChain: true }
+        );
 
-      // Invia la transazione all'indirizzo stealth
-      const tx = await signer.sendTransaction({
-        to: stealthInfo.stealthAddress,
-        value: parseEther(amount),
-        chainId: OPTIMISM_SEPOLIA_CHAIN_ID
-      });
-
-      await tx.wait();
-
-      // Salva la transazione stealth nel database
-      await gun.get(DAPP_NAME)
-        .get('tips')
-        .set({
-          from: user.is.pub,
-          to: recipientPub,
-          amount: formatEther(tx.value),
-          txHash: tx.hash,
-          timestamp: Date.now(),
-          network: 'optimism-sepolia',
-          isStealthPayment: true,
-          stealthAddress: stealthInfo.stealthAddress
+        const tx = await signer.sendTransaction({
+          to: stealthInfo.stealthAddress,
+          value: parseEther(amount),
+          chainId: OPTIMISM_SEPOLIA_CHAIN_ID
         });
 
-      return tx;
+        await tx.wait();
+
+        // Salva la transazione stealth
+        await gun.get(DAPP_NAME)
+          .get('tips')
+          .set({
+            from: user.is.pub,
+            to: recipientPub,
+            amount: formatEther(tx.value),
+            txHash: tx.hash,
+            timestamp: Date.now(),
+            network: 'optimism-sepolia',
+            isStealthPayment: true,
+            stealthAddress: stealthInfo.stealthAddress
+          });
+
+        return tx;
+      } else {
+        // Transazione normale
+        const tx = await signer.sendTransaction({
+          to: recipientAddress,
+          value: parseEther(amount),
+          chainId: OPTIMISM_SEPOLIA_CHAIN_ID
+        });
+
+        await tx.wait();
+
+        // Salva la transazione normale
+        await gun.get(DAPP_NAME)
+          .get('tips')
+          .set({
+            from: user.is.pub,
+            to: recipientPub,
+            amount: formatEther(tx.value),
+            txHash: tx.hash,
+            timestamp: Date.now(),
+            network: 'optimism-sepolia'
+          });
+
+        return tx;
+      }
     } catch (error) {
-      console.error('Error sending stealth tip:', error);
+      console.error('Error sending tip:', error);
       throw error;
     }
   },

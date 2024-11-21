@@ -117,6 +117,7 @@ export default function Profile() {
         const walletAuth = localStorage.getItem('walletAuth');
         if (walletAuth) {
           const { address } = JSON.parse(walletAuth);
+          // Usa l'indirizzo MetaMask originale
           setWalletAddress(address);
         }
       } catch (error) {
@@ -349,6 +350,9 @@ export default function Profile() {
         <div className="mt-4">
           <p className="text-sm text-gray-600">Indirizzo MetaMask:</p>
           <p className="text-sm font-mono">{walletAddress}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            (Utilizzato solo per autenticazione)
+          </p>
         </div>
       )}
       
