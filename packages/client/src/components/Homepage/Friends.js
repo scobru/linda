@@ -9,60 +9,19 @@ const { chat } = messaging;
 
 // Componente per la richiesta di amicizia
 const FriendRequest = ({ request, onRequestProcessed }) => {
+  const [userInfo, setUserInfo] = React.useState({
+    displayName: 'Caricamento...',
+    username: '',
+    nickname: ''
+  });
   const [isProcessing, setIsProcessing] = React.useState(false);
-  const [displayName, setDisplayName] = React.useState('Unknown');
 
-  // Effetto per caricare il nome dell'utente che ha inviato la richiesta
   React.useEffect(() => {
-    const loadSenderName = async () => {
-      try {
-        // Ottieni il nome dal nodo userList/users
-        const userData = await new Promise((resolve) => {
-          gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
-            .get(request.from)
-            .once((data) => {
-              resolve(data);
-            });
-        });
-
-        if (userData?.nickname) {
-          setDisplayName(userData.nickname);
-          return;
-        }
-
-        // Prova a ottenere il nickname
-        const nickname = await new Promise((resolve) => {
-          gun.get(DAPP_NAME)
-            .get('userList')
-            .get('nicknames')
-            .get(request.from)
-            .once((data) => {
-              resolve(data);
-            });
-        });
-
-        if (nickname) {
-          setDisplayName(nickname);
-          return;
-        }
-
-        // Fallback all'alias originale
-        const user = await gun.get(`~${request.from}`).once();
-        if (user?.alias) {
-          setDisplayName(user.alias.split('.')[0]);
-          return;
-        }
-
-        // Fallback finale alla chiave pubblica abbreviata
-        setDisplayName(`${request.from.slice(0, 6)}...${request.from.slice(-4)}`);
-      } catch (error) {
-        console.error('Errore nel caricamento del nome:', error);
-      }
+    const loadUserInfo = async () => {
+      const info = await userUtils.getUserInfo(request.from);
+      setUserInfo(info);
     };
-
-    loadSenderName();
+    loadUserInfo();
   }, [request.from]);
 
   const handleAccept = async () => {
@@ -160,16 +119,18 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
       <div className="flex items-center">
         <img
           className="h-10 w-10 rounded-full"
-          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${displayName}&backgroundColor=b6e3f4`}
+          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
           alt=""
         />
         <div className="ml-3">
           <p className="text-sm font-medium text-gray-900">
-            {displayName}
+            {userInfo.displayName}
           </p>
-          <p className="text-xs text-gray-500">
-            {new Date(request.timestamp).toLocaleString()}
-          </p>
+          {userInfo.username && (
+            <p className="text-xs text-gray-500">
+              @{userInfo.username}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex space-x-2">
@@ -193,6 +154,141 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
     </div>
   );
 };
+
+const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblock, isActiveMenu, onMenuToggle }) => {
+  const [userInfo, setUserInfo] = React.useState({
+    displayName: friend.alias || 'Caricamento...',
+    username: '',
+    nickname: ''
+  });
+  const isBlocked = friend.isBlocked;
+
+  React.useEffect(() => {
+    const loadUserInfo = async () => {
+      const info = await userUtils.getUserInfo(friend.pub);
+      setUserInfo(info);
+    };
+
+    loadUserInfo();
+
+    // Sottoscrizione diretta al nodo dell'utente
+    const unsub = gun.get(DAPP_NAME)
+      .get('userList')
+      .get('users')
+      .get(friend.pub)
+      .on((data) => {
+        if (data) {
+          setUserInfo({
+            displayName: data.nickname || data.username || friend.alias,
+            username: data.username || '',
+            nickname: data.nickname || ''
+          });
+        }
+      });
+
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [friend.pub, friend.alias]);
+
+  return (
+    <div
+      className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
+        isSelected ? 'bg-blue-50' : ''
+      } ${isBlocked ? 'opacity-50' : ''}`}
+    >
+      <div 
+        className="flex-1 flex items-center"
+        onClick={() => onSelect(friend)}
+      >
+        <div className="flex-shrink-0">
+          <img
+            className="h-10 w-10 rounded-full"
+            src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
+            alt=""
+          />
+        </div>
+        <div className="ml-3 flex-1">
+          <p className="text-sm font-medium text-gray-900">
+            {userInfo.displayName}
+          </p>
+          {userInfo.username && (
+            <p className="text-xs text-gray-500">
+              @{userInfo.username}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Menu contestuale */}
+      <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <button 
+          className="p-2 hover:bg-gray-100 rounded-full"
+          onClick={() => onMenuToggle(isActiveMenu === friend.pub ? null : friend.pub)}
+        >
+          <svg
+            className="w-5 h-5 text-gray-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+            />
+          </svg>
+        </button>
+        
+        {isActiveMenu === friend.pub && (
+          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  onRemove(friend);
+                  onMenuToggle(null);
+                }}
+                className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                Rimuovi amico
+              </button>
+              {isBlocked ? (
+                <button
+                  onClick={() => {
+                    onUnblock(friend);
+                    onMenuToggle(null);
+                  }}
+                  className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                >
+                  Sblocca utente
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    onMenuToggle(true);
+                  }}
+                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  Blocca utente
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Indicatore di blocco */}
+      {isBlocked && (
+        <div className="absolute top-0 right-0 m-2">
+          <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
+            Bloccato
+          </span>
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function Friends({ onSelect, loading, selectedUser }) {
   const [friends, setFriends] = React.useState([]);
@@ -421,142 +517,6 @@ export default function Friends({ onSelect, loading, selectedUser }) {
     }
   };
 
-  const renderFriend = (friend) => {
-    const isSelected = selectedUser?.pub === friend.pub;
-    const isBlocked = friend.isBlocked;
-
-    return (
-      <div
-        key={friend.pub}
-        className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
-          isSelected ? 'bg-blue-50' : ''
-        } ${isBlocked ? 'opacity-50' : ''}`}
-      >
-        <div 
-          className="flex-1 flex items-center"
-          onClick={() => onSelect(friend)}
-        >
-          <div className="flex-shrink-0">
-            <img
-              className="h-10 w-10 rounded-full"
-              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${friend.alias}&backgroundColor=b6e3f4`}
-              alt=""
-            />
-          </div>
-          <div className="ml-3 flex-1">
-            <p className="text-sm font-medium text-gray-900">
-              {friend.alias || 'Caricamento...'}
-            </p>
-            <p className="text-xs text-gray-500">
-              {friend.pub.slice(0, 8)}...
-            </p>
-          </div>
-        </div>
-
-        {/* Menu contestuale */}
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
-          <button 
-            className="p-2 hover:bg-gray-100 rounded-full"
-            onClick={() => setActiveMenu(activeMenu === friend.pub ? null : friend.pub)}
-          >
-            <svg
-              className="w-5 h-5 text-gray-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-              />
-            </svg>
-          </button>
-          
-          {activeMenu === friend.pub && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
-              <div className="py-1">
-                <button
-                  onClick={() => {
-                    handleRemoveFriend(friend);
-                    setActiveMenu(null);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                >
-                  Rimuovi amico
-                </button>
-                {isBlocked ? (
-                  <button
-                    onClick={() => {
-                      handleUnblock(friend);
-                      setActiveMenu(null);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
-                  >
-                    Sblocca utente
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      handleBlock(friend);
-                      setActiveMenu(null);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    Blocca utente
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Indicatore di blocco */}
-        {isBlocked && (
-          <div className="absolute top-0 right-0 m-2">
-            <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
-              Bloccato
-            </span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const handleBlock = async (friend) => {
-    try {
-      // Blocca l'utente
-      const blockResult = await userBlocking.blockUser(friend.pub);
-      if (!blockResult.success) {
-        throw new Error(blockResult.message);
-      }
-      
-      // Blocca anche la chat
-      const chatId = [user.is.pub, friend.pub].sort().join('_');
-      const chatBlockResult = await chat.blockChat(chatId);
-      if (!chatBlockResult.success) {
-        throw new Error('Errore nel blocco della chat');
-      }
-      
-      // Aggiorna lo stato locale
-      setFriends(prev => prev.map(f => 
-        f.pub === friend.pub ? { ...f, isBlocked: true, canChat: false } : f
-      ));
-      
-      // Se l'utente bloccato è quello selezionato, deselezionalo
-      if (selectedUser?.pub === friend.pub) {
-        onSelect(null);
-      }
-      
-      toast.success(`${friend.alias} è stato bloccato`);
-      setActiveMenu(null);
-    } catch (error) {
-      console.error('Error blocking user:', error);
-      toast.error(`Errore durante il blocco: ${error.message}`);
-    }
-  };
-
   return (
     <div className="flex flex-col space-y-4">
       {/* Richieste in sospeso */}
@@ -579,7 +539,18 @@ export default function Friends({ onSelect, loading, selectedUser }) {
 
       {/* Lista amici */}
       <div className="divide-y divide-gray-200">
-        {friends.map(renderFriend)}
+        {friends.map(friend => (
+          <FriendItem
+            key={friend.pub}
+            friend={friend}
+            isSelected={selectedUser?.pub === friend.pub}
+            onSelect={onSelect}
+            onRemove={handleRemoveFriend}
+            onUnblock={handleUnblock}
+            isActiveMenu={activeMenu === friend.pub}
+            onMenuToggle={(value) => setActiveMenu(value ? friend.pub : null)}
+          />
+        ))}
       </div>
 
       {/* Stato vuoto */}

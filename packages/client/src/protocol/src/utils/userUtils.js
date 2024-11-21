@@ -1,26 +1,10 @@
 import { gun, DAPP_NAME } from '../useGun.js';
 
 export const userUtils = {
-  // Ottiene lo username/nickname dell'utente
-  async getUserDisplayName(userPub) {
+  // Ottiene tutte le informazioni dell'utente
+  async getUserInfo(userPub) {
     try {
-      // Prima cerca nel nodo nicknames
-      const nickname = await new Promise((resolve) => {
-        gun.get(DAPP_NAME)
-          .get('userList')
-          .get('nicknames')
-          .get(userPub)
-          .once((data) => {
-            resolve(data);
-          });
-        setTimeout(() => resolve(null), 1000);
-      });
-
-      if (nickname) {
-        return nickname;
-      }
-
-      // Se non c'è un nickname, cerca nei dati utente
+      // Cerca nei dati utente
       const userData = await new Promise((resolve) => {
         gun.get(DAPP_NAME)
           .get('userList')
@@ -32,89 +16,120 @@ export const userUtils = {
         setTimeout(() => resolve(null), 1000);
       });
 
-      if (userData?.username) {
-        return userData.username;
+      // Se abbiamo i dati dell'utente nel nodo userList
+      if (userData) {
+        // Se l'utente ha un nickname, lo usiamo come displayName
+        if (userData.nickname) {
+          return {
+            nickname: userData.nickname,
+            username: userData.username || '',
+            displayName: userData.nickname,
+            pub: userPub,
+            authType: userData.authType
+          };
+        }
+        // Altrimenti usiamo lo username
+        if (userData.username) {
+          return {
+            nickname: '',
+            username: userData.username,
+            displayName: userData.username,
+            pub: userPub,
+            authType: userData.authType
+          };
+        }
       }
 
-      // Fallback all'alias originale
+      // Se non troviamo i dati nel nodo userList, proviamo a recuperare l'alias originale
       const user = await gun.get(`~${userPub}`).once();
       if (user?.alias) {
-        return user.alias.split('.')[0];
+        const username = user.alias.split('.')[0];
+        return {
+          nickname: '',
+          username: username,
+          displayName: username,
+          pub: userPub,
+          authType: 'gun'
+        };
       }
 
       // Fallback finale alla chiave pubblica abbreviata
-      return `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+      const shortPub = `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+      return {
+        nickname: '',
+        username: shortPub,
+        displayName: shortPub,
+        pub: userPub,
+        authType: 'unknown'
+      };
     } catch (error) {
-      console.error('Errore nel recupero del nome utente:', error);
-      return `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+      console.error('Errore nel recupero info utente:', error);
+      const shortPub = `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+      return {
+        nickname: '',
+        username: shortPub,
+        displayName: shortPub,
+        pub: userPub,
+        authType: 'unknown'
+      };
     }
   },
 
-  // Sottoscrizione ai cambiamenti del nickname/username
+  // Sottoscrizione ai cambiamenti del profilo utente
   subscribeToUserUpdates(userPub, callback) {
-    const unsubscribers = [];
-
-    // Sottoscrizione ai nickname
-    const unsubNickname = gun.get(DAPP_NAME)
-      .get('userList')
-      .get('nicknames')
-      .get(userPub)
-      .on((nickname) => {
-        if (nickname) {
-          callback(nickname);
-        }
-      });
-    unsubscribers.push(unsubNickname);
-
-    // Sottoscrizione ai dati utente
-    const unsubUser = gun.get(DAPP_NAME)
+    // Sottoscrizione ai dati utente completi
+    return gun.get(DAPP_NAME)
       .get('userList')
       .get('users')
       .get(userPub)
       .on((userData) => {
-        if (userData?.username) {
-          callback(userData.username);
+        if (userData) {
+          callback({
+            nickname: userData.nickname || '',
+            username: userData.username || '',
+            displayName: userData.nickname || userData.username || `${userPub.slice(0, 6)}...${userPub.slice(-4)}`,
+            authType: userData.authType
+          });
         }
       });
-    unsubscribers.push(unsubUser);
-
-    // Ritorna una funzione per cancellare tutte le sottoscrizioni
-    return () => {
-      unsubscribers.forEach(unsub => {
-        if (typeof unsub === 'function') unsub();
-      });
-    };
   },
 
-  // Aggiorna il profilo utente
+  // Aggiorna il profilo utente (solo nickname)
   async updateUserProfile(userPub, profileData) {
     try {
-      // Aggiorna il nickname
-      await gun.get(DAPP_NAME)
-        .get('userList')
-        .get('nicknames')
-        .get(userPub)
-        .put(profileData.nickname);
+      // Recupera i dati utente esistenti
+      const existingData = await new Promise((resolve) => {
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .get(userPub)
+          .once(resolve);
+      });
 
-      // Aggiorna i dati utente
+      // Crea l'oggetto con i dati aggiornati
+      const updatedData = {
+        ...existingData,
+        pub: userPub,
+        nickname: profileData.nickname,
+        username: existingData?.username || '', // Mantieni lo username esistente
+        timestamp: Date.now(),
+        lastSeen: Date.now()
+      };
+
+      // Aggiorna il nodo principale dell'utente
       await gun.get(DAPP_NAME)
         .get('userList')
         .get('users')
         .get(userPub)
-        .put({
-          pub: userPub,
-          username: profileData.username,
-          timestamp: Date.now(),
-          lastSeen: Date.now()
-        });
+        .put(updatedData);
 
-      // Aggiorna il profilo privato
+      // Aggiorna anche il nodo del profilo privato
       await gun.user()
         .get(DAPP_NAME)
         .get('profile')
         .put({
           nickname: profileData.nickname,
-          avatarSeed: profileData.avatarSeed
+          timestamp: Date.now()
         });
 
       return true;

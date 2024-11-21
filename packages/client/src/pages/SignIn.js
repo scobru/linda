@@ -74,10 +74,28 @@ export default function SignIn() {
 
           toast.success('Accesso effettuato', { id: toastId });
           
-          // Salva le informazioni dell'utente
-          localStorage.setItem('userPub', user.is.pub);
-          localStorage.setItem('userAlias', user.is.alias || username);
+          // Ottieni lo username originale dall'alias
+          const originalUsername = username || user.is.alias?.split('.')[0];
           
+          // Salva nei localStorage
+          localStorage.setItem('userPub', user.is.pub);
+          localStorage.setItem('username', originalUsername);
+          localStorage.setItem('userAlias', originalUsername);
+          
+          // Salva nel nodo Gun con tutti i campi necessari
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .get(user.is.pub)
+            .put({
+              pub: user.is.pub,
+              username: originalUsername,  // Salva esplicitamente lo username
+              nickname: '',  // Nickname inizialmente vuoto
+              timestamp: Date.now(),
+              lastSeen: Date.now(),
+              authType: 'gun'
+            });
+
           setIsRedirecting(true);
           window.location.href = '/homepage';
         }
@@ -105,11 +123,11 @@ export default function SignIn() {
   };
 
   // Effetto per gestire l'autenticazione con MetaMask
-  useEffect(() => {
-    if (isConnected && address) {
-      handleMetaMaskLogin();
-    }
-  }, [isConnected, address]);
+  // useEffect(() => {
+  //   if (isConnected && address) {
+  //     handleMetaMaskLogin();
+  //   }
+  // }, [isConnected, address]);
 
   const handleMetaMaskLogin = async () => {
     if (!address) {
@@ -126,10 +144,27 @@ export default function SignIn() {
       if (result.success) {
         toast.success('Accesso effettuato con successo', { id: toastId });
         
-        // Salva le informazioni dell'utente
+        // Modifica qui: usa un formato più user-friendly per gli utenti MetaMask
+        const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
+        
         localStorage.setItem('userPub', result.pub);
-        localStorage.setItem('userAlias', `eth:${address.slice(0, 6)}...${address.slice(-4)}`);
+        localStorage.setItem('username', displayName);
+        localStorage.setItem('userAlias', displayName);
         localStorage.setItem('walletAddress', address);
+
+        // Salva nel nodo Gun
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .set({
+            pub: result.pub,
+            username: displayName,
+            nickname: displayName,
+            address: address,
+            timestamp: Date.now(),
+            lastSeen: Date.now(),
+            authType: 'wallet'
+          });
         
         setIsRedirecting(true);
         navigate('/homepage', { replace: true });
@@ -277,6 +312,13 @@ export default function SignIn() {
                     );
                   }}
                 </ConnectButton.Custom>
+              <button
+                onClick={handleMetaMaskLogin}
+                type="button" 
+                className="w-full h-14 mt-2 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
+              >
+                Accedi con MetaMask
+              </button>
               </div>
             </div>
           )}

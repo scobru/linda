@@ -656,6 +656,11 @@ export default function Messages({ chatData }) {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(Date.now());
   const messagesContainerRef = useRef(null);
+  const [chatUserInfo, setChatUserInfo] = React.useState({
+    displayName: selected?.name || 'Caricamento...',
+    username: '',
+    nickname: ''
+  });
 
   // Usa useMemo per creare una singola istanza del messageTracking
   const messageTracking = useMemo(() => createMessageTracking(), []);
@@ -1355,6 +1360,40 @@ export default function Messages({ chatData }) {
     }
   };
 
+  React.useEffect(() => {
+    if (selected?.pub && selected?.type === 'friend') {
+      const loadUserInfo = async () => {
+        const info = await userUtils.getUserInfo(selected.pub);
+        setChatUserInfo(info);
+      };
+      loadUserInfo();
+
+      // Sottoscrizione diretta al nodo dell'utente
+      const unsub = gun.get(DAPP_NAME)
+        .get('userList')
+        .get('users')
+        .get(selected.pub)
+        .on((data) => {
+          if (data) {
+            setChatUserInfo({
+              displayName: data.nickname || data.username || selected.alias,
+              username: data.username || '',
+              nickname: data.nickname || ''
+            });
+          }
+        });
+
+      return () => {
+        if (typeof unsub === 'function') unsub();
+      };
+    } else if (selected?.name) {
+      setChatUserInfo({
+        displayName: selected.name,
+        type: selected.type
+      });
+    }
+  }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1379,10 +1418,13 @@ export default function Messages({ chatData }) {
           </div>
           <div className="ml-3">
             <p className="text-sm font-medium text-gray-900">
-              {selected.type === 'channel' || selected.type === 'board' 
-                ? selected.name 
-                : (displayName || selected.alias || 'Utente')}
+              {chatUserInfo.displayName}
             </p>
+            {chatUserInfo.username && (
+              <p className="text-xs text-gray-500">
+                @{chatUserInfo.username}
+              </p>
+            )}
             <p className="text-xs text-gray-500">
               {selected.type === 'channel' 
                 ? 'Canale' 

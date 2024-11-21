@@ -35,11 +35,16 @@ export function Header() {
 
 export default function Profile() {
   const navigate = useNavigate();
-  const [username, setUsername] = React.useState("");
-  const [publicKey, setPublicKey] = React.useState("");
+  const [userInfo, setUserInfo] = React.useState({
+    displayName: "Caricamento...",
+    username: "",
+    nickname: "",
+    pub: "",
+    authType: ""
+  });
   const [address, setAddress] = React.useState("");
   const [isEditingProfile, setIsEditingProfile] = React.useState(false);
-  const [nickname, setNickname] = React.useState("");
+  const [newNickname, setNewNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
 
   React.useEffect(() => {
@@ -48,31 +53,48 @@ export default function Profile() {
         const currentPub = user.is?.pub;
         if (!currentPub) return;
 
-        setPublicKey(currentPub);
+        // Prima ottieni l'alias originale dall'utente Gun
+        const originalUsername = user.is.alias?.split('.')[0] || '';
 
-        const userNode = await new Promise((resolve) => {
+        // Poi carica le informazioni complete dell'utente
+        const info = await userUtils.getUserInfo(currentPub);
+        
+        // Combina le informazioni dando priorità allo username originale
+        setUserInfo({
+          ...info,
+          username: originalUsername || info.username, // Usa prima l'username originale
+          pub: currentPub
+        });
+        setNewNickname(info.nickname || "");
+
+        // Aggiorna anche il nodo Gun con lo username se non esiste
+        if (!info.username && originalUsername) {
           gun.get(DAPP_NAME)
             .get('userList')
             .get('users')
-            .map()
-            .once((data, key) => {
-              if (data.pub === currentPub) {
-                resolve(data);
-              }
-            });
+            .get(currentPub)
+            .get('username')
+            .put(originalUsername);
+        }
+
+        // Sottoscrizione ai cambiamenti
+        const unsub = userUtils.subscribeToUserUpdates(currentPub, (updatedInfo) => {
+          setUserInfo(prev => ({
+            ...prev,
+            ...updatedInfo
+          }));
         });
 
-        if (userNode) {
-          setUsername(userNode.username || '');
-          setNickname(userNode.nickname || '');
-          setAddress(userNode.address || '');
+        // Carica l'indirizzo wallet se presente
+        const walletAuth = localStorage.getItem('walletAuth');
+        if (walletAuth) {
+          const { address } = JSON.parse(walletAuth);
+          setAddress(address);
         }
 
-        const userProfile = await gun.user().get(DAPP_NAME).get("profile").once();
-        if (userProfile && userProfile.nickname && !userNode?.nickname) {
-          setUsername(userProfile.nickname);
-          setNickname(userProfile.nickname);
-        }
+        return () => {
+          if (typeof unsub === 'function') unsub();
+        };
       } catch (error) {
         console.error("Errore nel caricamento dei dati utente:", error);
       }
@@ -83,31 +105,36 @@ export default function Profile() {
 
   const handleSaveProfile = async () => {
     try {
-      await gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("nicknames")
-        .get(user.is.pub)
-        .put(nickname.trim());
+      if (!newNickname.trim()) {
+        toast.error("Il nickname non può essere vuoto");
+        return;
+      }
 
-      await gun
-        .user()
-        .get(DAPP_NAME)
-        .get("profile")
-        .put({ nickname: nickname.trim() });
-
-      await gun.get(DAPP_NAME).get("userList").get("users").set({
-        pub: user.is.pub,
-        nickname: nickname.trim(),
-        username: user.is.alias,
-        timestamp: Date.now(),
-        lastSeen: Date.now(),
-        authType: localStorage.getItem('walletAuth') ? 'wallet' : 'gun'
+      const success = await userUtils.updateUserProfile(user.is.pub, {
+        nickname: newNickname.trim()
       });
 
-      setUsername(nickname.trim());
-      setIsEditingProfile(false);
-      toast.success("Profilo aggiornato con successo!");
+      if (success) {
+        // Aggiorna lo stato locale
+        setUserInfo(prev => ({
+          ...prev,
+          nickname: newNickname.trim(),
+          displayName: newNickname.trim()
+        }));
+
+        // Forza l'aggiornamento del nodo Gun
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .get(user.is.pub)
+          .get('nickname')
+          .put(newNickname.trim());
+
+        setIsEditingProfile(false);
+        toast.success("Profilo aggiornato con successo!");
+      } else {
+        throw new Error("Errore durante l'aggiornamento");
+      }
     } catch (error) {
       console.error("Errore aggiornamento profilo:", error);
       toast.error("Errore durante l'aggiornamento del profilo");
@@ -169,44 +196,37 @@ export default function Profile() {
               <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-center space-x-2">
-                  <img
-                    className="w-16 h-16 rounded-full"
-                    src={`https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed || nickname}&backgroundColor=b6e3f4`}
-                    alt="Avatar"
+                {/* Username non modificabile ma visibile */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    value={userInfo.username || ''}
+                    disabled
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 bg-gray-100 text-gray-700"
                   />
-                  <button
-                    onClick={generateNewAvatar}
-                    className="p-2 hover:bg-gray-100 rounded-full"
-                    title="Genera nuovo avatar"
-                  >
-                    <svg
-                      className="w-5 h-5 text-gray-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                  </button>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Lo username non può essere modificato
+                  </p>
                 </div>
 
+                {/* Nickname modificabile */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
                     Nickname
                   </label>
                   <input
                     type="text"
-                    value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    value={newNickname}
+                    onChange={(e) => setNewNickname(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Inserisci un nickname"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Il nickname può essere modificato in qualsiasi momento
+                  </p>
                 </div>
 
                 <div className="flex justify-end space-x-2 mt-4">
@@ -235,17 +255,22 @@ export default function Profile() {
             >
               <img
                 className="w-full h-full rounded-full"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed || username}&backgroundColor=b6e3f4`}
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
                 alt=""
               />
             </button>
 
             <div className="flex flex-col">
               <span className="text-sm font-medium text-gray-700">
-                {username || "Utente"}
+                {userInfo.displayName}
               </span>
+              {userInfo.username && (
+                <span className="text-xs text-gray-500">
+                  @{userInfo.username}
+                </span>
+              )}
               <span className="text-xs text-gray-500">
-                {truncatePubKey(publicKey)}
+                {truncatePubKey(userInfo.pub)}
               </span>
               {address && (
                 <span className="text-xs text-gray-500">
