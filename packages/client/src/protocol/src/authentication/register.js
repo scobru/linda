@@ -195,10 +195,9 @@ const registerUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
-            // Update user count
+            // Aggiorna il conteggio utenti in modo atomico
             await new Promise((resolve) => {
-              gun
-                .get(DAPP_NAME)
+              gun.get(DAPP_NAME)
                 .get('userList')
                 .get('count')
                 .once(async (currentCount) => {
@@ -209,64 +208,16 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                     .get('count')
                     .put(newCount);
 
-                  const privateKey = user._.sea.priv;
-                  const userWallet = await gun.gunToEthAccount(privateKey);
-
-                  console.log('Generated wallet:', userWallet);
-
-                  // Salva l'indirizzo sia nei dati utente che nel profilo
-                  await Promise.all([
-                    // Salva nei dati utente pubblici
-                    gun.get(DAPP_NAME).get('userList').get('users').set({
+                  // Aggiungi l'utente alla lista utenti
+                  await gun.get(DAPP_NAME)
+                    .get('userList')
+                    .get('users')
+                    .set({
                       pub,
                       username: credentials.username,
-                      nickname: credentials.username,
-                      address: userWallet.account.address,
                       timestamp: Date.now(),
-                    }),
-
-                    // Salva anche nel profilo utente
-                    gun.user().get(DAPP_NAME).get('profile').put({
-                      nickname: credentials.username,
-                      avatarSeed: '',
-                      address: userWallet.account.address
-                    })
-                  ]);
-
-                  let nickname = credentials.username;
-
-                  await gun
-                    .get(DAPP_NAME)
-                    .get('userList')
-                    .get('nicknames')
-                    .put(pub)
-                    .put(nickname);
-
-                  await gun.user().get(DAPP_NAME).get('profile').put({
-                    nickname: credentials.username,
-                    avatarSeed: '',
-                  });
-
-                  let addFriendRequestCertificate = await gun
-                    .user()
-                    .get(DAPP_NAME)
-                    .get('certificates')
-                    .get('friendRequests');
-
-                  if (!addFriendRequestCertificate) {
-                    await createFriendRequestCertificate();
-                  }
-
-                  // Controlla il certificato per le notifiche
-                  let notificationCertificate = await gun
-                    .user()
-                    .get(DAPP_NAME)
-                    .get('certificates')
-                    .get('notifications');
-
-                  if (!notificationCertificate) {
-                    await createNotificationCertificate();
-                  }
+                      status: 'active'
+                    });
 
                   resolve();
                 });
