@@ -6,6 +6,9 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { messageNotifications } from '../notifications/index.js';
 import messageList from './messageList.js';
+import { blocking } from '../index.js';
+
+const { userBlocking } = blocking;
 
 /**
  * Sends an encrypted message to a recipient in a chat
@@ -34,6 +37,15 @@ const sendMessage = async (
   }
 
   try {
+    // Verifica lo stato di blocco
+    const blockStatus = await userBlocking.getBlockStatus(recipientPub);
+    if (blockStatus.blocked) {
+      throw new Error('Non puoi inviare messaggi a un utente che hai bloccato');
+    }
+    if (blockStatus.blockedBy) {
+      throw new Error('Non puoi inviare messaggi a un utente che ti ha bloccato');
+    }
+
     // Verifica se la chat esiste
     const chat = await new Promise((resolve) => {
       gun

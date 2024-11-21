@@ -396,6 +396,31 @@ export default function Friends({ onSelect, loading, selectedUser }) {
     }
   };
 
+  const handleUnblock = async (friend) => {
+    try {
+      // Sblocca l'utente
+      const unblockResult = await userBlocking.unblockUser(friend.pub);
+      if (!unblockResult.success) {
+        throw new Error(unblockResult.message);
+      }
+      
+      // Sblocca anche la chat
+      const chatId = [user.is.pub, friend.pub].sort().join('_');
+      await chat.unblockChat(chatId);
+      
+      // Aggiorna lo stato locale
+      setFriends(prev => prev.map(f => 
+        f.pub === friend.pub ? { ...f, isBlocked: false } : f
+      ));
+      
+      toast.success(`${friend.alias} è stato sbloccato`);
+      setActiveMenu(null);
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+      toast.error("Errore durante lo sblocco dell'utente");
+    }
+  };
+
   const renderFriend = (friend) => {
     const isSelected = selectedUser?.pub === friend.pub;
     const isBlocked = friend.isBlocked;
@@ -463,14 +488,20 @@ export default function Friends({ onSelect, loading, selectedUser }) {
                 </button>
                 {isBlocked ? (
                   <button
-                    onClick={() => handleUnblock(friend)}
+                    onClick={() => {
+                      handleUnblock(friend);
+                      setActiveMenu(null);
+                    }}
                     className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
                   >
                     Sblocca utente
                   </button>
                 ) : (
                   <button
-                    onClick={() => handleBlock(friend)}
+                    onClick={() => {
+                      handleBlock(friend);
+                      setActiveMenu(null);
+                    }}
                     className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
                     Blocca utente
@@ -513,33 +544,16 @@ export default function Friends({ onSelect, loading, selectedUser }) {
         f.pub === friend.pub ? { ...f, isBlocked: true, canChat: false } : f
       ));
       
+      // Se l'utente bloccato è quello selezionato, deselezionalo
+      if (selectedUser?.pub === friend.pub) {
+        onSelect(null);
+      }
+      
       toast.success(`${friend.alias} è stato bloccato`);
       setActiveMenu(null);
     } catch (error) {
       console.error('Error blocking user:', error);
       toast.error(`Errore durante il blocco: ${error.message}`);
-    }
-  };
-
-  const handleUnblock = async (friend) => {
-    try {
-      // Sblocca l'utente
-      await userBlocking.unblockUser(friend.pub);
-      
-      // Sblocca anche la chat
-      const chatId = [user.is.pub, friend.pub].sort().join('_');
-      await chat.unblockChat(chatId);
-      
-      // Aggiorna lo stato locale
-      setFriends(prev => prev.map(f => 
-        f.pub === friend.pub ? { ...f, isBlocked: false, canChat: true } : f
-      ));
-      
-      toast.success(`${friend.alias} è stato sbloccato`);
-      setActiveMenu(null);
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      toast.error("Errore durante lo sblocco dell'utente");
     }
   };
 

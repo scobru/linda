@@ -829,6 +829,22 @@ export default function Messages({ chatData }) {
 
     const setupChat = async () => {
       try {
+        // Verifica lo stato di blocco
+        if (selected.type === 'friend') {
+          const blockStatus = await userBlocking.getBlockStatus(selected.pub);
+          if (blockStatus.blocked || blockStatus.blockedBy) {
+            setCanWrite(false);
+            if (blockStatus.blocked) {
+              setError('Hai bloccato questo utente');
+            } else {
+              setError('Questo utente ti ha bloccato');
+            }
+            setLoading(false);
+            setIsInitializing(false);
+            return;
+          }
+        }
+
         // Pulisci le sottoscrizioni precedenti
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === 'function') {
@@ -1312,6 +1328,30 @@ export default function Messages({ chatData }) {
       toast.error('Errore durante l\'eliminazione dei messaggi');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Aggiungi questa funzione per gestire lo sblocco
+  const handleUnblock = async () => {
+    try {
+      // Sblocca l'utente
+      await userBlocking.unblockUser(selected.pub);
+      
+      // Sblocca anche la chat
+      const chatId = [user.is.pub, selected.pub].sort().join('_');
+      await chat.unblockChat(chatId);
+      
+      // Resetta gli stati
+      setError(null);
+      setCanWrite(true);
+      
+      // Ricarica la chat
+      setupChat();
+      
+      toast.success(`${selected.alias} è stato sbloccato`);
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+      toast.error("Errore durante lo sblocco dell'utente");
     }
   };
 

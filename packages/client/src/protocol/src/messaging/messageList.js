@@ -6,6 +6,9 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import SEA from 'gun/sea.js';
 import { LRUCache } from 'lru-cache';
+import { blocking } from '../index.js';
+
+const { userBlocking } = blocking;
 
 const messageCache = new LRUCache({
   max: 500,
@@ -139,9 +142,25 @@ const messageList = {
     });
   },
 
-  subscribeToMessages: (path, id, callback) => {
+  subscribeToMessages: async (path, id, callback) => {
     const processedMessages = new Set();
     let initialLoadComplete = false;
+    
+    // Verifica se è una chat privata
+    const isPrivateChat = path === 'chats';
+    let otherUserPub = null;
+    
+    if (isPrivateChat) {
+      // Estrai il pub dell'altro utente dall'ID della chat
+      const [user1, user2] = id.split('_');
+      otherUserPub = user1 === user?.is?.pub ? user2 : user1;
+      
+      // Verifica lo stato di blocco
+      const blockStatus = await userBlocking.getBlockStatus(otherUserPub);
+      if (blockStatus.blocked || blockStatus.blockedBy) {
+        return () => {}; // Non sottoscrivere se c'è un blocco
+      }
+    }
     
     return gun.get(DAPP_NAME)
       .get(path)
@@ -151,18 +170,40 @@ const messageList = {
       .on((msg, msgId) => {
         if (!msg || !msg.content) return;
         
-        const messageKey = `${msgId}_${msg.timestamp}`;
-        if (processedMessages.has(messageKey)) return;
-        
-        if (!initialLoadComplete) {
-          setTimeout(() => {
-            initialLoadComplete = true;
+        // Se è una chat privata, verifica che il mittente non sia bloccato
+        if (isPrivateChat && msg.sender === otherUserPub) {
+          userBlocking.getBlockStatus(otherUserPub).then(blockStatus => {
+            if (!blockStatus.blocked && !blockStatus.blockedBy) {
+              const messageKey = `${msgId}_${msg.timestamp}`;
+              if (processedMessages.has(messageKey)) return;
+              
+              if (!initialLoadComplete) {
+                setTimeout(() => {
+                  initialLoadComplete = true;
+                  processedMessages.add(messageKey);
+                  callback({ ...msg, id: msgId });
+                }, 500);
+              } else {
+                processedMessages.add(messageKey);
+                callback({ ...msg, id: msgId });
+              }
+            }
+          });
+        } else {
+          // Per messaggi non privati o inviati dall'utente corrente
+          const messageKey = `${msgId}_${msg.timestamp}`;
+          if (processedMessages.has(messageKey)) return;
+          
+          if (!initialLoadComplete) {
+            setTimeout(() => {
+              initialLoadComplete = true;
+              processedMessages.add(messageKey);
+              callback({ ...msg, id: msgId });
+            }, 500);
+          } else {
             processedMessages.add(messageKey);
             callback({ ...msg, id: msgId });
-          }, 500);
-        } else {
-          processedMessages.add(messageKey);
-          callback({ ...msg, id: msgId });
+          }
         }
       });
   },
