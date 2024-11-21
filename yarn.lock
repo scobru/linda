@@ -7399,10 +7399,10 @@ gun-eth@^1.4.14:
     express "^4.21.1"
     gun "^0.2020.1239"
 
-gun-eth@^1.4.16:
-  version "1.4.16"
-  resolved "https://registry.yarnpkg.com/gun-eth/-/gun-eth-1.4.16.tgz#fd388fdb5245c1a6239bed349a3bdf699ef8a934"
-  integrity sha512-JhSyp+PynIZ7v10Qhz7mxZRjV1m+WtYW0Tynt6QAltyWUyO//CqOLGPqQz2H2bjH7NcDGt/HzIKmKniGtCrSYg==
+gun-eth@^1.4.17:
+  version "1.4.17"
+  resolved "https://registry.yarnpkg.com/gun-eth/-/gun-eth-1.4.17.tgz#28e4f709148af4c0479572e73317a8951bfb4cb0"
+  integrity sha512-ik6PSAr4QSwfsrsn0mKjZpFBEd+xvc1fMiBpK2J+PEpufY1kDS5KFnhicjEHqYjEHOGXPldCmmqtJ0dOlqO8ig==
   dependencies:
     ethers "^6.0.0"
     express "^4.21.1"

@@ -29,6 +29,13 @@ export const registerWithMetaMask = async (address) => {
         await user.auth(pair);
 
         try {
+          // Genera il wallet interno usando la chiave privata di Gun
+          const privateKey = user._.sea.priv;
+          const internalWallet = await gun.gunToEthAccount(privateKey);
+          
+          // Salva il wallet interno nel localStorage
+          localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
+
           await new Promise((resolve) => {
             gun
               .get(DAPP_NAME)
@@ -45,6 +52,7 @@ export const registerWithMetaMask = async (address) => {
                 await gun.get(DAPP_NAME).get('userList').get('users').set({
                   pub: pair.pub,
                   address: signer.address,
+                  internalAddress: internalWallet.account.address,
                   username: signer.address,
                   nickname: signer.address,
                   timestamp: Date.now(),

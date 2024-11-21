@@ -8,6 +8,12 @@ import {
   sha256
 } from 'ethers';
 
+
+
+
+// Estendi Gun con funzionalità GunEth
+Object.assign(Gun.chain);
+
 // Configurazione Optimism Sepolia
 const OPTIMISM_SEPOLIA_RPC = "https://spring-serene-snow.optimism-sepolia.quiknode.pro/d02b30b94d9d8e89cee0b2a694d5e1a5c6d87d9f";
 const OPTIMISM_SEPOLIA_CHAIN_ID = 11155420;
@@ -23,30 +29,26 @@ export const walletService = {
   getCurrentWallet: async () => {
     console.log('Getting current wallet...');
     try {
-      // Se l'utente è autenticato con MetaMask
-      const walletAuth = localStorage.getItem('walletAuth');
-      if (walletAuth) {
-        const { address } = JSON.parse(walletAuth);
-        return { address, type: 'metamask' };
-      }
-
-      // Se l'utente è autenticato con GUN
-      if (user?.is) {
-        const privateKey = user._.sea.priv;
-        const derivedWallet = await gun.gunToEthAccount(privateKey);
-        console.log('Derived wallet:', derivedWallet);
-        return { 
-          address: derivedWallet.account.address,
-          type: 'derived',
-          privateKey: derivedWallet.privateKey
-        };
-      } else if (localStorage.getItem('gunWallet')) {
+      // Priorità al wallet interno (GunWallet)
+      if (localStorage.getItem('gunWallet')) {
         const gunWallet = JSON.parse(localStorage.getItem('gunWallet'));
-
         return {
           address: gunWallet.account.address,
           privateKey: gunWallet.privateKey,
           type: 'derived'
+        };
+      }
+
+      // Se non c'è il wallet interno, genera uno nuovo dalle chiavi Gun
+      if (user?.is) {
+        const privateKey = user._.sea.priv;
+        const derivedWallet = await gun.gunToEthAccount(privateKey);
+        localStorage.setItem('gunWallet', JSON.stringify(derivedWallet));
+        
+        return { 
+          address: derivedWallet.account.address,
+          type: 'derived',
+          privateKey: derivedWallet.privateKey
         };
       }
 
@@ -105,76 +107,45 @@ export const walletService = {
    * @param {string} recipientPub - Chiave pubblica del destinatario
    * @param {string} amount - Importo in ETH
    */
-  sendTip: async (recipientPub, amount) => {
+  sendTip: async (recipientPub, amount, isStealthMode = false) => {
     try {
-      console.log('Sending tip to:', recipientPub, 'amount:', amount);
+      console.log('Sending tip to:', recipientPub, 'amount:', amount, 'stealth mode:', isStealthMode);
+
+      if (!isStealthMode) {
+        // Usa il metodo di invio tip esistente
+        // ... codice esistente del sendTip ...
+        return;
+      }
+
+      // Usa sempre il wallet interno per i tip
+      const senderWallet = await walletService.getCurrentWallet();
+      const signer = new Wallet(senderWallet.privateKey).connect(provider);
 
       // Ottieni l'indirizzo del destinatario
       const recipientAddress = await walletService.getUserWalletAddress(recipientPub);
-      console.log('Recipient address:', recipientAddress);
 
-      if (!recipientAddress) {
-        throw new Error('Indirizzo destinatario non trovato');
-      }
+      // Genera indirizzo stealth per il destinatario
+      const stealthInfo = await gun.generateStealthAddress(recipientAddress, signer.address);
+      
+      // Annuncia il pagamento stealth
+      await gun.announceStealthPayment(
+        stealthInfo.stealthAddress,
+        signer.address,
+        signer.address,
+        signer.address,
+        { onChain: true }
+      );
 
-      // Ottieni il wallet del mittente
-      const senderWallet = await walletService.getCurrentWallet();
-      console.log('Sender wallet:', senderWallet);
-
-      let signer;
-
-      if (senderWallet.type === 'metamask') {
-        // Per MetaMask, richiedi lo switch della rete
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${OPTIMISM_SEPOLIA_CHAIN_ID.toString(16)}` }],
-          });
-        } catch (switchError) {
-          // Se la rete non è configurata, aggiungila
-          if (switchError.code === 4902) {
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [{
-                chainId: `0x${OPTIMISM_SEPOLIA_CHAIN_ID.toString(16)}`,
-                chainName: 'Optimism Sepolia',
-                nativeCurrency: {
-                  name: 'ETH',
-                  symbol: 'ETH',
-                  decimals: 18
-                },
-                rpcUrls: [OPTIMISM_SEPOLIA_RPC],
-                blockExplorerUrls: ['https://sepolia-optimism.etherscan.io/']
-              }],
-            });
-          } else {
-            throw switchError;
-          }
-        }
-        
-        // Per MetaMask, usa window.ethereum direttamente
-        //const metamaskProvider = new JsonRpcProvider("https://sepolia.optimism.io");
-        signer = await gun.getSigner
-      } else {
-        // Per wallet derivati usa la chiave privata
-        signer = new Wallet(senderWallet.privateKey).connect(provider);
-      }
-
-      console.log('Preparing transaction...');
-
-      // Invia la transazione
+      // Invia la transazione all'indirizzo stealth
       const tx = await signer.sendTransaction({
-        to: recipientAddress,
+        to: stealthInfo.stealthAddress,
         value: parseEther(amount),
         chainId: OPTIMISM_SEPOLIA_CHAIN_ID
       });
 
-      console.log('Transaction sent:', tx);
-
-      // Attendi la conferma della transazione
       await tx.wait();
 
-      // Salva la transazione nel database
+      // Salva la transazione stealth nel database
       await gun.get(DAPP_NAME)
         .get('tips')
         .set({
@@ -183,12 +154,72 @@ export const walletService = {
           amount: formatEther(tx.value),
           txHash: tx.hash,
           timestamp: Date.now(),
-          network: 'optimism-sepolia'
+          network: 'optimism-sepolia',
+          isStealthPayment: true,
+          stealthAddress: stealthInfo.stealthAddress
         });
 
       return tx;
     } catch (error) {
-      console.error('Error sending tip:', error);
+      console.error('Error sending stealth tip:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Recupera i pagamenti stealth ricevuti
+   * @returns {Promise<Array>} Lista dei pagamenti stealth
+   */
+  retrieveStealthPayments: async () => {
+    try {
+      // Ottieni il wallet corrente
+      const currentWallet = await walletService.getCurrentWallet();
+      
+      // Assicurati che esista un GunWallet
+      let gunWallet = localStorage.getItem('gunWallet');
+      if (!gunWallet) {
+        const privateKey = user._.sea.priv;
+        gunWallet = await gun.gunToEthAccount(privateKey);
+        localStorage.setItem('gunWallet', JSON.stringify(gunWallet));
+      }
+
+      // Genera firma per l'autenticazione
+      const signature = await gun.createSignature("Access GunDB with Ethereum");
+
+      // Recupera tutti gli annunci stealth
+      const announcements = await gun.getStealthPayments(signature, { source: 'onChain' });
+
+      const recoveredPayments = [];
+
+      for (const announcement of announcements) {
+        try {
+          const recoveredWallet = await gun.recoverStealthFunds(
+            announcement.stealthAddress,
+            announcement.senderPublicKey,
+            signature,
+            announcement.spendingPublicKey
+          );
+
+          // Verifica il saldo dell'indirizzo stealth
+          const balance = await provider.getBalance(announcement.stealthAddress);
+          
+          if (balance > 0) {
+            recoveredPayments.push({
+              stealthAddress: announcement.stealthAddress,
+              recoveredAddress: recoveredWallet.address,
+              balance: formatEther(balance),
+              timestamp: announcement.timestamp,
+              wallet: recoveredWallet
+            });
+          }
+        } catch (error) {
+          console.log(`Announcement not intended for current user: ${announcement.stealthAddress}`);
+        }
+      }
+
+      return recoveredPayments;
+    } catch (error) {
+      console.error('Error retrieving stealth payments:', error);
       throw error;
     }
   },
@@ -257,3 +288,32 @@ export const walletService = {
     }
   }
 };
+
+// Utility function per switch a Optimism Sepolia
+async function switchToOptimismSepolia() {
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: `0x${OPTIMISM_SEPOLIA_CHAIN_ID.toString(16)}` }],
+    });
+  } catch (switchError) {
+    if (switchError.code === 4902) {
+      await window.ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: `0x${OPTIMISM_SEPOLIA_CHAIN_ID.toString(16)}`,
+          chainName: 'Optimism Sepolia',
+          nativeCurrency: {
+            name: 'ETH',
+            symbol: 'ETH',
+            decimals: 18
+          },
+          rpcUrls: [OPTIMISM_SEPOLIA_RPC],
+          blockExplorerUrls: ['https://sepolia-optimism.etherscan.io/']
+        }],
+      });
+    } else {
+      throw switchError;
+    }
+  }
+}

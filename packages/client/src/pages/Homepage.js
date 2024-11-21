@@ -12,6 +12,7 @@ import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
 import { authentication, DAPP_NAME } from '../protocol';
 import Channels from '../components/Homepage/Channels';
+import { walletService } from '../protocol/src/wallet.js';
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -551,6 +552,28 @@ export default function Homepage() {
       updateCache.selected = null;
     };
   }, [user?.is]);
+
+  useEffect(() => {
+    const checkStealthPayments = async () => {
+      try {
+        // Usa sempre il wallet interno per recuperare i pagamenti stealth
+        const payments = await walletService.retrieveStealthPayments();
+        
+        if (payments.length > 0) {
+          // Notifica l'utente dei nuovi pagamenti stealth
+          toast.success(`Trovati ${payments.length} nuovi pagamenti stealth!`);
+          // Aggiorna la UI se necessario
+        }
+      } catch (error) {
+        console.error('Error checking stealth payments:', error);
+      }
+    };
+
+    // Controlla i pagamenti stealth periodicamente
+    const interval = setInterval(checkStealthPayments, 60000); // ogni minuto
+    
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-white">

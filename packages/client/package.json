@@ -11,7 +11,7 @@
     "@testing-library/user-event": "^13.5.0",
     "autoprefixer": "^10.4.7",
     "gun": "^0.2020.1240",
-    "gun-eth": "^1.4.16",
+    "gun-eth": "^1.4.17",
     "linda-protocol": "workspace:@linda/protocol",
     "lru-cache": "^11.0.2",
     "postcss": "^8.4.14",

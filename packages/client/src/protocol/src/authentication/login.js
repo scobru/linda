@@ -22,15 +22,6 @@ export const loginWithMetaMask = async (address) => {
       throw new Error('Utente non registrato. Per favore registrati prima.');
     }
 
-    // Aggiungi questa parte per salvare la sessione
-    localStorage.setItem(
-      'walletAuth',
-      JSON.stringify({
-        address: signer.address,
-        timestamp: Date.now(),
-      })
-    );
-
     return new Promise((resolve, reject) => {
       gun.user().auth(pair, async (ack) => {
         if (ack.err) {
@@ -38,13 +29,30 @@ export const loginWithMetaMask = async (address) => {
           return;
         }
 
-        // Aggiorna i dati del wallet
+        // Genera/recupera il wallet interno
+        const privateKey = user._.sea.priv;
+        const internalWallet = await gun.gunToEthAccount(privateKey);
+        
+        // Salva il wallet interno
+        localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
+
+        // Salva anche l'auth di MetaMask
+        localStorage.setItem(
+          'walletAuth',
+          JSON.stringify({
+            address: signer.address,
+            timestamp: Date.now(),
+          })
+        );
+
+        // Aggiorna i dati utente
         await gun.get(DAPP_NAME)
           .get('userList')
           .get('users')
           .set({
             pub: pair.pub,
-            address: signer.address,
+            address: signer.address, // indirizzo MetaMask
+            internalAddress: internalWallet.account.address, // indirizzo wallet interno
             timestamp: Date.now(),
             lastSeen: Date.now(),
             authType: 'wallet'

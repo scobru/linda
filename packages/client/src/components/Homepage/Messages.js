@@ -376,6 +376,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [recipientWalletInfo, setRecipientWalletInfo] = useState(null);
   const [balance, setBalance] = useState(null);
   const [network, setNetwork] = useState(null);
+  const [isStealthMode, setIsStealthMode] = useState(false);
 
   // Carica le informazioni dei wallet all'apertura del modale
   React.useEffect(() => {
@@ -433,10 +434,10 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
       setIsLoading(true);
       
       if (sendType === 'contact') {
-        // Invia al contatto selezionato
-        await onSend(selectedUser.pub, amount);
+        // Invia al contatto selezionato usando la modalità stealth se selezionata
+        await onSend(selectedUser.pub, amount, isStealthMode);
       } else {
-        // Invia all'indirizzo custom
+        // Per indirizzi custom non è disponibile la modalità stealth
         await walletService.sendTransaction(customAddress, amount);
       }
 
@@ -444,6 +445,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
       onClose();
       setAmount('');
       setCustomAddress('');
+      setIsStealthMode(false);
     } catch (error) {
       console.error('Error sending transaction:', error);
       toast.error(error.message || 'Errore durante l\'invio');
@@ -599,6 +601,26 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
             className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+
+        {/* Aggiungi il toggle per la modalità stealth */}
+        {sendType === 'contact' && (
+          <div className="mt-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={isStealthMode}
+                onChange={(e) => setIsStealthMode(e.target.checked)}
+                className="form-checkbox h-4 w-4 text-blue-500"
+              />
+              <span className="text-sm text-gray-700">Usa pagamento stealth</span>
+            </label>
+            {isStealthMode && (
+              <p className="mt-1 text-xs text-gray-500">
+                Il pagamento stealth offre maggiore privacy nascondendo l'indirizzo del destinatario
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Pulsante invio */}
         <button
@@ -1238,10 +1260,10 @@ export default function Messages({ chatData }) {
     }
   }, [selected?.pub]);
 
-  const handleSendTip = async (recipientPub, amount) => {
+  const handleSendTip = async (recipientPub, amount, isStealthMode = false) => {
     try {
-      await walletService.sendTip(recipientPub, amount);
-      toast.success('Transazione completata con successo!');
+      await walletService.sendTip(recipientPub, amount, isStealthMode);
+      toast.success(`Transazione ${isStealthMode ? 'stealth ' : ''}completata con successo!`);
     } catch (error) {
       console.error('Error sending tip:', error);
       toast.error(error.message || 'Errore nell\'invio');
@@ -1393,6 +1415,25 @@ export default function Messages({ chatData }) {
       });
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
+
+  const handleStealthPayment = async (recipientPub, amount) => {
+    try {
+      setIsLoading(true);
+      
+      // Usa sempre il wallet interno per i pagamenti stealth
+      const tx = await walletService.sendTip(recipientPub, amount, true);
+      
+      toast.success('Pagamento stealth inviato con successo!');
+      
+      // Aggiorna la UI se necessario
+      // ...
+    } catch (error) {
+      console.error('Error sending stealth payment:', error);
+      toast.error('Errore nell\'invio del pagamento stealth');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!selected?.pub) {
     return (

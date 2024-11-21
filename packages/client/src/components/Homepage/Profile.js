@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { user } from "../../protocol";
 import { useNavigate } from "react-router-dom";
 import { authentication } from "../../protocol";
@@ -6,6 +6,7 @@ import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "../../protocol";
 import { userUtils } from "../../protocol/src/utils/userUtils";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { walletService } from '../../protocol/src/wallet.js';
 
 export function Header() {
   return (
@@ -46,6 +47,8 @@ export default function Profile() {
   const [isEditingProfile, setIsEditingProfile] = React.useState(false);
   const [newNickname, setNewNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
+  const [walletAddress, setWalletAddress] = useState('');
+  const [internalAddress, setInternalAddress] = useState('');
 
   React.useEffect(() => {
     const loadUserData = async () => {
@@ -101,6 +104,27 @@ export default function Profile() {
     };
 
     loadUserData();
+  }, []);
+
+  useEffect(() => {
+    const loadWalletInfo = async () => {
+      try {
+        // Carica il wallet interno (quello usato per i tip)
+        const internalWallet = await walletService.getCurrentWallet();
+        setInternalAddress(internalWallet.address);
+
+        // Carica l'indirizzo MetaMask se presente
+        const walletAuth = localStorage.getItem('walletAuth');
+        if (walletAuth) {
+          const { address } = JSON.parse(walletAuth);
+          setWalletAddress(address);
+        }
+      } catch (error) {
+        console.error('Error loading wallet info:', error);
+      }
+    };
+
+    loadWalletInfo();
   }, []);
 
   const handleSaveProfile = async () => {
@@ -320,6 +344,20 @@ export default function Profile() {
             />
           </svg>
         </button>
+      </div>
+      {walletAddress && (
+        <div className="mt-4">
+          <p className="text-sm text-gray-600">Indirizzo MetaMask:</p>
+          <p className="text-sm font-mono">{walletAddress}</p>
+        </div>
+      )}
+      
+      <div className="mt-4">
+        <p className="text-sm text-gray-600">Indirizzo Wallet Interno:</p>
+        <p className="text-sm font-mono">{internalAddress}</p>
+        <p className="text-xs text-gray-500 mt-1">
+          (Utilizzato per i tip e i pagamenti stealth)
+        </p>
       </div>
     </>
   );

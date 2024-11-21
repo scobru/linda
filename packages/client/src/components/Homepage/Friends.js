@@ -3,6 +3,7 @@ import { gun, user, DAPP_NAME, blocking, messaging } from '../../protocol';
 import { userUtils } from '../../protocol/src/utils/userUtils';
 import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/src/friends';
 import { toast } from 'react-hot-toast';
+import { walletService } from '../../protocol/src/wallet.js';
 
 const { userBlocking } = blocking;
 const { chat } = messaging;
@@ -297,6 +298,7 @@ export default function Friends({ onSelect, loading, selectedUser }) {
   const [activeMenu, setActiveMenu] = React.useState(null);
   const [blockedUsers, setBlockedUsers] = React.useState(new Set());
   const blockedUsersRef = React.useRef(new Set());
+  const [isLoading, setIsLoading] = React.useState(false);
 
   // Funzione per gestire la rimozione delle richieste processate
   const handleRequestProcessed = (fromPub) => {
@@ -514,6 +516,25 @@ export default function Friends({ onSelect, loading, selectedUser }) {
     } catch (error) {
       console.error('Error unblocking user:', error);
       toast.error("Errore durante lo sblocco dell'utente");
+    }
+  };
+
+  const handleSendTip = async (friendPub, amount) => {
+    try {
+      setIsLoading(true);
+      
+      // Usa sempre il wallet interno per i tip
+      const tx = await walletService.sendTip(friendPub, amount);
+      
+      toast.success('Tip inviato con successo!');
+      
+      // Aggiorna la UI se necessario
+      // ...
+    } catch (error) {
+      console.error('Error sending tip:', error);
+      toast.error('Errore nell\'invio del tip');
+    } finally {
+      setIsLoading(false);
     }
   };
 
