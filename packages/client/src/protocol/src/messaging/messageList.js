@@ -3,159 +3,315 @@
  * @description Module for handling message lists and real-time message updates
  */
 
-import { Observable } from 'rxjs';
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import SEA from 'gun/sea.js';
 import { LRUCache } from 'lru-cache';
+import { blocking } from '../index.js';
 
-/**
- * Creates an Observable that monitors and processes messages for a given room
- * @param {string} roomId - The ID of the chat room to monitor
- * @returns {Observable} An Observable that emits message updates
- * @throws {Error} If roomId is not provided
- */
-const messageList = (roomId) => {
-  return new Observable((subscriber) => {
-    if (!roomId) {
-      subscriber.error(new Error('Room ID is required'));
-      return;
+const { userBlocking } = blocking;
+
+const messageCache = new LRUCache({
+  max: 500,
+  ttl: 1000 * 60 * 5 // 5 minuti
+});
+
+const messageList = {
+  decryptMessage: async (message, recipientPub) => {
+    if (!message?.content || !recipientPub) {
+      console.warn('Messaggio o recipientPub mancante:', { message, recipientPub });
+      return message;
     }
 
-    const messages = new Map();
-    let isFirstLoad = true;
-    const processedMessages = new Set();
+    try {
+      if (!message.content.startsWith('SEA{')) {
+        return message;
+      }
 
-    const messageCache = new LRUCache({
-      max: 500,
-      maxAge: 1000 * 60 * 60, // 1 hour
-    });
-
-    /**
-     * Decrypts a message using SEA encryption
-     * @param {Object} message - The message to decrypt
-     * @returns {Promise<Object>} The decrypted message
-     */
-    const decryptMessage = async (message) => {
-      if (!message.content) return message;
-      if (processedMessages.has(message.id)) return messages.get(message.id);
-
-      try {
-        const senderPub =
-          message.sender === user.is.pub ? message.recipient : message.sender;
-        const senderEpub = await new Promise((resolve) => {
-          gun.user(senderPub).once((data) => resolve(data.epub));
+      const isSender = message.sender === user.is.pub;
+      const otherPub = recipientPub;
+      
+      console.log('Decrittazione:', {
+        isSender,
+        ourPub: user.is.pub,
+        otherPub,
+        messageFrom: message.sender,
+        messageTo: message.recipient
+      });
+      
+      const otherEpub = await new Promise((resolve) => {
+        gun.user(otherPub).once((data) => {
+          console.log('Epub trovato:', data?.epub);
+          resolve(data?.epub);
         });
-
-        const secret = await SEA.secret(senderEpub, user.pair());
-
-        // Decrypt main content
-        const decryptedContent = await SEA.decrypt(message.content, secret);
-
-        // Decrypt preview if present and needed
-        let decryptedPreview = null;
-        if (message.preview && message.version === '2.0') {
-          decryptedPreview = await SEA.decrypt(message.preview, secret);
-        }
-
-        const decryptedMessage = {
-          ...message,
-          content: decryptedContent || message.content,
-          preview: decryptedPreview,
-        };
-
-        processedMessages.add(message.id);
-        return decryptedMessage;
-      } catch (error) {
-        console.error('Decryption error:', error);
-        return message;
-      }
-    };
-
-    /**
-     * Processes a message, handling caching and decryption
-     * @param {Object} message - The message to process
-     * @returns {Promise<Object>} The processed message
-     */
-    const processMessage = async (message) => {
-      if (!message.content) return message;
-
-      const cacheKey = `${message.id}_${message.timestamp}`;
-      if (messageCache.has(cacheKey)) {
-        return messageCache.get(cacheKey);
-      }
-
-      try {
-        const decryptedMessage = await decryptMessage(message);
-        messageCache.set(cacheKey, decryptedMessage);
-        return decryptedMessage;
-      } catch (error) {
-        console.error('Message processing error:', error);
-        return message;
-      }
-    };
-
-    // Monitor chat messages
-    const unsubMessages = gun
-      .get(DAPP_NAME)
-      .get('chats')
-      .get(roomId)
-      .get('messages')
-      .map()
-      .on(async (message, messageId) => {
-        if (!message) {
-          messages.delete(messageId);
-          processedMessages.delete(messageId);
-          return;
-        }
-
-        // Avoid duplicate processing of the same message
-        if (messages.has(messageId) && processedMessages.has(messageId)) {
-          return;
-        }
-
-        try {
-          const decryptedMessage = await processMessage({
-            ...message,
-            id: messageId,
-          });
-
-          messages.set(messageId, decryptedMessage);
-
-          // Sort messages by timestamp and remove duplicates
-          const sortedMessages = Array.from(messages.values())
-            .sort((a, b) => a.timestamp - b.timestamp)
-            .filter(
-              (msg, index, self) =>
-                index === self.findIndex((m) => m.id === msg.id)
-            );
-
-          if (isFirstLoad) {
-            subscriber.next({ initial: sortedMessages });
-            isFirstLoad = false;
-          } else {
-            const lastMessage = sortedMessages[sortedMessages.length - 1];
-            if (lastMessage && lastMessage.id === messageId) {
-              subscriber.next({ individual: lastMessage });
-            }
-          }
-        } catch (error) {
-          console.warn('Error processing message:', error);
-        }
       });
 
-    // Cleanup
-    return () => {
-      if (typeof unsubMessages === 'function') {
-        try {
-          unsubMessages();
-        } catch (error) {
-          console.warn('Error during cleanup:', error);
-        }
+      if (!otherEpub) {
+        console.warn('Epub non trovato per:', otherPub);
+        return {
+          ...message,
+          content: '[Chiave di decrittazione non trovata]'
+        };
       }
-      messages.clear();
-      processedMessages.clear();
-    };
-  });
+
+      const secret = await SEA.secret(otherEpub, user.pair());
+      console.log('Secret generato:', !!secret);
+
+      if (!secret) {
+        console.warn('Impossibile generare il segreto condiviso');
+        return {
+          ...message,
+          content: '[Errore nella generazione della chiave]'
+        };
+      }
+
+      const decryptedContent = await SEA.decrypt(message.content, secret);
+      console.log('Contenuto decrittato:', decryptedContent);
+
+      if (!decryptedContent) {
+        console.warn('Decrittazione fallita per il messaggio:', message.id);
+        return {
+          ...message,
+          content: '[Messaggio non decifrabile]'
+        };
+      }
+
+      return {
+        ...message,
+        content: decryptedContent
+      };
+
+    } catch (error) {
+      console.error('Errore durante la decrittazione:', error);
+      return {
+        ...message,
+        content: '[Errore di decrittazione]'
+      };
+    }
+  },
+
+  loadMessages: async (path, id, limit = 20, lastTimestamp = Date.now()) => {
+    return new Promise((resolve) => {
+      const messages = [];
+      let loaded = false;
+      let count = 0;
+
+      const messageHandler = gun.get(DAPP_NAME)
+        .get(path)
+        .get(id)
+        .get('messages')
+        .map()
+        .once(async (msg, msgId) => {
+          // Se abbiamo già raggiunto il limite, non aggiungere altri messaggi
+          if (count >= limit) {
+            if (messageHandler && typeof messageHandler === 'function') {
+              messageHandler(); // Interrompi la sottoscrizione
+            }
+            return;
+          }
+
+          if (msg && msg.content && msg.timestamp < lastTimestamp) {
+            const cacheKey = `${msgId}_${msg.timestamp}`;
+            
+            if (messageCache.has(cacheKey)) {
+              messages.push(messageCache.get(cacheKey));
+            } else {
+              messages.push({ ...msg, id: msgId });
+            }
+            count++;
+          }
+          loaded = true;
+        });
+      
+      const checkLoaded = () => {
+        if (loaded || messages.length > 0) {
+          const sortedMessages = messages
+            .sort((a, b) => b.timestamp - a.timestamp) // Ordine decrescente
+            .slice(0, limit); // Extra sicurezza per il limite
+          
+          if (messageHandler && typeof messageHandler === 'function') {
+            messageHandler(); // Pulisci la sottoscrizione
+          }
+          
+          resolve(sortedMessages);
+        } else {
+          setTimeout(checkLoaded, 100);
+        }
+      };
+
+      setTimeout(checkLoaded, 100);
+    });
+  },
+
+  subscribeToMessages: async (path, id, callback) => {
+    const processedMessages = new Set();
+    let initialLoadComplete = false;
+    
+    // Verifica se è una chat privata
+    const isPrivateChat = path === 'chats';
+    let otherUserPub = null;
+    
+    if (isPrivateChat) {
+      // Estrai il pub dell'altro utente dall'ID della chat
+      const [user1, user2] = id.split('_');
+      otherUserPub = user1 === user?.is?.pub ? user2 : user1;
+      
+      // Verifica lo stato di blocco
+      const blockStatus = await userBlocking.getBlockStatus(otherUserPub);
+      if (blockStatus.blocked || blockStatus.blockedBy) {
+        return () => {}; // Non sottoscrivere se c'è un blocco
+      }
+    }
+    
+    return gun.get(DAPP_NAME)
+      .get(path)
+      .get(id)
+      .get('messages')
+      .map()
+      .on((msg, msgId) => {
+        if (!msg || !msg.content) return;
+        
+        // Se è una chat privata, verifica che il mittente non sia bloccato
+        if (isPrivateChat && msg.sender === otherUserPub) {
+          userBlocking.getBlockStatus(otherUserPub).then(blockStatus => {
+            if (!blockStatus.blocked && !blockStatus.blockedBy) {
+              const messageKey = `${msgId}_${msg.timestamp}`;
+              if (processedMessages.has(messageKey)) return;
+              
+              if (!initialLoadComplete) {
+                setTimeout(() => {
+                  initialLoadComplete = true;
+                  processedMessages.add(messageKey);
+                  callback({ ...msg, id: msgId });
+                }, 500);
+              } else {
+                processedMessages.add(messageKey);
+                callback({ ...msg, id: msgId });
+              }
+            }
+          });
+        } else {
+          // Per messaggi non privati o inviati dall'utente corrente
+          const messageKey = `${msgId}_${msg.timestamp}`;
+          if (processedMessages.has(messageKey)) return;
+          
+          if (!initialLoadComplete) {
+            setTimeout(() => {
+              initialLoadComplete = true;
+              processedMessages.add(messageKey);
+              callback({ ...msg, id: msgId });
+            }, 500);
+          } else {
+            processedMessages.add(messageKey);
+            callback({ ...msg, id: msgId });
+          }
+        }
+      });
+  },
+
+  // Gestione ricevute
+  subscribeToReceipts: (roomId, messageId, callback) => {
+    const receiptHandler = gun.get(DAPP_NAME)
+      .get(`chats/${roomId}/receipts`)
+      .get(messageId)
+      .on((receipt) => {
+        if (!receipt) return;
+        callback(receipt);
+      });
+
+    return receiptHandler;
+  },
+
+  // Elimina messaggio
+  deleteMessage: async (path, id, messageId) => {
+    return new Promise((resolve, reject) => {
+      gun.get(DAPP_NAME)
+        .get(path)
+        .get(id)
+        .get('messages')
+        .get(messageId)
+        .put(null, (ack) => {
+          if (ack.err) {
+            reject(new Error(ack.err));
+          } else {
+            resolve();
+          }
+        });
+    });
+  },
+
+  // Aggiungi questa nuova funzione per la crittografia
+  encryptMessage: async (content, recipientPub) => {
+    try {
+      console.log('Crittografia per:', recipientPub);
+
+      // Ottieni l'epub del destinatario
+      const recipientEpub = await new Promise((resolve) => {
+        gun.user(recipientPub).once(data => {
+          console.log('Epub trovato per crittografia:', data?.epub);
+          resolve(data?.epub);
+        });
+      });
+
+      if (!recipientEpub) {
+        throw new Error('Epub del destinatario non trovato');
+      }
+
+      // Usa la stessa logica di crittografia
+      const secret = await SEA.secret(recipientEpub, user.pair());
+      console.log('Secret generato per crittografia:', !!secret);
+      
+      if (!secret) {
+        throw new Error('Impossibile generare il segreto condiviso');
+      }
+      
+      const encryptedContent = await SEA.encrypt(content, secret);
+      console.log('Contenuto crittato:', !!encryptedContent);
+      
+      if (!encryptedContent) {
+        throw new Error('Errore durante la crittografia');
+      }
+      
+      return encryptedContent;
+    } catch (error) {
+      console.error('Errore durante la crittografia:', error);
+      throw error;
+    }
+  },
+
+  deleteAllMessages: async (path, id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Prima ottieni tutti i messaggi
+        gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get('messages')
+          .map()
+          .once((msg, msgId) => {
+            if (msg) {
+              // Cancella ogni messaggio
+              gun.get(DAPP_NAME)
+                .get(path)
+                .get(id)
+                .get('messages')
+                .get(msgId)
+                .put(null);
+            }
+          });
+
+        // Pulisci anche il nodo dei messaggi
+        gun.get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get('messages')
+          .put(null);
+
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
 };
 
 export default messageList;

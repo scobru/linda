@@ -1,164 +1,338 @@
-import React from 'react';
-import { authentication } from '../../protocol';
-import { useNavigate } from 'react-router-dom';
-import Context from '../../contexts/context';
-import { toast } from 'react-hot-toast';
-import { gun, user, DAPP_NAME } from '../../protocol';
+import React, { useState, useEffect } from "react";
+import { user } from "../../protocol";
+import { useNavigate } from "react-router-dom";
+import { authentication } from "../../protocol";
+import { toast } from "react-hot-toast";
+import { gun, DAPP_NAME } from "../../protocol";
+import { userUtils } from "../../protocol/src/utils/userUtils";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { walletService } from '../../protocol/src/wallet.js';
+
+export function Header() {
+  return (
+    <header
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: "60px",
+        backgroundColor: "white",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 20px",
+        zIndex: 1000,
+      }}
+    >
+     
+       
+        <h1 className="text-xl font-bold text-black">linda</h1>
+        <ConnectButton />
+
+    </header>
+  );
+}
 
 export default function Profile() {
-  const { alias, pub, setPub, setAlias, setSelected, setFriends, setCurrentChat } = React.useContext(Context);
   const navigate = useNavigate();
-  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
+  const [userInfo, setUserInfo] = React.useState({
+    displayName: "Caricamento...",
+    username: "",
+    nickname: "",
+    pub: "",
+    authType: ""
+  });
+  const [address, setAddress] = React.useState("");
+  const [isEditingProfile, setIsEditingProfile] = React.useState(false);
+  const [newNickname, setNewNickname] = React.useState("");
+  const [avatarSeed, setAvatarSeed] = React.useState("");
+  const [walletAddress, setWalletAddress] = useState('');
+  const [internalAddress, setInternalAddress] = useState('');
 
-  // Effetto per ottenere le informazioni dell'utente
   React.useEffect(() => {
-    const getUserInfo = async () => {
+    const loadUserData = async () => {
       try {
-        if (!user.is) return;
+        const currentPub = user.is?.pub;
+        if (!currentPub) return;
 
-        // Prima cerca nella lista utenti
-        const userPromise = new Promise((resolve) => {
+        // Prima ottieni l'alias originale dall'utente Gun
+        const originalUsername = user.is.alias?.split('.')[0] || '';
+
+        // Poi carica le informazioni complete dell'utente
+        const info = await userUtils.getUserInfo(currentPub);
+        
+        // Combina le informazioni dando priorità allo username originale
+        setUserInfo({
+          ...info,
+          username: originalUsername || info.username, // Usa prima l'username originale
+          pub: currentPub
+        });
+        setNewNickname(info.nickname || "");
+
+        // Aggiorna anche il nodo Gun con lo username se non esiste
+        if (!info.username && originalUsername) {
           gun.get(DAPP_NAME)
             .get('userList')
             .get('users')
-            .map()
-            .once((userData) => {
-              if (userData && userData.pub === user.is.pub) {
-                resolve(userData.username);
-              }
-            });
-          
-          // Timeout dopo 2 secondi
-          setTimeout(() => resolve(null), 2000);
-        });
-
-        const username = await userPromise;
-        
-        if (username) {
-          setAlias(username);
-          setPub(user.is.pub);
-        } else {
-          // Se non trova nella lista utenti, cerca nel profilo
-          gun.user().get('profile').get('alias').once((profileAlias) => {
-            if (profileAlias && typeof profileAlias === 'string' && !profileAlias.includes('.')) {
-              setAlias(profileAlias);
-              setPub(user.is.pub);
-            } else {
-              // Fallback all'alias di base
-              const displayAlias = user.is.alias.includes('.') 
-                ? user.is.alias.split('.')[0].substring(0, 8)
-                : user.is.alias;
-              setAlias(displayAlias);
-              setPub(user.is.pub);
-            }
-          });
+            .get(currentPub)
+            .get('username')
+            .put(originalUsername);
         }
 
-        // Salva/aggiorna l'alias nella lista utenti
-        gun.get(DAPP_NAME)
-          .get('userList')
-          .get('users')
-          .set({
-            pub: user.is.pub,
-            username: alias,
-            timestamp: Date.now(),
-          });
+        // Sottoscrizione ai cambiamenti
+        const unsub = userUtils.subscribeToUserUpdates(currentPub, (updatedInfo) => {
+          setUserInfo(prev => ({
+            ...prev,
+            ...updatedInfo
+          }));
+        });
 
+        // Carica l'indirizzo wallet se presente
+        const walletAuth = localStorage.getItem('walletAuth');
+        if (walletAuth) {
+          const { address } = JSON.parse(walletAuth);
+          setAddress(address);
+        }
+
+        return () => {
+          if (typeof unsub === 'function') unsub();
+        };
       } catch (error) {
-        console.error('Errore nel recupero info utente:', error);
-        toast.error('Errore nel recupero delle informazioni utente');
+        console.error("Errore nel caricamento dei dati utente:", error);
       }
     };
 
-    getUserInfo();
-  }, [setPub, setAlias]);
+    loadUserData();
+  }, []);
+
+  useEffect(() => {
+    const loadWalletInfo = async () => {
+      try {
+        // Carica il wallet interno (quello usato per i tip)
+        const internalWallet = await walletService.getCurrentWallet();
+        setInternalAddress(internalWallet.address);
+
+        // Carica l'indirizzo MetaMask se presente
+        const walletAuth = localStorage.getItem('walletAuth');
+        if (walletAuth) {
+          const { address } = JSON.parse(walletAuth);
+          // Usa l'indirizzo MetaMask originale
+          setWalletAddress(address);
+        }
+      } catch (error) {
+        console.error('Error loading wallet info:', error);
+      }
+    };
+
+    loadWalletInfo();
+  }, []);
+
+  const handleSaveProfile = async () => {
+    try {
+      if (!newNickname.trim()) {
+        toast.error("Il nickname non può essere vuoto");
+        return;
+      }
+
+      const success = await userUtils.updateUserProfile(user.is.pub, {
+        nickname: newNickname.trim()
+      });
+
+      if (success) {
+        // Aggiorna lo stato locale
+        setUserInfo(prev => ({
+          ...prev,
+          nickname: newNickname.trim(),
+          displayName: newNickname.trim()
+        }));
+
+        // Forza l'aggiornamento del nodo Gun
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .get(user.is.pub)
+          .get('nickname')
+          .put(newNickname.trim());
+
+        setIsEditingProfile(false);
+        toast.success("Profilo aggiornato con successo!");
+      } else {
+        throw new Error("Errore durante l'aggiornamento");
+      }
+    } catch (error) {
+      console.error("Errore aggiornamento profilo:", error);
+      toast.error("Errore durante l'aggiornamento del profilo");
+    }
+  };
+
+  const generateNewAvatar = () => {
+    const newSeed = Math.random().toString(36).substring(7);
+    setAvatarSeed(newSeed);
+  };
 
   const handleLogout = async () => {
-    if (isLoggingOut) return;
-    
-    setIsLoggingOut(true);
-    const toastId = toast.loading('Logout in corso...');
-
     try {
-      // Pulisci prima tutti gli stati
-      setSelected(null);
-      setFriends([]);
-      setCurrentChat(null);
-      setPub(null);
-      setAlias(null);
-
-      // Emetti l'evento pre-logout
-      window.dispatchEvent(new Event('pre-logout'));
-
-      // Attendi un momento per permettere la pulizia
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      // Esegui il logout
+      window.dispatchEvent(new Event("pre-logout"));
       await authentication.logout();
 
-      toast.success('Logout effettuato con successo', { id: toastId });
+      localStorage.removeItem("user");
+      localStorage.removeItem("selectedUser");
+      localStorage.removeItem("walletAuth");
 
-      // Forza il reload della pagina dopo il logout
-      window.location.href = '/';
-
+      navigate("/login", { replace: true });
     } catch (error) {
-      console.error('Errore durante il logout:', error);
-      toast.error('Errore durante il logout', { id: toastId });
-      setIsLoggingOut(false);
+      console.error("Errore durante il logout:", error);
     }
   };
 
-  const copyToClipboard = async () => {
-    try {
-      if (!pub) throw new Error('Chiave pubblica non disponibile');
-
-      await navigator.clipboard.writeText(pub);
-      toast.success('Chiave pubblica copiata!', {
-        duration: 2000,
-        icon: '✨',
-      });
-    } catch (error) {
-      console.error('Errore copia chiave:', error);
-      toast.error('Errore nella copia della chiave');
+  const copyPublicKey = () => {
+    const currentPub = user.is?.pub;
+    if (currentPub) {
+      navigator.clipboard
+        .writeText(currentPub)
+        .then(() => toast.success("Chiave pubblica copiata negli appunti!"))
+        .catch((err) => {
+          console.error("Errore durante la copia:", err);
+          toast.error("Errore durante la copia della chiave pubblica");
+        });
+    } else {
+      toast.error("Chiave pubblica non disponibile");
     }
   };
 
-  if (!alias || !pub) {
-    return <div className="animate-pulse">Caricamento...</div>;
-  }
+  const truncatePubKey = (key) => {
+    if (!key) return "";
+    return `${key.slice(0, 6)}...${key.slice(-4)}`;
+  };
+
+  const truncateAddress = (addr) => {
+    if (!addr) return '';
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
 
   return (
-    <div className="flex items-center gap-3">
-      <img
-        className="w-10 h-10 rounded-full"
-        src={`https://api.dicebear.com/7.x/bottts/svg?seed=${alias || 'default'}&backgroundColor=b6e3f4`}
-        alt=""
-      />
-      <div className="flex-1 min-w-0">
-        <h2 className="text-sm font-medium truncate">{alias || 'Utente'}</h2>
-        <div className="flex items-center gap-2">
-          <p
-            className="text-xs text-gray-500 truncate cursor-pointer hover:text-blue-500"
-            onClick={copyToClipboard}
-            title="Clicca per copiare"
-          >
-            {pub}
-          </p>
-        </div>
-      </div>
-      <button
-        onClick={handleLogout}
-        disabled={isLoggingOut}
-        className={`p-2 hover:bg-gray-100 rounded-full transition-colors ${
-          isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''
-        }`}
-        title="Logout"
-      >
-        {isLoggingOut ? (
-          <div className="animate-spin w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full" />
+    <>
+      <Header />
+      <div className="flex items-center space-x-4 mt-2">
+        {isEditingProfile ? (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-96">
+              <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
+
+              <div className="space-y-4">
+                {/* Username non modificabile ma visibile */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    value={userInfo.username || ''}
+                    disabled
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 bg-gray-100 text-gray-700"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Lo username non può essere modificato
+                  </p>
+                </div>
+
+                {/* Nickname modificabile */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Nickname
+                  </label>
+                  <input
+                    type="text"
+                    value={newNickname}
+                    onChange={(e) => setNewNickname(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Inserisci un nickname"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Il nickname può essere modificato in qualsiasi momento
+                  </p>
+                </div>
+
+                <div className="flex justify-end space-x-2 mt-4">
+                  <button
+                    onClick={() => setIsEditingProfile(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={handleSaveProfile}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md"
+                  >
+                    Salva
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setIsEditingProfile(true)}
+              className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center hover:bg-blue-600 transition-colors"
+              title="Modifica profilo"
+            >
+              <img
+                className="w-full h-full rounded-full"
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
+                alt=""
+              />
+            </button>
+
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-gray-700">
+                {userInfo.displayName}
+              </span>
+              {userInfo.username && (
+                <span className="text-xs text-gray-500">
+                  @{userInfo.username}
+                </span>
+              )}
+              <span className="text-xs text-gray-500">
+                {truncatePubKey(userInfo.pub)}
+              </span>
+              {address && (
+                <span className="text-xs text-gray-500">
+                  {truncateAddress(address)}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={copyPublicKey}
+              className="ml-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+              title="Copia chiave pubblica"
+            >
+              <svg
+                className="w-4 h-4 text-gray-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        <button
+          onClick={handleLogout}
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          title="Logout"
+        >
           <svg
-            className="w-5 h-5"
+            className="w-5 h-5 text-gray-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -170,8 +344,25 @@ export default function Profile() {
               d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
             />
           </svg>
-        )}
-      </button>
-    </div>
+        </button>
+      </div>
+      {walletAddress && (
+        <div className="mt-4">
+          <p className="text-sm text-gray-600">Indirizzo MetaMask:</p>
+          <p className="text-sm font-mono">{walletAddress}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            (Utilizzato solo per autenticazione)
+          </p>
+        </div>
+      )}
+      
+      <div className="mt-4">
+        <p className="text-sm text-gray-600">Indirizzo Wallet Interno:</p>
+        <p className="text-sm font-mono">{internalAddress}</p>
+        <p className="text-xs text-gray-500 mt-1">
+          (Utilizzato per i tip e i pagamenti stealth)
+        </p>
+      </div>
+    </>
   );
 }

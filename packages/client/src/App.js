@@ -9,12 +9,20 @@ import {
 import Context from './contexts/context';
 import RequireAuth from './components/RequireAuth';
 import { useEffect } from 'react';
+import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { WagmiConfig } from 'wagmi';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { wagmiConfig, chains } from './config/wagmi';
+import Header from './components/Header';
+import '@rainbow-me/rainbowkit/styles.css';
 
 // Importa le pagine
 import LandingPage from './pages/LandingPage';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
 import Homepage from './pages/Homepage';
+
+const queryClient = new QueryClient();
 
 function App() {
   const [pub, setPub] = React.useState(null);
@@ -217,43 +225,54 @@ function App() {
   }, [pub, selected]);
 
   return (
-    <Context.Provider
-      value={{
-        pub,
-        setPub,
-        alias,
-        setAlias,
-        friends,
-        setFriends,
-        selected,
-        setSelected: handleChatSelection,
-        currentChat,
-        setCurrentChat,
-        connectionState,
-        setConnectionState,
-        chatLoading,
-        messages,
-        setMessages
-      }}
-    >
-      <Router>
-        <Routes>
-          <Route path="/landing" element={<LandingPage />} />
-          <Route path="/login" element={<SignIn />} />
-          <Route path="/register" element={<SignUp />} />
-          <Route 
-            path="/homepage" 
-            element={
-              <RequireAuth>
-                <Homepage />
-              </RequireAuth>
-            } 
-          />
-          <Route path="/" element={<Navigate to="/landing" replace />} />
-          <Route path="*" element={<Navigate to="/landing" replace />} />
-        </Routes>
-      </Router>
-    </Context.Provider>
+    <WagmiConfig config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider 
+          chains={chains}
+          modalSize="compact"
+        >
+          <Context.Provider
+            value={{
+              pub,
+              setPub,
+              alias,
+              setAlias,
+              friends,
+              setFriends,
+              selected,
+              setSelected: handleChatSelection,
+              currentChat,
+              setCurrentChat,
+              connectionState,
+              setConnectionState,
+              chatLoading,
+              messages,
+              setMessages
+            }}
+          >
+            <Router>
+              <div style={{ paddingTop: '60px' }}>
+                <Routes>
+                  <Route path="/landing" element={<LandingPage />} />
+                  <Route path="/login" element={<SignIn />} />
+                  <Route path="/register" element={<SignUp />} />
+                  <Route 
+                    path="/homepage" 
+                    element={
+                      <RequireAuth>
+                        <Homepage />
+                      </RequireAuth>
+                    } 
+                  />
+                  <Route path="/" element={<Navigate to="/landing" replace />} />
+                  <Route path="*" element={<Navigate to="/landing" replace />} />
+                </Routes>
+              </div>
+            </Router>
+          </Context.Provider>
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiConfig>
   );
 }
 

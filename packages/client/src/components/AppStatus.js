@@ -1,6 +1,6 @@
 import React from 'react';
 import { system } from '../protocol';
-import { gun, user } from '../protocol';
+import { gun, user, DAPP_NAME } from '../protocol';
 
 // Get the systemService from the system module
 const { systemService } = system;
@@ -17,16 +17,36 @@ export default function AppStatus() {
   const [showDetails, setShowDetails] = React.useState(false);
 
   React.useEffect(() => {
-    // Create a simple observable if systemService.observeSystemState doesn't exist
+    // Funzione per ottenere il conteggio degli utenti
+    const getUsersCount = () => {
+      return new Promise((resolve) => {
+        let count = 0;
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .map()
+          .once((data) => {
+            if (data && !data._ && data.pub) {
+              count++;
+            }
+          });
+        
+        // Aspetta un po' per assicurarci di aver contato tutti
+        setTimeout(() => resolve(count), 500);
+      });
+    };
+
     const observable = {
       subscribe: ({ next }) => {
-        const interval = setInterval(() => {
-          // Get basic system state
+        const interval = setInterval(async () => {
+          // Ottieni il conteggio degli utenti
+          const usersCount = await getUsersCount();
+          
           const state = {
             connected: !!gun?._.opt?.peers && Object.keys(gun._.opt.peers).length > 0,
             peers: Object.keys(gun?._.opt?.peers || {}),
             timestamp: Date.now(),
-            usersCount: 0, // You might want to implement a way to count users
+            usersCount: usersCount, // Aggiorna con il conteggio effettivo
             currentUser: user.is,
             gunInstance: {
               enabled: true,

@@ -118,42 +118,37 @@ const friendsService = {
    */
   observeFriendRequests: () => {
     return new Observable((subscriber) => {
-      if (!user.is) {
-        subscriber.error(new Error('Utente non autenticato'));
-        return;
-      }
+      // Aggiungi un delay per permettere l'inizializzazione
+      setTimeout(() => {
+        if (!user.is) {
+          subscriber.error(new Error('Utente non autenticato'));
+          return;
+        }
 
-      // Monitora le richieste in arrivo
-      const incomingHandler = gun
-        .get(`${DAPP_NAME}/all_friend_requests`)
-        .map()
-        .on((request) => {
-          if (!request || !request.to || request.to !== user.is.pub) return;
-          
-          subscriber.next({
-            type: 'incoming',
-            data: request
-          });
-        });
+        try {
+          // Monitora le richieste in arrivo
+          const incomingHandler = gun
+            .get(`${DAPP_NAME}/all_friend_requests`)
+            .map()
+            .on((request) => {
+              if (!request || !request.to || request.to !== user.is.pub) return;
+              
+              subscriber.next({
+                type: 'incoming',
+                data: request
+              });
+            });
 
-      // Monitora le richieste inviate
-      const outgoingHandler = gun
-        .get(`${DAPP_NAME}/all_friend_requests`)
-        .map()
-        .on((request) => {
-          if (!request || !request.from || request.from !== user.is.pub) return;
-          
-          subscriber.next({
-            type: 'outgoing',
-            data: request
-          });
-        });
-
-      // Cleanup
-      return () => {
-        gun.get(`${DAPP_NAME}/all_friend_requests`).map().off(incomingHandler);
-        gun.get(`${DAPP_NAME}/all_friend_requests`).map().off(outgoingHandler);
-      };
+          // Cleanup
+          return () => {
+            if (typeof incomingHandler === 'function') {
+              incomingHandler();
+            }
+          };
+        } catch (error) {
+          subscriber.error(error);
+        }
+      }, 1000); // Delay di 1 secondo
     });
   },
 
@@ -163,39 +158,48 @@ const friendsService = {
    */
   observeFriendsList: () => {
     return new Observable((subscriber) => {
-      if (!user.is) {
-        subscriber.error(new Error('Utente non autenticato'));
-        return;
-      }
+      // Aggiungi un delay per permettere l'inizializzazione
+      setTimeout(() => {
+        if (!user.is) {
+          subscriber.error(new Error('Utente non autenticato'));
+          return;
+        }
 
-      const friendsHandler = gun
-        .get(`${DAPP_NAME}/friendships`)
-        .map()
-        .on(async (friendship) => {
-          if (!friendship) return;
-          
-          // Verifica se l'utente è coinvolto nell'amicizia
-          if (friendship.user1 === user.is.pub || friendship.user2 === user.is.pub) {
-            const friendPub = friendship.user1 === user.is.pub ? 
-              friendship.user2 : friendship.user1;
+        try {
+          const friendsHandler = gun
+            .get(`${DAPP_NAME}/friendships`)
+            .map()
+            .on(async (friendship) => {
+              if (!friendship) return;
+              
+              // Verifica se l'utente è coinvolto nell'amicizia
+              if (friendship.user1 === user.is.pub || friendship.user2 === user.is.pub) {
+                const friendPub = friendship.user1 === user.is.pub ? 
+                  friendship.user2 : friendship.user1;
 
-            // Verifica lo stato di blocco
-            const blockStatus = await userBlocking.getBlockStatus(friendPub);
-            
-            subscriber.next({
-              pub: friendPub,
-              timestamp: friendship.timestamp,
-              status: 'accepted',
-              blocked: blockStatus.blocked,
-              blockedBy: blockStatus.blockedBy
+                // Verifica lo stato di blocco
+                const blockStatus = await userBlocking.getBlockStatus(friendPub);
+                
+                subscriber.next({
+                  pub: friendPub,
+                  timestamp: friendship.timestamp,
+                  status: 'accepted',
+                  blocked: blockStatus.blocked,
+                  blockedBy: blockStatus.blockedBy
+                });
+              }
             });
-          }
-        });
 
-      // Cleanup
-      return () => {
-        gun.get(`${DAPP_NAME}/friendships`).map().off(friendsHandler);
-      };
+          // Cleanup
+          return () => {
+            if (typeof friendsHandler === 'function') {
+              friendsHandler();
+            }
+          };
+        } catch (error) {
+          subscriber.error(error);
+        }
+      }, 1000); // Delay di 1 secondo
     });
   },
 

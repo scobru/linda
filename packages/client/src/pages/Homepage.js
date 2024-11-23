@@ -10,8 +10,9 @@ import AddFriend from '../components/Homepage/AddFriend';
 import Messages from '../components/Homepage/Messages';
 import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
-import { authentication } from '../protocol/src';
+import { authentication, DAPP_NAME } from '../protocol';
 import Channels from '../components/Homepage/Channels';
+import { walletService } from '../protocol/src/wallet.js';
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -72,7 +73,8 @@ export default function Homepage() {
           type: user.type,
           name: user.name,
           isGroup: true,
-          members: user.members
+          members: user.members,
+          creator: user.creator
         };
       } else {
         // Per le chat private, usa sempre createChat per ottenere/creare la chat
@@ -94,7 +96,7 @@ export default function Homepage() {
       const selectedData = {
         ...user,
         roomId: chatData.roomId || chatData.id,
-        type: user.type || 'private',
+        type: user.type || 'friend',
         chat: chatData
       };
 
@@ -149,125 +151,230 @@ export default function Homepage() {
     };
   }, []);
 
+  // Definisci validateSession fuori dall'effetto delle amicizie
+  const validateSession = async () => {
+    try {
+      // Verifichiamo solo se l'utente è presente
+      if (user?.is) {
+        const isValid = await authentication.sessionManager.validateSession();
+        return isValid;
+      }
+
+      const walletAuth = localStorage.getItem('walletAuth');
+      
+      if (walletAuth) {
+        const { address } = JSON.parse(walletAuth);
+        const isValid = await authentication.sessionManager.validateSession();
+        
+        if (!isValid) {
+          try {
+            const result = await authentication.loginWithMetaMask(address);
+            if (!result.success) {
+              navigate('/login', { replace: true });
+              return false;
+            }
+            return true;
+          } catch (error) {
+            console.error('Errore riautenticazione MetaMask:', error);
+            navigate('/login', { replace: true });
+            return false;
+          }
+        }
+        return isValid;
+      } else {
+        const isValid = await authentication.sessionManager.validateSession();
+        if (!isValid) {
+          navigate('/login', { replace: true });
+          return false;
+        }
+        return isValid;
+      }
+    } catch (error) {
+      console.error('Errore validazione sessione:', error);
+      navigate('/login', { replace: true });
+      return false;
+    }
+  };
+
+  // Effetto separato per la gestione dell'autenticazione
+  React.useEffect(() => {
+    let mounted = true;
+    
+    const subscription = authentication.observeAuthState().subscribe({
+      next: async (authState) => {
+        if (!mounted) return;
+        
+        if (authState.success) {
+          console.log('Utente autenticato:', authState.user);
+          
+          // Aggiorna i dati utente nel gun solo se l'utente è presente
+          if (user?.is) {
+            gun.get(DAPP_NAME)
+              .get('userList')
+              .get('users')
+              .set({
+                pub: user?.is?.pub,
+                username: user?.is?.alias,
+                timestamp: Date.now(),
+                lastSeen: Date.now()
+              });
+          }
+
+          // Validazione sessione solo se necessario
+          const isValid = await validateSession();
+          console.log("isValid", isValid);
+          
+          if (!isValid && mounted) {
+            navigate('/login', { replace: true });
+          }
+        } else {
+          console.log('Utente non autenticato');
+          navigate('/login', { replace: true });
+        }
+      },
+      error: (error) => {
+        console.error('Errore osservazione stato auth:', error);
+        if (mounted) navigate('/login', { replace: true });
+      }
+    });
+
+    return () => {
+      mounted = false;
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
+  }, [navigate]);
+
   // Monitora le richieste di amicizia e gli amici
   React.useEffect(() => {
-    if (!user.is) return;
+    if (!user?.is) return;
 
     console.log('Starting friend requests and friends monitoring');
     let mounted = true;
-    let debugIntervalId = null;
+    const processedRequests = new Set(); // Cache per le richieste già processate
 
-    // Monitora il nodo pubblico delle richieste con throttling
-    const processRequest = (request) => {
-      if (!mounted || !request || !request.to || request.to !== user.is.pub) return;
+    // Monitora il nodo pubblico delle richieste
+    const processRequest = async (request) => {
+      if (!mounted || !request) return;
 
-      const requestId = `${request.from}-${request.timestamp}`;
-      if (processedRequestsRef.current.has(requestId)) return;
+      // Verifica che la richiesta sia diretta all'utente corrente
+      if (request.to !== user.is.pub) return;
+
+      // Crea un ID univoco per la richiesta
+      const requestId = `${request.from}_${request.timestamp}`;
+
+      // Se la richiesta è già stata processata, ignorala
+      if (processedRequests.has(requestId)) {
+        console.log('Request already processed:', requestId);
+        return;
+      }
+
+      console.log('Processing friend request:', request);
+      processedRequests.add(requestId);
 
       // Verifica se l'utente è già un amico
       if (friendsRef.current.has(request.from)) {
-        gun.get('all_friend_requests')
+        console.log('User is already a friend:', request.from);
+        // Rimuovi la richiesta se esiste
+        gun.get(DAPP_NAME)
+          .get('all_friend_requests')
           .map()
           .once((data, key) => {
             if (data && data.from === request.from) {
-              gun.get('all_friend_requests').get(key).put(null);
+              gun.get(DAPP_NAME)
+                .get('all_friend_requests')
+                .get(key)
+                .put(null);
             }
           });
         return;
       }
 
-      processedRequestsRef.current.add(requestId);
-
+      // Aggiungi la nuova richiesta
       setPendingRequests((prev) => {
         const exists = prev.some((r) => r.pub === request.from);
         if (!exists) {
-          return [
-            ...prev,
-            {
-              pub: request.from,
-              alias: request.senderInfo?.alias || request.data?.senderInfo?.alias || 'Unknown',
-              timestamp: request.timestamp,
-              data: request.data,
-              senderInfo: request.senderInfo,
-              key: request.key,
-            },
-          ];
+          const newRequest = {
+            pub: request.from,
+            alias: request.senderInfo?.alias || request.data?.senderInfo?.alias || 'Unknown',
+            timestamp: request.timestamp,
+            data: request.data,
+            senderInfo: request.senderInfo,
+            key: request.key,
+          };
+          console.log('New request added:', newRequest);
+          return [...prev, newRequest];
         }
         return prev;
       });
     };
 
-    let requestProcessTimeout = null;
-    const unsubPublic = gun.get('all_friend_requests')
-      .map()
-      .on((request) => {
-        // Usa il throttling per processare le richieste
-        if (requestProcessTimeout) clearTimeout(requestProcessTimeout);
-        requestProcessTimeout = setTimeout(() => processRequest(request), 500);
-      });
+    // Usa un debounce per le richieste private
+    let debounceTimeout;
+    const processPrivateRequest = async (request) => {
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      
+      debounceTimeout = setTimeout(async () => {
+        if (!request?.data) return;
 
-    // Monitora gli amici con throttling
-    let friendProcessTimeout = null;
-    const processFriend = (friendship, id) => {
-      if (!mounted || !friendship) return;
+        try {
+          const senderPub = request.from;
+          const senderData = await gun.get(`~${senderPub}`).then();
+          if (!senderData?.epub) return;
 
-      if (friendship.user1 === user.is.pub || friendship.user2 === user.is.pub) {
-        const friendPub = friendship.user1 === user.is.pub ? friendship.user2 : friendship.user1;
-        friendsRef.current.add(friendPub);
-
-        gun.get(`~${friendPub}`).once((userData) => {
-          if (!mounted || !userData) return;
+          const sharedSecret = await SEA.secret(senderData.epub, user._.sea);
+          const decrypted = await SEA.decrypt(request.data, sharedSecret);
           
-          setFriends(prev => {
-            const exists = prev.some(f => f.pub === friendPub);
-            if (!exists) {
-              return [
-                ...prev,
-                {
-                  pub: friendPub,
-                  alias: userData.alias || 'Unknown',
-                  friendshipId: id,
-                  added: friendship.created,
-                  isFriend: true,
-                  type: 'friend'
-                }
-              ];
-            }
-            return prev;
-          });
-        });
-      }
+          if (decrypted) {
+            const parsedRequest = typeof decrypted === 'string' ? 
+              JSON.parse(decrypted) : decrypted;
+            processRequest(parsedRequest);
+          }
+        } catch (error) {
+          console.error('Error processing encrypted request:', error);
+        }
+      }, 500); // Delay di 500ms
     };
 
-    const unsubFriendships = gun.get('friendships')
+    // Sottoscrizioni con throttling
+    const unsubPublic = gun.get(DAPP_NAME)
+      .get('all_friend_requests')
       .map()
-      .on((friendship, id) => {
-        // Usa il throttling per processare gli amici
-        if (friendProcessTimeout) clearTimeout(friendProcessTimeout);
-        friendProcessTimeout = setTimeout(() => processFriend(friendship, id), 500);
+      .on((request) => {
+        if (request) {
+          processRequest(request);
+        }
       });
 
-    // Debug info con intervallo più lungo
-    if (process.env.NODE_ENV === 'development') {
-      debugIntervalId = setInterval(() => {
-        if (!mounted) return;
-        console.log('Current pending requests:', pendingRequests);
-        console.log('Processed requests:', Array.from(processedRequestsRef.current));
-        console.log('Current friends:', Array.from(friendsRef.current));
-      }, 30000); // Aumentato a 30 secondi
-    }
+    const unsubPrivate = gun.get(DAPP_NAME)
+      .get('friend_requests')
+      .get(user.is.pub)
+      .map()
+      .on((request) => {
+        if (request) {
+          processPrivateRequest(request);
+        }
+      });
+
+    // Debug info con throttling
+    const debugInterval = setInterval(() => {
+      if (!mounted) return;
+      console.log('Debug info:');
+      console.log('- Pending requests:', pendingRequests);
+      console.log('- Processed requests:', Array.from(processedRequests));
+      console.log('- Current friends:', Array.from(friendsRef.current));
+    }, 10000); // Ogni 10 secondi invece di 5
 
     return () => {
       mounted = false;
-      if (debugIntervalId) clearInterval(debugIntervalId);
-      if (requestProcessTimeout) clearTimeout(requestProcessTimeout);
-      if (friendProcessTimeout) clearTimeout(friendProcessTimeout);
+      if (debounceTimeout) clearTimeout(debounceTimeout);
       if (typeof unsubPublic === 'function') unsubPublic();
-      if (typeof unsubFriendships === 'function') unsubFriendships();
-      processedRequestsRef.current.clear();
-      friendsRef.current.clear();
+      if (typeof unsubPrivate === 'function') unsubPrivate();
+      clearInterval(debugInterval);
+      processedRequests.clear();
     };
-  }, [setFriends]);
+  }, [user?.is]);
 
   useEffect(() => {
     const handlePreLogout = () => {
@@ -307,58 +414,190 @@ export default function Homepage() {
     }
   };
 
+  // Aggiungi un effetto per il ping periodico
   React.useEffect(() => {
-    let mounted = true;
-
-    // Verifica la sessione
-    const validateSession = async () => {
-      const isValid = await authentication.sessionManager.validateSession();
-      if (!isValid && mounted) {
-        navigate('/login', { replace: true });
+    const pingInterval = setInterval(() => {
+      if (user?.is) {
+        gun.get(DAPP_NAME)
+          .get('userList')
+          .get('users')
+          .get(user?.is?.pub)
+          .get('lastSeen')
+          .put(Date.now());
       }
+    }, 30000); // Ogni 30 secondi
+
+    return () => clearInterval(pingInterval);
+  }, []);
+
+  // Aggiungi questo effetto per gestire gli errori di rete
+  React.useEffect(() => {
+    const handleNetworkError = () => {
+      toast.error('Errore di connessione. Tentativo di riconnessione...');
+      handleReconnect();
     };
 
-    // Osserva lo stato di autenticazione
-    const subscription = authentication.observeAuthState().subscribe({
-      next: (authState) => {
-        if (!mounted) return;
-        
-        if (authState.success) {
-          console.log('Utente autenticato:', authState.user);
-          validateSession(); // Verifica la sessione quando l'utente è autenticato
-        } else {
-          console.log('Utente non autenticato');
-          navigate('/login', { replace: true });
-        }
-      },
-      error: (error) => {
-        console.error('Errore nell\'osservazione dello stato di autenticazione:', error);
-        if (mounted) {
-          navigate('/login', { replace: true });
-        }
-      }
-    });
+    window.addEventListener('offline', handleNetworkError);
+    gun.on('disconnect', handleNetworkError);
 
-    // Cleanup
+    return () => {
+      window.removeEventListener('offline', handleNetworkError);
+      gun.off('disconnect', handleNetworkError);
+    };
+  }, []);
+
+  // Aggiungi questa cache per gli aggiornamenti
+  const updateCache = {
+    friends: new Map(),
+    selected: null,
+    lastUpdate: 0,
+    THROTTLE_TIME: 2000 // 2 secondi di throttle
+  };
+
+  // Modifica l'effetto che monitora gli aggiornamenti degli utenti
+  React.useEffect(() => {
+    if (!user?.is) return;
+
+    let mounted = true;
+    let updateTimeout = null;
+
+    const processUpdate = (userData) => {
+      if (!mounted || !userData?.pub) return;
+
+      const now = Date.now();
+      if (now - updateCache.lastUpdate < updateCache.THROTTLE_TIME) {
+        return; // Ignora aggiornamenti troppo frequenti
+      }
+
+      // Verifica se i dati sono effettivamente cambiati
+      const currentData = updateCache.friends.get(userData.pub);
+      const newData = JSON.stringify({
+        nickname: userData.nickname,
+        username: userData.username,
+        avatarSeed: userData.avatarSeed
+      });
+
+      if (currentData === newData) return; // Nessun cambiamento
+      updateCache.friends.set(userData.pub, newData);
+      updateCache.lastUpdate = now;
+
+      // Raggruppa gli aggiornamenti
+      if (updateTimeout) clearTimeout(updateTimeout);
+      
+      updateTimeout = setTimeout(() => {
+        // Aggiorna friends solo se necessario
+        setFriends(prev => {
+          const needsUpdate = prev.some(friend => {
+            const cached = JSON.parse(updateCache.friends.get(friend.pub) || '{}');
+            return friend.pub === userData.pub && 
+                   (friend.alias !== (cached.nickname || cached.username) || 
+                    friend.avatarSeed !== cached.avatarSeed);
+          });
+
+          if (!needsUpdate) return prev;
+
+          return prev.map(friend => {
+            if (friend.pub === userData.pub) {
+              const cached = JSON.parse(updateCache.friends.get(friend.pub) || '{}');
+              return {
+                ...friend,
+                alias: cached.nickname || cached.username || friend.alias,
+                avatarSeed: cached.avatarSeed
+              };
+            }
+            return friend;
+          });
+        });
+
+        // Aggiorna selected solo se necessario
+        setSelected(prev => {
+          if (!prev || prev.pub !== userData.pub) return prev;
+          
+          const cached = JSON.parse(updateCache.friends.get(userData.pub) || '{}');
+          const newUpdate = JSON.stringify({
+            alias: cached.nickname || cached.username,
+            avatarSeed: cached.avatarSeed
+          });
+
+          if (updateCache.selected === newUpdate) return prev;
+          updateCache.selected = newUpdate;
+
+          return {
+            ...prev,
+            alias: cached.nickname || cached.username || prev.alias,
+            avatarSeed: cached.avatarSeed
+          };
+        });
+      }, 1000);
+    };
+
+    // Una sola sottoscrizione per gli aggiornamenti degli utenti
+    const unsubUserUpdates = gun.get(DAPP_NAME)
+      .get('userList')
+      .get('users')
+      .map()
+      .on((userData, key) => {
+        if (userData?.pub) {
+          processUpdate(userData);
+        }
+      });
+
     return () => {
       mounted = false;
-      if (subscription && typeof subscription.unsubscribe === 'function') {
-        subscription.unsubscribe();
+      if (updateTimeout) clearTimeout(updateTimeout);
+      if (typeof unsubUserUpdates === 'function') {
+        unsubUserUpdates();
+      }
+      updateCache.friends.clear();
+      updateCache.selected = null;
+    };
+  }, [user?.is]);
+
+  useEffect(() => {
+    const checkStealthPayments = async () => {
+      try {
+        // Usa sempre il wallet interno per recuperare i pagamenti stealth
+        const payments = await walletService.retrieveStealthPayments();
+        
+        if (payments.length > 0) {
+          // Notifica l'utente dei nuovi pagamenti stealth
+          toast.success(`Trovati ${payments.length} nuovi pagamenti stealth!`);
+          // Aggiorna la UI se necessario
+        }
+      } catch (error) {
+        console.error('Error checking stealth payments:', error);
       }
     };
-  }, [navigate]);
+
+    // Controlla i pagamenti stealth periodicamente
+    const interval = setInterval(checkStealthPayments, 60000); // ogni minuto
+    
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
       <div className="w-full border-b border-gray-100 bg-white">
         <div className="w-full px-4">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center">
             {/* Logo e profilo allineati a sinistra */}
             <div className="flex items-center space-x-8">
-              <h1 className="text-xl font-bold text-black">linda</h1>
-
-              <Profile />
+              <Profile onProfileUpdate={(updatedData) => {
+                // Aggiorna i dati dell'utente nel nodo pubblico
+                gun.get(DAPP_NAME)
+                  .get('userList')
+                  .get('users')
+                  .set({
+                    pub: user.is.pub,
+                    nickname: updatedData.nickname,
+                    avatarSeed: updatedData.avatarSeed,
+                    timestamp: Date.now(),
+                    lastSeen: Date.now(),
+                    username: user.is.alias,
+                    authType: localStorage.getItem('walletAuth') ? 'wallet' : 'gun'
+                  });
+              }} />
             </div>
             <AppStatus />
           </div>
@@ -426,11 +665,12 @@ export default function Homepage() {
           {/* Lista chat o canali */}
           <div className="flex-1 overflow-y-auto">
             {activeView === 'chats' ? (
-              <Friends
+              <Friends 
                 onSelect={handleSelect}
                 pendingRequests={pendingRequests}
                 loading={loading}
                 selectedUser={selectedRef.current}
+                setPendingRequests={setPendingRequests}
               />
             ) : (
               <Channels onSelect={handleSelect} />
@@ -440,19 +680,19 @@ export default function Homepage() {
 
         {/* Area chat */}
         <div className="hidden md:flex flex-1 flex-col bg-gray-50">
-        {console.log("SELECTED", selected)}
+          {console.log("SELECTED", selected)}
 
           {selected ? (
             <Messages 
               key={selected.roomId || selected.id} 
-              chatData={currentChatData}
+              chatData={selected}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-gray-500">
                 {activeView === 'chats' 
                   ? "Seleziona un amico per chattare"
-                  : "Seleziona un gruppo o canale"}
+                  : "Seleziona una bacheca o un canale"}
               </p>
             </div>
           )}

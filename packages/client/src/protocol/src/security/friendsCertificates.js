@@ -1,112 +1,211 @@
-import { gun, user, DAPP_NAME,SEA } from '../useGun.js';
-import { certificateManager } from './certificateManager.js';
+import { gun, user, DAPP_NAME } from '../useGun.js';
+import SEA from 'gun/sea.js';
 
 /**
- * Creates a friend request certificate that allows a user to send friend requests
- *
- * @async
- * @function createFriendRequestCertificate
- * @param {string} targetPub - Public key of the user to add as friend
- * @returns {Promise<string>} The created certificate
- * @throws {Error} If user is not authenticated
+ * Crea un certificato per le richieste di amicizia
  */
-export const createFriendRequestCertificate = async (targetPub) => {
-  if (!user.is) throw new Error('User not authenticated');
-
-  // Crea un certificato di autorizzazione specifico per le richieste di amicizia
-  const authCertificate = await certificateManager.createAuthorizationCertificate(
-    targetPub,
-    ['write_friend_requests']
-  );
-
-  // Salva il certificato nello spazio privato del destinatario in modo cifrato
-  const encryptedCert = await SEA.encrypt(
-    authCertificate,
-    await SEA.secret(user._.sea.epub, targetPub)
-  );
-
-  await gun
-    .user(targetPub)
-    .get(DAPP_NAME)
-    .get('private_certificates')
-    .get(user.is.pub)
-    .get('friend_requests')
-    .put(encryptedCert);
-
-  return authCertificate;
-};
-
-export const createNotificationCertificate = async () => {
-  if (!user.is) throw new Error('User not authenticated');
-
-  const certificate = await certificateManager.createCertificate({
-    type: 'notification',
-    pub: user.is.pub,
-    exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
-  });
-
-  gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get('notifications')
-    .put(certificate);
-
-  return certificate;
-};
-
-/**
- * Generates a certificate for adding a specific user as a friend
- *
- * @async
- * @function generateAddFriendCertificate
- * @param {string} targetPub - Public key of the user to add as friend
- * @returns {Promise<string>} The created certificate
- * @throws {Error} If user is not authenticated
- */
-export const generateAddFriendCertificate = async (targetPub) => {
-  if (!user.is) throw new Error('User not authenticated');
+export const createFriendRequestCertificate = async () => {
+  if (!user?.is) return null;
 
   try {
-    const certificate = await certificateManager.createCertificate({
+    const certPair = await SEA.pair();
+    const certificate = {
+      type: 'friendRequest',
+      pub: user?.is?.pub,
+      alias: user?.is?.alias,
+      timestamp: Date.now(),
+      certKey: certPair.pub,
+      permissions: ['send', 'receive']
+    };
+
+    const signedCert = await SEA.sign(certificate, user?._.sea);
+    
+    // Salva sia nella sezione pubblica che privata
+    await Promise.all([
+      // Certificato pubblico
+      new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('friendRequests')
+          .put(signedCert, (ack) => {
+            resolve(ack);
+          });
+      }),
+      // Certificato privato
+      new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('private_certificates')
+          .get('friendRequests')
+          .put(signedCert, (ack) => {
+            resolve(ack);
+          });
+      })
+    ]);
+
+    return signedCert;
+  } catch (error) {
+    console.error('Errore creazione certificato richieste amicizia:', error);
+    return null;
+  }
+};
+
+/**
+ * Genera un certificato per l'aggiunta di amici
+ */
+export const generateAddFriendCertificate = async (targetPub) => {
+  if (!user?.is) return null;
+
+  try {
+    const certPair = await SEA.pair();
+    const certificate = {
       type: 'addFriend',
-      pub: user.is.pub,
+      pub: user?.is?.pub,
       target: targetPub,
-      exp: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      timestamp: Date.now(),
+      certKey: certPair.pub,
+      permissions: ['add']
+    };
 
-    console.log('Certificate generated:', certificate);
+    const signedCert = await SEA.sign(certificate, user?._.sea);
+    return { success: true, signedCert };
+  } catch (error) {
+    console.error('Errore generazione certificato add friend:', error);
+    return { success: false, errorMessage: error.message };
+  }
+};
 
-    // Salva il certificato con verifica
-    await new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error('Timeout nel salvataggio del certificato'));
-      }, 5000);
+/**
+ * Crea un certificato per le notifiche
+ */
+export const createNotificationCertificate = async () => {
+  if (!user?.is) return null;
 
-      gun
-        .user()
+  try {
+    const certPair = await SEA.pair();
+    const certificate = {
+      type: 'notification',
+      pub: user?.is?.pub,
+      alias: user?.is?.alias,
+      timestamp: Date.now(),
+      certKey: certPair.pub,
+      permissions: ['receive']
+    };
+
+    const signedCert = await SEA.sign(certificate, user._.sea);
+    
+    await new Promise((resolve) => {
+      gun.user()
         .get(DAPP_NAME)
         .get('certificates')
-        .get(targetPub)
-        .get('addFriend')
-        .put(certificate, (ack) => {
-          clearTimeout(timeoutId);
-          if (ack.err) {
-            reject(new Error(ack.err));
-          } else {
-            resolve(true);
-          }
+        .get('notifications')
+        .put(signedCert, (ack) => {
+          resolve(ack);
         });
     });
 
-    console.log('Certificate saved successfully');
-    return { errorMessage: null, errCode: null, success: true };
+    return signedCert;
   } catch (error) {
-    console.error('Error generating certificate:', error);
-    return {
-      errorMessage: error.message,
-      errCode: 'certificate-error',
-      success: false,
-    };
+    console.error('Errore creazione certificato notifiche:', error);
+    return null;
   }
+};
+
+/**
+ * Verifica se esiste un certificato di autorizzazione
+ */
+export const checkAuthorizationCertificate = async (type) => {
+  if (!user?.is) return false;
+
+  try {
+    const cert = await gun
+      .user()
+      .get(DAPP_NAME)
+      .get('certificates')
+      .get(type)
+      .then();
+
+    return !!cert;
+  } catch (error) {
+    console.error('Errore verifica certificato:', error);
+    return false;
+  }
+};
+
+export const friendsCertificates = {
+  generateAuthCertificate: async () => {
+    if (!user?.is) return null;
+
+    try {
+      const certPair = await SEA.pair();
+      const certificate = {
+        pub: user.is.pub,
+        alias: user.is.alias,
+        timestamp: Date.now(),
+        certKey: certPair.pub
+      };
+
+      const signedCert = await SEA.sign(certificate, user._.sea);
+
+      await new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('authCertificate')
+          .put(signedCert, (ack) => {
+            resolve(ack);
+          });
+      });
+
+      return signedCert;
+    } catch (error) {
+      console.error('Errore generazione certificato:', error);
+      return null;
+    }
+  },
+
+  getAuthCertificate: async () => {
+    if (!user.is) return null;
+
+    try {
+      const cert = await new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('authCertificate')
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      if (!cert) {
+        return await friendsCertificates.generateAuthCertificate();
+      }
+
+      return cert;
+    } catch (error) {
+      console.error('Errore recupero certificato:', error);
+      return null;
+    }
+  },
+
+  verifyCertificate: async (cert, pubKey) => {
+    try {
+      if (!cert) return false;
+      const verified = await SEA.verify(cert, pubKey);
+      if (!verified) return false;
+      const MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() - verified.timestamp > MAX_AGE) return false;
+      return true;
+    } catch (error) {
+      console.error('Errore verifica certificato:', error);
+      return false;
+    }
+  }
+};
+
+export default {
+  createFriendRequestCertificate,
+  generateAddFriendCertificate,
+  createNotificationCertificate,
+  friendsCertificates
 };

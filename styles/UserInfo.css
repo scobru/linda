@@ -1,0 +1,26 @@
+.user-info-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nickname {
+  font-weight: bold;
+}
+
+.username {
+  font-size: 0.9em;
+  color: #666;
+}
+
+.pubkey {
+  font-size: 0.8em;
+  color: #888;
+  font-family: monospace;
+} 

@@ -18,28 +18,82 @@ const sessionManager = {
    */
   async validateSession() {
     if (!gun || !user) {
-      console.warn('Gun or user not initialized');
+      console.warn('Gun o user non inizializzato');
       return false;
     }
 
-    if (!user.is) {
+    if (!user?.is) {
+      console.log("Utente non autenticato");
       return false;
     }
 
     try {
-      const sessionData = await gun.user().get(DAPP_NAME).get('session').once();
-      if (!sessionData || Date.now() - sessionData.lastActive > 3600000) {
+      // Ottieni i dati della sessione
+      const sessionData = await new Promise((resolve) => {
+        gun.user().get(DAPP_NAME).get('session').once((data) => {
+          resolve(data);
+        });
+      });
+
+      // Se non c'è una sessione, creane una nuova
+      if (!sessionData) {
+        console.log("Creazione nuova sessione");
+        await this.createSession();
+        return true;
+      }
+
+      // Controlla se la sessione è scaduta (1 ora)
+      if (Date.now() - sessionData.lastActive > 3600000) {
+        console.log("Sessione scaduta");
         await this.invalidateSession();
         return false;
       }
 
-      gun.user().get(DAPP_NAME).get('session').put({
-        lastActive: Date.now(),
-        device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
+      // Aggiorna il timestamp della sessione
+      await new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('session')
+          .put({
+            lastActive: Date.now(),
+            device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+          }, (ack) => {
+            resolve(ack);
+          });
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Errore validazione sessione:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Creates a new user session
+   *
+   * @async
+   * @returns {Promise<boolean>} True if session is created, false otherwise
+   */
+  async createSession() {
+    if (!gun || !user || !user?.is) return false;
+
+    try {
+      await new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('session')
+          .put({
+            created: Date.now(),
+            lastActive: Date.now(),
+            device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+          }, (ack) => {
+            resolve(ack);
+          });
       });
       return true;
     } catch (error) {
-      console.error('Session validation error:', error);
+      console.error('Errore creazione sessione:', error);
       return false;
     }
   },
@@ -53,13 +107,23 @@ const sessionManager = {
    * @returns {Promise<void>}
    */
   async invalidateSession() {
-    if (!gun || !user || !user.is) return;
-    
+    if (!gun || !user || !user?.is) return;
+
     try {
-      await gun.user().get('session').put(null);
+      // Rimuovi i dati della sessione
+      await new Promise((resolve) => {
+        gun.user()
+          .get(DAPP_NAME)
+          .get('session')
+          .put(null, (ack) => {
+            resolve(ack);
+          });
+      });
+
+      // Esegui il logout
       user.leave();
     } catch (error) {
-      console.error('Error invalidating session:', error);
+      console.error('Errore invalidazione sessione:', error);
     }
   },
 };

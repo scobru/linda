@@ -1,7 +1,147 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { createFriendRequestCertificate } from '../security/index.js';
+import { walletService } from '../wallet.js';
 
 const REGISTRATION_TIMEOUT = 10000; // 10 seconds
+
+export const registerWithMetaMask = async (address) => {
+  let timeoutId;
+
+  const registrationPromise = new Promise(async (resolve, reject) => {
+    try {
+      const signer = await gun.getSigner;
+      console.log('Signer:', signer);
+
+      const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+      console.log('Signature:', signature);
+
+      await gun.createAndStoreEncryptedPair(signer.address, signature);
+
+      const pair = await gun.getAndDecryptPair(signer.address, signature);
+      console.log('Pair:', pair);
+
+      user.create(pair, async (ack) => {
+        if (ack.err) {
+          reject(new Error(ack.err));
+          return;
+        }
+
+        await user.auth(pair);
+
+        try {
+          // Genera il wallet interno usando la chiave privata di Gun
+          const privateKey = user._.sea.priv;
+          const internalWallet = await gun.gunToEthAccount(privateKey);
+          
+          // Salva il wallet interno nel localStorage
+          localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
+
+          // Salva l'auth di MetaMask
+          localStorage.setItem(
+            'walletAuth',
+            JSON.stringify({
+              address: signer.address,
+              timestamp: Date.now(),
+            })
+          );
+
+          // Usa una sola chiamata per salvare i dati utente
+          await gun.get(DAPP_NAME).get('userList').get('users').set({
+            pub: pair.pub,
+            address: internalWallet.account.address, // Usa l'indirizzo del wallet interno come principale
+            metamaskAddress: signer.address, // Mantieni riferimento a MetaMask
+            username: internalWallet.account.address.slice(0, 8),
+            nickname: internalWallet.account.address.slice(0, 8),
+            timestamp: Date.now(),
+            authType: 'wallet'
+          });
+
+          // Rimuovi la seconda chiamata che stava sovrascrivendo l'indirizzo
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('count')
+            .once(async (currentCount) => {
+              const newCount = (currentCount || 0) + 1;
+              await gun
+                .get(DAPP_NAME)
+                .get('userList')
+                .get('count')
+                .put(newCount);
+
+              let nickname = internalWallet.account.address.slice(0, 8);
+
+              await gun
+                .get(DAPP_NAME)
+                .get('userList')
+                .get('nicknames')
+                .put(pair.pub)
+                .put(nickname);
+
+              await gun.user().get(DAPP_NAME).get('profile').put({
+                nickname: nickname,
+                address: internalWallet.account.address, // Usa l'indirizzo del wallet interno
+                avatarSeed: ''
+              });
+
+              let addFriendRequestCertificate = await gun
+                .user()
+                .get(DAPP_NAME)
+                .get('certificates')
+                .get('friendRequests');
+
+              if (!addFriendRequestCertificate) {
+                await createFriendRequestCertificate();
+              }
+
+              // Controlla il certificato per le notifiche
+              let notificationCertificate = await gun
+                .user()
+                .get(DAPP_NAME)
+                .get('certificates')
+                .get('notifications');
+
+              if (!notificationCertificate) {
+                await createNotificationCertificate();
+              }
+
+              resolve();
+            });
+
+          resolve({
+            success: true,
+            pub: pair.pub,
+            message: 'Utente creato con successo tramite MetaMask.',
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+  // Set timeout
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('Timeout durante la registrazione'));
+    }, REGISTRATION_TIMEOUT);
+  });
+
+  // Execute registration with timeout
+  return Promise.race([registrationPromise, timeoutPromise])
+    .then((result) => {
+      clearTimeout(timeoutId);
+      return {
+        success: true,
+        ...result,
+      };
+    })
+    .catch((error) => {
+      clearTimeout(timeoutId);
+      throw error;
+    });
+};
 
 /**
  * Registers a new user in the system.
@@ -55,32 +195,29 @@ const registerUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
-            // Update user count
+            // Aggiorna il conteggio utenti in modo atomico
             await new Promise((resolve) => {
-              gun
-                .get(DAPP_NAME)
+              gun.get(DAPP_NAME)
                 .get('userList')
                 .get('count')
                 .once(async (currentCount) => {
                   const newCount = (currentCount || 0) + 1;
-                  gun.get(DAPP_NAME).get('userList').get('count').put(newCount);
-
-                  // Add user to list
-                  gun.get(DAPP_NAME).get('userList').get('users').set({
-                    pub,
-                    username: credentials.username,
-                    timestamp: Date.now(),
-                  });
-
-                  let addFriendRequestCertificate = gun
-                    .user(user.is.pub)
+                  await gun
                     .get(DAPP_NAME)
-                    .get('certificates')
-                    .get('friendRequests');
+                    .get('userList')
+                    .get('count')
+                    .put(newCount);
 
-                  if (!addFriendRequestCertificate) {
-                    await createFriendRequestCertificate();
-                  }
+                  // Aggiungi l'utente alla lista utenti
+                  await gun.get(DAPP_NAME)
+                    .get('userList')
+                    .get('users')
+                    .set({
+                      pub,
+                      username: credentials.username,
+                      timestamp: Date.now(),
+                      status: 'active'
+                    });
 
                   resolve();
                 });

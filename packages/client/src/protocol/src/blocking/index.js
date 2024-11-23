@@ -6,12 +6,12 @@
 import userBlockingService from './userBlocking.js';
 import unblockUserService from './unblockService.js';
 
-// Esporta i servizi rinominati per mantenere la compatibilità
 export const userBlocking = userBlockingService;
 export const unblockService = unblockUserService;
 
-// Esporta anche come oggetto per l'uso come modulo
-export default {
+export const blocking = {
   userBlocking: userBlockingService,
   unblockService: unblockUserService
 };
+
+export default blocking;
