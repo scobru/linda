@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gun } from '../protocol/useGun';
+import { gun } from 'linda-protocol/useGun';
 
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);

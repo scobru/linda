@@ -1,9 +1,9 @@
 import React from 'react';
-import { gun, user, DAPP_NAME, blocking, messaging } from '../../protocol';
-import { userUtils } from '../../protocol/utils/userUtils';
-import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/friends';
+import { gun, user, DAPP_NAME, blocking, messaging } from 'linda-protocol';
+import { userUtils } from 'linda-protocol/utils/userUtils';
+import { removeFriend, acceptFriendRequest, rejectFriendRequest } from 'linda-protocol/friends';
 import { toast } from 'react-hot-toast';
-import { walletService } from '../../protocol/wallet.js';
+import { walletService } from 'linda-protocol/wallet.js';
 
 const { userBlocking } = blocking;
 const { chat } = messaging;

@@ -5,7 +5,7 @@ import {
   user, 
   gun,
   checkConnection 
-} from './protocol';
+} from 'linda-protocol';
 import Context from './contexts/context';
 import RequireAuth from './components/RequireAuth';
 import { useEffect } from 'react';

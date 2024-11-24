@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authentication } from '../protocol';
+import { authentication } from 'linda-protocol';
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();

@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from '../../useGun.js';
 import { Observable } from 'rxjs';
 
 /**

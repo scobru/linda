@@ -1,4 +1,4 @@
-import { gun, DAPP_NAME } from '../useGun.js';
+import { gun, DAPP_NAME } from '../../useGun.js';
 
 export const userUtils = {
   // Ottiene tutte le informazioni dell'utente

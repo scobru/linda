@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { user } from "../../protocol";
+import { user } from "linda-protocol";
 import { useNavigate } from "react-router-dom";
-import { authentication } from "../../protocol";
+import { authentication } from "linda-protocol";
 import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME } from "../../protocol";
-import { userUtils } from "../../protocol/utils/userUtils";
+import { gun, DAPP_NAME } from "linda-protocol";
+import { userUtils } from "linda-protocol/utils/userUtils";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { walletService } from '../../protocol/wallet.js';
+import { walletService } from 'linda-protocol/wallet.js';
 
 export function Header() {
   return (

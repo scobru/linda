@@ -1,5 +1,5 @@
 {
-  "name": "@linda/relay",
+  "name": "linda-relay",
   "version": "1.0.0",
   "private": false,
   "main": "index.js",

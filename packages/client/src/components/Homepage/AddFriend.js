@@ -1,7 +1,7 @@
 import React from "react";
-import { friends } from "../../protocol";
+import { friends } from "linda-protocol";
 import toast from "react-hot-toast";
-import { gun, user } from "../../protocol";
+import { gun, user } from "linda-protocol";
 
 export default function AddFriend({ onClose }) {
   const [input, setInput] = React.useState("");

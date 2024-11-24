@@ -8,11 +8,11 @@ import React, {
 import Context from "../../contexts/context";
 import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
-import { messaging, blocking } from "../../protocol";
-import { gun, user, notifications, DAPP_NAME } from "../../protocol";
-import { userUtils } from "../../protocol/utils/userUtils";
-import { createMessagesCertificate } from "../../protocol/security";
-import { walletService } from "../../protocol/wallet";
+import { messaging, blocking } from "linda-protocol";
+import { gun, user, notifications, DAPP_NAME } from "linda-protocol";
+import { userUtils } from "linda-protocol/utils/userUtils";
+import { createMessagesCertificate } from "linda-protocol/security";
+import { walletService } from "linda-protocol/wallet";
 import { formatEther } from "ethers";
 import { ethers } from "ethers";
   

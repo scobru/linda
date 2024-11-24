@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from '../../useGun.js';
 
 /**
  * Carica le note da una collezione specifica

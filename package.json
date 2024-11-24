@@ -2,8 +2,7 @@
   "name": "linda",
   "private": true,
   "workspaces": [
-    "packages/client",
-    "packages/relay"
+    "packages/*"
   ],
   "scripts": {
     "clean": "rimraf node_modules packages/*/node_modules",
