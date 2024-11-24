@@ -1,15 +1,5 @@
 import { gun, user, DAPP_NAME } from './useGun.js';
-import { 
-  Wallet, 
-  JsonRpcProvider,
-  parseEther,
-  formatEther,
-  HDNodeWallet,
-  sha256
-} from 'ethers';
-
-
-
+import { ethers } from 'ethers';
 
 // Estendi Gun con funzionalità GunEth
 Object.assign(Gun.chain);
@@ -19,7 +9,7 @@ const OPTIMISM_SEPOLIA_RPC = "https://spring-serene-snow.optimism-sepolia.quikno
 const OPTIMISM_SEPOLIA_CHAIN_ID = 11155420;
 
 // Crea una singola istanza del provider
-const provider = new JsonRpcProvider(OPTIMISM_SEPOLIA_RPC);
+const provider = new ethers.JsonRpcProvider(OPTIMISM_SEPOLIA_RPC);
 
 export const walletService = {
   /**
@@ -121,7 +111,7 @@ export const walletService = {
 
       // Ottieni il wallet del mittente (sempre quello derivato)
       const senderWallet = await walletService.getCurrentWallet();
-      const signer = new Wallet(senderWallet.privateKey).connect(provider);
+      const signer = new ethers.Wallet(senderWallet.privateKey).connect(provider);
 
       // Ottieni l'indirizzo del destinatario (sempre quello derivato)
       const recipientAddress = await walletService.getUserWalletAddress(recipientPub);
@@ -140,19 +130,19 @@ export const walletService = {
 
         const tx = await signer.sendTransaction({
           to: stealthInfo.stealthAddress,
-          value: parseEther(amount),
+          value: ethers.parseEther(amount),
           chainId: OPTIMISM_SEPOLIA_CHAIN_ID
         });
 
         await tx.wait();
 
         // Salva la transazione stealth
-        await gun.get(DAPP_NAME)
+        gun.get(DAPP_NAME)
           .get('tips')
           .set({
             from: user.is.pub,
             to: recipientPub,
-            amount: formatEther(tx.value),
+            amount: ethers.formatEther(tx.value),
             txHash: tx.hash,
             timestamp: Date.now(),
             network: 'optimism-sepolia',
@@ -172,7 +162,7 @@ export const walletService = {
         await tx.wait();
 
         // Salva la transazione normale
-        await gun.get(DAPP_NAME)
+        gun.get(DAPP_NAME)
           .get('tips')
           .set({
             from: user.is.pub,
@@ -274,17 +264,17 @@ export const walletService = {
         }
         
         // Per MetaMask, usa window.ethereum direttamente
-        const metamaskProvider = new JsonRpcProvider(window.ethereum);
+        const metamaskProvider = new ethers.JsonRpcProvider(window.ethereum);
         signer = await metamaskProvider.getSigner();
       } else {
         // Per wallet derivati usa la chiave privata
-        signer = new Wallet(senderWallet.privateKey).connect(provider);
+        signer = new ethers.Wallet(senderWallet.privateKey).connect(provider);
       }
 
       // Invia la transazione
       const tx = await signer.sendTransaction({
         to: toAddress,
-        value: parseEther(amount),
+        value: ethers.parseEther(amount),
         chainId: OPTIMISM_SEPOLIA_CHAIN_ID
       });
 
@@ -299,7 +289,7 @@ export const walletService = {
         .set({
           from: user.is.pub,
           to: toAddress,
-          amount: formatEther(tx.value),
+          amount: ethers.formatEther(tx.value),
           txHash: tx.hash,
           timestamp: Date.now(),
           network: 'optimism-sepolia',

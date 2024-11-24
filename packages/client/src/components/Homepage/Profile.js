@@ -4,9 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { authentication } from "../../protocol";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "../../protocol";
-import { userUtils } from "../../protocol/src/utils/userUtils";
+import { userUtils } from "../../protocol/utils/userUtils";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { walletService } from '../../protocol/src/wallet.js';
+import { walletService } from '../../protocol/wallet.js';
 
 export function Header() {
   return (

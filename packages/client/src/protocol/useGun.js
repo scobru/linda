@@ -1,21 +1,16 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import 'gun-eth';
+
+import './gun-eth.min.js';
 
 // Usa solo il peer locale
-const DEFAULT_PEERS = ['http://localhost:3030/gun'];
+const DEFAULT_PEERS = ['http://localhost:8765/gun'];
 
 let isConnected = false;
 
 const initGun = () => {
   const options = {
-    peers: ['http://localhost:3030/gun'], // Mantieni il relay come peer
-    localStorage: true, // Abilita localStorage
-    radisk: true,      // Abilita radisk per storage persistente
-    store: true,       // Abilita lo store locale
-    axe: true,         // Mantieni axe per la mesh network
-    multicast: false,  // Disabilita multicast per evitare connessioni non volute
-    retry: Infinity,   // Riprova sempre a riconnettersi
+    peers: ['http://localhost:8765/gun']
   };
 
   if (window.Gun === undefined) {

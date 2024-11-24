@@ -1,9 +1,9 @@
 import React from 'react';
 import { gun, user, DAPP_NAME, blocking, messaging } from '../../protocol';
-import { userUtils } from '../../protocol/src/utils/userUtils';
-import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/src/friends';
+import { userUtils } from '../../protocol/utils/userUtils';
+import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/friends';
 import { toast } from 'react-hot-toast';
-import { walletService } from '../../protocol/src/wallet.js';
+import { walletService } from '../../protocol/wallet.js';
 
 const { userBlocking } = blocking;
 const { chat } = messaging;

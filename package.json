@@ -3,7 +3,6 @@
   "private": true,
   "workspaces": [
     "packages/client",
-    "packages/client/src/protocol",
     "packages/relay"
   ],
   "scripts": {
@@ -16,6 +15,7 @@
     "dev": "concurrently \"yarn start:client\" \"yarn start:relay\"",
     "version": "yarn workspaces run version",
     "publish": "yarn workspaces run npm publish --access public"
+
   },
   "devDependencies": {
     "@babel/core": "^7.23.7",

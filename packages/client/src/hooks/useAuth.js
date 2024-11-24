@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gun } from '../protocol/src/useGun';
+import { gun } from '../protocol/useGun';
 
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);

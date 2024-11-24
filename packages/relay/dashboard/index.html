@@ -98,6 +98,32 @@
                     </div>
                 </div>
             </div>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Backup IPFS</h5>
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <h6>Ultimo Backup</h6>
+                                <ul class="list-unstyled">
+                                    <li>Hash: <span id="lastBackupHash">-</span></li>
+                                    <li>Data: <span id="lastBackupTime">-</span></li>
+                                    <li>Dimensione: <span id="lastBackupSize">-</span></li>
+                                    <li>Link: <a id="lastBackupLink" href="#" target="_blank">Visualizza su IPFS</a></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Statistiche Backup</h6>
+                                <ul class="list-unstyled">
+                                    <li>Totali: <span id="backupsTotal">-</span></li>
+                                    <li>Riusciti: <span id="backupsSuccessful">-</span></li>
+                                    <li>Falliti: <span id="backupsFailed">-</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="row g-4">
@@ -118,6 +144,40 @@
                 </div>
             </div>
         </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Spazio Utilizzato</h5>
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <div class="metric-card">
+                                <h6>Database (Radata)</h6>
+                                <h3 id="radataStorage">-</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="metric-card">
+                                <h6>Nodi</h6>
+                                <h3 id="nodesStorage">-</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="metric-card">
+                                <h6>Backup</h6>
+                                <h3 id="backupsStorage">-</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="metric-card">
+                                <h6>Totale</h6>
+                                <h3 id="totalStorage">-</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -130,11 +190,26 @@
                 data: {
                     labels: [],
                     datasets: [{
-                        label: 'Carico CPU',
+                        label: 'Carico CPU %',
                         data: [],
                         borderColor: 'rgb(75, 192, 192)',
                         tension: 0.1
                     }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Utilizzo CPU (%)'
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
                 }
             });
 
@@ -152,59 +227,106 @@
         }
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0 Bytes';
+            if (bytes === 0) return '0 B';
             const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
         function updateDashboard() {
             fetch('/metrics')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('connections').textContent = data.connections;
-                    document.getElementById('putOps').textContent = data.putOperations;
-                    document.getElementById('getOps').textContent = data.getOperations;
-                    document.getElementById('bytesTransferred').textContent = formatBytes(data.bytesTransferred);
+            .then(response => response.json())
+            .then(metrics => {
+                // Debug
+                console.log('Metriche ricevute:', metrics);
 
-                    // Aggiorna grafico CPU
+                // Metriche base
+                document.getElementById('connections').textContent = metrics.connections || 0;
+                document.getElementById('putOps').textContent = metrics.putOperations || 0;
+                document.getElementById('getOps').textContent = metrics.getOperations || 0;
+                document.getElementById('bytesTransferred').textContent = formatBytes(metrics.bytesTransferred || 0);
+
+                // Storage
+                if (metrics.storage) {
+                    document.getElementById('radataStorage').textContent = formatBytes(metrics.storage.radata || 0);
+                    document.getElementById('nodesStorage').textContent = formatBytes(metrics.storage.nodes || 0);
+                    document.getElementById('backupsStorage').textContent = formatBytes(metrics.storage.backups || 0);
+                    document.getElementById('totalStorage').textContent = formatBytes(metrics.storage.total || 0);
+                }
+
+                // Grafico CPU
+                if (metrics.cpu && metrics.cpu.length > 0) {
                     const timestamp = new Date().toLocaleTimeString();
+                    const cpuValue = metrics.cpu[0].toFixed(2); // 2 decimali
                     cpuChart.data.labels.push(timestamp);
-                    cpuChart.data.datasets[0].data.push(data.cpu[0]);
-                    if (cpuChart.data.labels.length > 10) {
+                    cpuChart.data.datasets[0].data.push(cpuValue);
+                    
+                    if (cpuChart.data.labels.length > 30) { // Mostra 30 secondi di dati
                         cpuChart.data.labels.shift();
                         cpuChart.data.datasets[0].data.shift();
                     }
                     cpuChart.update();
+                }
 
-                    // Aggiorna grafico memoria
-                    const usedMemory = data.totalMemory - data.freeMemory;
-                    memoryChart.data.datasets[0].data = [usedMemory, data.freeMemory];
+                // Grafico memoria
+                if (metrics.memory) {
+                    const used = metrics.memory.total - metrics.memory.free;
+                    const usedGB = (used / (1024 * 1024 * 1024)).toFixed(2);
+                    const totalGB = (metrics.memory.total / (1024 * 1024 * 1024)).toFixed(2);
+                    
+                    memoryChart.data.datasets[0].data = [usedGB, totalGB - usedGB];
+                    memoryChart.data.labels = [
+                        `Utilizzata (${usedGB} GB)`,
+                        `Libera (${(totalGB - usedGB).toFixed(2)} GB)`
+                    ];
                     memoryChart.update();
+                }
 
-                    // Aggiorna metriche del protocollo
-                    document.getElementById('msgSent').textContent = data.protocol.messages.sent;
-                    document.getElementById('msgReceived').textContent = data.protocol.messages.received;
-                    document.getElementById('msgEncrypted').textContent = data.protocol.messages.encrypted;
-                    document.getElementById('msgFailed').textContent = data.protocol.messages.failed;
+                // Metriche del protocollo
+                if (metrics.protocol) {
+                    const p = metrics.protocol;
+                    // Messaggi
+                    document.getElementById('msgSent').textContent = p.messages.sent || 0;
+                    document.getElementById('msgReceived').textContent = p.messages.received || 0;
+                    document.getElementById('msgEncrypted').textContent = p.messages.encrypted || 0;
+                    document.getElementById('msgFailed').textContent = p.messages.failed || 0;
                     
-                    document.getElementById('authLogins').textContent = data.protocol.authentication.logins;
-                    document.getElementById('authRegs').textContent = data.protocol.authentication.registrations;
-                    document.getElementById('authFails').textContent = data.protocol.authentication.failures;
+                    // Autenticazione
+                    document.getElementById('authLogins').textContent = p.authentication.logins || 0;
+                    document.getElementById('authRegs').textContent = p.authentication.registrations || 0;
+                    document.getElementById('authFails').textContent = p.authentication.failures || 0;
                     
-                    document.getElementById('friendReqs').textContent = data.protocol.friends.requests;
-                    document.getElementById('friendAccepts').textContent = data.protocol.friends.accepted;
-                    document.getElementById('friendRejects').textContent = data.protocol.friends.rejected;
+                    // Amicizie
+                    document.getElementById('friendReqs').textContent = p.friends.requests || 0;
+                    document.getElementById('friendAccepts').textContent = p.friends.accepted || 0;
+                    document.getElementById('friendRejects').textContent = p.friends.rejected || 0;
                     
-                    document.getElementById('channelsCreated').textContent = data.protocol.channels.created;
-                    document.getElementById('channelMsgs').textContent = data.protocol.channels.messages;
-                    document.getElementById('channelMembers').textContent = data.protocol.channels.members;
-                });
+                    // Canali
+                    document.getElementById('channelsCreated').textContent = p.channels.created || 0;
+                    document.getElementById('channelMsgs').textContent = p.channels.messages || 0;
+                    document.getElementById('channelMembers').textContent = p.channels.members || 0;
+                }
+
+                // Backup IPFS
+                if (metrics.backups) {
+                    const b = metrics.backups;
+                    document.getElementById('lastBackupHash').textContent = b.lastBackup.hash || '-';
+                    document.getElementById('lastBackupTime').textContent = b.lastBackup.time || '-';
+                    document.getElementById('lastBackupSize').textContent = formatBytes(b.lastBackup.size || 0);
+                    document.getElementById('lastBackupLink').href = b.lastBackup.link || '#';
+                    document.getElementById('backupsTotal').textContent = b.stats.total || 0;
+                    document.getElementById('backupsSuccessful').textContent = b.stats.successful || 0;
+                    document.getElementById('backupsFailed').textContent = b.stats.failed || 0;
+                }
+            })
+            .catch(error => {
+                console.error('Errore aggiornamento dashboard:', error);
+            });
         }
 
         initCharts();
-        setInterval(updateDashboard, 1000);
+        setInterval(updateDashboard, 500);
     </script>
 </body>
 </html> 

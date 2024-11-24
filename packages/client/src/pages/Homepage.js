@@ -12,7 +12,7 @@ import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
 import { authentication, DAPP_NAME } from '../protocol';
 import Channels from '../components/Homepage/Channels';
-import { walletService } from '../protocol/src/wallet.js';
+import { walletService } from '../protocol/wallet.js';
 
 const { chat } = messaging; // Destruttura il servizio chat
 
