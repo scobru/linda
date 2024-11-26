@@ -4,75 +4,75 @@ import json from '@rollup/plugin-json';
 import nodePolyfills from 'rollup-plugin-polyfill-node';
 import { terser } from 'rollup-plugin-terser';
 
-export default [
-  // ESM e CJS builds
-  {
-    input: 'src/index.js',
-    output: [
-      {
-        file: 'dist/linda.cjs.js',
-        format: 'cjs',
-        exports: 'named'
-      },
-      {
-        file: 'dist/linda.esm.js',
-        format: 'es'
-      },
-      {
-        file: 'dist/linda.umd.js',
-        format: 'umd',
-        name: 'Linda',
-        globals: {
-          'gun': 'Gun',
-          'gun/sea': 'SEA',
-          'rxjs': 'rxjs',
-          'ethers': 'ethers'
-        }
-      }
-    ],
-    plugins: [
-      resolve({
-        preferBuiltins: true,
-        browser: true
-      }),
-      commonjs({
-        transformMixedEsModules: true
-      }),
-      json()
-    ],
-    external: ['gun', 'gun/sea', 'rxjs', 'ethers']
-  },
-
-  // Browser bundle
-  {
-    input: 'src/index.js',
-    output: {
-      file: 'dist/linda.js',
-      format: 'iife',
-      name: 'Linda',
-      intro: `
-        var global = typeof window !== 'undefined' ? window : global;
-        var process = { env: { NODE_DEBUG: false } };
-      `
+// Configurazione per moduli ES e CommonJS
+const moduleConfig = {
+  input: 'src/index.js',
+  output: [
+    {
+      dir: 'dist/esm',
+      format: 'es',
+      exports: 'named',
+      preserveModules: true,
+      entryFileNames: '[name].esm.js'
     },
-    plugins: [
-      resolve({
-        browser: true,
-        preferBuiltins: false
-      }),
-      commonjs({
-        transformMixedEsModules: true
-      }),
-      nodePolyfills(),
-      json(),
-      terser({
-        format: {
-          comments: false
-        },
-        compress: {
-          drop_console: false
-        }
-      })
-    ],
-  }
-];
+    {
+      dir: 'dist/cjs',
+      format: 'cjs',
+      exports: 'named',
+      preserveModules: true,
+      entryFileNames: '[name].cjs.js'
+    }
+  ],
+  plugins: [
+    resolve({ preferBuiltins: true, browser: true }),
+    commonjs({ transformMixedEsModules: true }),
+    json()
+  ],
+  external: ['gun', 'gun/sea', 'rxjs', 'ethers']
+};
+
+// Configurazione per UMD
+const umdConfig = {
+  input: 'src/index.js',
+  output: {
+    file: 'dist/umd/linda.umd.js',
+    format: 'umd',
+    name: 'Linda',
+    globals: {
+      'gun': 'Gun',
+      'gun/sea': 'SEA',
+      'rxjs': 'rxjs',
+      'ethers': 'ethers'
+    }
+  },
+  plugins: [
+    resolve({ preferBuiltins: true, browser: true }),
+    commonjs({ transformMixedEsModules: true }),
+    json()
+  ],
+  external: ['gun', 'gun/sea', 'rxjs', 'ethers'],
+  inlineDynamicImports: true
+};
+
+// Configurazione per IIFE
+const iifeConfig = {
+  input: 'src/index.js',
+  output: {
+    file: 'dist/iife/linda.js',
+    format: 'iife',
+    name: 'Linda'
+  },
+  plugins: [
+    resolve({ preferBuiltins: true, browser: true }),
+    commonjs({ transformMixedEsModules: true }),
+    json(),
+    nodePolyfills(),
+    terser({
+      format: { comments: false },
+      compress: { drop_console: false }
+    })
+  ],
+  inlineDynamicImports: true
+};
+
+export default [moduleConfig, umdConfig, iifeConfig];

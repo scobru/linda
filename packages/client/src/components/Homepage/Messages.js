@@ -10,9 +10,9 @@ import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
 import { messaging, blocking } from "linda-protocol";
 import { gun, user, notifications, DAPP_NAME } from "linda-protocol";
-import { userUtils } from "linda-protocol/utils/userUtils";
-import { createMessagesCertificate } from "linda-protocol/security";
-import { walletService } from "linda-protocol/wallet";
+import { userUtils } from "linda-protocol";
+import { createMessagesCertificate } from "linda-protocol";
+import { walletService } from "linda-protocol";
 import { formatEther } from "ethers";
 import { ethers } from "ethers";
   

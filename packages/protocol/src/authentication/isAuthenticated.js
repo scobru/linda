@@ -7,13 +7,14 @@ import { Observable } from 'rxjs';
 
 // Funzione sincrona per verificare lo stato corrente
 export const checkAuth = () => {
-  return user.is !== undefined && user.is !== null;
+  console.log('checkAuth', user);
+  return user?.is !== undefined && user?.is !== null;
 };
 
 // Funzione asincrona per ottenere i dettagli dell'utente
 export const isAuthenticated = () => {
   return new Promise((resolve) => {
-    if (!user.is) {
+    if (!user?.is) {
       resolve({ success: false, error: 'Utente non autenticato' });
       return;
     }
@@ -21,9 +22,9 @@ export const isAuthenticated = () => {
     resolve({
       success: true,
       user: {
-        pub: user.is.pub,
-        alias: user.is.alias,
-        epub: user.is.epub
+        pub: user?.is?.pub,
+        alias: user?.is?.alias,
+        epub: user?.is?.epub
       }
     });
   });
@@ -34,13 +35,13 @@ export const observeAuthState = () => {
   return new Observable((subscriber) => {
     // Emetti lo stato iniziale
     const emitAuthState = () => {
-      if (user.is) {
+      if (user?.is) {
         subscriber.next({
           success: true,
           user: {
             pub: user.is.pub,
-            alias: user.is.alias,
-            epub: user.is.epub
+            alias: user?.is?.alias,
+            epub: user?.is?.epub
           }
         });
       } else {

@@ -1,4 +1,5 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 const channels = {
   // Crea un nuovo canale o bacheca
@@ -44,6 +45,12 @@ const channels = {
           channelId,
           joined: Date.now()
         });
+
+      if (type === 'channel') {
+        updateGlobalMetrics('totalChannels', 1);
+      } else {
+        updateGlobalMetrics('totalBoards', 1);
+      }
 
       return channelId;
     } catch (error) {
@@ -342,6 +349,33 @@ const channels = {
             resolve(null);
           }
         });
+    });
+  },
+
+  // Aggiungi questa nuova funzione per ottenere le statistiche separate
+  getStats: async () => {
+    return new Promise((resolve) => {
+      let stats = {
+        channels: 0,
+        boards: 0,
+        total: 0
+      };
+
+      gun.get(DAPP_NAME)
+        .get('channels')
+        .map()
+        .once((channel) => {
+          if (channel) {
+            stats.total++;
+            if (channel.type === 'channel') {
+              stats.channels++;
+            } else if (channel.type === 'board') {
+              stats.boards++;
+            }
+          }
+        });
+
+      setTimeout(() => resolve(stats), 500);
     });
   }
 };

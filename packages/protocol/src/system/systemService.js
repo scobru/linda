@@ -148,6 +148,185 @@ const systemService = {
       return false;
     }
   },
+
+  /**
+   * Monitora tutte le metriche del sistema
+   */
+  monitorSystemMetrics: () => {
+    return new Observable((subscriber) => {
+      const processedEvents = new Set();
+      const THROTTLE_TIME = 1000;
+      const lastUpdate = {};
+
+      const shouldUpdate = (eventType) => {
+        const now = Date.now();
+        if (!lastUpdate[eventType] || (now - lastUpdate[eventType] > THROTTLE_TIME)) {
+          lastUpdate[eventType] = now;
+          return true;
+        }
+        return false;
+      };
+
+      // Monitora solo login e altri eventi
+      gun.on('auth', (ack) => {
+        if (!ack.err && shouldUpdate('login')) {
+          const loginId = `login_${Date.now()}`;
+          if (!processedEvents.has(loginId)) {
+            processedEvents.add(loginId);
+            updateGlobalMetrics('totalLogins', 1);
+            subscriber.next({ type: 'login', data: ack });
+          }
+        }
+      });
+
+      // Pulisci periodicamente gli eventi processati
+      const cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        processedEvents.forEach(eventId => {
+          if (now - parseInt(eventId.split('_')[1] || 0) > THROTTLE_TIME) {
+            processedEvents.delete(eventId);
+          }
+        });
+      }, THROTTLE_TIME);
+
+      return () => {
+        clearInterval(cleanupInterval);
+        gun.get(DAPP_NAME).off();
+        gun.off('auth');
+      };
+    });
+  },
+
+  /**
+   * Inizializza il monitoraggio del sistema
+   */
+  initializeMonitoring: () => {
+    // Inizializza le metriche con valori numerici semplici
+    const initialMetrics = {
+      totalUsers: 0,
+      totalChannels: 0,
+      totalFriendRequests: 0,
+      totalFriendRequestsRejected: 0,
+      totalMessagesSent: 0,
+      totalLogins: 0,
+      totalRegistrations: 0,
+      totalFriendRequestsMade: 0
+    };
+
+    gun.get(DAPP_NAME)
+      .get('globalMetrics')
+      .once((data) => {
+        if (!data) {
+          // Salva ogni metrica individualmente
+          Object.entries(initialMetrics).forEach(([key, value]) => {
+            gun.get(DAPP_NAME)
+              .get('globalMetrics')
+              .get(key)
+              .put(value);
+          });
+        }
+      });
+
+    return systemService.monitorSystemMetrics().subscribe({
+      error: (error) => console.error('Error monitoring metrics:', error)
+    });
+  }
 };
 
+const globalMetrics = {
+  totalUsers: 0,
+  totalChannels: 0,
+  totalFriendRequests: 0,
+  totalFriendRequestsRejected: 0,
+  totalMessagesSent: 0,
+  totalLogins: 0,
+  totalRegistrations: 0,
+  totalFriendRequestsMade: 0,
+};
+
+const globalMetricsPath = gun.get(DAPP_NAME).get('globalMetrics');
+
+// Funzione per aggiornare le metriche globali in modo atomico
+const updateGlobalMetrics = (metric, value = 1) => {
+  if (!metric || typeof value !== 'number') return;
+
+  // Usa una struttura dati semplice senza metadati
+  const data = {};
+  data[metric] = value;
+
+  gun.get(DAPP_NAME)
+    .get('globalMetrics')
+    .get(metric)
+    .once((currentValue) => {
+      // Assicurati che il valore sia un numero
+      const current = typeof currentValue === 'number' ? currentValue : 0;
+      const newValue = current + value;
+      
+      // Salva il valore direttamente senza metadati
+      gun.get(DAPP_NAME)
+        .get('globalMetrics')
+        .get(metric)
+        .put(newValue);
+      
+      console.log(`Updated ${metric}: ${current} -> ${newValue}`);
+    });
+};
+
+// Funzione per ottenere le metriche globali
+const getGlobalMetrics = async () => {
+  return new Promise((resolve) => {
+    gun.get(DAPP_NAME)
+      .get('globalMetrics')
+      .load((data) => {
+        console.log('Loaded global metrics:', data);
+        if (!data) {
+          // Se non ci sono dati, inizializza con i valori di default
+          const defaultMetrics = {
+            totalUsers: 0,
+            totalChannels: 0,
+            totalFriendRequests: 0,
+            totalFriendRequestsRejected: 0,
+            totalMessagesSent: 0,
+            totalLogins: 0,
+            totalRegistrations: 0,
+            totalFriendRequestsMade: 0
+          };
+          gun.get(DAPP_NAME)
+            .get('globalMetrics')
+            .put(defaultMetrics);
+          resolve(defaultMetrics);
+        } else {
+          resolve(data);
+        }
+      });
+  });
+};
+
+// Avvia il monitoraggio quando il modulo viene importato
+const monitoringSubscription = systemService.initializeMonitoring();
+
+// Usa window.addEventListener invece di process.on per il browser
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (monitoringSubscription) {
+      monitoringSubscription.unsubscribe();
+    }
+  });
+} else if (typeof process !== 'undefined') {
+  // Fallback per Node.js
+  process.on('beforeExit', () => {
+    if (monitoringSubscription) {
+      monitoringSubscription.unsubscribe();
+    }
+  });
+}
+
+// Aggiungi una funzione di cleanup esplicita che può essere chiamata quando necessario
+const cleanup = () => {
+  if (monitoringSubscription) {
+    monitoringSubscription.unsubscribe();
+  }
+};
+
+export { updateGlobalMetrics, getGlobalMetrics, cleanup };
 export default systemService;

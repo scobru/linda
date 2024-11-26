@@ -1,6 +1,7 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { createFriendRequestCertificate } from '../security/index.js';
 import { walletService } from '../wallet.js';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 const REGISTRATION_TIMEOUT = 10000; // 10 seconds
 
@@ -185,54 +186,48 @@ const registerUser = (credentials = {}, callback = () => {}) => {
       }
 
       // Register the new user
-      user.create(
-        credentials.username,
-        credentials.password,
-        async ({ err, pub }) => {
-          if (err) {
-            reject(new Error(err));
-            return;
-          }
-
-          try {
-            // Aggiorna il conteggio utenti in modo atomico
-            await new Promise((resolve) => {
-              gun.get(DAPP_NAME)
-                .get('userList')
-                .get('count')
-                .once(async (currentCount) => {
-                  const newCount = (currentCount || 0) + 1;
-                  await gun
-                    .get(DAPP_NAME)
-                    .get('userList')
-                    .get('count')
-                    .put(newCount);
-
-                  // Aggiungi l'utente alla lista utenti
-                  await gun.get(DAPP_NAME)
-                    .get('userList')
-                    .get('users')
-                    .set({
-                      pub,
-                      username: credentials.username,
-                      timestamp: Date.now(),
-                      status: 'active'
-                    });
-
-                  resolve();
-                });
-            });
-
-            resolve({
-              success: true,
-              pub,
-              message: 'Successfully created user.',
-            });
-          } catch (error) {
-            reject(error);
-          }
+      user.create(credentials.username, credentials.password, async ({ err, pub }) => {
+        if (err) {
+          reject(new Error(err));
+          return;
         }
-      );
+
+        try {
+          // Aggiorna il conteggio utenti una sola volta
+          gun.get(DAPP_NAME)
+            .get('globalMetrics')
+            .get('totalUsers')
+            .once((currentCount) => {
+              const newCount = (currentCount || 0) + 1;
+              gun.get(DAPP_NAME)
+                .get('globalMetrics')
+                .get('totalUsers')
+                .put(newCount);
+            });
+
+          // Incrementa anche il contatore delle registrazioni
+          updateGlobalMetrics('totalRegistrations', 1);
+
+          // Aggiungi l'utente alla lista utenti
+          await gun.get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .set({
+              pub,
+              username: credentials.username,
+              timestamp: Date.now(),
+              status: 'active'
+            });
+
+          resolve({
+            success: true,
+            pub,
+            message: 'Successfully created user.',
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
     } catch (error) {
       reject(error);
     }

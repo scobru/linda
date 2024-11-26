@@ -17,7 +17,9 @@ import {
   getPeers,
 } from './useGun.js';
 
-// Esporta subito le funzionalità di base di Gun
+import { walletService } from './wallet.js';
+import { userUtils, getUserInfo, updateUserProfile, subscribeToUserUpdates } from './utils/userUtils.js';
+
 export {
   gun,
   user,
@@ -28,7 +30,8 @@ export {
   checkConnection,
   reconnect,
   removePeer,
-  getPeers
+  getPeers,
+  walletService
 };
 
 // Poi importa gli altri moduli che potrebbero dipendere da useGun
@@ -117,6 +120,14 @@ export const {
 export const { 
   systemService 
 } = system;
+
+// Esporta sia le funzioni individuali che l'oggetto userUtils
+export {
+  userUtils,
+  getUserInfo,
+  updateUserProfile,
+  subscribeToUserUpdates
+};
 
 /**
  * @typedef {Object} CacheManager

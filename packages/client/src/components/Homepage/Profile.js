@@ -4,9 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { authentication } from "linda-protocol";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
-import { userUtils } from "linda-protocol/utils/userUtils";
+import { subscribeToUserUpdates , updateUserProfile, getUserInfo } from "linda-protocol";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { walletService } from 'linda-protocol/wallet.js';
+import { walletService } from 'linda-protocol';
 
 export function Header() {
   return (
@@ -60,7 +60,7 @@ export default function Profile() {
         const originalUsername = user.is.alias?.split('.')[0] || '';
 
         // Poi carica le informazioni complete dell'utente
-        const info = await userUtils.getUserInfo(currentPub);
+        const info = await getUserInfo(currentPub);
         
         // Combina le informazioni dando priorità allo username originale
         setUserInfo({
@@ -81,7 +81,7 @@ export default function Profile() {
         }
 
         // Sottoscrizione ai cambiamenti
-        const unsub = userUtils.subscribeToUserUpdates(currentPub, (updatedInfo) => {
+        const unsub = subscribeToUserUpdates(currentPub, (updatedInfo) => {
           setUserInfo(prev => ({
             ...prev,
             ...updatedInfo
@@ -135,7 +135,7 @@ export default function Profile() {
         return;
       }
 
-      const success = await userUtils.updateUserProfile(user.is.pub, {
+      const success = await updateUserProfile(user.is.pub, {
         nickname: newNickname.trim()
       });
 

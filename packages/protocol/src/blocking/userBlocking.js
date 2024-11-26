@@ -1,5 +1,6 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { Observable } from 'rxjs';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 const userBlocking = {
   /**
@@ -62,6 +63,7 @@ const userBlocking = {
       ]);
 
       console.log(`Utente ${targetPub} bloccato con successo`);
+      updateGlobalMetrics('totalUsersBlocked', 1);
       return { success: true, message: 'Utente bloccato con successo' };
     } catch (error) {
       console.error('Errore nel blocco:', error);

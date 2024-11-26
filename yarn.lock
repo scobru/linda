@@ -3921,10 +3921,10 @@
   resolved "https://registry.yarnpkg.com/@safe-global/safe-gateway-typescript-sdk/-/safe-gateway-typescript-sdk-3.22.2.tgz#d4ff9972e58f9344fc95f8d41b2ec6517baa8e79"
   integrity sha512-Y0yAxRaB98LFp2Dm+ACZqBSdAmI3FlpH/LjxOZ94g/ouuDJecSq0iR26XZ5QDuEL8Rf+L4jBJaoDC08CD0KkJw==
 
-"@scobru/mogu@^2.1.0":
-  version "2.1.0"
-  resolved "https://registry.yarnpkg.com/@scobru/mogu/-/mogu-2.1.0.tgz#bd691737ec22fa7c494562a59193b679f1db34b8"
-  integrity sha512-rlUXBJHfYitfnELmt9W74d+l1n2oIJWC3F6KrrBQnKhi7Z584L8q4noPxHuz7+xE+wHK677nuAvHNH0xhavbdA==
+"@scobru/mogu@^2.2.3":
+  version "2.2.3"
+  resolved "https://registry.yarnpkg.com/@scobru/mogu/-/mogu-2.2.3.tgz#a6bcc447e31e5ce3de8cbee697887927b2ff11cb"
+  integrity sha512-nPgfMWTpTFyb7Awy/q5WX+zKG63gGOBSCAadYqo4ySyQmep3JZIQYYmG//QoqfCwgTNNG6HJqszp/RkPNCwQMg==
   dependencies:
     "@bundlr-network/client" "^0.8.5"
     "@helia/json" "^4.0.1"
@@ -12797,8 +12797,8 @@ lilconfig@^3.0.0:
   resolved "https://registry.yarnpkg.com/lilconfig/-/lilconfig-3.1.2.tgz#e4a7c3cb549e3a606c8dcc32e5ae1005e62c05cb"
   integrity sha512-eop+wDAvpItUys0FWkHIKeC9ybYrTGbU41U5K7+bttZZeohvnY7M9dZ5kB21GNWiFT2q1OoPTvncPCgSOVO5ow==
 
-"linda-protocol@file:packages/protocol":
-  version "1.0.7"
+"linda-protocol@link:packages/protocol":
+  version "1.0.8"
   dependencies:
     "@noble/secp256k1" "^1.7.0"
     "@rollup/plugin-commonjs" "^28.0.1"
@@ -12806,6 +12806,7 @@ lilconfig@^3.0.0:
     "@rollup/plugin-node-resolve" "^15.3.0"
     gun "^0.2020.1240"
     gun-eth "^1.4.14"
+    rollup-plugin-polyfill-node "^0.13.0"
     url "^0.11.4"
 
 lines-and-columns@^1.1.6:

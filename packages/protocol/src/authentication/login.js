@@ -1,9 +1,9 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
-import { walletService } from '../wallet.js';
 import {
   createFriendRequestCertificate,
   createNotificationCertificate,
 } from '../security/index.js';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 const LOGIN_TIMEOUT = 10000; // 10 seconds
 
@@ -146,7 +146,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
         return;
       }
 
-      gun
+      await gun
         .user()
         .auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
@@ -164,7 +164,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             localStorage.setItem('gunWallet', JSON.stringify(userWallet));
 
             // Aggiorna i dati del wallet
-            await gun.get(DAPP_NAME)
+            gun.get(DAPP_NAME)
               .get('userList')
               .get('users')
               .set({
@@ -177,7 +177,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
               });
 
             // Aggiorna anche il profilo utente
-            await gun.user().get(DAPP_NAME).get('profile').put({
+            gun.user().get(DAPP_NAME).get('profile').put({
               address: userWallet?.account.address
             });
 
@@ -223,6 +223,32 @@ const loginUser = (credentials = {}, callback = () => {}) => {
                 reject(new Error('Failed to get user data'));
               }
             }, 100);
+
+            // Aggiorna le metriche globali
+            gun.get(DAPP_NAME)
+              .get('globalMetrics')
+              .get('totalLogins')
+              .once((val) => {
+                const current = val || 0;
+                gun.get(DAPP_NAME)
+                  .get('globalMetrics')
+                  .get('totalLogins')
+                  .put(current + 1);
+              });
+
+            // Aggiorna anche le metriche del protocollo
+            gun.get(DAPP_NAME)
+              .get('protocol')
+              .get('authentication')
+              .get('logins')
+              .once((val) => {
+                const current = val || 0;
+                gun.get(DAPP_NAME)
+                  .get('protocol')
+                  .get('authentication')
+                  .get('logins')
+                  .put(current + 1);
+              });
           } catch (error) {
             reject(error);
           }
@@ -256,6 +282,9 @@ const loginUser = (credentials = {}, callback = () => {}) => {
         errCode: 'login-error',
       });
     });
+
+  // Incrementa il contatore dei login
+  updateGlobalMetrics('totalLogins', 1);
 
   return loginPromise;
 };

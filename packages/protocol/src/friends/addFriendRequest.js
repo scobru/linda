@@ -2,6 +2,7 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import { generateAddFriendCertificate, createFriendRequestCertificate } from '../security/index.js';
 import { certificateManager } from '../security/certificateManager.js';
 import SEA from 'gun/sea.js';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 /**
  * Sends a friend request to another user
@@ -293,6 +294,8 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       success: false,
       errMessage: error.message || "Errore nell'invio della richiesta",
     });
+  } finally {
+    updateGlobalMetrics('totalFriendRequestsMade', 1);
   }
 };
 

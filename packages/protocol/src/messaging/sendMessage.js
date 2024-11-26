@@ -7,6 +7,7 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import { messageNotifications } from '../notifications/index.js';
 import messageList from './messageList.js';
 import { blocking } from '../index.js';
+import { updateGlobalMetrics } from '../system/systemService.js';
 
 const { userBlocking } = blocking;
 
@@ -119,6 +120,9 @@ const sendMessage = async (
     });
 
     console.log('Message sent successfully:', messageId);
+
+    // Incrementa il contatore dei messaggi inviati
+    updateGlobalMetrics('totalMessagesSent', 1);
 
     return callback({
       success: true,

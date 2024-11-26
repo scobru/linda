@@ -3,28 +3,28 @@ const path = require('path');
 const os = require('os');
 const { Mogu } = require("@scobru/mogu");
 
+require('dotenv').config();
+
 async function cleanRadata() {
     try {
         // Path corretto di radata
-        const radataPath = path.join(os.tmpdir(), 'gun-data');
-        
+        const radataPath = path.join(process.cwd(), "radata");
+
         console.log('🔍 Cerco radata in:', radataPath);
 
         if (fs.existsSync(radataPath)) {
-            // Inizializza Mogu per il backup
-            const mogu = new Mogu(
-                [], // no peers needed
-                '', // no encryption
-                'PINATA',
-                {
+            // Inizializza Mogu con la nuova configurazione
+            const mogu = new Mogu({
+                storageService: 'PINATA',
+                storageConfig: {
                     apiKey: process.env.PINATA_API_KEY || '',
                     apiSecret: process.env.PINATA_API_SECRET || ''
                 }
-            );
+            });
 
             // Backup su IPFS prima della pulizia
             console.log('📦 Creazione backup su IPFS...');
-            const hash = await mogu.store();
+            const hash = await mogu.backup();
             if (hash) {
                 console.log('✅ Backup IPFS creato con hash:', hash);
             }

@@ -12,7 +12,7 @@ import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
 import { authentication, DAPP_NAME } from 'linda-protocol';
 import Channels from '../components/Homepage/Channels';
-import { walletService } from 'linda-protocol/wallet.js';
+import { walletService } from 'linda-protocol';
 
 const { chat } = messaging; // Destruttura il servizio chat
 

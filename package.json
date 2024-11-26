@@ -8,9 +8,9 @@
     "clean": "rimraf node_modules packages/*/node_modules",
     "bootstrap": "yarn install",
     "build": "yarn workspaces run build",
-    "build:protocol": "yarn workspace @linda/protocol build",
-    "start:client": "yarn workspace @linda/client start",
-    "start:relay": "yarn workspace @linda/relay start",
+    "build:protocol": "yarn workspace linda-protocol build",
+    "start:client": "yarn workspace linda-client start",
+    "start:relay": "yarn workspace linda-relay start",
     "dev": "concurrently \"yarn start:client\" \"yarn start:relay\"",
     "version": "yarn workspaces run version",
     "publish": "yarn workspaces run npm publish --access public"
