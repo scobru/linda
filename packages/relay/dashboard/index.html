@@ -302,10 +302,28 @@
                     // Backup
                     if (metrics.backups) {
                         const backup = metrics.backups.lastBackup;
-                        document.getElementById('lastBackupHash').textContent = backup.hash || '-';
+                        let displayHash = backup.hash;
+                        
+                        // Gestisci il caso in cui hash sia un oggetto
+                        if (displayHash && typeof displayHash === 'object') {
+                            try {
+                                displayHash = JSON.stringify(displayHash);
+                            } catch (e) {
+                                displayHash = '[Object]';
+                            }
+                        }
+                        
+                        document.getElementById('lastBackupHash').textContent = displayHash || '-';
                         document.getElementById('lastBackupTime').textContent = backup.time || '-';
                         document.getElementById('lastBackupSize').textContent = formatBytes(backup.size);
-                        document.getElementById('lastBackupLink').href = backup.link;
+                        
+                        // Aggiorna il link solo se è valido
+                        if (backup.link && backup.link !== '#') {
+                            document.getElementById('lastBackupLink').href = backup.link;
+                            document.getElementById('lastBackupLink').style.display = 'inline';
+                        } else {
+                            document.getElementById('lastBackupLink').style.display = 'none';
+                        }
                         
                         const stats = metrics.backups.stats;
                         document.getElementById('backupsTotal').textContent = stats.total;

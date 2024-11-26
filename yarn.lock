@@ -3921,10 +3921,10 @@
   resolved "https://registry.yarnpkg.com/@safe-global/safe-gateway-typescript-sdk/-/safe-gateway-typescript-sdk-3.22.2.tgz#d4ff9972e58f9344fc95f8d41b2ec6517baa8e79"
   integrity sha512-Y0yAxRaB98LFp2Dm+ACZqBSdAmI3FlpH/LjxOZ94g/ouuDJecSq0iR26XZ5QDuEL8Rf+L4jBJaoDC08CD0KkJw==
 
-"@scobru/mogu@^2.2.3":
-  version "2.2.3"
-  resolved "https://registry.yarnpkg.com/@scobru/mogu/-/mogu-2.2.3.tgz#a6bcc447e31e5ce3de8cbee697887927b2ff11cb"
-  integrity sha512-nPgfMWTpTFyb7Awy/q5WX+zKG63gGOBSCAadYqo4ySyQmep3JZIQYYmG//QoqfCwgTNNG6HJqszp/RkPNCwQMg==
+"@scobru/mogu@^3.0.3":
+  version "3.0.3"
+  resolved "https://registry.yarnpkg.com/@scobru/mogu/-/mogu-3.0.3.tgz#3ec1bbaf543a605f555ec96efa70c32e2b2d8af8"
+  integrity sha512-fgBa9MANM6os4dtIf6axSweUAC8Jdf4BfuE5IM+hPtFYgFeLznA0xUaoejNkZN9NzrLR1I8lKjiGsEejfGqjaA==
   dependencies:
     "@bundlr-network/client" "^0.8.5"
     "@helia/json" "^4.0.1"
@@ -3938,9 +3938,11 @@
     axios "^1.6.2"
     blockstore-core "^5.0.2"
     datastore-core "^10.0.2"
+    dayjs "^1.11.13"
     dotenv "^16.3.1"
     ethers "^5.7.2"
     express "^4.18.2"
+    fs-extra "^11.2.0"
     gun "^0.2020.1239"
     helia "^5.1.1"
     ipfs-http-client "^56.0.2"
@@ -8023,6 +8025,11 @@ date-fns@^2.30.0:
   dependencies:
     "@babel/runtime" "^7.21.0"
 
+dayjs@^1.11.13:
+  version "1.11.13"
+  resolved "https://registry.yarnpkg.com/dayjs/-/dayjs-1.11.13.tgz#92430b0139055c3ebb60150aa13e860a4b5a366c"
+  integrity sha512-oaMBel6gjolK862uaPQOVTA7q3TZhuSvuMQAAglQDOWYO9A91IrAOUJEyKVlqJlHE0vq5p5UXxzdPfMH/x6xNg==
+
 debounce-fn@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/debounce-fn/-/debounce-fn-4.0.0.tgz#ed76d206d8a50e60de0dd66d494d82835ffe61c7"
@@ -9667,6 +9674,15 @@ fs-extra@^10.0.0:
   version "10.1.0"
   resolved "https://registry.yarnpkg.com/fs-extra/-/fs-extra-10.1.0.tgz#02873cfbc4084dde127eaa5f9905eef2325d1abf"
   integrity sha512-oRXApq54ETRj4eMiFzGnHWGy+zo5raudjuxN0b8H7s/RU2oW0Wvsx9O0ACRN/kRq9E8Vu/ReskGB5o3ji+FzHQ==
+  dependencies:
+    graceful-fs "^4.2.0"
+    jsonfile "^6.0.1"
+    universalify "^2.0.0"
+
+fs-extra@^11.2.0:
+  version "11.2.0"
+  resolved "https://registry.yarnpkg.com/fs-extra/-/fs-extra-11.2.0.tgz#e70e17dfad64232287d01929399e0ea7c86b0e5b"
+  integrity sha512-PmDi3uwK5nFuXh7XDTlVnS17xJS7vW36is2+w3xcv8SVxiB4NyATf4ctkVY5bkSjX0Y4nbvZCq1/EjtEyr9ktw==
   dependencies:
     graceful-fs "^4.2.0"
     jsonfile "^6.0.1"

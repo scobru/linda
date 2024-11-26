@@ -161,7 +161,7 @@ const BACKUP_COOLDOWN = 2 * 60 * 1000; // 2 minuti di cooldown tra i backup
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Modifica la funzione performBackup per includere la logica di retry
+// Modifica la funzione performBackup per gestire correttamente l'hash
 async function performBackup() {
   if (!mogu || !CONFIG.STORAGE.enabled) {
     console.log("Backup skipped: mogu not initialized or storage disabled");
@@ -169,76 +169,32 @@ async function performBackup() {
   }
 
   let retries = 0;
-
   while (retries < MAX_RETRIES) {
     try {
       console.log(`Tentativo di backup ${retries + 1}/${MAX_RETRIES}`);
-      const hash = await mogu.backup();
+      const backupResult = await mogu.backup();
 
+      // Estrai l'hash dal risultato del backup
+      const hash = backupResult?.hash || backupResult;
+      
       if (hash) {
         console.log("New backup created with hash:", hash);
-
-        // Verifica l'integrità del backup
-        const comparison = await mogu.compareBackup(hash);
-        console.log("Backup comparison:", comparison);
-
-        if (comparison.isEqual) {
-          console.log("Backup integrity verified");
-          lastBackupTime = Date.now();
-
-          // Assicurati che metrics.backups esista
-          if (!metrics.backups) {
-            metrics.backups = {
-              lastBackup: {
-                hash: null,
-                time: null,
-                size: 0,
-                link: "#",
-              },
-              stats: {
-                total: 0,
-                successful: 0,
-                failed: 0,
-              },
-            };
-          }
-
-          // Aggiorna le statistiche
-          metrics.backups.stats.successful++;
-          metrics.backups.stats.total++;
-
-          const radataSize = getRadataSize();
-          console.log("Radata size:", formatBytes(radataSize));
-
-          // Aggiorna le informazioni dell'ultimo backup
-          metrics.backups.lastBackup = {
-            hash,
-            time: new Date().toISOString(),
-            size: radataSize,
-            link: `https://gateway.pinata.cloud/ipfs/${hash}`,
-          };
-
-          console.log("Backup metrics updated:", {
-            lastBackup: metrics.backups.lastBackup,
-            stats: metrics.backups.stats,
-          });
-
-          return true; // Backup completato con successo
-        } else {
-          console.error("Backup integrity check failed");
-          if (metrics.backups && metrics.backups.stats) {
-            metrics.backups.stats.failed++;
-            metrics.backups.stats.total++;
-          }
-
-          // Rimuovi il backup non valido
-          try {
-            await mogu.removeBackup(hash);
-            console.log("Invalid backup removed");
-          } catch (removeError) {
-            console.error("Error removing invalid backup:", removeError);
-          }
-        }
+        lastBackupTime = Date.now();
+        
+        const radataSize = getRadataSize();
+        
+        // Aggiorna le metriche con l'hash corretto
+        metrics.backups.lastBackup = {
+          hash: typeof hash === 'object' ? JSON.stringify(hash) : hash,
+          time: new Date().toISOString(),
+          size: radataSize,
+          link: `https://gateway.pinata.cloud/ipfs/${typeof hash === 'object' ? hash.hash || hash : hash}`
+        };
+        
+        metrics.backups.stats.successful++;
+        metrics.backups.stats.total++;
+        
+        return true;
       }
     } catch (error) {
       retries++;
@@ -246,41 +202,16 @@ async function performBackup() {
 
       if (retries < MAX_RETRIES) {
         console.log(`Attendo ${RETRY_DELAY}ms prima del prossimo tentativo...`);
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       } else {
         console.error("Tutti i tentativi di backup sono falliti");
-        if (metrics.backups && metrics.backups.stats) {
-          metrics.backups.stats.failed++;
-          metrics.backups.stats.total++;
-        }
+        metrics.backups.stats.failed++;
+        metrics.backups.stats.total++;
       }
     }
   }
 
-  return false; // Backup fallito
-}
-
-// Aggiungi una funzione helper per le operazioni Mogu con retry
-async function withRetry(operation, ...args) {
-  let retries = 0;
-
-  while (retries < MAX_RETRIES) {
-    try {
-      return await operation(...args);
-    } catch (error) {
-      retries++;
-      console.error(
-        `Operazione fallita (tentativo ${retries}/${MAX_RETRIES}):`,
-        error
-      );
-
-      if (retries < MAX_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-      } else {
-        throw new Error(`Operazione fallita dopo ${MAX_RETRIES} tentativi`);
-      }
-    }
-  }
+  return false;
 }
 
 // Modifica l'inizializzazione del server
@@ -291,28 +222,27 @@ async function initializeServer() {
       web: app,
       file: "radata",
       multicast: false,
-      radisk:true,
-      axe:true,
-      wire:true,
+      radisk: true,
+      axe: true,
+      wire: true,
       localStorage: false
     });
 
     gun = gunDb;
     console.log("Gun server started");
 
-    // Inizializza gli event listeners di Gun PRIMA di inizializzare Mogu
-
     // Inizializza Mogu se abilitato
     if (CONFIG.STORAGE.enabled) {
       mogu = new Mogu({
-        key: "",
+        key: "", // chiave opzionale
         storageService: CONFIG.STORAGE.service,
         storageConfig: CONFIG.STORAGE.config,
         server: gun,
-        useIPFS: false // enable IPFS usage
+        useIPFS: false // disabilita IPFS
       });
 
       try {
+        // Rimuovi la chiamata a initialize() dato che non esiste
         console.log("Mogu initialized successfully");
 
         // Verifica e ripristina l'ultimo backup se esiste

@@ -12,7 +12,8 @@
     "restore:radata": "node scripts/restoreRadata.js"
   },
   "dependencies": {
-    "@scobru/mogu": "^2.2.3",
+    "@scobru/mogu": "^3.0.3",
+    "dayjs": "^1.11.13",
     "express-prometheus-middleware": "^1.2.0",
     "gun": "^0.2020.1240",
     "gun-eth": "^1.5.4",
