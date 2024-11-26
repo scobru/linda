@@ -5,7 +5,7 @@ import {
   user, 
   gun,
   checkConnection 
-} from './protocol/src';
+} from 'linda-protocol';
 import Context from './contexts/context';
 import RequireAuth from './components/RequireAuth';
 import { useEffect } from 'react';
@@ -48,9 +48,8 @@ function App() {
 
         setConnectionState(isConnected ? 'connected' : 'disconnected');
 
-        // Tenta la riconnessione solo se non siamo connessi
         if (!isConnected) {
-          console.log('Tentativo di riconnessione...');
+          console.log('Tentativo di riconnessione al peer locale...', gun._.opt.peers );
           gun.get('ping').put({ timestamp: Date.now() });
         }
       } catch (error) {

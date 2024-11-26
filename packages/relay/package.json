@@ -1,20 +1,25 @@
 {
-  "name": "@linda/relay",
+  "name": "linda-relay",
   "version": "1.0.0",
   "private": false,
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "prometheus": "prometheus --config.file=prometheus.yml"
+    "prometheus": "prometheus --config.file=prometheus.yml",
+    "clean:radata": "node scripts/cleanRadata.js",
+    "restore:radata": "node scripts/restoreRadata.js"
   },
   "dependencies": {
-    "@linda/protocol": "^1.0.7",
+    "@scobru/mogu": "^2.2.3",
     "express-prometheus-middleware": "^1.2.0",
     "gun": "^0.2020.1240",
+    "gun-eth": "^1.5.4",
     "install": "^0.13.0",
     "npm": "^10.9.0",
-    "prom-client": "^15.1.3"
+    "prom-client": "^15.1.3",
+    "text-encoding": "^0.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

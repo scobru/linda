@@ -52,47 +52,52 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div class="row g-4 mb-4">
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        <h5 class="card-title">Statistiche Protocollo</h5>
-                        
+                        <h5 class="card-title">Statistiche Globali</h5>
                         <div class="row mt-3">
-                            <div class="col-md-3">
-                                <h6>Messaggi</h6>
-                                <ul class="list-unstyled">
-                                    <li>Inviati: <span id="msgSent">-</span></li>
-                                    <li>Ricevuti: <span id="msgReceived">-</span></li>
-                                    <li>Crittografati: <span id="msgEncrypted">-</span></li>
-                                    <li>Falliti: <span id="msgFailed">-</span></li>
-                                </ul>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6>Utenti</h6>
+                                        <ul class="list-unstyled">
+                                            <li title="Numero totale di utenti registrati">
+                                                Utenti Totali: <span id="globalTotalUsers" class="fw-bold">-</span>
+                                            </li>
+                                            <li title="Numero totale di accessi effettuati">
+                                                Login Totali: <span id="globalTotalLogins" class="fw-bold">-</span>
+                                            </li>
+                                            <li title="Numero totale di nuove registrazioni">
+                                                Registrazioni Totali: <span id="globalTotalRegistrations" class="fw-bold">-</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
-                            
-                            <div class="col-md-3">
-                                <h6>Autenticazione</h6>
-                                <ul class="list-unstyled">
-                                    <li>Login: <span id="authLogins">-</span></li>
-                                    <li>Registrazioni: <span id="authRegs">-</span></li>
-                                    <li>Errori: <span id="authFails">-</span></li>
-                                </ul>
-                            </div>
-                            
-                            <div class="col-md-3">
-                                <h6>Amicizie</h6>
-                                <ul class="list-unstyled">
-                                    <li>Richieste: <span id="friendReqs">-</span></li>
-                                    <li>Accettate: <span id="friendAccepts">-</span></li>
-                                    <li>Rifiutate: <span id="friendRejects">-</span></li>
-                                </ul>
-                            </div>
-                            
-                            <div class="col-md-3">
-                                <h6>Canali</h6>
-                                <ul class="list-unstyled">
-                                    <li>Creati: <span id="channelsCreated">-</span></li>
-                                    <li>Messaggi: <span id="channelMsgs">-</span></li>
-                                    <li>Membri: <span id="channelMembers">-</span></li>
-                                </ul>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6>Interazioni</h6>
+                                        <ul class="list-unstyled">
+                                            <li>Canali:</li>
+                                            <ul class="list-unstyled ms-3">
+                                                <li>Canali: <span id="globalTotalChannels" class="fw-bold">-</span></li>
+                                                <li>Board: <span id="globalTotalBoards" class="fw-bold">-</span></li>
+                                            </ul>
+                                            <li>Messaggi Inviati: <span id="globalTotalMessagesSent" class="fw-bold">-</span></li>
+                                            <li>Richieste di Amicizia:</li>
+                                            <ul class="list-unstyled ms-3">
+                                                <li>Effettuate: <span id="globalTotalFriendRequestsMade" class="fw-bold">-</span></li>
+                                                <li>Ricevute: <span id="globalTotalFriendRequests" class="fw-bold">-</span></li>
+                                                <li>Rifiutate: <span id="globalTotalFriendRequestsRejected" class="fw-bold">-</span></li>
+                                            </ul>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -100,7 +105,7 @@
             </div>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-4 mb-4">
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-body">
@@ -118,6 +123,68 @@
                 </div>
             </div>
         </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Backup IPFS</h5>
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <h6>Ultimo Backup</h6>
+                                <ul class="list-unstyled">
+                                    <li>Hash: <span id="lastBackupHash">-</span></li>
+                                    <li>Data: <span id="lastBackupTime">-</span></li>
+                                    <li>Dimensione: <span id="lastBackupSize">-</span></li>
+                                    <li>Link: <a id="lastBackupLink" href="#" target="_blank">Visualizza su IPFS</a></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Statistiche Backup</h6>
+                                <ul class="list-unstyled">
+                                    <li>Totali: <span id="backupsTotal">-</span></li>
+                                    <li>Riusciti: <span id="backupsSuccessful">-</span></li>
+                                    <li>Falliti: <span id="backupsFailed">-</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Spazio Utilizzato</h5>
+                        <div class="row mt-3">
+                            <div class="col-md-3">
+                                <div class="metric-card">
+                                    <h6>Database (Radata)</h6>
+                                    <h3 id="radataStorage">-</h3>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card">
+                                    <h6>Nodi</h6>
+                                    <h3 id="nodesStorage">-</h3>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card">
+                                    <h6>Backup</h6>
+                                    <h3 id="backupsStorage">-</h3>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card">
+                                    <h6>Totale</h6>
+                                    <h3 id="totalStorage">-</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -130,11 +197,26 @@
                 data: {
                     labels: [],
                     datasets: [{
-                        label: 'Carico CPU',
+                        label: 'Carico CPU %',
                         data: [],
                         borderColor: 'rgb(75, 192, 192)',
                         tension: 0.1
                     }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Utilizzo CPU (%)'
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
                 }
             });
 
@@ -152,9 +234,9 @@
         }
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0 Bytes';
+            if (bytes === 0) return '0 B';
             const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
@@ -162,49 +244,112 @@
         function updateDashboard() {
             fetch('/metrics')
                 .then(response => response.json())
-                .then(data => {
-                    document.getElementById('connections').textContent = data.connections;
-                    document.getElementById('putOps').textContent = data.putOperations;
-                    document.getElementById('getOps').textContent = data.getOperations;
-                    document.getElementById('bytesTransferred').textContent = formatBytes(data.bytesTransferred);
-
-                    // Aggiorna grafico CPU
-                    const timestamp = new Date().toLocaleTimeString();
-                    cpuChart.data.labels.push(timestamp);
-                    cpuChart.data.datasets[0].data.push(data.cpu[0]);
-                    if (cpuChart.data.labels.length > 10) {
-                        cpuChart.data.labels.shift();
-                        cpuChart.data.datasets[0].data.shift();
+                .then(metrics => {
+                    console.log('Dashboard metrics update:', metrics);  // Debug log
+                    
+                    // Aggiorna i contatori solo se i valori sono definiti
+                    if (typeof metrics.connections === 'number') {
+                        document.getElementById('connections').textContent = metrics.connections;
                     }
-                    cpuChart.update();
+                    if (typeof metrics.putOperations === 'number') {
+                        document.getElementById('putOps').textContent = metrics.putOperations;
+                    }
+                    if (typeof metrics.getOperations === 'number') {
+                        document.getElementById('getOps').textContent = metrics.getOperations;
+                    }
+                    if (typeof metrics.bytesTransferred === 'number') {
+                        document.getElementById('bytesTransferred').textContent = formatBytes(metrics.bytesTransferred);
+                    }
 
-                    // Aggiorna grafico memoria
-                    const usedMemory = data.totalMemory - data.freeMemory;
-                    memoryChart.data.datasets[0].data = [usedMemory, data.freeMemory];
-                    memoryChart.update();
+                    // Storage
+                    if (metrics.storage) {
+                        document.getElementById('radataStorage').textContent = metrics.storage.radata;
+                        document.getElementById('nodesStorage').textContent = metrics.storage.nodes;
+                        document.getElementById('backupsStorage').textContent = metrics.storage.backups;
+                        document.getElementById('totalStorage').textContent = metrics.storage.total;
+                    }
 
-                    // Aggiorna metriche del protocollo
-                    document.getElementById('msgSent').textContent = data.protocol.messages.sent;
-                    document.getElementById('msgReceived').textContent = data.protocol.messages.received;
-                    document.getElementById('msgEncrypted').textContent = data.protocol.messages.encrypted;
-                    document.getElementById('msgFailed').textContent = data.protocol.messages.failed;
-                    
-                    document.getElementById('authLogins').textContent = data.protocol.authentication.logins;
-                    document.getElementById('authRegs').textContent = data.protocol.authentication.registrations;
-                    document.getElementById('authFails').textContent = data.protocol.authentication.failures;
-                    
-                    document.getElementById('friendReqs').textContent = data.protocol.friends.requests;
-                    document.getElementById('friendAccepts').textContent = data.protocol.friends.accepted;
-                    document.getElementById('friendRejects').textContent = data.protocol.friends.rejected;
-                    
-                    document.getElementById('channelsCreated').textContent = data.protocol.channels.created;
-                    document.getElementById('channelMsgs').textContent = data.protocol.channels.messages;
-                    document.getElementById('channelMembers').textContent = data.protocol.channels.members;
+                    // Sistema
+                    if (metrics.system) {
+                        // CPU
+                        if (metrics.system.cpu && metrics.system.cpu.length > 0) {
+                            const timestamp = new Date().toLocaleTimeString();
+                            cpuChart.data.labels.push(timestamp);
+                            cpuChart.data.datasets[0].data.push(metrics.system.cpu[0]);
+                            
+                            if (cpuChart.data.labels.length > 30) {
+                                cpuChart.data.labels.shift();
+                                cpuChart.data.datasets[0].data.shift();
+                            }
+                            cpuChart.update();
+                        }
+
+                        // Memoria
+                        if (metrics.system.memory) {
+                            const mem = metrics.system.memory;
+                            const used = mem.heapUsed;
+                            const total = mem.heapTotal;
+                            
+                            memoryChart.data.datasets[0].data = [used, total - used];
+                            memoryChart.data.labels = [
+                                `Utilizzata (${formatBytes(used)})`,
+                                `Libera (${formatBytes(total - used)})`
+                            ];
+                            memoryChart.update();
+                        }
+                    }
+
+                    // Backup
+                    if (metrics.backups) {
+                        const backup = metrics.backups.lastBackup;
+                        document.getElementById('lastBackupHash').textContent = backup.hash || '-';
+                        document.getElementById('lastBackupTime').textContent = backup.time || '-';
+                        document.getElementById('lastBackupSize').textContent = formatBytes(backup.size);
+                        document.getElementById('lastBackupLink').href = backup.link;
+                        
+                        const stats = metrics.backups.stats;
+                        document.getElementById('backupsTotal').textContent = stats.total;
+                        document.getElementById('backupsSuccessful').textContent = stats.successful;
+                        document.getElementById('backupsFailed').textContent = stats.failed;
+                    }
+                })
+                .catch(error => {
+                    console.error('Dashboard update error:', error);
+                });
+        }
+
+        function updateGlobalMetrics() {
+            fetch('/global-metrics')
+                .then(response => response.json())
+                .then(metrics => {
+                    console.log('Dashboard received global metrics:', metrics);
+
+                    // Aggiorna i valori usando gli ID corretti
+                    const updateMetric = (id, value) => {
+                        const element = document.getElementById(id);
+                        if (element) {
+                            element.textContent = value || '0';
+                        }
+                    };
+
+                    updateMetric('globalTotalUsers', metrics.totalUsers);
+                    updateMetric('globalTotalLogins', metrics.totalLogins);
+                    updateMetric('globalTotalRegistrations', metrics.totalRegistrations);
+                    updateMetric('globalTotalChannels', metrics.totalChannels);
+                    updateMetric('globalTotalBoards', metrics.totalBoards);
+                    updateMetric('globalTotalMessagesSent', metrics.totalMessagesSent);
+                    updateMetric('globalTotalFriendRequestsMade', metrics.totalFriendRequestsMade);
+                    updateMetric('globalTotalFriendRequests', metrics.totalFriendRequests);
+                    updateMetric('globalTotalFriendRequestsRejected', metrics.totalFriendRequestsRejected);
+                })
+                .catch(error => {
+                    console.error('Errore aggiornamento metriche globali:', error);
                 });
         }
 
         initCharts();
-        setInterval(updateDashboard, 1000);
+        setInterval(updateDashboard, 2000);
+        setInterval(updateGlobalMetrics, 5000);
     </script>
 </body>
 </html> 

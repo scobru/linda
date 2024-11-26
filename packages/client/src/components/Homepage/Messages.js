@@ -1,14 +1,21 @@
-import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import Context from '../../contexts/context';
-import { toast, Toaster } from 'react-hot-toast';
-import { AiOutlineSend } from 'react-icons/ai';
-import { messaging, blocking } from '../../protocol';
-import { gun, user, notifications , DAPP_NAME } from '../../protocol';
-import { userUtils } from '../../protocol/src/utils/userUtils';
-import { createMessagesCertificate } from '../../protocol/src/security';
-import { walletService } from '../../protocol/src/wallet';
-import { JsonRpcProvider, formatEther } from 'ethers';
-
+import React, {
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+  useEffect,
+} from "react";
+import Context from "../../contexts/context";
+import { toast, Toaster } from "react-hot-toast";
+import { AiOutlineSend } from "react-icons/ai";
+import { messaging, blocking } from "linda-protocol";
+import { gun, user, notifications, DAPP_NAME } from "linda-protocol";
+import { userUtils } from "linda-protocol";
+import { createMessagesCertificate } from "linda-protocol";
+import { walletService } from "linda-protocol";
+import { formatEther } from "ethers";
+import { ethers } from "ethers";
+  
 const { userBlocking } = blocking;
 const { channels } = messaging;
 const { chat } = messaging;
@@ -57,14 +64,14 @@ const useMessageReceipts = (messageId, roomId) => {
     //     }
     //   });
 
-    console.log(notifications.messageNotifications)
+    console.log(notifications.messageNotifications);
 
     const unsub = notifications.messageNotifications
       .observeReadReceipts(messageId, roomId)
       .subscribe((receipt) => {
         setStatus({
-          delivered: receipt.type === 'delivery' || receipt.type === 'read',
-          read: receipt.type === 'read',
+          delivered: receipt.type === "delivery" || receipt.type === "read",
+          read: receipt.type === "read",
         });
       });
 
@@ -75,18 +82,18 @@ const useMessageReceipts = (messageId, roomId) => {
       .once((receipt) => {
         if (receipt) {
           setStatus({
-            delivered: receipt.type === 'delivery' || receipt.type === 'read',
-            read: receipt.type === 'read',
+            delivered: receipt.type === "delivery" || receipt.type === "read",
+            read: receipt.type === "read",
           });
         }
       });
 
     return () => {
-      if (typeof unsub === 'function') {
+      if (typeof unsub === "function") {
         try {
           unsub();
         } catch (error) {
-          console.warn('Error unsubscribing from receipts:', error);
+          console.warn("Error unsubscribing from receipts:", error);
         }
       }
     };
@@ -98,7 +105,7 @@ const useMessageReceipts = (messageId, roomId) => {
     initMessageTracking: async () => {
       if (!user.is) return;
       await gun.get(`chats/${roomId}/receipts`).get(messageId).put({
-        type: 'sent',
+        type: "sent",
         timestamp: Date.now(),
         by: user.is.pub,
       });
@@ -124,9 +131,9 @@ const useSendReceipt = () => {
 
   return {
     sendDeliveryReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, 'delivery'),
+      sendReceipt(messageId, roomId, "delivery"),
     sendReadReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, 'read'),
+      sendReceipt(messageId, roomId, "read"),
   };
 };
 
@@ -164,8 +171,8 @@ const MessageStatus = ({ message }) => {
 const createMessageTracking = () => ({
   initMessageTracking: async (messageId, roomId) => {
     if (!user.is) return;
-    await gun.get('chats').get(roomId).get('receipts').get(messageId).put({
-      type: 'sent',
+    await gun.get("chats").get(roomId).get("receipts").get(messageId).put({
+      type: "sent",
       timestamp: Date.now(),
       by: user.is.pub,
     });
@@ -174,7 +181,7 @@ const createMessageTracking = () => ({
   updateMessageStatus: async (messageId, roomId, status) => {
     if (!user.is || !messageId || !roomId) return;
     try {
-      await gun.get('chats').get(roomId).get('receipts').get(messageId).put({
+      await gun.get("chats").get(roomId).get("receipts").get(messageId).put({
         type: status,
         timestamp: Date.now(),
         by: user.is.pub,
@@ -185,25 +192,30 @@ const createMessageTracking = () => ({
   },
 
   observeMessageStatus: (messageId, roomId) => {
-    return new Observable(subscriber => {
+    return new Observable((subscriber) => {
       if (!messageId || !roomId) {
         subscriber.complete();
         return;
       }
 
-      const handler = gun.get('chats').get(roomId).get('receipts').get(messageId).on((receipt) => {
-        if (receipt) {
-          subscriber.next({
-            delivered: receipt.type === 'delivery' || receipt.type === 'read',
-            read: receipt.type === 'read',
-            timestamp: receipt.timestamp,
-            by: receipt.by
-          });
-        }
-      });
+      const handler = gun
+        .get("chats")
+        .get(roomId)
+        .get("receipts")
+        .get(messageId)
+        .on((receipt) => {
+          if (receipt) {
+            subscriber.next({
+              delivered: receipt.type === "delivery" || receipt.type === "read",
+              read: receipt.type === "read",
+              timestamp: receipt.timestamp,
+              by: receipt.by,
+            });
+          }
+        });
 
       return () => {
-        if (typeof handler === 'function') {
+        if (typeof handler === "function") {
           handler();
         }
       };
@@ -211,33 +223,39 @@ const createMessageTracking = () => ({
   },
 
   observeReadReceipts: (messageId, roomId) => {
-    return new Observable(subscriber => {
+    return new Observable((subscriber) => {
       if (!messageId || !roomId) {
         subscriber.complete();
         return;
       }
 
-      const handler = gun.get('chats').get(roomId).get('receipts').get(messageId).on((receipt) => {
-        if (receipt && receipt.type === 'read') {
-          subscriber.next(receipt);
-        }
-      });
+      const handler = gun
+        .get("chats")
+        .get(roomId)
+        .get("receipts")
+        .get(messageId)
+        .on((receipt) => {
+          if (receipt && receipt.type === "read") {
+            subscriber.next(receipt);
+          }
+        });
 
       return () => {
-        if (typeof handler === 'function') {
+        if (typeof handler === "function") {
           handler();
         }
       };
     });
-  }
+  },
 });
 
 // Aggiungi questa funzione per ottenere lo username
 const getUserUsername = async (userPub) => {
   return new Promise((resolve) => {
-    gun.get(DAPP_NAME)
-      .get('userList')
-      .get('nicknames')
+    gun
+      .get(DAPP_NAME)
+      .get("userList")
+      .get("nicknames")
       .get(userPub)
       .once((nickname) => {
         resolve(nickname);
@@ -248,24 +266,25 @@ const getUserUsername = async (userPub) => {
 };
 
 // Modifica il componente MessageItem per gestire meglio il layout e le scritte tagliate
-const MessageItem = ({ 
-  message, 
-  isOwnMessage, 
-  showSender, 
-  user, 
+const MessageItem = ({
+  message,
+  isOwnMessage,
+  showSender,
+  user,
   messageObserver,
   handleDeleteMessage,
-  selected
+  selected,
 }) => {
-  const [senderName, setSenderName] = React.useState('');
+  const [senderName, setSenderName] = React.useState("");
   const { selected: selectedContext } = React.useContext(Context);
   const isCreator = selectedContext?.creator === user.is.pub;
-  
-  const shouldShowSender = selected?.type === 'board' || selected?.type === 'channel' || showSender;
+
+  const shouldShowSender =
+    selected?.type === "board" || selected?.type === "channel" || showSender;
 
   React.useEffect(() => {
     if (shouldShowSender && !isOwnMessage) {
-      getUserUsername(message.sender).then(username => {
+      getUserUsername(message.sender).then((username) => {
         if (username) {
           setSenderName(username);
         }
@@ -281,7 +300,9 @@ const MessageItem = ({
           messageObserver.observe(el);
         }
       }}
-      className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} mb-4 max-w-[85%] ${isOwnMessage ? 'ml-auto' : 'mr-auto'}`}
+      className={`flex flex-col ${
+        isOwnMessage ? "items-end" : "items-start"
+      } mb-4 max-w-[85%] ${isOwnMessage ? "ml-auto" : "mr-auto"}`}
     >
       {/* Header del messaggio con mittente e timestamp */}
       {shouldShowSender && (
@@ -295,12 +316,12 @@ const MessageItem = ({
           </div>
           <div className="ml-2 flex flex-col">
             <span className="text-sm text-gray-600 font-medium break-words">
-              {isOwnMessage ? 'Tu' : senderName}
+              {isOwnMessage ? "Tu" : senderName}
             </span>
             <span className="text-xs text-gray-400">
               {new Date(message.timestamp).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit'
+                hour: "2-digit",
+                minute: "2-digit",
               })}
             </span>
           </div>
@@ -312,21 +333,21 @@ const MessageItem = ({
         <div
           className={`rounded-lg px-4 py-2 break-words ${
             isOwnMessage
-              ? 'bg-blue-500 text-white rounded-br-none ml-auto'
-              : 'bg-gray-200 rounded-bl-none'
+              ? "bg-blue-500 text-white rounded-br-none ml-auto"
+              : "bg-gray-200 rounded-bl-none"
           } max-w-full`}
         >
           <span className="whitespace-pre-wrap">
-            {typeof message.content === 'string'
+            {typeof message.content === "string"
               ? message.content
-              : '[Messaggio non valido]'}
+              : "[Messaggio non valido]"}
           </span>
         </div>
         {isOwnMessage && <MessageStatus message={message} />}
       </div>
 
       {/* Pulsante elimina */}
-      {isCreator && selected?.type === 'board' && (
+      {isCreator && selected?.type === "board" && (
         <button
           onClick={() => handleDeleteMessage(message.id)}
           className="text-red-500 text-xs hover:text-red-700 mt-1 "
@@ -341,17 +362,20 @@ const MessageItem = ({
 // Aggiungi queste funzioni di gestione dei messaggi
 const handleMessages = (data) => {
   if (!isSubscribed) return;
-  
+
   if (data.initial) {
     const validMessages = (data.initial || []).filter(
       (msg) => msg && msg.content && msg.sender && msg.timestamp
     );
-    
-    const processedMessages = selected.type === 'friend' 
-      ? validMessages.map(msg => messageList.decryptMessage(msg, msg.sender))
-      : validMessages;
-      
-    Promise.all(processedMessages).then(decryptedMessages => {
+
+    const processedMessages =
+      selected.type === "friend"
+        ? validMessages.map((msg) =>
+            messageList.decryptMessage(msg, msg.sender)
+          )
+        : validMessages;
+
+    Promise.all(processedMessages).then((decryptedMessages) => {
       setMessages(decryptedMessages);
       setLoading(false);
     });
@@ -360,16 +384,16 @@ const handleMessages = (data) => {
 
 const handleError = (error) => {
   if (!isSubscribed) return;
-  console.error('Error loading messages:', error);
-  setError('Errore nel caricamento dei messaggi');
+  console.error("Error loading messages:", error);
+  setError("Errore nel caricamento dei messaggi");
   setLoading(false);
 };
 
 // Modifica il WalletModal per includere le informazioni del wallet
 const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
-  const [amount, setAmount] = useState('');
-  const [customAddress, setCustomAddress] = useState('');
-  const [sendType, setSendType] = useState('contact');
+  const [amount, setAmount] = useState("");
+  const [customAddress, setCustomAddress] = useState("");
+  const [sendType, setSendType] = useState("contact");
   const [isLoading, setIsLoading] = useState(false);
   const [myWalletInfo, setMyWalletInfo] = useState(null);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
@@ -387,28 +411,32 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         setMyWalletInfo(wallet);
 
         // Carica il balance
-        const provider = new JsonRpcProvider("https://sepolia.optimism.io");
+        const provider = new ethers.JsonRpcProvider(
+          "https://sepolia.optimism.io"
+        );
         const balance = await provider.getBalance(wallet.address);
         setBalance(formatEther(balance));
 
         // Imposta la rete
         setNetwork({
-          name: 'Optimism Sepolia',
-          chainId: 11155420
+          name: "Optimism Sepolia",
+          chainId: 11155420,
         });
 
         // Carica il wallet del destinatario
         if (selectedUser?.pub) {
-          const recipientAddress = await walletService.getUserWalletAddress(selectedUser.pub);
-          console.log('Recipient address:', recipientAddress);
-          setRecipientWalletInfo({ 
+          const recipientAddress = await walletService.getUserWalletAddress(
+            selectedUser.pub
+          );
+          console.log("Recipient address:", recipientAddress);
+          setRecipientWalletInfo({
             address: recipientAddress,
-            type: 'derived'
+            type: "derived",
           });
         }
       } catch (error) {
-        console.error('Error loading wallet info:', error);
-        toast.error('Errore nel caricamento delle informazioni del wallet');
+        console.error("Error loading wallet info:", error);
+        toast.error("Errore nel caricamento delle informazioni del wallet");
       }
     };
 
@@ -420,22 +448,22 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const handleCopyAddress = () => {
     if (myWalletInfo?.address) {
       navigator.clipboard.writeText(myWalletInfo.address);
-      toast.success('Indirizzo copiato negli appunti!');
+      toast.success("Indirizzo copiato negli appunti!");
     }
   };
 
   const handleCopyPrivateKey = () => {
     if (myWalletInfo?.privateKey) {
       navigator.clipboard.writeText(myWalletInfo.privateKey);
-      toast.success('Chiave privata copiata negli appunti!');
+      toast.success("Chiave privata copiata negli appunti!");
     }
   };
 
   const handleSend = async () => {
     try {
       setIsLoading(true);
-      
-      if (sendType === 'contact') {
+
+      if (sendType === "contact") {
         // Invia al contatto selezionato usando la modalità stealth se selezionata
         await onSend(selectedUser.pub, amount, isStealthMode);
       } else {
@@ -443,14 +471,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         await walletService.sendTransaction(customAddress, amount);
       }
 
-      toast.success('Transazione inviata con successo!');
+      toast.success("Transazione inviata con successo!");
       onClose();
-      setAmount('');
-      setCustomAddress('');
+      setAmount("");
+      setCustomAddress("");
       setIsStealthMode(false);
     } catch (error) {
-      console.error('Error sending transaction:', error);
-      toast.error(error.message || 'Errore durante l\'invio');
+      console.error("Error sending transaction:", error);
+      toast.error(error.message || "Errore durante l'invio");
     } finally {
       setIsLoading(false);
     }
@@ -464,9 +492,22 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-medium">Wallet</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -474,16 +515,20 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Il mio wallet */}
         {myWalletInfo ? (
           <div className="mb-6 p-4 bg-gray-50 rounded-lg break-all">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Il mio wallet</h4>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">
+              Il mio wallet
+            </h4>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Indirizzo:</span>
                 <div className="flex items-center">
                   <span className="text-xs font-mono mr-2">
-                    {myWalletInfo.address ? 
-                      `${myWalletInfo.address.slice(0, 6)}...${myWalletInfo.address.slice(-4)}` :
-                      'Caricamento...'
-                    }
+                    {myWalletInfo.address
+                      ? `${myWalletInfo.address.slice(
+                          0,
+                          6
+                        )}...${myWalletInfo.address.slice(-4)}`
+                      : "Caricamento..."}
                   </span>
                   <button
                     onClick={handleCopyAddress}
@@ -491,8 +536,18 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     title="Copia indirizzo"
                     disabled={!myWalletInfo.address}
                   >
-                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    <svg
+                      className="w-4 h-4 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -502,7 +557,9 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Balance:</span>
                 <span className="text-xs font-medium">
-                  {balance ? `${Number(balance).toFixed(8)} ETH` : 'Caricamento...'}
+                  {balance
+                    ? `${Number(balance).toFixed(8)} ETH`
+                    : "Caricamento..."}
                 </span>
               </div>
 
@@ -514,18 +571,20 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       {network.name}
                     </span>
-                  ) : 'Caricamento...'}
+                  ) : (
+                    "Caricamento..."
+                  )}
                 </span>
               </div>
 
               {/* Chiave privata (solo per wallet derivati) */}
-              {myWalletInfo.type === 'derived' && myWalletInfo.privateKey && (
+              {myWalletInfo.type === "derived" && myWalletInfo.privateKey && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowPrivateKey(!showPrivateKey)}
                     className="text-xs text-blue-500 hover:text-blue-600"
                   >
-                    {showPrivateKey ? 'Nascondi' : 'Mostra'} chiave privata
+                    {showPrivateKey ? "Nascondi" : "Mostra"} chiave privata
                   </button>
                   {showPrivateKey && (
                     <div className="mt-1 flex items-center justify-between">
@@ -537,8 +596,18 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                         className="p-1 hover:bg-gray-200 rounded"
                         title="Copia chiave privata"
                       >
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        <svg
+                          className="w-4 h-4 text-gray-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                          />
                         </svg>
                       </button>
                     </div>
@@ -547,7 +616,10 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               )}
 
               <div className="text-xs text-gray-500">
-                Tipo: {myWalletInfo.type === 'metamask' ? 'MetaMask' : 'Wallet Derivato'}
+                Tipo:{" "}
+                {myWalletInfo.type === "metamask"
+                  ? "MetaMask"
+                  : "Wallet Derivato"}
               </div>
             </div>
           </div>
@@ -558,7 +630,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         )}
 
         {/* Destinatario */}
-        {sendType === 'contact' ? (
+        {sendType === "contact" ? (
           <div className="break-all">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Destinatario
@@ -607,7 +679,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         </div>
 
         {/* Aggiungi il toggle per la modalità stealth */}
-        {sendType === 'contact' && (
+        {sendType === "contact" && (
           <div className="mt-4">
             <label className="flex items-center space-x-2">
               <input
@@ -616,11 +688,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 onChange={(e) => setIsStealthMode(e.target.checked)}
                 className="form-checkbox h-4 w-4 text-blue-500"
               />
-              <span className="text-sm text-gray-700">Usa pagamento stealth</span>
+              <span className="text-sm text-gray-700">
+                Usa pagamento stealth
+              </span>
             </label>
             {isStealthMode && (
               <p className="mt-1 text-xs text-gray-500">
-                Il pagamento stealth offre maggiore privacy nascondendo l'indirizzo del destinatario
+                Il pagamento stealth offre maggiore privacy nascondendo
+                l'indirizzo del destinatario
               </p>
             )}
           </div>
@@ -629,11 +704,13 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Pulsante invio */}
         <button
           onClick={handleSend}
-          disabled={isLoading || !amount || (sendType === 'custom' && !customAddress)}
+          disabled={
+            isLoading || !amount || (sendType === "custom" && !customAddress)
+          }
           className={`w-full py-2 rounded-lg bg-blue-500 text-white transition-colors ${
-            isLoading || !amount || (sendType === 'custom' && !customAddress)
-              ? 'opacity-50 cursor-not-allowed'
-              : 'hover:bg-blue-600'
+            isLoading || !amount || (sendType === "custom" && !customAddress)
+              ? "opacity-50 cursor-not-allowed"
+              : "hover:bg-blue-600"
           }`}
         >
           {isLoading ? (
@@ -642,7 +719,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               Invio in corso...
             </div>
           ) : (
-            'Invia'
+            "Invia"
           )}
         </button>
       </div>
@@ -653,7 +730,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
 export default function Messages({ chatData }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
-  const [newMessage, setNewMessage] = React.useState('');
+  const [newMessage, setNewMessage] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const messagesEndRef = React.useRef(null);
@@ -676,16 +753,18 @@ export default function Messages({ chatData }) {
   const [isSubscribed, setIsSubscribed] = React.useState(true);
   const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
   const lastMessageRef = React.useRef(null);
-  const [displayName, setDisplayName] = React.useState('');
+  const [displayName, setDisplayName] = React.useState("");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(Date.now());
+  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(
+    Date.now()
+  );
   const messagesContainerRef = useRef(null);
   const [chatUserInfo, setChatUserInfo] = React.useState({
-    displayName: selected?.name || 'Caricamento...',
-    username: '',
-    nickname: ''
+    displayName: selected?.name || "Caricamento...",
+    username: "",
+    nickname: "",
   });
 
   // Usa useMemo per creare una singola istanza del messageTracking
@@ -701,23 +780,27 @@ export default function Messages({ chatData }) {
 
       try {
         // Se è una chat privata
-        if (!chatData.type || chatData.type === 'friend') {
-          const messageCert = await gun.get(DAPP_NAME)
-            .get('certificates')
-            .get(chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1)
-            .get('messages')
+        if (!chatData.type || chatData.type === "friend") {
+          const messageCert = await gun
+            .get(DAPP_NAME)
+            .get("certificates")
+            .get(
+              chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1
+            )
+            .get("messages")
             .then();
 
           if (!messageCert) {
-            const otherPub = chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1;
+            const otherPub =
+              chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1;
             const cert = await createMessagesCertificate(otherPub);
             setCanWrite(!!cert);
           } else {
             setCanWrite(true);
           }
-        } 
+        }
         // Se è un canale o una bacheca
-        else if (chatData.type === 'channel' || chatData.type === 'board') {
+        else if (chatData.type === "channel" || chatData.type === "board") {
           // Se è il creatore, può sempre scrivere
           if (chatData.creator === user?.is?.pub) {
             setCanWrite(true);
@@ -725,18 +808,18 @@ export default function Messages({ chatData }) {
           }
 
           // Se è un canale, solo il creatore può scrivere
-          if (chatData.type === 'channel') {
+          if (chatData.type === "channel") {
             setCanWrite(chatData.creator === user.is.pub);
             return;
           }
 
           // Se è una bacheca, tutti i membri possono scrivere
-          if (chatData.type === 'board') {
+          if (chatData.type === "board") {
             setCanWrite(true);
           }
         }
       } catch (error) {
-        console.error('Errore verifica permessi:', error);
+        console.error("Errore verifica permessi:", error);
         setCanWrite(false);
       }
     };
@@ -745,13 +828,16 @@ export default function Messages({ chatData }) {
   }, [chatData, user?.is]);
 
   // Usa useCallback per le funzioni che non devono essere ricreate
-  const handleMessageVisible = useCallback((messageId) => {
-    if (!selected?.pub || !selected?.roomId) return;
-    const message = messages.find((m) => m.id === messageId);
-    if (message && message.sender !== user.is.pub && !message.read) {
-      messageTracking.updateMessageStatus(messageId, selected.roomId, 'read');
-    }
-  }, [selected?.pub, selected?.roomId, messages]);
+  const handleMessageVisible = useCallback(
+    (messageId) => {
+      if (!selected?.pub || !selected?.roomId) return;
+      const message = messages.find((m) => m.id === messageId);
+      if (message && message.sender !== user.is.pub && !message.read) {
+        messageTracking.updateMessageStatus(messageId, selected.roomId, "read");
+      }
+    },
+    [selected?.pub, selected?.roomId, messages]
+  );
 
   // Crea l'observer per i messaggi
   const messageObserver = useIntersectionObserver(handleMessageVisible, [
@@ -769,19 +855,19 @@ export default function Messages({ chatData }) {
       let path;
       let id;
 
-      if (selected.type === 'friend') {
-        path = 'chats';
+      if (selected.type === "friend") {
+        path = "chats";
         id = selected.roomId;
-      } else if (selected.type === 'channel') {
-        path = 'channels';
+      } else if (selected.type === "channel") {
+        path = "channels";
         id = selected.id;
-      } else if (selected.type === 'board') {
-        path = 'boards';
+      } else if (selected.type === "board") {
+        path = "boards";
         id = selected.id;
       }
 
       const olderMessages = await messaging.chat.messageList.loadMessages(
-        path, 
+        path,
         id,
         20, // Carica 20 messaggi alla volta
         oldestMessageTimestamp
@@ -794,19 +880,25 @@ export default function Messages({ chatData }) {
 
       // Processa i messaggi come prima
       let processedMessages = [];
-      if (selected.type === 'friend') {
+      if (selected.type === "friend") {
         processedMessages = await Promise.all(
           olderMessages.map(async (msg) => {
             try {
-              if (typeof msg.content === 'string' && !msg.content.startsWith('SEA{')) {
+              if (
+                typeof msg.content === "string" &&
+                !msg.content.startsWith("SEA{")
+              ) {
                 return msg;
               }
-              return await messaging.chat.messageList.decryptMessage(msg, selected.pub);
+              return await messaging.chat.messageList.decryptMessage(
+                msg,
+                selected.pub
+              );
             } catch (error) {
-              console.warn('Error decrypting message:', error);
+              console.warn("Error decrypting message:", error);
               return {
                 ...msg,
-                content: '[Messaggio non decifrabile]'
+                content: "[Messaggio non decifrabile]",
               };
             }
           })
@@ -817,37 +909,39 @@ export default function Messages({ chatData }) {
 
       // Aggiorna il timestamp del messaggio più vecchio
       const newOldestTimestamp = Math.min(
-        ...processedMessages.map(msg => msg.timestamp)
+        ...processedMessages.map((msg) => msg.timestamp)
       );
       setOldestMessageTimestamp(newOldestTimestamp);
 
       // Aggiungi i nuovi messaggi mantenendo l'ordine
-      setMessages(prevMessages => {
+      setMessages((prevMessages) => {
         const allMessages = [...prevMessages, ...processedMessages];
         return allMessages.sort((a, b) => a.timestamp - b.timestamp);
       });
-
     } catch (error) {
-      console.error('Error loading more messages:', error);
+      console.error("Error loading more messages:", error);
     } finally {
       setIsLoadingMore(false);
     }
   };
 
   // Gestione dello scroll
-  const handleScroll = useCallback((e) => {
-    const container = e.target;
-    const { scrollTop, scrollHeight, clientHeight } = container;
+  const handleScroll = useCallback(
+    (e) => {
+      const container = e.target;
+      const { scrollTop, scrollHeight, clientHeight } = container;
 
-    // Controlla se siamo vicini al top per caricare più messaggi
-    if (scrollTop <= 100) {
-      loadMoreMessages();
-    }
+      // Controlla se siamo vicini al top per caricare più messaggi
+      if (scrollTop <= 100) {
+        loadMoreMessages();
+      }
 
-    // Controlla se siamo vicini al bottom per l'auto-scroll
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-    setShouldScrollToBottom(isNearBottom);
-  }, [loadMoreMessages]);
+      // Controlla se siamo vicini al bottom per l'auto-scroll
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShouldScrollToBottom(isNearBottom);
+    },
+    [loadMoreMessages]
+  );
 
   // Modifica l'effetto setupChat
   useEffect(() => {
@@ -861,14 +955,14 @@ export default function Messages({ chatData }) {
     const setupChat = async () => {
       try {
         // Verifica lo stato di blocco
-        if (selected.type === 'friend') {
+        if (selected.type === "friend") {
           const blockStatus = await userBlocking.getBlockStatus(selected.pub);
           if (blockStatus.blocked || blockStatus.blockedBy) {
             setCanWrite(false);
             if (blockStatus.blocked) {
-              setError('Hai bloccato questo utente');
+              setError("Hai bloccato questo utente");
             } else {
-              setError('Questo utente ti ha bloccato');
+              setError("Questo utente ti ha bloccato");
             }
             setLoading(false);
             setIsInitializing(false);
@@ -878,7 +972,7 @@ export default function Messages({ chatData }) {
 
         // Pulisci le sottoscrizioni precedenti
         if (messageSubscriptionRef.current) {
-          if (typeof messageSubscriptionRef.current === 'function') {
+          if (typeof messageSubscriptionRef.current === "function") {
             messageSubscriptionRef.current();
           } else if (messageSubscriptionRef.current.unsubscribe) {
             messageSubscriptionRef.current.unsubscribe();
@@ -887,13 +981,17 @@ export default function Messages({ chatData }) {
         }
 
         // Determina il percorso
-        let path = selected.type === 'friend' ? 'chats' : 
-                   selected.type === 'channel' ? 'channels' : 'boards';
-        let id = selected.type === 'friend' ? selected.roomId : selected.id;
+        let path =
+          selected.type === "friend"
+            ? "chats"
+            : selected.type === "channel"
+            ? "channels"
+            : "boards";
+        let id = selected.type === "friend" ? selected.roomId : selected.id;
 
         // Carica i messaggi iniziali
         const existingMessages = await messaging.chat.messageList.loadMessages(
-          path, 
+          path,
           id,
           20,
           Date.now()
@@ -902,24 +1000,33 @@ export default function Messages({ chatData }) {
         if (!isSubscribed) return;
 
         // Processa i messaggi
-        let processedMessages = selected.type === 'friend' ?
-          await Promise.all(
-            existingMessages.map(async (msg) => {
-              try {
-                if (!msg.content.startsWith('SEA{')) return msg;
-                return await messaging.chat.messageList.decryptMessage(msg, selected.pub);
-              } catch (error) {
-                console.warn('Error decrypting message:', error);
-                return { ...msg, content: '[Messaggio non decifrabile]' };
-              }
-            })
-          ) : existingMessages;
+        let processedMessages =
+          selected.type === "friend"
+            ? await Promise.all(
+                existingMessages.map(async (msg) => {
+                  try {
+                    if (!msg.content.startsWith("SEA{")) return msg;
+                    return await messaging.chat.messageList.decryptMessage(
+                      msg,
+                      selected.pub
+                    );
+                  } catch (error) {
+                    console.warn("Error decrypting message:", error);
+                    return { ...msg, content: "[Messaggio non decifrabile]" };
+                  }
+                })
+              )
+            : existingMessages;
 
         // Aggiorna i messaggi solo se siamo ancora sottoscritti
         if (isSubscribed) {
           if (processedMessages.length > 0) {
-            setMessages(processedMessages.sort((a, b) => a.timestamp - b.timestamp));
-            setOldestMessageTimestamp(Math.min(...processedMessages.map(m => m.timestamp)));
+            setMessages(
+              processedMessages.sort((a, b) => a.timestamp - b.timestamp)
+            );
+            setOldestMessageTimestamp(
+              Math.min(...processedMessages.map((m) => m.timestamp))
+            );
           }
           setLoading(false);
           setIsInitializing(false);
@@ -933,25 +1040,32 @@ export default function Messages({ chatData }) {
             if (!isSubscribed) return;
             try {
               let processedMsg = msg;
-              if (selected.type === 'friend' && msg.content.startsWith('SEA{')) {
-                processedMsg = await messaging.chat.messageList.decryptMessage(msg, selected.pub);
+              if (
+                selected.type === "friend" &&
+                msg.content.startsWith("SEA{")
+              ) {
+                processedMsg = await messaging.chat.messageList.decryptMessage(
+                  msg,
+                  selected.pub
+                );
               }
-              setMessages(prev => {
-                if (prev.some(m => m.id === processedMsg.id)) return prev;
-                return [...prev, processedMsg].sort((a, b) => a.timestamp - b.timestamp);
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === processedMsg.id)) return prev;
+                return [...prev, processedMsg].sort(
+                  (a, b) => a.timestamp - b.timestamp
+                );
               });
             } catch (error) {
-              console.warn('Error processing new message:', error);
+              console.warn("Error processing new message:", error);
             }
           }
         );
 
         messageSubscriptionRef.current = messageHandler;
-
       } catch (error) {
-        console.error('Error setting up chat:', error);
+        console.error("Error setting up chat:", error);
         if (isSubscribed) {
-          setError('Errore nel caricamento della chat');
+          setError("Errore nel caricamento della chat");
           setLoading(false);
           setIsInitializing(false);
         }
@@ -963,11 +1077,11 @@ export default function Messages({ chatData }) {
     return () => {
       setIsSubscribed(false);
       if (messageSubscriptionRef.current) {
-        if (typeof messageSubscriptionRef.current === 'function') {
+        if (typeof messageSubscriptionRef.current === "function") {
           try {
             messageSubscriptionRef.current();
           } catch (error) {
-            console.warn('Error during cleanup:', error);
+            console.warn("Error during cleanup:", error);
           }
         }
         messageSubscriptionRef.current = null;
@@ -978,13 +1092,15 @@ export default function Messages({ chatData }) {
   // Usa useEffect con controllo di montaggio per le sottoscrizioni al profilo
   useEffect(() => {
     if (!chatData) return;
-    
+
     let mounted = true;
-    const otherPub = chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
-    
-    const unsub = gun.get(DAPP_NAME)
-      .get('userList')
-      .get('nicknames')
+    const otherPub =
+      chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
+
+    const unsub = gun
+      .get(DAPP_NAME)
+      .get("userList")
+      .get("nicknames")
       .get(otherPub)
       .on((nickname) => {
         if (!mounted) return;
@@ -997,14 +1113,14 @@ export default function Messages({ chatData }) {
 
     return () => {
       mounted = false;
-      if (typeof unsub === 'function') unsub();
+      if (typeof unsub === "function") unsub();
     };
   }, [chatData]);
 
   // Aggiungi un effetto separato per mantenere la chat corrente
   useEffect(() => {
     if (chatData) {
-      console.log('Current chat updated:', chatData);
+      console.log("Current chat updated:", chatData);
     }
   }, [chatData]);
 
@@ -1013,13 +1129,13 @@ export default function Messages({ chatData }) {
     if (!selected?.pub) return;
 
     const unsubFriendRemoval = gun
-      .get('friendships')
+      .get("friendships")
       .map()
       .on(() => {
         // Verifica se l'amicizia esiste ancora
         let friendshipExists = false;
         gun
-          .get('friendships')
+          .get("friendships")
           .map()
           .once((data) => {
             if (
@@ -1040,7 +1156,7 @@ export default function Messages({ chatData }) {
       });
 
     return () => {
-      if (typeof unsubFriendRemoval === 'function') unsubFriendRemoval();
+      if (typeof unsubFriendRemoval === "function") unsubFriendRemoval();
     };
   }, [selected?.pub, setCurrentChat]);
 
@@ -1054,22 +1170,26 @@ export default function Messages({ chatData }) {
       if (message.sender !== user.is.pub || subscriptions.has(message.id))
         return;
 
-      const unsubscribe = chat.messageList.subscribeToReceipts(selected.roomId, message.id, (receipt) => {
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === receipt.messageId) {
-              return {
-                ...msg,
-                delivered: receipt.type === 'delivery' || msg.delivered,
-                read: receipt.type === 'read' || msg.read,
-              };
-            }
-            return msg;
-          })
-        );
-      });
+      const unsubscribe = chat.messageList.subscribeToReceipts(
+        selected.roomId,
+        message.id,
+        (receipt) => {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id === receipt.messageId) {
+                return {
+                  ...msg,
+                  delivered: receipt.type === "delivery" || msg.delivered,
+                  read: receipt.type === "read" || msg.read,
+                };
+              }
+              return msg;
+            })
+          );
+        }
+      );
 
-      if (typeof unsubscribe === 'function') {
+      if (typeof unsubscribe === "function") {
         subscriptions.set(message.id, unsubscribe);
       }
     };
@@ -1080,7 +1200,7 @@ export default function Messages({ chatData }) {
     return () => {
       // Pulisci tutte le sottoscrizioni
       subscriptions.forEach((unsubscribe) => {
-        if (typeof unsubscribe === 'function') {
+        if (typeof unsubscribe === "function") {
           unsubscribe();
         }
       });
@@ -1097,25 +1217,29 @@ export default function Messages({ chatData }) {
 
     // Se è un nostro messaggio, sottoscrivi alle sue ricevute
     if (lastMessage && lastMessage.sender === user.is.pub) {
-      const unsubscribe = chat.messageList.subscribeToReceipts(selected.roomId, lastMessage.id, (receipt) => {
-        if (!receipt) return;
+      const unsubscribe = chat.messageList.subscribeToReceipts(
+        selected.roomId,
+        lastMessage.id,
+        (receipt) => {
+          if (!receipt) return;
 
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === receipt.messageId) {
-              return {
-                ...msg,
-                delivered: receipt.type === 'delivery' || msg.delivered,
-                read: receipt.type === 'read' || msg.read,
-              };
-            }
-            return msg;
-          })
-        );
-      });
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id === receipt.messageId) {
+                return {
+                  ...msg,
+                  delivered: receipt.type === "delivery" || msg.delivered,
+                  read: receipt.type === "read" || msg.read,
+                };
+              }
+              return msg;
+            })
+          );
+        }
+      );
 
       return () => {
-        if (typeof unsubscribe === 'function') {
+        if (typeof unsubscribe === "function") {
           unsubscribe();
         }
       };
@@ -1124,34 +1248,38 @@ export default function Messages({ chatData }) {
 
   // Modifica la funzione handleDeleteMessage
   const handleDeleteMessage = async (messageId) => {
-    if (!selected?.roomId || !selected?.creator || selected.creator !== user.is.pub) {
+    if (
+      !selected?.roomId ||
+      !selected?.creator ||
+      selected.creator !== user.is.pub
+    ) {
       return;
     }
 
     try {
       let path, id;
-      if (selected.type === 'friend') {
-        path = 'chats';
+      if (selected.type === "friend") {
+        path = "chats";
         id = selected.roomId;
-      } else if (selected.type === 'channel') {
-        path = 'channels';
+      } else if (selected.type === "channel") {
+        path = "channels";
         id = selected.id;
-      } else if (selected.type === 'board') {
-        path = 'boards';
+      } else if (selected.type === "board") {
+        path = "boards";
         id = selected.id;
       }
 
       await chat.messageList.deleteMessage(path, id, messageId);
-      setMessages(prev => prev.filter(msg => msg.id !== messageId));
-      toast.success('Messaggio eliminato');
+      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      toast.success("Messaggio eliminato");
     } catch (error) {
-      console.error('Error deleting message:', error);
-      toast.error('Errore durante l\'eliminazione del messaggio');
+      console.error("Error deleting message:", error);
+      toast.error("Errore durante l'eliminazione del messaggio");
     }
   };
 
   // Aggiungi questa funzione per gestire lo scroll
-  const scrollToBottom = (behavior = 'smooth') => {
+  const scrollToBottom = (behavior = "smooth") => {
     if (messagesEndRef.current && shouldScrollToBottom) {
       messagesEndRef.current.scrollIntoView({ behavior });
     }
@@ -1162,10 +1290,10 @@ export default function Messages({ chatData }) {
     if (messages.length > 0) {
       // Salva l'ultimo messaggio come riferimento
       lastMessageRef.current = messages[messages.length - 1];
-      
+
       // Scroll immediato al primo caricamento
       if (messages.length === 1) {
-        scrollToBottom('auto');
+        scrollToBottom("auto");
       } else {
         scrollToBottom();
       }
@@ -1176,7 +1304,7 @@ export default function Messages({ chatData }) {
   useEffect(() => {
     setShouldScrollToBottom(true);
     if (messagesEndRef.current) {
-      scrollToBottom('auto');
+      scrollToBottom("auto");
     }
   }, [selected?.roomId]);
 
@@ -1185,18 +1313,18 @@ export default function Messages({ chatData }) {
     // Se è l'utente corrente
     if (pubKey === user?.is?.pub) {
       // Se  un wallet
-      const walletAuth = localStorage.getItem('walletAuth');
+      const walletAuth = localStorage.getItem("walletAuth");
       if (walletAuth) {
         try {
           const { address } = JSON.parse(walletAuth);
           return `${address.slice(0, 6)}...${address.slice(-4)}`;
         } catch (error) {
-          console.error('Errore nel parsing del wallet auth:', error);
+          console.error("Errore nel parsing del wallet auth:", error);
         }
       }
       // Se è un account Gun
       if (user?.is?.alias) {
-        return user.is.alias.split('.')[0];
+        return user.is.alias.split(".")[0];
       }
     }
 
@@ -1209,10 +1337,10 @@ export default function Messages({ chatData }) {
       });
 
       if (userData?.alias) {
-        return userData.alias.split('.')[0];
+        return userData.alias.split(".")[0];
       }
     } catch (error) {
-      console.error('Errore nel recupero username:', error);
+      console.error("Errore nel recupero username:", error);
     }
 
     // Fallback alla versione abbreviata della chiave pubblica
@@ -1221,12 +1349,14 @@ export default function Messages({ chatData }) {
 
   React.useEffect(() => {
     if (chatData) {
-      const otherPub = chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
-      
+      const otherPub =
+        chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
+
       // Sottoscrizione al nickname dell'altro utente
-      const unsub = gun.get(DAPP_NAME)
-        .get('userList')
-        .get('nicknames')
+      const unsub = gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("nicknames")
         .get(otherPub)
         .on((nickname) => {
           if (nickname) {
@@ -1238,7 +1368,7 @@ export default function Messages({ chatData }) {
         });
 
       return () => {
-        if (typeof unsub === 'function') unsub();
+        if (typeof unsub === "function") unsub();
       };
     }
   }, [chatData]);
@@ -1246,18 +1376,21 @@ export default function Messages({ chatData }) {
   React.useEffect(() => {
     if (selected?.pub) {
       // Sottoscrizione agli aggiornamenti del profilo utente
-      const unsubUserProfile = gun.get(DAPP_NAME)
-        .get('userList')
-        .get('users')
+      const unsubUserProfile = gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
         .map()
         .on((userData) => {
           if (userData?.pub === selected.pub) {
-            setDisplayName(userData.nickname || userData.username || selected.alias);
+            setDisplayName(
+              userData.nickname || userData.username || selected.alias
+            );
           }
         });
 
       return () => {
-        if (typeof unsubUserProfile === 'function') {
+        if (typeof unsubUserProfile === "function") {
           unsubUserProfile();
         }
       };
@@ -1267,10 +1400,12 @@ export default function Messages({ chatData }) {
   const handleSendTip = async (recipientPub, amount, isStealthMode = false) => {
     try {
       await walletService.sendTip(recipientPub, amount, isStealthMode);
-      toast.success(`Transazione ${isStealthMode ? 'stealth ' : ''}completata con successo!`);
+      toast.success(
+        `Transazione ${isStealthMode ? "stealth " : ""}completata con successo!`
+      );
     } catch (error) {
-      console.error('Error sending tip:', error);
-      toast.error(error.message || 'Errore nell\'invio');
+      console.error("Error sending tip:", error);
+      toast.error(error.message || "Errore nell'invio");
     }
   };
 
@@ -1279,57 +1414,63 @@ export default function Messages({ chatData }) {
     if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
 
     const messageContent = newMessage.trim();
-    setNewMessage('');
+    setNewMessage("");
 
     try {
-      if (selected.type === 'friend') {
+      if (selected.type === "friend") {
         // Prima cripta il messaggio
-        const encryptedContent = await messaging.chat.messageList.encryptMessage(
-          messageContent,
-          selected.pub
-        );
+        const encryptedContent =
+          await messaging.chat.messageList.encryptMessage(
+            messageContent,
+            selected.pub
+          );
 
         if (!encryptedContent) {
-          throw new Error('Errore durante la crittografia del messaggio');
+          throw new Error("Errore durante la crittografia del messaggio");
         }
 
-        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
         const messageData = {
           id: messageId,
           content: encryptedContent,
           sender: user.is.pub,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         };
 
         // Salva il messaggio criptato
-        await gun.get(DAPP_NAME)
-          .get('chats')
+        await gun
+          .get(DAPP_NAME)
+          .get("chats")
           .get(selected.roomId)
-          .get('messages')
+          .get("messages")
           .get(messageId)
           .put(messageData);
-
       } else {
         // Per canali e bacheche il messaggio non viene criptato
-        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
         const messageData = {
           id: messageId,
           content: messageContent,
           sender: user.is.pub,
-          senderAlias: user.is.alias || 'Unknown',
-          timestamp: Date.now()
+          senderAlias: user.is.alias || "Unknown",
+          timestamp: Date.now(),
         };
 
-        let path = selected.type === 'channel' ? 'channels' : 'boards';
-        await gun.get(DAPP_NAME)
+        let path = selected.type === "channel" ? "channels" : "boards";
+        await gun
+          .get(DAPP_NAME)
           .get(path)
           .get(selected.id)
-          .get('messages')
+          .get("messages")
           .get(messageId)
           .put(messageData);
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error("Error sending message:", error);
       toast.error(error.message || "Errore nell'invio del messaggio");
       setNewMessage(messageContent);
     }
@@ -1340,23 +1481,29 @@ export default function Messages({ chatData }) {
     if (!selected?.roomId) return;
 
     try {
-      const isConfirmed = window.confirm('Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata.');
-      
+      const isConfirmed = window.confirm(
+        "Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata."
+      );
+
       if (!isConfirmed) return;
 
       setLoading(true);
 
-      let path = selected.type === 'friend' ? 'chats' : 
-                 selected.type === 'channel' ? 'channels' : 'boards';
-      let id = selected.type === 'friend' ? selected.roomId : selected.id;
+      let path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      let id = selected.type === "friend" ? selected.roomId : selected.id;
 
       await messaging.chat.messageList.deleteAllMessages(path, id);
-      
+
       setMessages([]);
-      toast.success('Tutti i messaggi sono stati eliminati');
+      toast.success("Tutti i messaggi sono stati eliminati");
     } catch (error) {
-      console.error('Error deleting all messages:', error);
-      toast.error('Errore durante l\'eliminazione dei messaggi');
+      console.error("Error deleting all messages:", error);
+      toast.error("Errore durante l'eliminazione dei messaggi");
     } finally {
       setLoading(false);
     }
@@ -1367,27 +1514,27 @@ export default function Messages({ chatData }) {
     try {
       // Sblocca l'utente
       await userBlocking.unblockUser(selected.pub);
-      
+
       // Sblocca anche la chat
-      const chatId = [user.is.pub, selected.pub].sort().join('_');
+      const chatId = [user.is.pub, selected.pub].sort().join("_");
       await chat.unblockChat(chatId);
-      
+
       // Resetta gli stati
       setError(null);
       setCanWrite(true);
-      
+
       // Ricarica la chat
       setupChat();
-      
+
       toast.success(`${selected.alias} è stato sbloccato`);
     } catch (error) {
-      console.error('Error unblocking user:', error);
+      console.error("Error unblocking user:", error);
       toast.error("Errore durante lo sblocco dell'utente");
     }
   };
 
   React.useEffect(() => {
-    if (selected?.pub && selected?.type === 'friend') {
+    if (selected?.pub && selected?.type === "friend") {
       const loadUserInfo = async () => {
         const info = await userUtils.getUserInfo(selected.pub);
         setChatUserInfo(info);
@@ -1395,27 +1542,28 @@ export default function Messages({ chatData }) {
       loadUserInfo();
 
       // Sottoscrizione diretta al nodo dell'utente
-      const unsub = gun.get(DAPP_NAME)
-        .get('userList')
-        .get('users')
+      const unsub = gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
         .get(selected.pub)
         .on((data) => {
           if (data) {
             setChatUserInfo({
               displayName: data.nickname || data.username || selected.alias,
-              username: data.username || '',
-              nickname: data.nickname || ''
+              username: data.username || "",
+              nickname: data.nickname || "",
             });
           }
         });
 
       return () => {
-        if (typeof unsub === 'function') unsub();
+        if (typeof unsub === "function") unsub();
       };
     } else if (selected?.name) {
       setChatUserInfo({
         displayName: selected.name,
-        type: selected.type
+        type: selected.type,
       });
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
@@ -1423,17 +1571,17 @@ export default function Messages({ chatData }) {
   const handleStealthPayment = async (recipientPub, amount) => {
     try {
       setIsLoading(true);
-      
+
       // Usa sempre il wallet interno per i pagamenti stealth
       const tx = await walletService.sendTip(recipientPub, amount, true);
-      
-      toast.success('Pagamento stealth inviato con successo!');
-      
+
+      toast.success("Pagamento stealth inviato con successo!");
+
       // Aggiorna la UI se necessario
       // ...
     } catch (error) {
-      console.error('Error sending stealth payment:', error);
-      toast.error('Errore nell\'invio del pagamento stealth');
+      console.error("Error sending stealth payment:", error);
+      toast.error("Errore nell'invio del pagamento stealth");
     } finally {
       setIsLoading(false);
     }
@@ -1453,10 +1601,16 @@ export default function Messages({ chatData }) {
       <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
         <div className="flex items-center">
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-            {selected.type === 'channel' ? '📢' : selected.type === 'board' ? '📋' : (
+            {selected.type === "channel" ? (
+              "📢"
+            ) : selected.type === "board" ? (
+              "📋"
+            ) : (
               <img
                 className="w-full h-full rounded-full"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${selected.avatarSeed || displayName}&backgroundColor=b6e3f4`}
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${
+                  selected.avatarSeed || displayName
+                }&backgroundColor=b6e3f4`}
                 alt=""
               />
             )}
@@ -1466,38 +1620,36 @@ export default function Messages({ chatData }) {
               {chatUserInfo.displayName}
             </p>
             {chatUserInfo.username && (
-              <p className="text-xs text-gray-500">
-                @{chatUserInfo.username}
-              </p>
+              <p className="text-xs text-gray-500">@{chatUserInfo.username}</p>
             )}
             <p className="text-xs text-gray-500">
-              {selected.type === 'channel' 
-                ? 'Canale' 
-                : selected.type === 'board' 
-                  ? 'Bacheca' 
-                  : selected.pub.slice(0, 8) + '...'}
+              {selected.type === "channel"
+                ? "Canale"
+                : selected.type === "board"
+                ? "Bacheca"
+                : selected.pub.slice(0, 8) + "..."}
             </p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
           {/* Aggiungi il pulsante per eliminare tutti i messaggi */}
-          {selected.type === 'friend' && (
+          {selected.type === "friend" && (
             <button
               onClick={handleDeleteAllMessages}
               className="p-2 hover:bg-red-100 rounded-full text-red-500"
               title="Elimina tutti i messaggi"
             >
-              <svg 
-                className="w-5 h-5" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                 />
               </svg>
             </button>
@@ -1507,15 +1659,25 @@ export default function Messages({ chatData }) {
             className="p-2 hover:bg-gray-100 rounded-full"
             title="Apri wallet"
           >
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-5 h-5 text-gray-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           </button>
         </div>
       </div>
 
       {/* Area messaggi - Modifica questa parte */}
-      <div 
+      <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
         onScroll={handleScroll}
@@ -1580,7 +1742,9 @@ export default function Messages({ chatData }) {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              onKeyPress={(e) =>
+                e.key === "Enter" && !e.shiftKey && sendMessage()
+              }
               placeholder="Scrivi un messaggio..."
               className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -1588,7 +1752,7 @@ export default function Messages({ chatData }) {
               onClick={sendMessage}
               disabled={!newMessage.trim()}
               className={`ml-2 p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors ${
-                !newMessage.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
               }`}
             >
               <AiOutlineSend size={20} />

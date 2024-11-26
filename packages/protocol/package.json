@@ -1,0 +1,31 @@
+{
+  "name": "linda-protocol",
+  "private": false,
+  "version": "1.0.8",
+  "description": "A GunDB plugin for Ethereum, and Web3",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./src/index.js"
+    }
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^1.7.0",
+    "@rollup/plugin-commonjs": "^28.0.1",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "gun": "^0.2020.1240",
+    "gun-eth": "^1.4.14",
+    "rollup-plugin-polyfill-node": "^0.13.0",
+    "url": "^0.11.4"
+  },
+  "scripts": {
+    "test": "jest",
+    "build": "rollup -c",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
+  }
+}

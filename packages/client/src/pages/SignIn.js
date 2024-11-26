@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
-import { authentication } from '../protocol';
+import { authentication } from 'linda-protocol';
 import toast, { Toaster } from 'react-hot-toast';
 import { Link, useNavigate } from 'react-router-dom';
-import { gun, user,DAPP_NAME } from '../protocol';
+import { gun, user, DAPP_NAME } from 'linda-protocol';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from '../config/wagmi';
 
@@ -49,16 +49,18 @@ export default function SignIn() {
         const result = await new Promise((resolve, reject) => {
           authentication.loginUser({ username, password }, (response) => {
             console.log('Login response:', response);
-            if (response.success) resolve(response);
+            if (response.success || response.errMessage === 'User is already being created or authenticated!') resolve(response);
             else reject(new Error(response.errMessage));
           });
         });
 
-        if (result.success) {
+        console.log('result', result, user);
+
+        if (result.success || result.errMessage === 'User is already being created or authenticated!') {
           // Attendi che l'utente sia completamente autenticato
           await new Promise((resolve) => {
             const checkAuth = () => {
-              if (user.is && user.is.pub === result.pub) {
+              if (user?.is && user?.is?.pub === result?.pub) {
                 resolve();
               } else {
                 if (retryCount < maxRetries) {

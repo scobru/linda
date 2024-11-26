@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import Context from '../contexts/context';
-import { messaging } from '../protocol';
+import { messaging } from 'linda-protocol';
 import { toast } from 'react-hot-toast';
-import { gun, user } from '../protocol';
+import { gun, user } from 'linda-protocol';
 // compos
 import Friends from '../components/Homepage/Friends';
 import Profile from '../components/Homepage/Profile';
@@ -10,9 +10,9 @@ import AddFriend from '../components/Homepage/AddFriend';
 import Messages from '../components/Homepage/Messages';
 import AppStatus from '../components/AppStatus';
 import { useNavigate } from 'react-router-dom';
-import { authentication, DAPP_NAME } from '../protocol';
+import { authentication, DAPP_NAME } from 'linda-protocol';
 import Channels from '../components/Homepage/Channels';
-import { walletService } from '../protocol/src/wallet.js';
+import { walletService } from 'linda-protocol';
 
 const { chat } = messaging; // Destruttura il servizio chat
 

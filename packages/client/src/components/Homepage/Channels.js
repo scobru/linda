@@ -1,6 +1,6 @@
 import React from 'react';
-import { gun, user, DAPP_NAME } from '../../protocol/src';
-import { messaging } from '../../protocol/src';
+import { gun, user, DAPP_NAME } from 'linda-protocol';
+import { messaging } from 'linda-protocol';
 import { toast } from 'react-hot-toast';
 
 const { channels } = messaging;

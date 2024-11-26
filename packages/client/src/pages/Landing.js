@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { user } from '../protocol/src/useGun.js';
+import { user } from 'linda-protocol/useGun.js';
 
 export default function Landing() {
   const navigate = useNavigate();

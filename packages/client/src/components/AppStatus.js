@@ -1,6 +1,6 @@
 import React from 'react';
-import { system } from '../protocol';
-import { gun, user, DAPP_NAME } from '../protocol';
+import { system } from 'linda-protocol';
+import { gun, user, DAPP_NAME } from 'linda-protocol';
 
 // Get the systemService from the system module
 const { systemService } = system;

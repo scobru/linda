@@ -1,9 +1,9 @@
 import React from 'react';
-import { gun, user, DAPP_NAME, blocking, messaging } from '../../protocol';
-import { userUtils } from '../../protocol/src/utils/userUtils';
-import { removeFriend, acceptFriendRequest, rejectFriendRequest } from '../../protocol/src/friends';
+import { gun, user, DAPP_NAME, blocking, messaging } from 'linda-protocol';
+import { userUtils } from 'linda-protocol';
+import { removeFriend, acceptFriendRequest, rejectFriendRequest } from 'linda-protocol';
 import { toast } from 'react-hot-toast';
-import { walletService } from '../../protocol/src/wallet.js';
+import { walletService } from 'linda-protocol';
 
 const { userBlocking } = blocking;
 const { chat } = messaging;
@@ -156,7 +156,7 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
   );
 };
 
-const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblock, isActiveMenu, onMenuToggle }) => {
+const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onBlock, onUnblock, isActiveMenu, onMenuToggle }) => {
   const [userInfo, setUserInfo] = React.useState({
     displayName: friend.alias || 'Caricamento...',
     username: '',
@@ -225,7 +225,7 @@ const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblo
       <div className="relative" onClick={(e) => e.stopPropagation()}>
         <button 
           className="p-2 hover:bg-gray-100 rounded-full"
-          onClick={() => onMenuToggle(isActiveMenu === friend.pub ? null : friend.pub)}
+          onClick={() => onMenuToggle(friend.pub)}
         >
           <svg
             className="w-5 h-5 text-gray-500"
@@ -242,7 +242,7 @@ const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblo
           </svg>
         </button>
         
-        {isActiveMenu === friend.pub && (
+        {isActiveMenu && (
           <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
             <div className="py-1">
               <button
@@ -254,7 +254,7 @@ const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblo
               >
                 Rimuovi amico
               </button>
-              {isBlocked ? (
+              {friend.isBlocked ? (
                 <button
                   onClick={() => {
                     onUnblock(friend);
@@ -267,7 +267,8 @@ const FriendItem = React.memo(({ friend, isSelected, onSelect, onRemove, onUnblo
               ) : (
                 <button
                   onClick={() => {
-                    onMenuToggle(true);
+                    onBlock(friend);
+                    onMenuToggle(null);
                   }}
                   className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
@@ -538,6 +539,26 @@ export default function Friends({ onSelect, loading, selectedUser }) {
     }
   };
 
+  const handleMenuToggle = (friendPub) => {
+    setActiveMenu(activeMenu === friendPub ? null : friendPub);
+  };
+
+  const handleBlock = async (friend) => {
+    try {
+      const result = await userBlocking.blockUser(friend.pub);
+      if (result.success) {
+        toast.success(`${friend.alias} è stato bloccato`);
+        // Aggiorna lo stato locale
+        setFriends(prev => prev.map(f => 
+          f.pub === friend.pub ? { ...f, isBlocked: true } : f
+        ));
+      }
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      toast.error("Errore durante il blocco dell'utente");
+    }
+  };
+
   return (
     <div className="flex flex-col space-y-4">
       {/* Richieste in sospeso */}
@@ -567,9 +588,10 @@ export default function Friends({ onSelect, loading, selectedUser }) {
             isSelected={selectedUser?.pub === friend.pub}
             onSelect={onSelect}
             onRemove={handleRemoveFriend}
+            onBlock={handleBlock}
             onUnblock={handleUnblock}
             isActiveMenu={activeMenu === friend.pub}
-            onMenuToggle={(value) => setActiveMenu(value ? friend.pub : null)}
+            onMenuToggle={handleMenuToggle}
           />
         ))}
       </div>
