@@ -9,12 +9,11 @@ let isConnected = false;
 
 const initGun = () => {
   const options = {
-    peers: DEFAULT_PEERS,
-    localStorage: false
+    peers: DEFAULT_PEERS
   };
 
   if (window.Gun === undefined) {
-    const gunInstance = Gun(options);
+    const gunInstance = new Gun(DEFAULT_PEERS);
 
     // Gestione degli eventi di connessione
     gunInstance.on('hi', peer => {
@@ -35,7 +34,7 @@ const initGun = () => {
       if (msg.put) {
         try {
           const data = JSON.stringify(msg.put);
-          localStorage.setItem(`gun/${msg.put['#']}`, data);
+          //localStorage.setItem(`gun/${msg.put['#']}`, data);
         } catch (e) {
           console.warn('Errore nel salvataggio locale:', e);
         }

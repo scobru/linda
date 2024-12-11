@@ -10,16 +10,13 @@ export const registerWithMetaMask = async (address) => {
 
   const registrationPromise = new Promise(async (resolve, reject) => {
     try {
-      const signer = await gun.getSigner;
-      console.log('Signer:', signer);
+      const signer = await gun.getSigner();
+
+      await gun.createAndStoreEncryptedPair(signer.address);
 
       const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-      console.log('Signature:', signature);
-
-      await gun.createAndStoreEncryptedPair(signer.address, signature);
 
       const pair = await gun.getAndDecryptPair(signer.address, signature);
-      console.log('Pair:', pair);
 
       user.create(pair, async (ack) => {
         if (ack.err) {

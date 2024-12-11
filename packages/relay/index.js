@@ -221,7 +221,7 @@ async function initializeServer() {
     const { gunDb } = await startServer({
       web: app,
       file: "radata",
-      multicast: false,
+      multicast: true,
       radisk: true,
       axe: true,
       wire: true,
