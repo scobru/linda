@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": false,
   "dependencies": {
-    "linda-protocol": "link:../protocol",
     "@rainbow-me/rainbowkit": "^1.0.11",
     "@tailwindcss/forms": "^0.5.9",
     "@tanstack/react-query": "^5.60.5",
@@ -13,7 +12,8 @@
     "autoprefixer": "^10.4.7",
     "ethers": "^6.13.4",
     "gun": "^0.2020.1240",
-    "gun-eth": "^3.0.1",
+    "gun-eth": "^3.0.2",
+    "linda-protocol": "link:../protocol",
     "lru-cache": "^11.0.2",
     "postcss": "^8.4.14",
     "react": "^18.1.0",
