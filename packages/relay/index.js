@@ -5,9 +5,9 @@ const Gun = require("gun");
 const os = require("os");
 const fs = require("fs");
 const path = require("path");
-const { Mogu, startServer } = require("@scobru/mogu");
+const { Mogu } = require("@scobru/mogu");
 
-require("gun-eth");
+require("./gun-eth.cjs");
 // Importazioni Gun necessarie
 require("gun/gun.js");
 require("gun/sea.js");
@@ -218,7 +218,7 @@ async function performBackup() {
 async function initializeServer() {
   try {
     // Avvia Gun usando startServer da mogu
-    const { gunDb } = await startServer({
+    const  gunDb  = await Gun({
       web: app,
       file: "radata",
       multicast: true,

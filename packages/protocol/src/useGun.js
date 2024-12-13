@@ -1,11 +1,14 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import 'gun-eth'
-
+import gunEth from './gun-eth.cjs'
 // Usa solo il peer locale
 const DEFAULT_PEERS = ['http://localhost:8765/gun'];
 
 let isConnected = false;
+
+const { GunEth } = gunEth;
+
+GunEth.init('optimismSepolia')
 
 const initGun = () => {
   const options = {
@@ -14,6 +17,8 @@ const initGun = () => {
 
   if (window.Gun === undefined) {
     const gunInstance = new Gun(DEFAULT_PEERS);
+    
+
 
     // Gestione degli eventi di connessione
     gunInstance.on('hi', peer => {
@@ -22,33 +27,21 @@ const initGun = () => {
       isConnected = true;
     });
 
-    gunInstance.on('bye', peer => {
-      if (!peer || !peer.url) return;
-      console.log(`Peer disconnesso: ${peer.url}`);
-      isConnected = false;
-    });
-
-    // Aggiungi gestione dello storage locale
-    gunInstance.on('put', function(msg) {
-      // Salva i dati localmente
-      if (msg.put) {
-        try {
-          const data = JSON.stringify(msg.put);
-          //localStorage.setItem(`gun/${msg.put['#']}`, data);
-        } catch (e) {
-          console.warn('Errore nel salvataggio locale:', e);
-        }
-      }
-    });
-
     return gunInstance;
   } else {
-    return window.Gun(options);
+    const gunInstance = window.Gun(options);
+   
+
+    
+    return gunInstance;
   }
 };
 
 // Inizializza Gun
 export const gun = initGun();
+
+// Esporta anche l'istanza eth per comodità
+export const eth = gun.eth;
 
 // Inizializza l'utente
 export const user = gun.user().recall({ sessionStorage: true });
