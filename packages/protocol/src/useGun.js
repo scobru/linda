@@ -1,6 +1,6 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import gunEth from './gun-eth.cjs'
+import gunEth from './gun-eth.mjs'
 // Usa solo il peer locale
 const DEFAULT_PEERS = ['http://localhost:8765/gun'];
 

@@ -30,22 +30,7 @@ export default function SignIn() {
     let retryCount = 0;
     const tryLogin = async () => {
       try {
-        // Assicurati che Gun sia connesso prima di procedere
-        await new Promise((resolve) => {
-          const checkConnection = () => {
-            if (Object.keys(gun._.opt.peers).length > 0) {
-              resolve();
-            } else {
-              if (retryCount < maxRetries) {
-                setTimeout(checkConnection, retryDelay);
-              } else {
-                throw new Error('Impossibile connettersi al server');
-              }
-            }
-          };
-          checkConnection();
-        });
-
+       
         const result = await new Promise((resolve, reject) => {
           authentication.loginUser({ username, password }, (response) => {
             console.log('Login response:', response);

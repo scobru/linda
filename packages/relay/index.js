@@ -7,7 +7,11 @@ const fs = require("fs");
 const path = require("path");
 const { Mogu } = require("@scobru/mogu");
 
-require("./gun-eth.cjs");
+// Costanti di configurazione
+const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
+const MULTICAST_ADDRESS = '239.255.255.250';
+const MULTICAST_PORT = 1234;
+
 // Importazioni Gun necessarie
 require("gun/gun.js");
 require("gun/sea.js");
@@ -16,12 +20,23 @@ require("gun/lib/radisk.js");
 require("gun/lib/store.js");
 require("gun/lib/rindexed.js");
 
-require("dotenv").config();
-
-const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
-
 const app = express();
 const port = 3030;
+
+// Configurazione Gun
+const GUN_CONFIG = {
+  web: app,
+  file: "radata",
+  multicast: {
+    address: MULTICAST_ADDRESS,
+    port: MULTICAST_PORT
+  },
+  radisk: true,
+  axe: true,
+  wire: true,
+  localStorage: false,
+  peers: process.env.PEERS ? process.env.PEERS.split(',') : []
+};
 
 // Configurazione
 const CONFIG = {
@@ -217,18 +232,8 @@ async function performBackup() {
 // Modifica l'inizializzazione del server
 async function initializeServer() {
   try {
-    // Avvia Gun usando startServer da mogu
-    const  gunDb  = await Gun({
-      web: app,
-      file: "radata",
-      multicast: true,
-      radisk: true,
-      axe: true,
-      wire: true,
-      localStorage: false
-    });
-
-    gun = gunDb;
+    // Inizializza Gun con la configurazione consolidata
+    gun = Gun(GUN_CONFIG);
     console.log("Gun server started");
 
     // Inizializza Mogu se abilitato
@@ -242,7 +247,6 @@ async function initializeServer() {
       });
 
       try {
-        // Rimuovi la chiamata a initialize() dato che non esiste
         console.log("Mogu initialized successfully");
 
         // Verifica e ripristina l'ultimo backup se esiste
@@ -255,7 +259,7 @@ async function initializeServer() {
           }
         }
       } catch (error) {
-        console.error("Error during Mogu initialization:", error);
+        console.error("Error initializing Mogu:", error);
       }
     }
 
@@ -307,8 +311,8 @@ async function initializeServer() {
 
     return { gun, mogu };
   } catch (error) {
-    console.error("Failed to initialize server:", error);
-    throw error;
+    console.error("Error initializing server:", error);
+    process.exit(1);
   }
 }
 
@@ -639,3 +643,37 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// Rimuovi la dichiarazione duplicata di gun precedente e mantieni solo waitForGunInit
+const waitForGunInit = () => {
+  return new Promise((resolve) => {
+    if (gun && gun._.opt.peers && Object.keys(gun._.opt.peers).length > 0) {
+      resolve();
+    } else {
+      gun.on('hi', resolve);
+    }
+  });
+};
+
+// Modifica la funzione syncGlobalMetrics per gestire l'inizializzazione
+async function syncGlobalMetrics() {
+  try {
+    await waitForGunInit();
+    gun
+      .get(DAPP_NAME)
+      .get("globalMetrics")
+      .once((data) => {
+        if (data) {
+          const cleanMetrics = {};
+          Object.entries(data).forEach(([key, value]) => {
+            if (key !== "_" && key !== "#" && key !== ">") {
+              cleanMetrics[key] = Number(value);
+            }
+          });
+          console.log("Metriche globali sincronizzate:", cleanMetrics);
+        }
+      });
+  } catch (error) {
+    console.error("Errore durante la sincronizzazione delle metriche:", error);
+  }
+}

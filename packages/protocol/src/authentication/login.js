@@ -139,6 +139,8 @@ export const loginWithMetaMask = async (address) => {
 const loginUser = (credentials = {}, callback = () => {}) => {
   let timeoutId;
 
+  console.log('loginUser', credentials);
+
   const loginPromise = new Promise(async (resolve, reject) => {
     try {
       if (!credentials.username || !credentials.password) {
