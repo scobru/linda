@@ -1,47 +1,16 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import gunEth from './gun-eth.mjs'
+import GunEthModule from './gun-eth.mjs';
+
 // Usa solo il peer locale
-const DEFAULT_PEERS = ['http://localhost:8765/gun'];
+const DEFAULT_PEERS = ["http://localhost:3030/gun"];
 
 let isConnected = false;
 
-const { GunEth } = gunEth;
-
-GunEth.init('optimismSepolia')
-
-const initGun = () => {
-  const options = {
-    peers: DEFAULT_PEERS
-  };
-
-  if (window.Gun === undefined) {
-    const gunInstance = new Gun(DEFAULT_PEERS);
-    
-
-
-    // Gestione degli eventi di connessione
-    gunInstance.on('hi', peer => {
-      if (!peer || !peer.url) return;
-      console.log(`Peer connesso: ${peer.url}`);
-      isConnected = true;
-    });
-
-    return gunInstance;
-  } else {
-    const gunInstance = window.Gun(options);
-   
-
-    
-    return gunInstance;
-  }
-};
+const GunEth = GunEthModule.GunEth;
 
 // Inizializza Gun
-export const gun = initGun();
-
-// Esporta anche l'istanza eth per comodità
-export const eth = gun.eth;
+export const gun = GunEth.initializeGun({peers: DEFAULT_PEERS, localStorage: false});
 
 // Inizializza l'utente
 export const user = gun.user().recall({ sessionStorage: true });
@@ -82,6 +51,7 @@ export const checkConnection = () => {
     const timeout = setTimeout(() => resolve(false), 5000);
     gun.on('hi', () => {
       clearTimeout(timeout);
+      isConnected = true; // Aggiorna lo stato della connessione
       resolve(true);
     });
   });
@@ -101,7 +71,7 @@ export { SEA };
 // Funzione per pulire la cache locale
 export const clearLocalCache = () => {
   const keys = Object.keys(localStorage);
-  keys.forEach(key => {
+  keys.forEach((key) => {
     if (key.startsWith('gun/')) {
       localStorage.removeItem(key);
     }
@@ -112,7 +82,7 @@ export const clearLocalCache = () => {
 export const getLocalCacheSize = () => {
   let size = 0;
   const keys = Object.keys(localStorage);
-  keys.forEach(key => {
+  keys.forEach((key) => {
     if (key.startsWith('gun/')) {
       size += localStorage.getItem(key).length;
     }

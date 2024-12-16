@@ -10,7 +10,7 @@ const { Mogu } = require("@scobru/mogu");
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const MULTICAST_ADDRESS = '239.255.255.250';
-const MULTICAST_PORT = 1234;
+const MULTICAST_PORT = 8765;
 
 // Importazioni Gun necessarie
 require("gun/gun.js");
@@ -26,15 +26,16 @@ const port = 3030;
 // Configurazione Gun
 const GUN_CONFIG = {
   web: app,
-  file: "radata",
   multicast: {
     address: MULTICAST_ADDRESS,
     port: MULTICAST_PORT
   },
   radisk: true,
+  radix: true,
+  localStorage: false,
+  file: "./radata",
   axe: true,
   wire: true,
-  localStorage: false,
   peers: process.env.PEERS ? process.env.PEERS.split(',') : []
 };
 
@@ -51,7 +52,7 @@ const CONFIG = {
 };
 
 // Configurazione percorsi
-const RADATA_PATH = path.join(process.cwd(), "radata");
+const RADATA_PATH = path.join(process.cwd(), "./radata");
 
 // Aggiungi questa definizione all'inizio del file, dopo le altre costanti
 const globalMetrics = {
@@ -233,7 +234,7 @@ async function performBackup() {
 async function initializeServer() {
   try {
     // Inizializza Gun con la configurazione consolidata
-    gun = Gun(GUN_CONFIG);
+    gun = new Gun(GUN_CONFIG);
     console.log("Gun server started");
 
     // Inizializza Mogu se abilitato
