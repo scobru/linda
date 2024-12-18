@@ -2,15 +2,31 @@ import Gun from 'gun';
 import SEA from 'gun/sea.js';
 import GunEthModule from './gun-eth.mjs';
 
-// Usa solo il peer locale
-const DEFAULT_PEERS = ["http://localhost:3030/gun"];
+// Non importare i moduli di storage
+// require('gun/lib/store');
+// require('gun/lib/rindexed');
+
+const DEFAULT_PEERS = ["http://localhost:8765/gun"];
 
 let isConnected = false;
 
 const GunEth = GunEthModule.GunEth;
 
-// Inizializza Gun
-export const gun = GunEth.initializeGun({peers: DEFAULT_PEERS, localStorage: false});
+// Inizializza Gun con storage locale completamente disabilitato
+export const gun = GunEth.initializeGun({
+  peers: DEFAULT_PEERS,
+  localStorage: false,
+  store: {
+    // Override del metodo put per prevenire il salvataggio
+    put: function() { return },
+    // Override del metodo get per prevenire la lettura
+    get: function() { return }
+  },
+  radisk: false,
+  rindexed: false,
+  indexedDB: false,  // Disabilita esplicitamente IndexedDB
+  web: false         // Disabilita il web storage
+});
 
 // Inizializza l'utente
 export const user = gun.user().recall({ sessionStorage: true });

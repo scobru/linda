@@ -6,6 +6,8 @@ const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const { Mogu } = require("@scobru/mogu");
+const http = require('http');
+const WebSocket = require('ws');
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
@@ -17,25 +19,23 @@ require("gun/gun.js");
 require("gun/sea.js");
 require("gun/lib/axe.js");
 require("gun/lib/radisk.js");
-require("gun/lib/store.js");
-require("gun/lib/rindexed.js");
 
 const app = express();
-const port = 3030;
+const port = 8765;
 
-// Configurazione Gun
+// Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: app,
   multicast: {
     address: MULTICAST_ADDRESS,
     port: MULTICAST_PORT
   },
-  radisk: true,
-  radix: true,
-  localStorage: false,
-  file: "./radata",
+  radisk: true,           // mantieni radisk per la persistenza su filesystem
+  localStorage: false,     // disabilita localStorage
+  store: false,           // disabilita store generico
+  rindexed: false,        // disabilita IndexedDB
+  file: "./radata",       // mantieni il path per radisk
   axe: true,
-  wire: true,
   peers: process.env.PEERS ? process.env.PEERS.split(',') : []
 };
 
@@ -233,9 +233,23 @@ async function performBackup() {
 // Modifica l'inizializzazione del server
 async function initializeServer() {
   try {
-    // Inizializza Gun con la configurazione consolidata
-    gun = new Gun(GUN_CONFIG);
+    // Crea il server HTTP
+    const server = http.createServer(app);
+    
+    // Configura Gun con il server HTTP invece di express
+    const gunConfig = {
+      ...GUN_CONFIG,
+      web: server  // Usa il server HTTP invece di app
+    };
+
+    // Inizializza Gun con la configurazione
+    gun = new Gun(gunConfig);
     console.log("Gun server started");
+
+    // Avvia il server HTTP
+    server.listen(port, () => {
+      console.log(`Relay listening at http://localhost:${port}`);
+    });
 
     // Inizializza Mogu se abilitato
     if (CONFIG.STORAGE.enabled) {
@@ -267,18 +281,6 @@ async function initializeServer() {
     initializeGunListeners(gun, mogu);
 
     app.use(Gun.serve);
-
-    // Avvia il server HTTP
-    const server = app.listen(port, () => {
-      console.log(`Relay listening at http://localhost:${port}`);
-
-      // Avvia il primo backup dopo che il server è pronto
-      if (CONFIG.STORAGE.enabled) {
-        console.log("Scheduling initial backup...");
-        setTimeout(performBackup, 5000);
-        setInterval(performBackup, BACKUP_COOLDOWN);
-      }
-    });
 
     // Tracking connessioni WebSocket
     server.on("connection", (socket) => {
