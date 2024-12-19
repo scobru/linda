@@ -77,15 +77,16 @@ export default function Register() {
     const toastId = toast.loading("Registrazione in corso...");
 
     try {
-      await authentication.registerUser({ username, password }, (response) => {
-        if (response.success) {
-          resolve(response);
-        } else {
-          reject(
-            new Error(response.errMessage || "Errore durante la registrazione")
-          );
-        }
+      const result = await new Promise((resolve, reject) => {
+        authentication.registerUser({ username, password }, (response) => {
+          if (response.success) {
+            resolve(response);
+          } else {
+            reject(new Error(response.errMessage || "Errore durante la registrazione"));
+          }
+        });
       });
+
       toast.success("Registrazione completata", { id: toastId });
       setTimeout(() => {
         navigate("/signin", { replace: true });

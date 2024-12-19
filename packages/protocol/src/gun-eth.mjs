@@ -12921,16 +12921,86 @@ class StealthChain {
    */
   async generateStealthAddress(recipientAddress, signature) {
     try {
-      // Recupera le chiavi pubbliche del destinatario
-      const recipientData = await this.gun
+      if (!recipientAddress) {
+        throw new Error("Recipient address is required");
+      }
+
+      console.log("[generateStealthAddress] Cercando dati per:", recipientAddress);
+
+      let userData;
+      let userPub = recipientAddress;
+
+      // Se l'input è un indirizzo Ethereum, cerchiamo prima il pub corrispondente
+      if (recipientAddress.startsWith('0x')) {
+        // Cerca l'utente tramite indirizzo Ethereum
+        userData = await new Promise((resolve) => {
+          this.gun
+            .get("gun-eth")
+            .get("users")
+            .map()
+            .once((data, key) => {
+              if (data && data.profile && data.profile.address === recipientAddress) {
+                resolve({ ...data, pub: key });
+              }
+            });
+          
+          // Timeout dopo 1 secondo se non troviamo l'utente
+          setTimeout(() => resolve(null), 1000);
+        });
+
+        if (!userData) {
+          throw new Error(`No user found for Ethereum address: ${recipientAddress}`);
+        }
+
+        userPub = userData.pub;
+      }
+
+      // Cerchiamo le chiavi stealth in ordine di priorità
+      let stealthKeys;
+
+      // 1. Prima controlliamo in gun-eth/stealth-keys
+      stealthKeys = await this.gun
         .get("gun-eth")
-        .get("users")
-        .get(recipientAddress)
-        .get("publicKeys")
+        .get("stealth-keys")
+        .get(userPub)
         .then();
 
-      if (!recipientData) {
-        throw new Error("Recipient public keys not found");
+      // 2. Se non troviamo le chiavi, controlliamo nel profilo
+      if (!stealthKeys || !stealthKeys.viewingPublicKey) {
+        const userProfile = await this.gun
+          .get("~" + userPub)
+          .get("profile")
+          .then();
+
+        console.log("[generateStealthAddress] Profilo utente:", userProfile);
+
+        if (userProfile && userProfile.publicKeys) {
+          stealthKeys = userProfile.publicKeys;
+        }
+      }
+
+      // 3. Se ancora non troviamo le chiavi, le generiamo
+      if (!stealthKeys || !stealthKeys.viewingPublicKey) {
+        console.log("[generateStealthAddress] Generando nuove chiavi stealth per:", userPub);
+        stealthKeys = await this.publishStealthKeys(userPub);
+
+        // Salviamo le chiavi sia in stealth-keys che nel profilo
+        await Promise.all([
+          this.gun
+            .get("gun-eth")
+            .get("stealth-keys")
+            .get(userPub)
+            .put(stealthKeys),
+          this.gun
+            .get("~" + userPub)
+            .get("profile")
+            .get("publicKeys")
+            .put(stealthKeys)
+        ]);
+      }
+
+      if (!stealthKeys.viewingPublicKey || !stealthKeys.spendingPublicKey) {
+        throw new Error("Invalid stealth keys structure");
       }
 
       // Genera una coppia di chiavi effimere
@@ -12940,20 +13010,22 @@ class StealthChain {
       const stealthAddress = ethers.getAddress(
         ethers.keccak256(
           ethers.concat([
-            ethers.toUtf8Bytes(recipientData.viewingPublicKey),
+            ethers.toUtf8Bytes(stealthKeys.viewingPublicKey),
             ethers.toUtf8Bytes(ephemeralKeyPair.epub)
           ])
         )
       );
 
+      console.log("[generateStealthAddress] Indirizzo stealth generato:", stealthAddress);
+
       return {
         stealthAddress,
         ephemeralPublicKey: ephemeralKeyPair.epub,
-        viewingPublicKey: recipientData.viewingPublicKey,
-        spendingPublicKey: recipientData.spendingPublicKey
+        viewingPublicKey: stealthKeys.viewingPublicKey,
+        spendingPublicKey: stealthKeys.spendingPublicKey
       };
     } catch (error) {
-      console.error("Error generating stealth address:", error);
+      console.error("[generateStealthAddress] Errore:", error);
       throw error;
     }
   }

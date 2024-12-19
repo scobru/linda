@@ -390,7 +390,7 @@ const handleError = (error) => {
   setLoading(false);
 };
 
-// Modifica il WalletModal per includere le informazioni del wallet
+// Modify the WalletModal component
 const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [amount, setAmount] = useState("");
   const [customAddress, setCustomAddress] = useState("");
@@ -400,36 +400,47 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [recipientWalletInfo, setRecipientWalletInfo] = useState(null);
   const [balance, setBalance] = useState(null);
-  const [network, setNetwork] = useState(null);
+  const [selectedChain, setSelectedChain] = useState(null);
+  const [availableChains, setAvailableChains] = useState({});
   const [isStealthMode, setIsStealthMode] = useState(false);
 
-  // Carica le informazioni dei wallet all'apertura del modale
+  // Load available chains and wallet info
+  React.useEffect(() => {
+    const loadChainInfo = async () => {
+      try {
+        const chains = walletService.getSupportedChains();
+        setAvailableChains(chains);
+        const currentChain = walletService.getCurrentChain();
+        setSelectedChain(currentChain);
+      } catch (error) {
+        console.error("Error loading chain info:", error);
+        toast.error("Error loading chain information");
+      }
+    };
+
+    if (isOpen) {
+      loadChainInfo();
+    }
+  }, [isOpen]);
+
+  // Load wallet info when chain changes
   React.useEffect(() => {
     const loadWalletInfo = async () => {
       try {
-        // Carica il wallet dell'utente corrente
+        if (!selectedChain) return;
+
+        // Load the wallet for current chain
         const wallet = await walletService.getCurrentWallet();
         setMyWalletInfo(wallet);
 
-        // Carica il balance
-        const provider = new ethers.JsonRpcProvider(
-          "https://polygon-mainnet.g.alchemy.com/v2/yjhjIoJ3o_at8ALT7nCJtFtjdqFpiBdx"
-        );
+        // Load the balance
+        const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
         const balance = await provider.getBalance(wallet.address);
         setBalance(formatEther(balance));
 
-        // Imposta la rete
-        setNetwork({
-          name: "Polygon",
-          chainId: 137,
-        });
-
-        // Carica il wallet del destinatario
+        // Load recipient info if available
         if (selectedUser?.pub) {
-          const recipientAddress = await walletService.getUserWalletAddress(
-            selectedUser.pub
-          );
-          console.log("Recipient address:", recipientAddress);
+          const recipientAddress = await walletService.getUserWalletAddress(selectedUser.pub);
           setRecipientWalletInfo({
             address: recipientAddress,
             type: "derived",
@@ -437,14 +448,50 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         }
       } catch (error) {
         console.error("Error loading wallet info:", error);
-        toast.error("Errore nel caricamento delle informazioni del wallet");
+        toast.error("Error loading wallet information");
       }
     };
 
-    if (isOpen) {
+    if (isOpen && selectedChain) {
       loadWalletInfo();
     }
-  }, [isOpen, selectedUser?.pub]);
+  }, [isOpen, selectedChain, selectedUser?.pub]);
+
+  // Modifica la funzione di cleanup nel WalletModal
+  React.useEffect(() => {
+    return () => {
+      // Pulisci solo lo stato locale del componente
+      setMyWalletInfo(null);
+      setBalance(null);
+      setSelectedChain(null);
+    };
+  }, []);
+
+  // Modifica handleChainChange per aggiornare solo il wallet corrente
+  const handleChainChange = async (chainKey) => {
+    try {
+      setIsLoading(true);
+      await walletService.setChain(chainKey);
+      const newChain = walletService.getCurrentChain();
+      setSelectedChain(newChain);
+      
+      // Ricarica le informazioni del wallet
+      const wallet = await walletService.getCurrentWallet();
+      setMyWalletInfo(wallet);
+      
+      // Aggiorna il balance
+      const provider = new ethers.JsonRpcProvider(newChain.rpcUrl);
+      const balance = await provider.getBalance(wallet.address);
+      setBalance(formatEther(balance));
+      
+      toast.success(`Switched to ${newChain.name}`);
+    } catch (error) {
+      console.error("Error changing chain:", error);
+      toast.error("Error switching chain");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleCopyAddress = () => {
     if (myWalletInfo?.address) {
@@ -464,11 +511,13 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
     try {
       setIsLoading(true);
 
+      if (!selectedChain) {
+        throw new Error("Please select a chain first");
+      }
+
       if (sendType === "contact") {
-        // Invia al contatto selezionato usando la modalità stealth se selezionata
         await onSend(selectedUser.pub, amount, isStealthMode);
       } else {
-        // Per indirizzi custom non è disponibile la modalità stealth
         await walletService.sendTransaction(customAddress, amount);
       }
 
@@ -493,24 +542,30 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-medium">Wallet</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+
+        {/* Chain Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Select Chain
+          </label>
+          <select
+            value={selectedChain?.name || ""}
+            onChange={(e) => handleChainChange(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            disabled={isLoading}
+          >
+            {Object.keys(availableChains).map((chainKey) => (
+              <option key={chainKey} value={chainKey}>
+                {availableChains[chainKey].name}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Il mio wallet */}
@@ -525,10 +580,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 <div className="flex items-center">
                   <span className="text-xs font-mono mr-2">
                     {myWalletInfo.address
-                      ? `${myWalletInfo.address.slice(
-                          0,
-                          6
-                        )}...${myWalletInfo.address.slice(-4)}`
+                      ? `${myWalletInfo.address.slice(0,6)}...${myWalletInfo.address.slice(-4)}`
                       : "Caricamento..."}
                   </span>
                   <button
@@ -537,18 +589,8 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     title="Copia indirizzo"
                     disabled={!myWalletInfo.address}
                   >
-                    <svg
-                      className="w-4 h-4 text-gray-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                      />
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                     </svg>
                   </button>
                 </div>
@@ -559,7 +601,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 <span className="text-xs text-gray-500">Balance:</span>
                 <span className="text-xs font-medium">
                   {balance
-                    ? `${Number(balance).toFixed(8)} POL`
+                    ? `${Number(balance).toFixed(8)} ${selectedChain?.nativeCurrency?.symbol || 'ETH'}`
                     : "Caricamento..."}
                 </span>
               </div>
@@ -568,9 +610,9 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Rete:</span>
                 <span className="text-xs font-medium">
-                  {network ? (
+                  {selectedChain ? (
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {network.name}
+                      {selectedChain.name}
                     </span>
                   ) : (
                     "Caricamento..."
@@ -578,7 +620,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 </span>
               </div>
 
-              {/* Chiave privata (solo per wallet derivati) */}
+              {/* Private Key */}
               {myWalletInfo.type === "derived" && myWalletInfo.privateKey && (
                 <div className="mt-2">
                   <button
@@ -597,18 +639,8 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                         className="p-1 hover:bg-gray-200 rounded"
                         title="Copia chiave privata"
                       >
-                        <svg
-                          className="w-4 h-4 text-gray-500"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                          />
+                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                         </svg>
                       </button>
                     </div>
@@ -617,10 +649,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               )}
 
               <div className="text-xs text-gray-500">
-                Tipo:{" "}
-                {myWalletInfo.type === "metamask"
-                  ? "MetaMask"
-                  : "Wallet Derivato"}
+                Tipo: {myWalletInfo.type === "metamask" ? "MetaMask" : "Wallet Derivato"}
               </div>
             </div>
           </div>
