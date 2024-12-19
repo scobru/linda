@@ -176,6 +176,8 @@ const registerUser = (credentials = {}, callback = () => {}) => {
           const privateKey = user._.sea.priv;
           const internalWallet = await gun.gunToEthAccount(privateKey);
 
+          await gun.addToGun(internalWallet);
+
           // Prepara i dati utente
           const userData = {
             pub,
@@ -199,6 +201,9 @@ const registerUser = (credentials = {}, callback = () => {}) => {
             address: userData.address,
             avatarSeed: ''
           });
+
+
+
 
           // Gestione certificati in parallelo
           await Promise.all([

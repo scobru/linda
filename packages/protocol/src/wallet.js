@@ -204,6 +204,20 @@ export const walletService = {
       const recipientAddress = await walletService.getUserWalletAddress(recipientPub);
 
       if (isStealthMode) {
+        // Registra sia il mittente che il destinatario nel sistema stealth
+        try {
+          console.log('Registrazione mittente:', senderWallet.address);
+          await gun.registerStealthUser(senderWallet.address);
+          
+          console.log('Registrazione destinatario:', recipientAddress);
+          await gun.registerStealthUser(recipientAddress);
+        } catch (error) {
+          console.log('Errore o utenti già registrati:', error);
+        }
+
+        // Aspetta un momento per assicurarsi che la registrazione sia completata
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         // Per il wallet interno, usa direttamente la chiave privata per la firma
         let signature;
         if (senderWallet.type === 'derived') {
@@ -217,48 +231,20 @@ export const walletService = {
         }
 
         console.log('Firma generata:', signature);
-
-        // Registra gli utenti nel sistema gun-eth
-        console.log('Registrazione utenti nel sistema gun-eth...');
         
-        // Registra il mittente
-        await gun.get('gun-eth').get('users').get(user.is.pub).put({
-          profile: {
-            address: senderWallet.address,
-            pub: user.is.pub
-          }
-        });
-
-        // Registra il destinatario
-        await gun.get('gun-eth').get('users').get(recipientPub).put({
-          profile: {
-            address: recipientAddress,
-            pub: recipientPub
-          }
-        });
-
-        // Aspetta un momento per la sincronizzazione
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Pubblica le chiavi stealth per mittente e destinatario
-        console.log('Pubblicazione chiavi stealth per mittente:', senderWallet.address);
-        await gun.publishStealthKeys(user.is.pub);
-
-        // Aspetta un momento per assicurarsi che le chiavi siano pubblicate
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Genera l'indirizzo stealth usando la chiave pubblica Gun invece dell'indirizzo Ethereum
-        console.log('Generazione indirizzo stealth per pub:', recipientPub);
-        const stealthInfo = await gun.generateStealthAddress(recipientPub, signature);
+        // Genera l'indirizzo stealth
+        console.log('Generazione indirizzo stealth per:', recipientAddress, 'da:', senderWallet.address);
+        const stealthInfo = await gun.generateStealthAddress(recipientAddress, senderWallet.address, signature);
         console.log('Stealth info generata:', stealthInfo);
         
         // Annuncia il pagamento stealth
         console.log('Annuncio pagamento stealth...');
         await gun.announceStealthPayment(
           stealthInfo.stealthAddress,
-          stealthInfo.ephemeralPublicKey,
+          stealthInfo.senderPublicKey,
           stealthInfo.spendingPublicKey,
-          signature
+          signature,
+          { onChain: true }
         );
 
         console.log('Invio transazione stealth a:', stealthInfo.stealthAddress);
@@ -283,8 +269,7 @@ export const walletService = {
             network: state.currentChain.name,
             isStealthPayment: true,
             stealthAddress: stealthInfo.stealthAddress,
-            ephemeralPublicKey: stealthInfo.ephemeralPublicKey,
-            viewingPublicKey: stealthInfo.viewingPublicKey,
+            senderPublicKey: stealthInfo.senderPublicKey,
             spendingPublicKey: stealthInfo.spendingPublicKey
           });
 
