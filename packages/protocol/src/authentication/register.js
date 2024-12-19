@@ -1,40 +1,73 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
-import { createFriendRequestCertificate } from '../security/index.js';
+import { createFriendRequestCertificate,createNotificationCertificate } from '../security/index.js';
 import { walletService } from '../wallet.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 
-const REGISTRATION_TIMEOUT = 10000; // 10 seconds
+const REGISTRATION_TIMEOUT = 30000; // 30 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000;
 
 export const registerWithMetaMask = async (address) => {
-  let timeoutId;
+  try {
+    // 1. Ottieni il signer
+    const signer = await gun.getSigner();
+    if (!signer || !signer.address) {
+      throw new Error('Signer non valido');
+    }
 
-  const registrationPromise = new Promise(async (resolve, reject) => {
+    // 2. Crea la firma
+    console.log('Richiesta firma per:', gun.MESSAGE_TO_SIGN);
+    const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+    if (!signature) {
+      throw new Error('Firma non valida');
+    }
+
+    // Verifica che la firma generi una password valida
+    const password = await gun.generatePassword(signature);
+    if (!password || password.length < 32) {
+      throw new Error('Password generata non valida');
+    }
+
+    localStorage.setItem('lastSignature', signature);
+
+    // 3. Crea la coppia crittografata
+    console.log('Creazione coppia crittografata per:', signer.address);
+    const encryptedPair = await gun.createAndStoreEncryptedPair(signer.address);
+    if (!encryptedPair) {
+      throw new Error('Errore nella creazione della coppia crittografata');
+    }
+
+    // 4. Recupera e decifra la coppia
+    console.log('Recupero coppia per:', signer.address);
+    let pair;
     try {
-      const signer = await gun.getSigner();
+      const storedSignature = localStorage.getItem('lastSignature') || signature;
+      pair = await gun.getAndDecryptPair(signer.address, password);
+    } catch (decryptError) {
+      console.log('Tentativo con firma originale...');
+      pair = await gun.getAndDecryptPair(signer.address, password);
+    }
 
-      await gun.createAndStoreEncryptedPair(signer.address);
+    if (!pair || typeof pair !== 'object') {
+      throw new Error('Formato coppia non valido');
+    }
 
-      const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-
-      const pair = await gun.getAndDecryptPair(signer.address, signature);
-
+    // 5. Crea l'utente con la coppia recuperata
+    return new Promise((resolve, reject) => {
       user.create(pair, async (ack) => {
         if (ack.err) {
-          reject(new Error(ack.err));
+          reject(new Error(`Errore durante la creazione dell'utente: ${ack.err}`));
           return;
         }
 
-        await user.auth(pair);
-
         try {
-          // Genera il wallet interno usando la chiave privata di Gun
+          await user.auth(pair);
+          
           const privateKey = user._.sea.priv;
           const internalWallet = await gun.gunToEthAccount(privateKey);
           
-          // Salva il wallet interno nel localStorage
+          // Salva i dati in localStorage
           localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
-
-          // Salva l'auth di MetaMask
           localStorage.setItem(
             'walletAuth',
             JSON.stringify({
@@ -43,102 +76,50 @@ export const registerWithMetaMask = async (address) => {
             })
           );
 
-          // Usa una sola chiamata per salvare i dati utente
-          await gun.get(DAPP_NAME).get('userList').get('users').set({
+          // Prepara i dati utente
+          const userData = {
             pub: pair.pub,
-            address: internalWallet.account.address, // Usa l'indirizzo del wallet interno come principale
-            metamaskAddress: signer.address, // Mantieni riferimento a MetaMask
+            address: internalWallet.account.address,
+            metamaskAddress: signer.address,
             username: internalWallet.account.address.slice(0, 8),
             nickname: internalWallet.account.address.slice(0, 8),
             timestamp: Date.now(),
             authType: 'wallet'
+          };
+
+          // 6. Salva i dati utente
+          const userNode = gun.get(DAPP_NAME).get('userList').get('users');
+          await userNode.set(userData);
+          
+          const countNode = gun.get(DAPP_NAME).get('userList').get('count');
+          const currentCount = await countNode.once();
+          await countNode.put((currentCount || 0) + 1);
+          
+          await gun.user().get(DAPP_NAME).get('profile').put({
+            nickname: userData.nickname,
+            address: userData.address,
+            avatarSeed: ''
           });
 
-          // Rimuovi la seconda chiamata che stava sovrascrivendo l'indirizzo
-          await gun.get(DAPP_NAME)
-            .get('userList')
-            .get('count')
-            .once(async (currentCount) => {
-              const newCount = (currentCount || 0) + 1;
-              await gun
-                .get(DAPP_NAME)
-                .get('userList')
-                .get('count')
-                .put(newCount);
-
-              let nickname = internalWallet.account.address.slice(0, 8);
-
-              await gun
-                .get(DAPP_NAME)
-                .get('userList')
-                .get('nicknames')
-                .put(pair.pub)
-                .put(nickname);
-
-              await gun.user().get(DAPP_NAME).get('profile').put({
-                nickname: nickname,
-                address: internalWallet.account.address, // Usa l'indirizzo del wallet interno
-                avatarSeed: ''
-              });
-
-              let addFriendRequestCertificate = await gun
-                .user()
-                .get(DAPP_NAME)
-                .get('certificates')
-                .get('friendRequests');
-
-              if (!addFriendRequestCertificate) {
-                await createFriendRequestCertificate();
-              }
-
-              // Controlla il certificato per le notifiche
-              let notificationCertificate = await gun
-                .user()
-                .get(DAPP_NAME)
-                .get('certificates')
-                .get('notifications');
-
-              if (!notificationCertificate) {
-                await createNotificationCertificate();
-              }
-
-              resolve();
-            });
+          // Gestione certificati in parallelo
+          await Promise.all([
+            createFriendRequestCertificate(),
+            createNotificationCertificate()
+          ]);
 
           resolve({
             success: true,
             pub: pair.pub,
-            message: 'Utente creato con successo tramite MetaMask.',
+            message: 'Utente creato con successo tramite MetaMask'
           });
         } catch (error) {
-          reject(error);
+          reject(new Error(`Errore durante la configurazione dell'utente: ${error.message}`));
         }
       });
-    } catch (error) {
-      reject(error);
-    }
-  });
-
-  // Set timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error('Timeout durante la registrazione'));
-    }, REGISTRATION_TIMEOUT);
-  });
-
-  // Execute registration with timeout
-  return Promise.race([registrationPromise, timeoutPromise])
-    .then((result) => {
-      clearTimeout(timeoutId);
-      return {
-        success: true,
-        ...result,
-      };
-    })
-    .catch((error) => {
-      clearTimeout(timeoutId);
-      throw error;
     });
+  } catch (error) {
+    throw error;
+  }
 };
 
 /**
@@ -190,7 +171,42 @@ const registerUser = (credentials = {}, callback = () => {}) => {
         }
 
         try {
-          // Aggiorna il conteggio utenti una sola volta
+          await user.auth({pub: pub, alias: credentials.username, pass: credentials.password});
+          
+          const privateKey = user._.sea.priv;
+          const internalWallet = await gun.gunToEthAccount(privateKey);
+
+          // Prepara i dati utente
+          const userData = {
+            pub,
+            address: internalWallet.account.address,
+            username: credentials.username,
+            nickname: credentials.username,
+            timestamp: Date.now(),
+            authType: 'credentials'
+          };
+
+          // Salva i dati utente
+          const userNode = gun.get(DAPP_NAME).get('userList').get('users');
+          await userNode.set(userData);
+
+          const countNode = gun.get(DAPP_NAME).get('userList').get('count');
+          const currentCount = await countNode.once();
+          await countNode.put((currentCount || 0) + 1);
+
+          await gun.user().get(DAPP_NAME).get('profile').put({
+            nickname: userData.nickname,
+            address: userData.address,
+            avatarSeed: ''
+          });
+
+          // Gestione certificati in parallelo
+          await Promise.all([
+            createFriendRequestCertificate(),
+            createNotificationCertificate()
+          ]);
+
+          // Aggiorna metriche globali
           gun.get(DAPP_NAME)
             .get('globalMetrics')
             .get('totalUsers')
@@ -202,27 +218,15 @@ const registerUser = (credentials = {}, callback = () => {}) => {
                 .put(newCount);
             });
 
-          // Incrementa anche il contatore delle registrazioni
           updateGlobalMetrics('totalRegistrations', 1);
-
-          // Aggiungi l'utente alla lista utenti
-          await gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
-            .set({
-              pub,
-              username: credentials.username,
-              timestamp: Date.now(),
-              status: 'active'
-            });
 
           resolve({
             success: true,
             pub,
-            message: 'Successfully created user.',
+            message: 'Utente creato con successo'
           });
         } catch (error) {
-          reject(error);
+          reject(new Error(`Errore durante la configurazione dell'utente: ${error.message}`));
         }
       });
     } catch (error) {

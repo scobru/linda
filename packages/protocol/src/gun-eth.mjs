@@ -13124,7 +13124,7 @@ const SEA = Gun$1.SEA;
  * @property {function(string, string): Promise<ExtendedSigner>} setSigner - Imposta il signer
  * @property {function(): Promise<ExtendedSigner>} getSigner - Ottiene il signer corrente
  * @property {function(string, string): Promise<string>} verifySignature - Verifica una firma
- * @property {function(string): string} generatePassword - Genera una password da una firma
+ * @property {function(string): Promise<string>} generatePassword - Genera una password da una firma
  * @property {function(string): Promise<string>} createSignature - Crea una firma
  * @property {function(string): Promise<Object>} createAndStoreEncryptedPair - Crea e salva una coppia di chiavi cifrata
  * @property {function(string, string): Promise<Object>} getAndDecryptPair - Ottiene e decifra una coppia di chiavi
@@ -13194,7 +13194,7 @@ const passwordCache = new Map();
  * @param {string | Uint8Array} signature - La firma da cui generare la password
  * @returns {string | null} La password generata o null in caso di errore
  */
-function generatePassword(signature) {
+async function generatePassword(signature) {
   try {
     if (!signature) {
       throw new Error("Firma non valida");
@@ -13335,7 +13335,7 @@ async function gunToEthAccount(gunPrivateKey) {
     }
 
     const signature = await wallet.signMessage(MESSAGE_TO_SIGN);
-    const password = generatePassword(signature);
+    const password = await generatePassword(signature);
 
     if (!password) {
       throw new Error("Impossibile generare la password");
@@ -13423,7 +13423,7 @@ async function ethToGunAccount(isSecondary = false) {
       throw new Error("Firma non generata");
     }
 
-    const password = generatePassword(signature);
+    const password = await generatePassword(signature);
     if (!password) {
       throw new Error("Impossibile generare la password");
     }
@@ -13837,7 +13837,7 @@ function extendGun(Gun) {
  */
 function initializeGun(options = {}) {
   // Configurazione di default
-  const defaultOptions = options
+  const defaultOptions = options;
 
   // Verifica che Gun sia stato caricato correttamente
   if (!Gun$1.SEA) {

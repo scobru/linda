@@ -4,7 +4,7 @@ import { mainnet, polygon, optimism, arbitrum, sepolia, optimismSepolia } from '
 import { publicProvider } from 'wagmi/providers/public';
 
 const { chains, publicClient } = configureChains(
-  [optimismSepolia],
+  [polygon],
   [publicProvider()]
 );
 

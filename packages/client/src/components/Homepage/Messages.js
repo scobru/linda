@@ -15,6 +15,7 @@ import { createMessagesCertificate } from "linda-protocol";
 import { walletService } from "linda-protocol";
 import { formatEther } from "ethers";
 import { ethers } from "ethers";
+
   
 const { userBlocking } = blocking;
 const { channels } = messaging;
@@ -412,15 +413,15 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
 
         // Carica il balance
         const provider = new ethers.JsonRpcProvider(
-          "https://sepolia.optimism.io"
+          "https://polygon-mainnet.g.alchemy.com/v2/yjhjIoJ3o_at8ALT7nCJtFtjdqFpiBdx"
         );
         const balance = await provider.getBalance(wallet.address);
         setBalance(formatEther(balance));
 
         // Imposta la rete
         setNetwork({
-          name: "Optimism Sepolia",
-          chainId: 11155420,
+          name: "Polygon",
+          chainId: 137,
         });
 
         // Carica il wallet del destinatario
@@ -558,7 +559,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 <span className="text-xs text-gray-500">Balance:</span>
                 <span className="text-xs font-medium">
                   {balance
-                    ? `${Number(balance).toFixed(8)} ETH`
+                    ? `${Number(balance).toFixed(8)} POL`
                     : "Caricamento..."}
                 </span>
               </div>
@@ -650,7 +651,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         ) : (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Indirizzo ETH
+              Indirizzo POL
             </label>
             <input
               type="text"
@@ -665,7 +666,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Importo */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Importo (ETH)
+            Importo (POL)
           </label>
           <input
             type="number"
