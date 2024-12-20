@@ -176,7 +176,7 @@ const registerUser = (credentials = {}, callback = () => {}) => {
           const privateKey = user._.sea.priv;
           const internalWallet = await gun.gunToEthAccount(privateKey);
 
-          await gun.addToGun(internalWallet);
+          await gun.saveUserToGun(internalWallet);
 
           // Prepara i dati utente
           const userData = {

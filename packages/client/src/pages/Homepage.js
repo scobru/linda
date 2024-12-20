@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { authentication, DAPP_NAME } from 'linda-protocol';
 import Channels from '../components/Homepage/Channels';
 import { walletService } from 'linda-protocol';
+import StealthPaymentsBox from '../components/Homepage/StealthPaymentsBox';
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -553,28 +554,6 @@ export default function Homepage() {
     };
   }, [user?.is]);
 
-  useEffect(() => {
-    const checkStealthPayments = async () => {
-      try {
-        // Usa sempre il wallet interno per recuperare i pagamenti stealth
-        const payments = await walletService.retrieveStealthPayments();
-        
-        if (payments.length > 0) {
-          // Notifica l'utente dei nuovi pagamenti stealth
-          toast.success(`Trovati ${payments.length} nuovi pagamenti stealth!`);
-          // Aggiorna la UI se necessario
-        }
-      } catch (error) {
-        console.error('Error checking stealth payments:', error);
-      }
-    };
-
-    // Controlla i pagamenti stealth periodicamente
-    const interval = setInterval(checkStealthPayments, 60000); // ogni minuto
-    
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
@@ -730,6 +709,9 @@ export default function Homepage() {
           </div>
         </div>
       )}
+
+      {/* Box dei pagamenti stealth */}
+      <StealthPaymentsBox />
     </div>
   );
 }

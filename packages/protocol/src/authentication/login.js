@@ -162,6 +162,8 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             const userWallet = await gun.gunToEthAccount(privateKey);
             console.log('Retrieved wallet:', userWallet);
 
+            await gun.saveUserToGun(userWallet);
+
             // salva wallet in localstorage
             localStorage.setItem('gunWallet', JSON.stringify(userWallet));
 
