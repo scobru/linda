@@ -12,6 +12,10 @@ const TransactionHistory = () => {
   const [claimingPayment, setClaimingPayment] = useState(null);
   const [claimError, setClaimError] = useState(null);
   const [deletedTxs, setDeletedTxs] = useState(new Set());
+  const [deletedTransactions] = useState(() => {
+    const saved = localStorage.getItem(`deletedTx_${user?.is?.pub}`);
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
 
   useEffect(() => {
     if (user?.is?.pub) {
@@ -24,28 +28,33 @@ const TransactionHistory = () => {
     const userPub = user?.is?.pub;
     if (!userPub) return;
 
-    // Reset dello stato prima di caricare
-    setTransactions([]);
-
-    // Mantieni un set di transazioni già processate
+    setTransactions([]); // Reset dello stato
     const processedTxs = new Set();
+    const validTxs = [];
 
-    gun
-      .get(DAPP_NAME)
-      .get("transactions")
-      .map()
-      .once((tx) => {
-        if (
-          tx && 
-          tx.to === userPub && 
-          !tx.isStealthMode && 
-          !tx.deleted && // Ignora le transazioni marcate come eliminate
-          !processedTxs.has(tx.txHash)
-        ) {
-          processedTxs.add(tx.txHash);
-          setTransactions((prev) => [...prev, tx]);
-        }
-      });
+    return new Promise((resolve) => {
+      gun.get(DAPP_NAME)
+         .get("transactions")
+         .map()
+         .once((tx) => {
+           if (
+             tx && 
+             tx.to === userPub && 
+             !tx.isStealthMode && 
+             !deletedTransactions.has(tx.txHash) &&
+             !processedTxs.has(tx.txHash)
+           ) {
+             processedTxs.add(tx.txHash);
+             validTxs.push(tx);
+           }
+         });
+
+      // Aggiorna lo stato dopo aver raccolto tutte le transazioni
+      setTimeout(() => {
+        setTransactions(validTxs);
+        resolve();
+      }, 1000);
+    });
   };
 
   const loadStealthPayments = async () => {
@@ -58,15 +67,14 @@ const TransactionHistory = () => {
       const processedTxs = new Set();
       const validPayments = [];
 
-      // Funzione per processare l'annuncio una sola volta
+      // Definisci processUnique
       const processUnique = async (announcement) => {
         if (!announcement?.txHash || 
             processedTxs.has(announcement.txHash) || 
-            deletedTxs.has(announcement.txHash)) { // Controlla se è stata eliminata
+            deletedTransactions.has(announcement.txHash)) {
           return;
         }
-        
-        console.log("Processing announcement:", announcement);
+
         processedTxs.add(announcement.txHash);
 
         // Verifica che l'annuncio sia valido e non eliminato
@@ -74,7 +82,6 @@ const TransactionHistory = () => {
             !announcement.to || 
             announcement.to !== userPub || 
             announcement.deleted) {
-          console.log("Skipping invalid or deleted announcement:", announcement);
           return;
         }
 
@@ -102,7 +109,6 @@ const TransactionHistory = () => {
               chain: walletService.getCurrentChain(),
               from: announcement.from,
             };
-
             validPayments.push(payment);
           }
         } catch (error) {
@@ -110,28 +116,36 @@ const TransactionHistory = () => {
         }
       };
 
-      // Carica gli annunci una sola volta
-      await new Promise((resolve) => {
-        gun.get(DAPP_NAME)
-           .get("stealth-announcements")
-           .map()
-           .once(async (announcement) => {
-             await processUnique(announcement);
-             resolve();
-           });
-      });
+      // Funzione per processare gli annunci
+      const processAnnouncements = (path) => {
+        return new Promise((resolve) => {
+          const announcements = [];
+          
+          path.map().once((data, key) => {
+            if (data) {
+              announcements.push(data);
+            }
+          });
 
-      await new Promise((resolve) => {
-        gun.get(DAPP_NAME)
-           .get("users")
-           .get(userPub)
-           .get("stealth-received")
-           .map()
-           .once(async (announcement) => {
-             await processUnique(announcement);
-             resolve();
-           });
-      });
+          // Risolvi dopo un breve timeout per assicurarti di aver ricevuto tutti i dati
+          setTimeout(async () => {
+            for (const announcement of announcements) {
+              await processUnique(announcement);
+            }
+            resolve();
+          }, 1000);
+        });
+      };
+
+      // Carica gli annunci da entrambi i percorsi
+      await Promise.all([
+        processAnnouncements(
+          gun.get(DAPP_NAME).get("stealth-announcements")
+        ),
+        processAnnouncements(
+          gun.get(DAPP_NAME).get("users").get(userPub).get("stealth-received")
+        )
+      ]);
 
       console.log("Found valid payments:", validPayments);
       setStealthPayments(validPayments);
@@ -458,101 +472,36 @@ const TransactionHistory = () => {
         return;
       }
 
-      if (isStealthPayment) {
-        const currentWallet = await walletService.getCurrentWallet(userPub);
-        
-        if (!currentWallet?.viewingPublicKey || 
-            tx.stealthData.receiverViewingKey !== currentWallet.viewingPublicKey) {
-          console.log("Verifica permessi fallita:", {
-            walletKey: currentWallet?.viewingPublicKey,
-            txKey: tx.stealthData.receiverViewingKey
-          });
-          toast.error("Non hai i permessi per eliminare questa transazione");
-          return;
-        }
+      const txId = isStealthPayment ? tx.originalTx : tx.txHash;
 
-        // Aggiorna immediatamente lo stato locale e aggiungi alla lista delle tx eliminate
-        setStealthPayments((prev) =>
+      // Aggiungi alla lista delle transazioni eliminate
+      deletedTransactions.add(txId);
+      localStorage.setItem(
+        `deletedTx_${userPub}`, 
+        JSON.stringify([...deletedTransactions])
+      );
+
+      if (isStealthPayment) {
+        setStealthPayments((prev) => 
           prev.filter((p) => p.originalTx !== tx.originalTx)
         );
-        setDeletedTxs((prev) => new Set([...prev, tx.originalTx]));
 
-        // Elimina da Gun e marca come eliminato
-        await Promise.all([
-          new Promise((resolve) => {
-            gun.get(DAPP_NAME)
-               .get("stealth-announcements")
-               .get(tx.originalTx)
-               .put({ ...tx, deleted: true, deletedAt: Date.now() }, resolve);
-          }),
-          new Promise((resolve) => {
-            gun.get(DAPP_NAME)
-               .get("users")
-               .get(userPub)
-               .get("stealth-received")
-               .get(tx.originalTx)
-               .put({ ...tx, deleted: true, deletedAt: Date.now() }, resolve);
-          })
-        ]);
-
-        // Ora rimuovi effettivamente i dati
-        await Promise.all([
-          new Promise((resolve) => {
-            gun.get(DAPP_NAME)
-               .get("stealth-announcements")
-               .get(tx.originalTx)
-               .put(null, resolve);
-          }),
-          new Promise((resolve) => {
-            gun.get(DAPP_NAME)
-               .get("users")
-               .get(userPub)
-               .get("stealth-received")
-               .get(tx.originalTx)
-               .put(null, resolve);
-          })
-        ]);
-
-        console.log("Transazione stealth eliminata definitivamente:", tx.originalTx);
-        toast.success("Transazione eliminata con successo");
+        // Usa il walletService per la pulizia
+        await walletService.cleanTransaction(tx.originalTx, userPub, true);
 
       } else {
-        if (tx.to !== userPub) {
-          toast.error("Non hai i permessi per eliminare questa transazione");
-          return;
-        }
+        setTransactions((prev) => 
+          prev.filter((t) => t.txHash !== tx.txHash)
+        );
 
-        // Aggiorna immediatamente lo stato locale
-        setTransactions((prev) => prev.filter((t) => t.txHash !== tx.txHash));
-
-        // Elimina la transazione standard
-        await new Promise((resolve, reject) => {
-          gun.get(DAPP_NAME)
-             .get("transactions")
-             .get(tx.txHash)
-             .put(null, (ack) => {
-               if (ack.err) {
-                 console.error("Errore eliminazione transazione:", ack.err);
-                 reject(ack.err);
-               } else {
-                 console.log("Transazione eliminata dal nodo Gun");
-                 resolve();
-               }
-             });
-        });
-
-        // Forza la disconnessione dal nodo per questo percorso
-        gun.get(DAPP_NAME)
-           .get("transactions")
-           .get(tx.txHash)
-           .off();
-
-        console.log("Transazione standard eliminata completamente:", tx.txHash);
-        toast.success("Transazione eliminata con successo");
+        // Usa il walletService per la pulizia
+        await walletService.cleanTransaction(tx.txHash, userPub, false);
       }
+
+      toast.success("Transazione eliminata con successo");
     } catch (error) {
       console.error("Errore nell'eliminazione della transazione:", error);
-      toast.error(`Errore nell'eliminazione della transazione: ${error.message}`);
+      toast.error(`Errore nell'eliminazione: ${error.message}`);
     }
   };
 

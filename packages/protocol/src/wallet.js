@@ -91,6 +91,36 @@ const normalizeWalletData = (data) => {
   };
 };
 
+const cleanupGunData = async (path, key) => {
+  return new Promise((resolve, reject) => {
+    // Prima marca come eliminato
+    gun.get(path)
+       .get(key)
+       .put({ deleted: true, deletedAt: Date.now() }, (ack) => {
+         if (ack.err) {
+           reject(ack.err);
+           return;
+         }
+         
+         // Poi imposta a null e disconnetti
+         gun.get(path)
+            .get(key)
+            .put(null, (ack) => {
+              if (ack.err) {
+                reject(ack.err);
+                return;
+              }
+              
+              gun.get(path)
+                 .get(key)
+                 .off();
+                 
+              resolve();
+            });
+       });
+  });
+};
+
 export const walletService = {
   setChain: async (chainKey) => {
     if (!SUPPORTED_CHAINS[chainKey]) {
@@ -624,6 +654,24 @@ export const walletService = {
       });
     } catch (error) {
       console.error("Errore nel salvare l'annuncio stealth:", error);
+    }
+  },
+
+  // Aggiungi questa nuova funzione per la pulizia delle transazioni
+  cleanTransaction: async (txHash, userPub, isStealthPayment = false) => {
+    try {
+      if (isStealthPayment) {
+        await Promise.all([
+          cleanupGunData(`${DAPP_NAME}/stealth-announcements`, txHash),
+          cleanupGunData(`${DAPP_NAME}/users/${userPub}/stealth-received`, txHash)
+        ]);
+      } else {
+        await cleanupGunData(`${DAPP_NAME}/transactions`, txHash);
+      }
+      return true;
+    } catch (error) {
+      console.error('Errore nella pulizia della transazione:', error);
+      throw error;
     }
   },
 };
