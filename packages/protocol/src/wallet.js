@@ -94,30 +94,30 @@ const normalizeWalletData = (data) => {
 const cleanupGunData = async (path, key) => {
   return new Promise((resolve, reject) => {
     // Prima marca come eliminato
-    gun.get(path)
-       .get(key)
-       .put({ deleted: true, deletedAt: Date.now() }, (ack) => {
-         if (ack.err) {
-           reject(ack.err);
-           return;
-         }
-         
-         // Poi imposta a null e disconnetti
-         gun.get(path)
-            .get(key)
-            .put(null, (ack) => {
-              if (ack.err) {
-                reject(ack.err);
-                return;
-              }
-              
-              gun.get(path)
-                 .get(key)
-                 .off();
-                 
-              resolve();
-            });
-       });
+    gun
+      .get(path)
+      .get(key)
+      .put({ deleted: true, deletedAt: Date.now() }, (ack) => {
+        if (ack.err) {
+          reject(ack.err);
+          return;
+        }
+
+        // Poi imposta a null e disconnetti
+        gun
+          .get(path)
+          .get(key)
+          .put(null, (ack) => {
+            if (ack.err) {
+              reject(ack.err);
+              return;
+            }
+
+            gun.get(path).get(key).off();
+
+            resolve();
+          });
+      });
   });
 };
 
@@ -356,19 +356,16 @@ export const walletService = {
         console.log('Using spending key pair:', s_Pair);
 
         // Genera l'indirizzo stealth usando la nuova implementazione
-        const { 
-          stealthAddress, 
-          senderEphemeralPublicKey, 
-          sharedSecret 
-        } = await gun.generateStealthAddress(
-          recipientData.viewingPublicKey,
-          recipientData.spendingPublicKey
-        );
+        const { stealthAddress, senderEphemeralPublicKey, sharedSecret } =
+          await gun.generateStealthAddress(
+            recipientData.viewingPublicKey,
+            recipientData.spendingPublicKey
+          );
 
         console.log('Generated stealth data:', {
           stealthAddress,
           senderEphemeralPublicKey,
-          sharedSecret: '***hidden***'
+          sharedSecret: '***hidden***',
         });
 
         // Invia la transazione all'indirizzo stealth
@@ -383,7 +380,7 @@ export const walletService = {
         // Crea l'annuncio stealth completo usando i nomi dei campi corretti
         const fullAnnouncement = {
           stealthAddress,
-          senderEphemeralKey: senderEphemeralPublicKey, // Nota: questo è il nome del campo atteso
+          senderEphemeralKey: senderEphemeralPublicKey,
           receiverViewingKey: recipientData.viewingPublicKey,
           receiverSpendingKey: recipientData.spendingPublicKey,
           sharedSecret,
@@ -393,14 +390,14 @@ export const walletService = {
           txHash: tx.hash,
           timestamp: Date.now(),
           network: state.currentChain.name,
-          isStealthPayment: true
+          isStealthPayment: true,
         };
 
         console.log('Saving stealth announcement:', fullAnnouncement);
 
         // Salva l'annuncio sia nel percorso del mittente che in quello generale
         const announcementId = `stealth_${tx.hash}_${Date.now()}`;
-        
+
         // 1. Salva nel percorso generale degli annunci
         await gun
           .get(DAPP_NAME)
@@ -418,9 +415,46 @@ export const walletService = {
           .put(fullAnnouncement);
 
         return tx;
-      }
+      } else {
+        // Gestione pagamento standard
+        let recipientAddress;
 
-      // ... resto del codice per pagamenti standard ...
+        // Verifica se recipientPub è un indirizzo Ethereum
+        if (ethers.isAddress(recipientPub)) {
+          recipientAddress = recipientPub;
+        } else {
+          // Ottieni l'indirizzo del wallet del destinatario
+          const recipientWallet = await walletService.getUserWalletAddress(
+            recipientPub
+          );
+          if (!recipientWallet) {
+            throw new Error('Indirizzo del destinatario non trovato');
+          }
+          recipientAddress = recipientWallet;
+        }
+
+        // Invia la transazione standard
+        tx = await signer.sendTransaction({
+          to: recipientAddress,
+          value: ethers.parseEther(amount.toString()),
+          chainId: state.currentChain.chainId,
+        });
+
+        await tx.wait();
+
+        // Salva la transazione nel database
+        await gun.get(DAPP_NAME).get('transactions').set({
+          from: senderPub,
+          to: recipientPub,
+          amount: amount,
+          txHash: tx.hash,
+          timestamp: Date.now(),
+          network: state.currentChain.name,
+          isStealthPayment: false,
+        });
+
+        return tx;
+      }
     } catch (error) {
       console.error('Error sending tip:', error);
       throw error;
@@ -624,33 +658,38 @@ export const walletService = {
     try {
       // Aggiungi un ID univoco all'annuncio
       const announcementId = announcement.txHash;
-      
+
       // Salva nel percorso generale usando l'ID come chiave
       await new Promise((resolve) => {
-        gun.get(DAPP_NAME)
-           .get("stealth-announcements")
-           .get(announcementId)
-           .put(announcement, (ack) => {
-             if (ack.err) {
-               console.error("Errore nel salvare l'annuncio stealth:", ack.err);
-             }
-             resolve();
-           });
+        gun
+          .get(DAPP_NAME)
+          .get('stealth-announcements')
+          .get(announcementId)
+          .put(announcement, (ack) => {
+            if (ack.err) {
+              console.error("Errore nel salvare l'annuncio stealth:", ack.err);
+            }
+            resolve();
+          });
       });
 
       // Salva nel percorso dell'utente usando lo stesso ID
       await new Promise((resolve) => {
-        gun.get(DAPP_NAME)
-           .get("users")
-           .get(userPub)
-           .get("stealth-received")
-           .get(announcementId)
-           .put(announcement, (ack) => {
-             if (ack.err) {
-               console.error("Errore nel salvare l'annuncio stealth per l'utente:", ack.err);
-             }
-             resolve();
-           });
+        gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(userPub)
+          .get('stealth-received')
+          .get(announcementId)
+          .put(announcement, (ack) => {
+            if (ack.err) {
+              console.error(
+                "Errore nel salvare l'annuncio stealth per l'utente:",
+                ack.err
+              );
+            }
+            resolve();
+          });
       });
     } catch (error) {
       console.error("Errore nel salvare l'annuncio stealth:", error);
@@ -663,7 +702,10 @@ export const walletService = {
       if (isStealthPayment) {
         await Promise.all([
           cleanupGunData(`${DAPP_NAME}/stealth-announcements`, txHash),
-          cleanupGunData(`${DAPP_NAME}/users/${userPub}/stealth-received`, txHash)
+          cleanupGunData(
+            `${DAPP_NAME}/users/${userPub}/stealth-received`,
+            txHash
+          ),
         ]);
       } else {
         await cleanupGunData(`${DAPP_NAME}/transactions`, txHash);

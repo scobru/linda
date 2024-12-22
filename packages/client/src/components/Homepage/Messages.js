@@ -436,15 +436,17 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
           try {
             const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
-            const balance = await provider.getBalance(wallet.internalWalletAddress);
+            const balance = await provider.getBalance(
+              wallet.internalWalletAddress
+            );
             setBalance(formatEther(balance));
           } catch (error) {
-            console.error('Error loading balance:', error);
-            setBalance('0.0');
+            console.error("Error loading balance:", error);
+            setBalance("0.0");
           }
         } else {
-          console.log('Wallet senza indirizzo valido:', wallet);
-          setBalance('0.0');
+          console.log("Wallet senza indirizzo valido:", wallet);
+          setBalance("0.0");
         }
 
         // Load recipient info if available
@@ -460,12 +462,12 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
               });
             }
           } catch (error) {
-            console.error('Error loading recipient info:', error);
+            console.error("Error loading recipient info:", error);
           }
         }
       } catch (error) {
-        console.error('Error loading wallet info:', error);
-        toast.error('Error loading wallet information');
+        console.error("Error loading wallet info:", error);
+        toast.error("Error loading wallet information");
       }
     };
 
@@ -500,15 +502,17 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
       if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
         try {
           const provider = new ethers.JsonRpcProvider(newChain.rpcUrl);
-          const balance = await provider.getBalance(wallet.internalWalletAddress);
+          const balance = await provider.getBalance(
+            wallet.internalWalletAddress
+          );
           setBalance(formatEther(balance));
         } catch (error) {
-          console.error('Error loading balance:', error);
-          setBalance('0.0');
+          console.error("Error loading balance:", error);
+          setBalance("0.0");
         }
       } else {
-        console.log('Wallet senza indirizzo valido:', wallet);
-        setBalance('0.0');
+        console.log("Wallet senza indirizzo valido:", wallet);
+        setBalance("0.0");
       }
 
       toast.success(`Switched to ${newChain.name}`);
@@ -610,7 +614,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
 
         {/* Il mio wallet */}
         {myWalletInfo ? (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg break-all">
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <h4 className="text-sm font-medium text-gray-700 mb-2">
               Il mio wallet
             </h4>
@@ -619,18 +623,24 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 <span className="text-xs text-gray-500">Indirizzo:</span>
                 <div className="flex items-center">
                   <span className="text-xs font-mono mr-2">
-                    {myWalletInfo.address
-                      ? `${myWalletInfo.address.slice(
+                    {myWalletInfo.internalWalletAddress
+                      ? `${myWalletInfo.internalWalletAddress.slice(
                           0,
                           6
-                        )}...${myWalletInfo.address.slice(-4)}`
+                        )}...${myWalletInfo.internalWalletAddress.slice(-4)}`
                       : "Caricamento..."}
                   </span>
                   <button
-                    onClick={handleCopyAddress}
+                    onClick={() => {
+                      if (myWalletInfo.internalWalletAddress) {
+                        navigator.clipboard.writeText(
+                          myWalletInfo.internalWalletAddress
+                        );
+                        toast.success("Indirizzo copiato!");
+                      }
+                    }}
                     className="p-1 hover:bg-gray-200 rounded"
-                    title="Copia indirizzo"
-                    disabled={!myWalletInfo.address}
+                    disabled={!myWalletInfo.internalWalletAddress}
                   >
                     <svg
                       className="w-4 h-4 text-gray-500"
@@ -649,34 +659,18 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 </div>
               </div>
 
-              {/* Balance */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Balance:</span>
                 <span className="text-xs font-medium">
                   {balance
                     ? `${Number(balance).toFixed(8)} ${
-                        selectedChain?.nativeCurrency?.symbol || "ETH"
+                        selectedChain?.nativeCurrency?.symbol || "MATIC"
                       }`
                     : "Caricamento..."}
                 </span>
               </div>
 
-              {/* Network */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Rete:</span>
-                <span className="text-xs font-medium">
-                  {selectedChain ? (
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {selectedChain.name}
-                    </span>
-                  ) : (
-                    "Caricamento..."
-                  )}
-                </span>
-              </div>
-
-              {/* Private Key */}
-              {myWalletInfo.type === "derived" && myWalletInfo.privateKey && (
+              {myWalletInfo.internalWalletPk && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowPrivateKey(!showPrivateKey)}
@@ -687,12 +681,16 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                   {showPrivateKey && (
                     <div className="mt-1 flex items-center justify-between">
                       <span className="text-xs font-mono truncate max-w-[180px]">
-                        {myWalletInfo.privateKey}
+                        {myWalletInfo.internalWalletPk}
                       </span>
                       <button
-                        onClick={handleCopyPrivateKey}
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            myWalletInfo.internalWalletPk
+                          );
+                          toast.success("Chiave privata copiata!");
+                        }}
                         className="p-1 hover:bg-gray-200 rounded"
-                        title="Copia chiave privata"
                       >
                         <svg
                           className="w-4 h-4 text-gray-500"
@@ -712,13 +710,6 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                   )}
                 </div>
               )}
-
-              <div className="text-xs text-gray-500">
-                Tipo:{" "}
-                {myWalletInfo.type === "metamask"
-                  ? "MetaMask"
-                  : "Wallet Derivato"}
-              </div>
             </div>
           </div>
         ) : (
@@ -831,7 +822,9 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Pulsante invio */}
         <button
           onClick={handleSend}
-          disabled={isLoading || !amount || (sendType === "custom" && !customAddress)}
+          disabled={
+            isLoading || !amount || (sendType === "custom" && !customAddress)
+          }
           className={`w-full py-2 rounded-lg bg-blue-500 text-white transition-colors ${
             isLoading || !amount || (sendType === "custom" && !customAddress)
               ? "opacity-50 cursor-not-allowed"
