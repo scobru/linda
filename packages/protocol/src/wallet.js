@@ -71,15 +71,34 @@ const getUserChainState = () => {
   return initialState;
 };
 
+const normalizeWalletData = (data) => {
+  // Verifica se abbiamo almeno un indirizzo valido
+  const address = data.internalWalletAddress || data.address;
+
+  // Se non abbiamo un indirizzo, restituisci i dati senza indirizzo
+  // ma con le altre informazioni necessarie
+  return {
+    internalWalletAddress: address, // Potrebbe essere undefined
+    internalWalletPk: data.internalWalletPk,
+    viewingPublicKey: data.viewingPublicKey,
+    spendingPublicKey: data.spendingPublicKey,
+    pair: data.pair,
+    vPair: data.vPair,
+    sPair: data.sPair,
+    credentials: data.credentials,
+    // Aggiungi un flag per indicare se l'indirizzo è valido
+    hasValidAddress: address ? ethers.isAddress(address) : false,
+  };
+};
+
 export const walletService = {
-  // Add chain management methods
   setChain: async (chainKey) => {
     if (!SUPPORTED_CHAINS[chainKey]) {
-      throw new Error(`Unsupported chain: ${chainKey}`);
+      throw new Error(`Chain non supportata: ${chainKey}`);
     }
 
     const userPub = user?.is?.pub;
-    if (!userPub) throw new Error('User not authenticated');
+    if (!userPub) throw new Error('Utente non autenticato');
 
     // Salva la nuova chain nel localStorage
     localStorage.setItem(
@@ -89,80 +108,133 @@ export const walletService = {
       })
     );
 
+    // Aggiorna lo stato corrente
     const state = getUserChainState();
-    if (!state) throw new Error('User not authenticated');
-
-    state.currentChain = SUPPORTED_CHAINS[chainKey];
-    state.provider = new ethers.JsonRpcProvider(state.currentChain.rpcUrl);
+    if (!state) throw new Error('Utente non autenticato');
 
     return state.currentChain;
   },
 
-  getCurrentChain: () => {
-    const state = getUserChainState();
-    return state ? state.currentChain : SUPPORTED_CHAINS.OPTIMISM_SEPOLIA;
-  },
-
-  getSupportedChains: () => SUPPORTED_CHAINS,
-
-  /**
-   * Ottiene il wallet dell'utente corrente
-   * @returns {Promise<{address: string, type: string}>}
-   */
-  getCurrentWallet: async () => {
-    console.log('Getting current wallet...');
+  getCurrentWallet: async (userPub) => {
     try {
-      const state = getUserChainState();
-      if (!state) throw new Error('User not authenticated');
-
-      const userPub = user?.is?.pub;
-      if (!userPub) throw new Error('User not authenticated');
-
-      // Usa una chiave specifica per utente per il wallet
-      const walletKey = `gunWallet_${userPub}`;
-
-      if (localStorage.getItem(walletKey)) {
-        const gunWallet = JSON.parse(localStorage.getItem(walletKey));
-        return {
-          address: gunWallet.account.address,
-          privateKey: gunWallet.privateKey,
-          type: 'derived',
-          chain: state.currentChain,
-        };
+      if (!userPub) {
+        throw new Error('userPub è richiesto per getCurrentWallet');
       }
 
-      if (user?.is) {
-        const privateKey = user._.sea.priv;
-        const derivedWallet = await gun.gunToEthAccount(privateKey);
-        // Salva il wallet con la chiave specifica dell'utente
-        localStorage.setItem(walletKey, JSON.stringify(derivedWallet));
+      // Prima controlla nel localStorage
+      const localWallet = localStorage.getItem(`gunWallet_${userPub}`);
+      if (localWallet) {
+        try {
+          const walletData = JSON.parse(localWallet);
+          console.log('Wallet data from localStorage:', walletData);
 
-        return {
-          address: derivedWallet.account.address,
-          type: 'derived',
-          privateKey: derivedWallet.privateKey,
-          chain: state.currentChain,
-        };
+          if (
+            !walletData.internalWalletAddress ||
+            !walletData.internalWalletPk
+          ) {
+            console.log(
+              'Wallet data incompleto nel localStorage, provo su Gun'
+            );
+          } else {
+            return normalizeWalletData(walletData);
+          }
+        } catch (error) {
+          console.error('Error parsing localStorage wallet:', error);
+        }
       }
 
-      throw new Error('Nessun wallet disponibile');
+      // Se non trovato nel localStorage o dati incompleti, cerca nei dati utente
+      const userData = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(userPub)
+          .once((data) => {
+            console.log('User data from Gun:', data);
+            resolve(data);
+          });
+      });
+
+      if (!userData) {
+        throw new Error('Dati utente non trovati');
+      }
+
+      // Recupera le credenziali dal localStorage
+      const storedWallet = localStorage.getItem(`gunWallet_${userPub}`);
+      let credentials;
+      if (storedWallet) {
+        const storedData = JSON.parse(storedWallet);
+        credentials = storedData.credentials;
+      }
+
+      if (!credentials?.password) {
+        throw new Error('Credenziali non trovate');
+      }
+
+      // Verifica che i dati necessari siano presenti
+      if (
+        !userData.pair ||
+        !userData.viewingKeyPair ||
+        !userData.spendingKeyPair
+      ) {
+        console.error('Dati mancanti:', { userData });
+        throw new Error('Dati di cifratura mancanti');
+      }
+
+      // Decifra le coppie di chiavi
+      try {
+        const [decryptedPair, decryptedVPair, decryptedSPair] =
+          await Promise.all([
+            gun.decryptWithPassword(userData.pair, credentials.password),
+            gun.decryptWithPassword(
+              userData.viewingKeyPair,
+              credentials.password
+            ),
+            gun.decryptWithPassword(
+              userData.spendingKeyPair,
+              credentials.password
+            ),
+          ]);
+
+        // Converti la chiave privata nel formato corretto per Ethereum
+        const hexPrivateKey = await gun.convertToEthAddress(
+          decryptedPair.epriv
+        );
+
+        const walletData = {
+          internalWalletAddress: userData.address,
+          internalWalletPk: hexPrivateKey,
+          viewingPublicKey: userData.viewingPublicKey,
+          spendingPublicKey: userData.spendingPublicKey,
+          pair: decryptedPair,
+          vPair: decryptedVPair,
+          sPair: decryptedSPair,
+          credentials,
+        };
+
+        // Salva nel localStorage per accessi futuri
+        localStorage.setItem(
+          `gunWallet_${userPub}`,
+          JSON.stringify(walletData)
+        );
+
+        return normalizeWalletData(walletData);
+      } catch (error) {
+        console.error('Error decrypting keys:', error);
+        throw new Error('Errore nella decifratura delle chiavi');
+      }
     } catch (error) {
       console.error('Error getting current wallet:', error);
       throw error;
     }
   },
 
-  /**
-   * Recupera l'indirizzo del wallet di un utente
-   * @param {string} userPub - Chiave pubblica dell'utente
-   * @returns {Promise<string>} Indirizzo del wallet
-   */
   getUserWalletAddress: async (userPub) => {
     try {
+      // Prima cerca nei dati utente
       const userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('userList')
           .get('users')
           .map()
           .once((data) => {
@@ -179,22 +251,16 @@ export const walletService = {
         return userData.address;
       }
 
+      // Se non trovato, cerca nel profilo
       const userProfile = await gun
-        .user(userPub)
+        .user()
         .get(DAPP_NAME)
-        .get('profile')
-        .then();
-      console.log('Found user profile:', userProfile);
-
-      if (userProfile?.address) {
-        return userProfile.address;
-      }
-
-      const userKeys = await gun.user(userPub).then();
-      if (userKeys?.priv) {
-        const derivedWallet = await gun.gunToEthAccount(userKeys.priv);
-        return derivedWallet.account.address;
-      }
+        .get('profiles')
+        .get(userPub)
+        .once((data) => {
+          console.log('Found user profile:', data);
+          return data.address;
+        });
 
       throw new Error('Indirizzo wallet non trovato per questo utente');
     } catch (error) {
@@ -203,420 +269,317 @@ export const walletService = {
     }
   },
 
-  /**
-   * Invia un tip a un altro utente
-   * @param {string} recipientPub - Chiave pubblica del destinatario
-   * @param {string} amount - Importo in ETH
-   */
   sendTip: async (recipientPub, amount, isStealthMode = false) => {
     try {
-      console.log('Inizializzazione sendTip...');
       console.log(
-        'Parametri:',
-        { recipientPub, amount, isStealthMode }
+        `Sending tip to: ${recipientPub} amount: ${amount} stealth mode: ${isStealthMode}`
       );
+
+      const senderPub = user?.is?.pub;
+      if (!senderPub) {
+        throw new Error('Utente non autenticato');
+      }
+
+      // Ottieni il wallet del mittente
+      const senderWallet = await walletService.getCurrentWallet(senderPub);
+      console.log('Sender wallet:', senderWallet); // Debug
+
+      if (!senderWallet?.hasValidAddress) {
+        throw new Error('Wallet mittente non valido');
+      }
 
       const state = getUserChainState();
-      if (!state) throw new Error('User not authenticated');
-      console.log('Stato chain recuperato:', state.currentChain.name);
+      if (!state) throw new Error('Chain non inizializzata');
 
-      const senderWallet = await walletService.getCurrentWallet();
-      console.log('Wallet mittente recuperato:', { address: senderWallet.address });
-      
-      const signer = new ethers.Wallet(senderWallet.privateKey).connect(
-        state.provider
+      const provider = new ethers.JsonRpcProvider(state.currentChain.rpcUrl);
+      const signer = new ethers.Wallet(senderWallet.internalWalletPk).connect(
+        provider
       );
-      console.log('Signer creato correttamente');
 
-      const recipientAddress = await walletService.getUserWalletAddress(
-        recipientPub
-      );
-      console.log('Indirizzo destinatario recuperato:', recipientAddress);
-
+      let tx;
       if (isStealthMode) {
-        console.log('Inizializzazione modalità stealth...');
-        
-        try {
-          const senderInternalWallet = await gun.gunToEthAccount(user._.sea.priv);
-          console.log('Wallet interno mittente creato');
-          
-          const walletInstance = new ethers.Wallet(
-            senderInternalWallet.internalWalletPk
-          );
-          console.log('Wallet instance creata');
-          
-          const messageToSign = 'Access GunDB with Ethereum';
-          const messageBytes = ethers.toUtf8Bytes(messageToSign);
-          const signature = await walletInstance.signMessage(messageBytes);
-          console.log('Firma creata:', signature);
+        // Recupera i dati del destinatario
+        const recipientData = await gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(recipientPub)
+          .once();
 
-          // Assicuriamoci che l'indirizzo sia in lowercase
-          const normalizedAddress = recipientAddress.toLowerCase();
-          console.log('Indirizzo normalizzato:', normalizedAddress);
+        console.log('Recipient data:', recipientData);
 
-          // Generiamo prima le chiavi stealth
-          const stealthKeyPair = await SEA.pair();
-          console.log('Chiavi stealth generate:', {
-            pub: stealthKeyPair.pub,
-            epub: stealthKeyPair.epub
-          });
-
-          const gunEthData = {
-            profile: {
-              address: normalizedAddress,
-              pub: recipientPub,
-            },
-            publicKeys: {
-              viewingPublicKey: stealthKeyPair.epub,
-              spendingPublicKey: stealthKeyPair.pub,
-            },
-            stealthKeys: {
-              viewingPublicKey: stealthKeyPair.epub,
-              spendingPublicKey: stealthKeyPair.pub,
-              timestamp: Date.now(),
-            },
-          };
-          console.log('Dati Gun-ETH preparati:', gunEthData);
-
-          // Salvataggio dati utente con chiavi stealth
-          console.log('Salvataggio dati utente...');
-          const userData = {
-            address: normalizedAddress,
-            pub: recipientPub,
-            viewingPublicKey: stealthKeyPair.epub,
-            spendingPublicKey: stealthKeyPair.pub,
-            type: 'user',
-            timestamp: Date.now()
-          };
-          
-          await new Promise((resolve, reject) => {
-            gun
-              .get('gun-eth')
-              .get('users')
-              .get(normalizedAddress)
-              .put(userData, ack => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              });
-          });
-          
-          // Salvataggio chiavi stealth
-          console.log('Salvataggio chiavi stealth...');
-          const stealthData = {
-            address: normalizedAddress,
-            viewingPublicKey: stealthKeyPair.epub,
-            spendingPublicKey: stealthKeyPair.pub,
-            type: 'stealth',
-            timestamp: Date.now()
-          };
-          
-          await new Promise((resolve, reject) => {
-            gun
-              .get('gun-eth')
-              .get('stealth-keys')
-              .get(normalizedAddress)
-              .put(stealthData, ack => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              });
-          });
-
-          // Breve pausa per permettere la sincronizzazione
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          // Verifichiamo che le chiavi siano state salvate
-          const savedKeys = await new Promise((resolve) => {
-            gun
-              .get('gun-eth')
-              .get('stealth-keys')
-              .get(normalizedAddress)
-              .once((data) => {
-                console.log('Chiavi stealth salvate verificate:', data);
-                resolve(data);
-              });
-            setTimeout(() => resolve(null), 3000);
-          });
-
-          if (!savedKeys) {
-            throw new Error('Verifica del salvataggio chiavi stealth fallita');
-          }
-
-          console.log('Generazione indirizzo stealth...');
-          const stealthInfo = await gun.generateStealthAddress(
-            normalizedAddress,
-            signature
-          );
-
-          if (!stealthInfo || !stealthInfo.stealthAddress) {
-            throw new Error('Generazione indirizzo stealth fallita');
-          }
-
-          console.log('Info stealth generate:', stealthInfo);
-
-          // Verifica e normalizza l'indirizzo stealth
-          let stealthAddress;
-          try {
-            // Verifica se l'indirizzo è in formato checksum
-            stealthAddress = ethers.getAddress(stealthInfo.stealthAddress);
-          } catch (error) {
-            console.error('Errore nella normalizzazione indirizzo stealth:', error);
-            
-            // Prova a derivare l'indirizzo stealth manualmente
-            try {
-              const stealthBytes = ethers.concat([
-                ethers.toUtf8Bytes(stealthInfo.viewingPublicKey),
-                ethers.toUtf8Bytes(stealthInfo.ephemeralPublicKey || normalizedAddress)
-              ]);
-              
-              const hashedAddress = ethers.keccak256(stealthBytes);
-              stealthAddress = ethers.getAddress(hashedAddress.slice(0, 42));
-              
-              console.log('Indirizzo stealth derivato manualmente:', stealthAddress);
-            } catch (derivationError) {
-              console.error('Errore nella derivazione manuale:', derivationError);
-              throw new Error('Impossibile generare un indirizzo stealth valido');
-            }
-          }
-
-          if (!stealthAddress || !ethers.isAddress(stealthAddress)) {
-            throw new Error('Indirizzo stealth non valido dopo la normalizzazione');
-          }
-
-          console.log('Annuncio pagamento stealth...');
-          await gun.announceStealthPayment(
-            stealthAddress,
-            senderInternalWallet.publicKeys.viewingPublicKey,
-            stealthInfo.spendingPublicKey,
-            signature
-          );
-
-          // Verifica che l'annuncio sia stato salvato
-          console.log('Verifica salvataggio annuncio...');
-          const savedAnnouncement = await new Promise((resolve) => {
-            gun
-              .get("gun-eth")
-              .get("stealth-payments")
-              .get(stealthAddress)
-              .once((data) => {
-                console.log('Annuncio salvato:', data);
-                resolve(data);
-              });
-            setTimeout(() => resolve(null), 3000);
-          });
-
-          if (!savedAnnouncement) {
-            console.warn('Annuncio non trovato dopo il salvataggio');
-          }
-
-          console.log('Invio transazione stealth...');
-          const tx = await signer.sendTransaction({
-            to: stealthAddress,
-            value: ethers.parseEther(amount),
-            chainId: state.currentChain.chainId,
-          });
-
-          console.log('Transazione inviata, in attesa di conferma...');
-          await tx.wait();
-          console.log('Transazione confermata');
-
-          // Salvataggio transazione
-          console.log('Salvataggio dati transazione...');
-          const tipNode = gun.get(DAPP_NAME).get('tips');
-          await new Promise((resolve, reject) => {
-            tipNode.set({
-              from: user.is.pub,
-              to: recipientPub,
-              amount: ethers.formatEther(tx.value),
-              txHash: tx.hash,
-              timestamp: Date.now(),
-              network: state.currentChain.name,
-              isStealthPayment: true,
-              stealthAddress: stealthInfo.stealthAddress,
-              ephemeralPublicKey: stealthInfo.ephemeralPublicKey,
-              viewingPublicKey: stealthInfo.viewingPublicKey,
-              spendingPublicKey: stealthInfo.spendingPublicKey,
-            }, ack => {
-              if(ack.err) reject(new Error(ack.err));
-              else resolve();
-            });
-          });
-
-          return tx;
-        } catch (error) {
-          console.error('Errore in modalità stealth:', error);
-          console.error('Stack trace:', error.stack);
-          throw error;
+        if (
+          !recipientData?.viewingPublicKey ||
+          !recipientData?.spendingPublicKey
+        ) {
+          throw new Error('Chiavi pubbliche del destinatario non trovate');
         }
-      } else {
-        const tx = await signer.sendTransaction({
-          to: recipientAddress,
-          value: ethers.parseEther(amount),
+
+        // Usa s_Pair invece di sPair
+        const gunWallet = localStorage.getItem(`gunWallet_${senderPub}`);
+        const gunWalletData = JSON.parse(gunWallet);
+        const s_Pair = gunWalletData.s_Pair;
+        if (!s_Pair) {
+          console.error('Wallet data:', senderWallet); // Debug
+          throw new Error('Spending key pair (s_Pair) non trovata nel wallet');
+        }
+
+        console.log('Using spending key pair:', s_Pair);
+
+        // Genera l'indirizzo stealth usando la nuova implementazione
+        const { 
+          stealthAddress, 
+          senderEphemeralPublicKey, 
+          sharedSecret 
+        } = await gun.generateStealthAddress(
+          recipientData.viewingPublicKey,
+          recipientData.spendingPublicKey
+        );
+
+        console.log('Generated stealth data:', {
+          stealthAddress,
+          senderEphemeralPublicKey,
+          sharedSecret: '***hidden***'
+        });
+
+        // Invia la transazione all'indirizzo stealth
+        tx = await signer.sendTransaction({
+          to: stealthAddress,
+          value: ethers.parseEther(amount.toString()),
           chainId: state.currentChain.chainId,
         });
 
         await tx.wait();
 
-        // Salvataggio transazione standard
-        const tipNode = gun.get(DAPP_NAME).get('tips');
-        await new Promise((resolve, reject) => {
-          tipNode.set({
-            from: user.is.pub,
-            to: recipientPub,
-            amount: ethers.formatEther(tx.value),
-            txHash: tx.hash,
-            timestamp: Date.now(),
-            network: state.currentChain.name,
-          }, ack => {
-            if(ack.err) reject(new Error(ack.err));
-            else resolve();
-          });
-        });
+        // Crea l'annuncio stealth completo usando i nomi dei campi corretti
+        const fullAnnouncement = {
+          stealthAddress,
+          senderEphemeralKey: senderEphemeralPublicKey, // Nota: questo è il nome del campo atteso
+          receiverViewingKey: recipientData.viewingPublicKey,
+          receiverSpendingKey: recipientData.spendingPublicKey,
+          sharedSecret,
+          from: senderPub,
+          to: recipientPub,
+          amount: amount,
+          txHash: tx.hash,
+          timestamp: Date.now(),
+          network: state.currentChain.name,
+          isStealthPayment: true
+        };
+
+        console.log('Saving stealth announcement:', fullAnnouncement);
+
+        // Salva l'annuncio sia nel percorso del mittente che in quello generale
+        const announcementId = `stealth_${tx.hash}_${Date.now()}`;
+        
+        // 1. Salva nel percorso generale degli annunci
+        await gun
+          .get(DAPP_NAME)
+          .get('stealth-announcements')
+          .get(announcementId)
+          .put(fullAnnouncement);
+
+        // 2. Salva anche nel percorso del destinatario per un accesso più rapido
+        await gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(recipientPub)
+          .get('stealth-received')
+          .get(announcementId)
+          .put(fullAnnouncement);
 
         return tx;
       }
+
+      // ... resto del codice per pagamenti standard ...
     } catch (error) {
       console.error('Error sending tip:', error);
       throw error;
     }
   },
 
-  /**
-   * Recupera i pagamenti stealth ricevuti
-   * @returns {Promise<Array>} Lista dei pagamenti stealth
-   */
   retrieveStealthPayments: async () => {
     try {
+      const userPub = user?.is?.pub;
+      if (!userPub) throw new Error('Utente non autenticato');
+
+      // Ottieni il wallet corrente
+      const currentWallet = await walletService.getCurrentWallet(userPub);
+      if (!currentWallet) throw new Error('Wallet non trovato');
+
       const state = getUserChainState();
-      if (!state) throw new Error('User not authenticated');
+      if (!state) throw new Error('Chain non inizializzata');
 
-      const currentWallet = await walletService.getCurrentWallet();
-
-      let gunWallet = localStorage.getItem(`gunWallet_${user.is.pub}`);
-      if (!gunWallet) {
-        const privateKey = user._.sea.priv;
-        gunWallet = await gun.gunToEthAccount(privateKey);
-        localStorage.setItem(
-          `gunWallet_${user.is.pub}`,
-          JSON.stringify(gunWallet)
-        );
-      }
-
-      const signature = await gun.createSignature('Access GunDB with Ethereum');
-
-      const announcements = await gun.getStealthPayments(signature, {
-        source: 'onChain',
-      });
+      // Crea il signer con la chiave privata corretta
+      const signer = new ethers.Wallet(currentWallet.internalWalletPk).connect(
+        state.provider
+      );
 
       const recoveredPayments = [];
 
+      // Recupera gli annunci da Gun
+      const announcements = await new Promise((resolve) => {
+        const results = [];
+        gun
+          .get(DAPP_NAME)
+          .get('stealth-announcements')
+          .map()
+          .once((announcement) => {
+            if (announcement && announcement.to === userPub) {
+              results.push(announcement);
+            }
+          });
+
+        // Aspetta un po' per raccogliere i risultati
+        setTimeout(() => resolve(results), 1000);
+      });
+
+      if (!announcements.length) return recoveredPayments;
+
       for (const announcement of announcements) {
         try {
-          const recoveredWallet = await gun.recoverStealthFunds(
-            announcement.stealthAddress,
-            announcement.senderPublicKey,
-            signature,
-            announcement.spendingPublicKey
-          );
-
+          // Verifica il saldo dell'indirizzo stealth
           const balance = await state.provider.getBalance(
             announcement.stealthAddress
           );
 
           if (balance > 0) {
-            recoveredPayments.push({
-              stealthAddress: announcement.stealthAddress,
-              recoveredAddress: recoveredWallet.address,
-              balance: formatEther(balance),
+            // Crea la transazione per recuperare i fondi
+            const tx = {
+              from: announcement.stealthAddress,
+              to: currentWallet.internalWalletAddress,
+              value: balance,
+              stealthData: {
+                viewingKeyPair: currentWallet.vPair,
+                spendingKeyPair: currentWallet.sPair,
+                senderPublicKey: announcement.senderPublicKey,
+              },
+              originalTx: announcement.txHash,
               timestamp: announcement.timestamp,
-              wallet: recoveredWallet,
+              network: announcement.network,
+            };
+
+            recoveredPayments.push({
+              ...tx,
+              balance: ethers.formatEther(balance),
               chain: state.currentChain,
             });
           }
         } catch (error) {
-          console.log(
-            `Announcement not intended for current user: ${announcement.stealthAddress}`
-          );
+          console.error(`Errore nel recupero del pagamento stealth:`, error);
         }
       }
 
       return recoveredPayments;
     } catch (error) {
-      console.error('Error retrieving stealth payments:', error);
+      console.error('Errore nel recupero dei pagamenti stealth:', error);
       throw error;
     }
   },
 
-  /**
-   * Invia una transazione a un indirizzo specifico
-   * @param {string} toAddress - Indirizzo ETH del destinatario
-   * @param {string} amount - Importo in ETH
-   */
-  sendTransaction: async (toAddress, amount) => {
+  // Aggiungi questa nuova funzione per riscattare effettivamente il pagamento
+  claimStealthPayment: async (recoveredPayment) => {
+    try {
+      const userPub = user?.is?.pub;
+      if (!userPub) throw new Error('Utente non autenticato');
+
+      const currentWallet = await walletService.getCurrentWallet(userPub);
+      const state = getUserChainState();
+
+      const signer = new ethers.Wallet(currentWallet.internalWalletPk).connect(
+        state.provider
+      );
+
+      // Calcola la chiave privata stealth usando le chiavi del destinatario e del mittente
+      const stealthPrivateKey = await gun.deriveStealthPrivateKey(
+        recoveredPayment.stealthData.viewingKeyPair,
+        recoveredPayment.stealthData.spendingKeyPair,
+        recoveredPayment.stealthData.senderPublicKey
+      );
+
+      // Crea un wallet con la chiave privata stealth
+      const stealthWallet = new ethers.Wallet(stealthPrivateKey).connect(
+        state.provider
+      );
+
+      // Calcola il gas necessario
+      const gasPrice = await state.provider.getFeeData();
+      const gasLimit = 21000; // transfer base cost
+      const gasCost = gasPrice.gasPrice * BigInt(gasLimit);
+
+      // Sottrai il costo del gas dal valore da trasferire
+      const valueToSend = recoveredPayment.value - gasCost;
+
+      // Invia la transazione
+      const tx = await stealthWallet.sendTransaction({
+        to: currentWallet.internalWalletAddress,
+        value: valueToSend,
+        gasLimit: gasLimit,
+        gasPrice: gasPrice.gasPrice,
+        chainId: state.currentChain.chainId,
+      });
+
+      await tx.wait();
+
+      // Rimuovi l'annuncio da Gun dopo il claim
+      gun
+        .get(DAPP_NAME)
+        .get('stealth-announcements')
+        .get(recoveredPayment.originalTx)
+        .put(null);
+
+      return tx;
+    } catch (error) {
+      console.error('Errore nel riscatto del pagamento stealth:', error);
+      throw error;
+    }
+  },
+
+  getCurrentChain: () => {
+    const state = getUserChainState();
+    return state ? state.currentChain : SUPPORTED_CHAINS.OPTIMISM_SEPOLIA;
+  },
+
+  getSupportedChains: () => SUPPORTED_CHAINS,
+
+  clearWallet: () => {
+    const userPub = user?.is?.pub;
+    if (userPub) {
+      localStorage.removeItem(`gunWallet_${userPub}`);
+      localStorage.removeItem(`chainState_${userPub}`);
+    }
+  },
+
+  sendTransaction: async (to, amount) => {
     try {
       const state = getUserChainState();
       if (!state) throw new Error('User not authenticated');
 
+      // Get sender's wallet
       const senderWallet = await walletService.getCurrentWallet();
-      console.log('Sender wallet:', senderWallet);
+      const signer = new ethers.Wallet(senderWallet.privateKey).connect(
+        state.provider
+      );
 
-      let signer;
-
-      if (senderWallet.type === 'metamask') {
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [
-              { chainId: `0x${state.currentChain.chainId.toString(16)}` },
-            ],
-          });
-        } catch (switchError) {
-          if (switchError.code === 4902) {
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [
-                {
-                  chainId: `0x${state.currentChain.chainId.toString(16)}`,
-                  chainName: state.currentChain.name,
-                  nativeCurrency: state.currentChain.nativeCurrency,
-                  rpcUrls: [state.currentChain.rpcUrl],
-                  blockExplorerUrls: [state.currentChain.blockExplorer],
-                },
-              ],
-            });
-          } else {
-            throw switchError;
-          }
-        }
-
-        const metamaskProvider = new ethers.JsonRpcProvider(window.ethereum);
-        signer = await metamaskProvider.getSigner();
-      } else {
-        signer = new ethers.Wallet(senderWallet.privateKey).connect(
-          state.provider
-        );
-      }
-
+      // Send transaction
       const tx = await signer.sendTransaction({
-        to: toAddress,
+        to: to,
         value: ethers.parseEther(amount),
         chainId: state.currentChain.chainId,
       });
 
-      console.log('Transaction sent:', tx);
-
       await tx.wait();
 
-      await gun
+      // Save transaction record
+      gun
         .get(DAPP_NAME)
         .get('transactions')
         .set({
           from: user.is.pub,
-          to: toAddress,
+          to: to,
           amount: ethers.formatEther(tx.value),
           txHash: tx.hash,
           timestamp: Date.now(),
           network: state.currentChain.name,
-          type: 'custom',
         });
 
       return tx;
@@ -626,49 +589,41 @@ export const walletService = {
     }
   },
 
-  // Aggiungi questa nuova funzione per pulire il wallet quando l'utente si disconnette
-  clearWallet: () => {
-    const userPub = user?.is?.pub;
-    if (userPub) {
-      localStorage.removeItem(`gunWallet_${userPub}`);
-      localStorage.removeItem(`chainState_${userPub}`);
+  // Modifica la funzione che salva gli annunci stealth
+  saveStealthAnnouncement: async (announcement, userPub) => {
+    try {
+      // Aggiungi un ID univoco all'annuncio
+      const announcementId = announcement.txHash;
+      
+      // Salva nel percorso generale usando l'ID come chiave
+      await new Promise((resolve) => {
+        gun.get(DAPP_NAME)
+           .get("stealth-announcements")
+           .get(announcementId)
+           .put(announcement, (ack) => {
+             if (ack.err) {
+               console.error("Errore nel salvare l'annuncio stealth:", ack.err);
+             }
+             resolve();
+           });
+      });
+
+      // Salva nel percorso dell'utente usando lo stesso ID
+      await new Promise((resolve) => {
+        gun.get(DAPP_NAME)
+           .get("users")
+           .get(userPub)
+           .get("stealth-received")
+           .get(announcementId)
+           .put(announcement, (ack) => {
+             if (ack.err) {
+               console.error("Errore nel salvare l'annuncio stealth per l'utente:", ack.err);
+             }
+             resolve();
+           });
+      });
+    } catch (error) {
+      console.error("Errore nel salvare l'annuncio stealth:", error);
     }
   },
 };
-
-// Utility function for switching to Optimism Sepolia
-export async function switchToOptimismSepolia() {
-  try {
-    await window.ethereum.request({
-      method: 'wallet_switchEthereumChain',
-      params: [
-        {
-          chainId: `0x${SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.chainId.toString(
-            16
-          )}`,
-        },
-      ],
-    });
-  } catch (switchError) {
-    if (switchError.code === 4902) {
-      await window.ethereum.request({
-        method: 'wallet_addEthereumChain',
-        params: [
-          {
-            chainId: `0x${SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.chainId.toString(
-              16
-            )}`,
-            chainName: SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.name,
-            nativeCurrency: SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.nativeCurrency,
-            rpcUrls: [SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.rpcUrl],
-            blockExplorerUrls: [
-              SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.blockExplorer,
-            ],
-          },
-        ],
-      });
-    } else {
-      throw switchError;
-    }
-  }
-}

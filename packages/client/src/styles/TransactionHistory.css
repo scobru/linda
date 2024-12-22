@@ -1,0 +1,97 @@
+.transaction-history {
+  padding: 0;
+  background: transparent;
+}
+
+.transaction-item, .stealth-payment-item {
+  background: white;
+  padding: 15px;
+  margin: 10px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  transition: all 0.3s ease;
+}
+
+.transaction-item:hover, .stealth-payment-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.claim-button {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 10px 0;
+  width: 100%;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.claim-button:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+.claim-button:disabled {
+  background: #e5e7eb;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.transaction-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.transaction-amount {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1f2937;
+  word-break: break-all;
+}
+
+.transaction-network {
+  font-size: 0.9rem;
+  color: #6b7280;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.transaction-date {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.transaction-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #3b82f6;
+  font-size: 0.9rem;
+  text-decoration: none;
+  margin-top: 8px;
+}
+
+.transaction-link:hover {
+  text-decoration: underline;
+}
+
+h3 {
+  color: #1f2937;
+  font-size: 1.2rem;
+  font-weight: 600;
+  padding: 15px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+h4 {
+  color: #4b5563;
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 10px 15px;
+} 

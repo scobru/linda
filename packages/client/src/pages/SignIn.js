@@ -1,100 +1,104 @@
-import React, { useEffect } from 'react';
-import { authentication } from 'linda-protocol';
-import toast, { Toaster } from 'react-hot-toast';
-import { Link, useNavigate } from 'react-router-dom';
-import { gun, user, DAPP_NAME } from 'linda-protocol';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount } from '../config/wagmi';
+import React, { useEffect } from "react";
+import { authentication } from "linda-protocol";
+import toast, { Toaster } from "react-hot-toast";
+import { Link, useNavigate } from "react-router-dom";
+import { gun, user, DAPP_NAME } from "linda-protocol";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useAccount } from "../config/wagmi";
 
 export default function SignIn() {
-  const [username, setUsername] = React.useState('');
-  const [password, setPassword] = React.useState('');
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(false);
   const [isRedirecting, setIsRedirecting] = React.useState(false);
   const navigate = useNavigate();
   const maxRetries = 3;
   const retryDelay = 1000; // 1 secondo tra i tentativi
   const { address, isConnected } = useAccount();
-  const [loginMethod, setLoginMethod] = React.useState('traditional'); // 'traditional' o 'metamask'
+  const [loginMethod, setLoginMethod] = React.useState("traditional"); // 'traditional' o 'metamask'
 
   const handleLogin = async () => {
     if (isLoading || isRedirecting) return;
     if (!username.trim() || !password.trim()) {
-      toast.error('Inserisci username e password');
+      toast.error("Inserisci username e password");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading('Accesso in corso...');
+    const toastId = toast.loading("Accesso in corso...");
 
     let retryCount = 0;
     const tryLogin = async () => {
       try {
-       
         const result = await new Promise((resolve, reject) => {
           authentication.loginUser({ username, password }, (response) => {
-            console.log('Login response:', response);
-            if (response.success || response.errMessage === 'User is already being created or authenticated!') resolve(response);
-            else reject(new Error(response.errMessage));
+            console.log("Login response:", response);
+            if (response.success) {
+              resolve(response);
+            } else if (
+              response.errMessage ===
+              "User is already being created or authenticated!"
+            ) {
+              // Se l'utente è già in fase di autenticazione, aspetta un po' e riprova
+              setTimeout(() => resolve(response), 1000);
+            } else {
+              reject(new Error(response.errMessage));
+            }
           });
         });
 
-        console.log('result', result, user);
-
-        if (result.success || result.errMessage === 'User is already being created or authenticated!') {
+        if (result.success) {
           // Attendi che l'utente sia completamente autenticato
           await new Promise((resolve) => {
             const checkAuth = () => {
-              if (user?.is && user?.is?.pub === result?.pub) {
+              if (user?.is && user?.is?.pub) {
                 resolve();
               } else {
-                if (retryCount < maxRetries) {
-                  retryCount++;
-                  setTimeout(checkAuth, retryDelay);
-                } else {
-                  throw new Error('Errore di autenticazione: utente non inizializzato');
-                }
+                setTimeout(checkAuth, 100);
               }
             };
             checkAuth();
           });
 
-          toast.success('Accesso effettuato', { id: toastId });
-          
+          toast.success("Accesso effettuato", { id: toastId });
+
           // Ottieni lo username originale dall'alias
-          const originalUsername = username || user.is.alias?.split('.')[0];
-          
+          const originalUsername = username || user.is.alias?.split(".")[0];
+
           // Salva nei localStorage
-          localStorage.setItem('userPub', user.is.pub);
-          localStorage.setItem('username', originalUsername);
-          localStorage.setItem('userAlias', originalUsername);
-          
+          localStorage.setItem("userPub", user.is.pub);
+          localStorage.setItem("username", originalUsername);
+          localStorage.setItem("userAlias", originalUsername);
+
           // Salva nel nodo Gun con tutti i campi necessari
-          await gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
+          await gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
             .get(user.is.pub)
             .put({
               pub: user.is.pub,
-              username: originalUsername,  // Salva esplicitamente lo username
-              nickname: '',  // Nickname inizialmente vuoto
+              username: originalUsername, // Salva esplicitamente lo username
+              nickname: "", // Nickname inizialmente vuoto
               timestamp: Date.now(),
               lastSeen: Date.now(),
-              authType: 'gun'
+              authType: "gun",
             });
 
           setIsRedirecting(true);
-          window.location.href = '/homepage';
+          window.location.href = "/homepage";
         }
       } catch (error) {
-        console.error('Login error:', error);
+        console.error("Login error:", error);
         if (retryCount < maxRetries) {
           retryCount++;
           console.log(`Tentativo ${retryCount} di ${maxRetries}...`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
           return tryLogin();
         }
-        toast.error(error.message || "Errore durante l'accesso", { id: toastId });
+        toast.error(error.message || "Errore durante l'accesso", {
+          id: toastId,
+        });
         setIsLoading(false);
         setIsRedirecting(false);
       }
@@ -104,7 +108,7 @@ export default function SignIn() {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !isLoading && !isRedirecting) {
+    if (e.key === "Enter" && !isLoading && !isRedirecting) {
       handleLogin();
     }
   };
@@ -118,52 +122,51 @@ export default function SignIn() {
 
   const handleMetaMaskLogin = async () => {
     if (!address) {
-      toast.error('Connetti prima il tuo wallet MetaMask');
+      toast.error("Connetti prima il tuo wallet MetaMask");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading('Accesso con MetaMask in corso...');
+    const toastId = toast.loading("Accesso con MetaMask in corso...");
 
     try {
       const result = await authentication.loginWithMetaMask(address);
-      
+
       if (result.success) {
-        toast.success('Accesso effettuato con successo', { id: toastId });
-        
+        toast.success("Accesso effettuato con successo", { id: toastId });
+
         // Modifica qui: usa un formato più user-friendly per gli utenti MetaMask
         const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
-        
-        localStorage.setItem('userPub', result.pub);
-        localStorage.setItem('username', displayName);
-        localStorage.setItem('userAlias', displayName);
-        localStorage.setItem('walletAddress', address);
+
+        localStorage.setItem("userPub", result.pub);
+        localStorage.setItem("username", displayName);
+        localStorage.setItem("userAlias", displayName);
+        localStorage.setItem("walletAddress", address);
 
         // Salva nel nodo Gun
-        gun.get(DAPP_NAME)
-          .get('userList')
-          .get('users')
-          .set({
-            pub: result.pub,
-            username: displayName,
-            nickname: displayName,
-            address: address,
-            timestamp: Date.now(),
-            lastSeen: Date.now(),
-            authType: 'wallet'
-          });
-        
+        gun.get(DAPP_NAME).get("userList").get("users").set({
+          pub: result.pub,
+          username: displayName,
+          nickname: displayName,
+          address: address,
+          timestamp: Date.now(),
+          lastSeen: Date.now(),
+          authType: "wallet",
+        });
+
         setIsRedirecting(true);
-        navigate('/homepage', { replace: true });
+        navigate("/homepage", { replace: true });
       }
     } catch (error) {
-      console.error('Errore login MetaMask:', error);
-      if (error.message.includes('non registrato')) {
-        navigate('/register', { 
-          state: { isMetaMask: true, address } 
+      console.error("Errore login MetaMask:", error);
+      if (error.message.includes("non registrato")) {
+        navigate("/register", {
+          state: { isMetaMask: true, address },
         });
       } else {
-        toast.error(error.message || "Errore durante l'accesso con MetaMask", { id: toastId });
+        toast.error(error.message || "Errore durante l'accesso con MetaMask", {
+          id: toastId,
+        });
       }
     } finally {
       setIsLoading(false);
@@ -185,32 +188,32 @@ export default function SignIn() {
       <div className="w-screen h-screen flex flex-col justify-center items-center bg-gray-50">
         <div className="text-center -mt-24">
           <p className="text-4xl mb-8">Accedi</p>
-          
+
           {/* Bottoni per scegliere il metodo di login */}
           <div className="flex justify-center gap-2 mb-6">
             <button
-              onClick={() => setLoginMethod('traditional')}
+              onClick={() => setLoginMethod("traditional")}
               className={`w-40 py-2 rounded-full transition-colors ${
-                loginMethod === 'traditional'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                loginMethod === "traditional"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
               }`}
             >
               Username
             </button>
             <button
-              onClick={() => setLoginMethod('metamask')}
+              onClick={() => setLoginMethod("metamask")}
               className={`w-40 py-2 rounded-full transition-colors ${
-                loginMethod === 'metamask'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                loginMethod === "metamask"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
               }`}
             >
               MetaMask
             </button>
           </div>
 
-          {loginMethod === 'traditional' ? (
+          {loginMethod === "traditional" ? (
             // Form tradizionale
             <div className="flex flex-col place-items-center">
               <input
@@ -242,7 +245,7 @@ export default function SignIn() {
                     Accesso in corso...
                   </div>
                 ) : (
-                  'Login'
+                  "Login"
                 )}
               </button>
             </div>
@@ -262,11 +265,11 @@ export default function SignIn() {
                     return (
                       <div
                         {...(!mounted && {
-                          'aria-hidden': true,
-                          'style': {
+                          "aria-hidden": true,
+                          style: {
                             opacity: 0,
-                            pointerEvents: 'none',
-                            userSelect: 'none',
+                            pointerEvents: "none",
+                            userSelect: "none",
                           },
                         })}
                         className="w-full"
@@ -274,7 +277,7 @@ export default function SignIn() {
                         {(() => {
                           if (!mounted || !account || !chain) {
                             return (
-                              <button 
+                              <button
                                 onClick={openConnectModal}
                                 type="button"
                                 className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
@@ -299,13 +302,13 @@ export default function SignIn() {
                     );
                   }}
                 </ConnectButton.Custom>
-              <button
-                onClick={handleMetaMaskLogin}
-                type="button" 
-                className="w-full h-14 mt-2 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
-              >
-                Accedi con MetaMask
-              </button>
+                <button
+                  onClick={handleMetaMaskLogin}
+                  type="button"
+                  className="w-full h-14 mt-2 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
+                >
+                  Accedi con MetaMask
+                </button>
               </div>
             </div>
           )}
@@ -316,7 +319,7 @@ export default function SignIn() {
                 Torna indietro
               </button>
             </Link>
-            
+
             <Link to="/register">
               <button className="w-80 h-14 bg-white hover:bg-gray-100 text-blue-500 font-bold rounded-full border-2 border-blue-500">
                 Crea account

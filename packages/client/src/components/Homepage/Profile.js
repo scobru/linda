@@ -4,9 +4,13 @@ import { useNavigate } from "react-router-dom";
 import { authentication } from "linda-protocol";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
-import { subscribeToUserUpdates , updateUserProfile, getUserInfo } from "linda-protocol";
+import {
+  subscribeToUserUpdates,
+  updateUserProfile,
+  getUserInfo,
+} from "linda-protocol";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { walletService } from 'linda-protocol';
+import { walletService } from "linda-protocol";
 
 export function Header() {
   return (
@@ -25,11 +29,8 @@ export function Header() {
         zIndex: 1000,
       }}
     >
-     
-       
-        <h1 className="text-xl font-bold text-black">linda</h1>
-        <ConnectButton />
-
+      <h1 className="text-xl font-bold text-black">linda</h1>
+      <ConnectButton />
     </header>
   );
 }
@@ -41,14 +42,14 @@ export default function Profile() {
     username: "",
     nickname: "",
     pub: "",
-    authType: ""
+    authType: "",
   });
   const [address, setAddress] = React.useState("");
   const [isEditingProfile, setIsEditingProfile] = React.useState(false);
   const [newNickname, setNewNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
-  const [walletAddress, setWalletAddress] = useState('');
-  const [internalAddress, setInternalAddress] = useState('');
+  const [walletAddress, setWalletAddress] = useState("");
+  const [internalAddress, setInternalAddress] = useState("");
 
   React.useEffect(() => {
     const loadUserData = async () => {
@@ -56,47 +57,91 @@ export default function Profile() {
         const currentPub = user.is?.pub;
         if (!currentPub) return;
 
+        // Log per debug
+        console.log("Current user pub:", currentPub);
+
+        // Log dei dati dalla userList
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(currentPub)
+            .once((data) => {
+              console.log("UserList data:", {
+                raw: data,
+                hasViewingKey: !!data?.viewingPublicKey,
+                hasSpendingKey: !!data?.spendingPublicKey,
+                hasEncryptedPairs: !!(
+                  data?.viewingKeyPair && data?.spendingKeyPair
+                ),
+              });
+              resolve();
+            });
+        });
+
+        // Log dei dati dal profilo
+        await new Promise((resolve) => {
+          gun
+            .user(currentPub)
+            .get(DAPP_NAME)
+            .get("profiles")
+            .get(currentPub)
+            .once((data) => {
+              console.log("Profile data:", {
+                raw: data,
+                hasViewingKey: !!data?.viewingPublicKey,
+                hasSpendingKey: !!data?.spendingPublicKey,
+                hasEncryptedPairs: !!(
+                  data?.env_pair &&
+                  data?.env_v_pair &&
+                  data?.env_s_pair
+                ),
+              });
+              resolve();
+            });
+        });
+
         // Prima ottieni l'alias originale dall'utente Gun
-        const originalUsername = user.is.alias?.split('.')[0] || '';
+        const originalUsername = user.is.alias?.split(".")[0] || "";
 
         // Poi carica le informazioni complete dell'utente
         const info = await getUserInfo(currentPub);
-        
+
         // Combina le informazioni dando priorità allo username originale
         setUserInfo({
           ...info,
           username: originalUsername || info.username, // Usa prima l'username originale
-          pub: currentPub
+          pub: currentPub,
         });
         setNewNickname(info.nickname || "");
 
         // Aggiorna anche il nodo Gun con lo username se non esiste
         if (!info.username && originalUsername) {
-          gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
+          gun
+            .get(DAPP_NAME)
+            .get("users")
             .get(currentPub)
-            .get('username')
+            .get("username")
             .put(originalUsername);
         }
 
         // Sottoscrizione ai cambiamenti
         const unsub = subscribeToUserUpdates(currentPub, (updatedInfo) => {
-          setUserInfo(prev => ({
+          setUserInfo((prev) => ({
             ...prev,
-            ...updatedInfo
+            ...updatedInfo,
           }));
         });
 
         // Carica l'indirizzo wallet se presente
-        const walletAuth = localStorage.getItem('walletAuth');
+        const walletAuth = localStorage.getItem("walletAuth");
         if (walletAuth) {
           const { address } = JSON.parse(walletAuth);
           setAddress(address);
         }
 
         return () => {
-          if (typeof unsub === 'function') unsub();
+          if (typeof unsub === "function") unsub();
         };
       } catch (error) {
         console.error("Errore nel caricamento dei dati utente:", error);
@@ -107,26 +152,42 @@ export default function Profile() {
   }, []);
 
   useEffect(() => {
+    console.log("loadWalletInfo");
     const loadWalletInfo = async () => {
       try {
-        // Carica il wallet interno (quello usato per i tip)
-        const internalWallet = await walletService.getCurrentWallet();
-        setInternalAddress(internalWallet.address);
+        console.log("Iniziando loadWalletInfo...");
+        const internalWallet = await walletService.getCurrentWallet(user.is.pub);
+        console.log("Wallet interno recuperato:", internalWallet);
+
+        // Verifica che il wallet abbia l'indirizzo o internalWalletAddress
+        if (!internalWallet?.internalWalletAddress && !internalWallet?.address) {
+          console.error("Wallet interno non valido:", internalWallet);
+          return;
+        }
+
+        // Usa internalWalletAddress se disponibile, altrimenti usa address
+        setInternalAddress(internalWallet.internalWalletAddress || internalWallet.address);
 
         // Carica l'indirizzo MetaMask se presente
-        const walletAuth = localStorage.getItem('walletAuth');
+        const walletAuth = localStorage.getItem("walletAuth");
         if (walletAuth) {
-          const { address } = JSON.parse(walletAuth);
-          // Usa l'indirizzo MetaMask originale
-          setWalletAddress(address);
+          try {
+            const { address } = JSON.parse(walletAuth);
+            setWalletAddress(address);
+          } catch (error) {
+            console.error("Errore parsing walletAuth:", error);
+          }
         }
       } catch (error) {
-        console.error('Error loading wallet info:', error);
+        console.error("Error loading wallet info:", error);
+        toast.error("Errore nel caricamento delle informazioni del wallet");
       }
     };
 
-    loadWalletInfo();
-  }, []);
+    if (user.is?.pub) {
+      loadWalletInfo();
+    }
+  }, [user.is?.pub]);
 
   const handleSaveProfile = async () => {
     try {
@@ -136,23 +197,24 @@ export default function Profile() {
       }
 
       const success = await updateUserProfile(user.is.pub, {
-        nickname: newNickname.trim()
+        nickname: newNickname.trim(),
       });
 
       if (success) {
         // Aggiorna lo stato locale
-        setUserInfo(prev => ({
+        setUserInfo((prev) => ({
           ...prev,
           nickname: newNickname.trim(),
-          displayName: newNickname.trim()
+          displayName: newNickname.trim(),
         }));
 
         // Forza l'aggiornamento del nodo Gun
-        gun.get(DAPP_NAME)
-          .get('userList')
-          .get('users')
+        gun
+          .get(DAPP_NAME)
+          .get("userList")
+          .get("users")
           .get(user.is.pub)
-          .get('nickname')
+          .get("nickname")
           .put(newNickname.trim());
 
         setIsEditingProfile(false);
@@ -207,7 +269,7 @@ export default function Profile() {
   };
 
   const truncateAddress = (addr) => {
-    if (!addr) return '';
+    if (!addr) return "";
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
@@ -228,7 +290,7 @@ export default function Profile() {
                   </label>
                   <input
                     type="text"
-                    value={userInfo.username || ''}
+                    value={userInfo.username || ""}
                     disabled
                     className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 bg-gray-100 text-gray-700"
                   />
@@ -355,7 +417,7 @@ export default function Profile() {
           </p>
         </div>
       )}
-      
+
       <div className="mt-4">
         <p className="text-sm text-gray-600">Indirizzo Wallet Interno:</p>
         <p className="text-sm font-mono">{internalAddress}</p>
