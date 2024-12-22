@@ -11,54 +11,93 @@ const TransactionHistory = () => {
   const [claiming, setClaiming] = useState(false);
   const [claimingPayment, setClaimingPayment] = useState(null);
   const [claimError, setClaimError] = useState(null);
-  const [deletedTxs, setDeletedTxs] = useState(new Set());
+  const [currentChain, setCurrentChain] = useState(walletService.getCurrentChain());
   const [deletedTransactions] = useState(() => {
     const saved = localStorage.getItem(`deletedTx_${user?.is?.pub}`);
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
+  // Effetto per monitorare i cambiamenti della chain
+  useEffect(() => {
+    const handleChainChange = () => {
+      const newChain = walletService.getCurrentChain();
+      setCurrentChain(newChain);
+      // Ricarica le transazioni quando cambia la chain
+      loadTransactions();
+      loadStealthPayments();
+    };
+
+    // Aggiungi listener per il cambio chain di MetaMask
+    if (window.ethereum) {
+      window.ethereum.on('chainChanged', handleChainChange);
+    }
+
+    return () => {
+      // Rimuovi listener quando il componente viene smontato
+      if (window.ethereum) {
+        window.ethereum.removeListener('chainChanged', handleChainChange);
+      }
+    };
+  }, []);
+
+  // Effetto per caricare le transazioni iniziali
   useEffect(() => {
     if (user?.is?.pub) {
       loadTransactions();
       loadStealthPayments();
     }
-  }, [user?.is?.pub]);
+  }, [user?.is?.pub, currentChain]); // Aggiungi currentChain come dipendenza
 
-  const loadTransactions = () => {
-    const userPub = user?.is?.pub;
-    if (!userPub) return;
+  const loadTransactions = async () => {
+    try {
+      setLoading(true);
+      const userPub = user?.is?.pub;
+      if (!userPub) return;
 
-    setTransactions([]); // Reset dello stato
-    const processedTxs = new Set();
-    const validTxs = [];
+      setTransactions([]); // Reset dello stato
+      const processedTxs = new Set();
+      const validTxs = [];
 
-    return new Promise((resolve) => {
-      gun.get(DAPP_NAME)
-         .get("transactions")
-         .map()
-         .once((tx) => {
-           if (
-             tx && 
-             tx.to === userPub && 
-             !tx.isStealthMode && 
-             !deletedTransactions.has(tx.txHash) &&
-             !processedTxs.has(tx.txHash)
-           ) {
-             processedTxs.add(tx.txHash);
-             validTxs.push(tx);
-           }
-         });
+      return new Promise((resolve) => {
+        gun.get(DAPP_NAME)
+           .get("transactions")
+           .map()
+           .once((tx) => {
+             if (
+               tx && 
+               tx.to === userPub && 
+               !tx.isStealthMode && 
+               !deletedTransactions.has(tx.txHash) &&
+               !processedTxs.has(tx.txHash)
+             ) {
+               processedTxs.add(tx.txHash);
+               validTxs.push(tx);
+             }
+           });
 
-      // Aggiorna lo stato dopo aver raccolto tutte le transazioni
-      setTimeout(() => {
-        setTransactions(validTxs);
-        resolve();
-      }, 1000);
-    });
+        // Aggiorna lo stato dopo aver raccolto tutte le transazioni
+        setTimeout(() => {
+          // Assicurati di filtrare le transazioni per la chain corrente
+          const filteredTxs = validTxs.filter(tx => 
+            tx.network === currentChain.name || 
+            tx.network === currentChain.nativeCurrency.symbol
+          );
+          
+          setTransactions(filteredTxs);
+          resolve();
+        }, 1000);
+      });
+    } catch (error) {
+      console.error("Errore nel caricamento delle transazioni:", error);
+      toast.error("Errore nel caricamento delle transazioni");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadStealthPayments = async () => {
     try {
+      setLoading(true);
       const userPub = user?.is?.pub;
       if (!userPub) return;
 
@@ -148,10 +187,19 @@ const TransactionHistory = () => {
       ]);
 
       console.log("Found valid payments:", validPayments);
-      setStealthPayments(validPayments);
+      // Filtra i pagamenti stealth per la chain corrente
+      const filteredPayments = validPayments.filter(payment => 
+        payment.network === currentChain.name ||
+        payment.chain.chainId === currentChain.chainId
+      );
+      
+      setStealthPayments(filteredPayments);
 
     } catch (error) {
-      console.error("Error loading stealth payments:", error);
+      console.error("Errore nel caricamento dei pagamenti stealth:", error);
+      toast.error("Errore nel caricamento dei pagamenti stealth");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -507,146 +555,154 @@ const TransactionHistory = () => {
 
   return (
     <div className="p-6 bg-white rounded-2xl shadow-md">
-      <h3 className="text-2xl font-semibold text-gray-900 mb-6 pb-3 border-b-2 border-gray-100">
-        Transazioni Ricevute
-      </h3>
+      {loading ? (
+        <div className="flex items-center justify-center h-48">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
+      ) : (
+        <>
+          <h3 className="text-2xl font-semibold text-gray-900 mb-6 pb-3 border-b-2 border-gray-100">
+            Transazioni Ricevute su {currentChain.name}
+          </h3>
 
-      {/* Pagamenti Stealth */}
-      <div className="mb-8">
-        <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          Pagamenti Stealth
-        </h4>
-        {stealthPayments.length > 0 ? (
-          stealthPayments.map((payment) => (
-            <div key={payment.originalTx} 
-                 className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
-              <div className="flex flex-col gap-2">
-                <span className="text-lg font-semibold text-emerald-600">
-                  {payment.balance} {payment.chain.nativeCurrency.symbol}
-                </span>
-                <span className="text-sm text-gray-600">
-                  Network: {payment.network}
-                </span>
-                <span className="text-sm text-gray-400">
-                  {new Date(payment.timestamp).toLocaleString()}
-                </span>
-                {claimError && claimingPayment === payment.originalTx && (
-                  <span className="text-red-500 text-sm mt-1">{claimError}</span>
-                )}
+          {/* Pagamenti Stealth */}
+          <div className="mb-8">
+            <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Pagamenti Stealth
+            </h4>
+            {stealthPayments.length > 0 ? (
+              stealthPayments.map((payment) => (
+                <div key={payment.originalTx} 
+                     className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-lg font-semibold text-emerald-600">
+                      {payment.balance} {payment.chain.nativeCurrency.symbol}
+                    </span>
+                    <span className="text-sm text-gray-600">
+                      Network: {payment.network}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {new Date(payment.timestamp).toLocaleString()}
+                    </span>
+                    {claimError && claimingPayment === payment.originalTx && (
+                      <span className="text-red-500 text-sm mt-1">{claimError}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-4">
+                    <button
+                      onClick={() => handleClaimStealth(payment)}
+                      disabled={claimingPayment !== null}
+                      className={`px-4 py-2 rounded-lg font-medium transition-colors
+                        ${claimingPayment === payment.originalTx 
+                          ? 'bg-gray-400 cursor-not-allowed' 
+                          : 'bg-blue-500 hover:bg-blue-600'} text-white`}
+                    >
+                      {claimingPayment === payment.originalTx
+                        ? "Riscatto in corso..."
+                        : "Riscatta Fondi"}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTransaction(payment, true)}
+                      className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      title="Elimina transazione"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                    <a
+                      href={`${payment.chain.blockExplorer}/tx/${payment.originalTx}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
+                    >
+                      Vedi su Explorer
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="mt-2 text-sm text-gray-500">Nessun pagamento stealth ricevuto</p>
               </div>
-              <div className="flex items-center gap-3 mt-4">
-                <button
-                  onClick={() => handleClaimStealth(payment)}
-                  disabled={claimingPayment !== null}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors
-                    ${claimingPayment === payment.originalTx 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-blue-500 hover:bg-blue-600'} text-white`}
-                >
-                  {claimingPayment === payment.originalTx
-                    ? "Riscatto in corso..."
-                    : "Riscatta Fondi"}
-                </button>
-                <button
-                  onClick={() => handleDeleteTransaction(payment, true)}
-                  className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-                  title="Elimina transazione"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-                <a
-                  href={`${payment.chain.blockExplorer}/tx/${payment.originalTx}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
-                >
-                  Vedi su Explorer
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <p className="mt-2 text-sm text-gray-500">Nessun pagamento stealth ricevuto</p>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Transazioni normali */}
-      <div>
-        <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Pagamenti Standard
-        </h4>
-        {transactions.length > 0 ? (
-          transactions.map((tx) => (
-            <div key={tx.txHash} 
-                 className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
-              <div className="flex flex-col gap-2">
-                <span className="text-lg font-semibold text-emerald-600">
-                  {tx.amount} {tx.network}
-                </span>
-                <span className="text-sm text-gray-600">
-                  Da: {tx.from}
-                </span>
-                <span className="text-sm text-gray-400">
-                  {new Date(tx.timestamp).toLocaleString()}
-                </span>
+          {/* Transazioni normali */}
+          <div>
+            <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Pagamenti Standard
+            </h4>
+            {transactions.length > 0 ? (
+              transactions.map((tx) => (
+                <div key={tx.txHash} 
+                     className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-lg font-semibold text-emerald-600">
+                      {tx.amount} {tx.network}
+                    </span>
+                    <span className="text-sm text-gray-600">
+                      Da: {tx.from}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {new Date(tx.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-4">
+                    <button
+                      onClick={() => handleDeleteTransaction(tx)}
+                      className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      title="Elimina transazione"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                    <a
+                      href={`${walletService.getCurrentChain().blockExplorer}/tx/${tx.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
+                    >
+                      Vedi su Explorer
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <p className="mt-2 text-sm text-gray-500">Nessuna transazione standard ricevuta</p>
               </div>
-              <div className="flex items-center gap-3 mt-4">
-                <button
-                  onClick={() => handleDeleteTransaction(tx)}
-                  className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-                  title="Elimina transazione"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-                <a
-                  href={`${walletService.getCurrentChain().blockExplorer}/tx/${tx.txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
-                >
-                  Vedi su Explorer
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-            <p className="mt-2 text-sm text-gray-500">Nessuna transazione standard ricevuta</p>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

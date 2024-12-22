@@ -16593,18 +16593,7 @@ class SignerManager {
         SignerManager.privateKey,
         SignerManager.provider
       );
-      // Create a proxy instead of modifying the wallet directly
-      SignerManager.signer = new Proxy(wallet, {
-        get(target, prop) {
-          if (prop === 'address') {
-            return target.address;
-          }
-          if (prop === 'privateKey') {
-            return SignerManager.privateKey;
-          }
-          return target[prop];
-        },
-      });
+      SignerManager.signer = wallet;
       return SignerManager.signer;
     }
 
@@ -16617,19 +16606,7 @@ class SignerManager {
       const browserProvider = new ethers.BrowserProvider(
         windowWithEthereum.ethereum
       );
-      const signer = await browserProvider.getSigner();
-      // Create a proxy for the browser signer as well
-      SignerManager.signer = new Proxy(signer, {
-        get(target, prop) {
-          if (prop === 'address') {
-            return target.getAddress();
-          }
-          if (prop === 'privateKey') {
-            return '';
-          }
-          return target[prop];
-        },
-      });
+      SignerManager.signer = await browserProvider.getSigner();
       return SignerManager.signer;
     }
 
@@ -16641,18 +16618,7 @@ class SignerManager {
     SignerManager.privateKey = newPrivateKey;
     SignerManager.provider = new ethers.JsonRpcProvider(newRpcUrl);
     const wallet = new ethers.Wallet(newPrivateKey, SignerManager.provider);
-    // Create a proxy for the new signer
-    SignerManager.signer = new Proxy(wallet, {
-      get(target, prop) {
-        if (prop === 'address') {
-          return target.address;
-        }
-        if (prop === 'privateKey') {
-          return SignerManager.privateKey;
-        }
-        return target[prop];
-      },
-    });
+    SignerManager.signer = wallet;
     console.log('Signer configured with address:', wallet.address);
     return SignerManager.instance;
   }
@@ -17092,6 +17058,7 @@ function extendGun(Gun) {
     verifySignature,
     generatePassword,
     gunToEthAccount,
+    ethToGunAccount,
     encryptWithPassword,
     decryptWithPassword,
     encrypt,

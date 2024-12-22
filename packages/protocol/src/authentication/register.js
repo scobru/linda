@@ -9,11 +9,18 @@ const LOGIN_TIMEOUT = 10000; // 10 secondi
 
 export const registerWithMetaMask = async (address) => {
   try {
+    if (!address || typeof address !== 'string') {
+      throw new Error('Indirizzo non valido');
+    }
+
+    // Normalizza l'indirizzo
+    const normalizedAddress = address.toLowerCase();
+
     // Verifica se l'utente esiste già
     const existingUser = await gun
       .get(DAPP_NAME)
       .get('users')
-      .get(address.toLowerCase())
+      .get(normalizedAddress)
       .once();
 
     if (existingUser) {
@@ -21,19 +28,28 @@ export const registerWithMetaMask = async (address) => {
     }
 
     const signer = await gun.getSigner();
-    if (!signer || !signer.address) {
+    if (!signer) {
       throw new Error('Signer non valido');
     }
 
-    const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
+    // Ottieni l'indirizzo del signer come Promise
+    const signerAddress = await signer.getAddress();
+    console.log('signer test', signer, 'address:', signerAddress);
+
+    // Usa direttamente il metodo signMessage del signer
+    const signature = await signer.signMessage(gun.MESSAGE_TO_SIGN);
     if (!signature) {
       throw new Error('Firma non valida');
     }
+
+    console.log('signature', signature);
 
     const password = await gun.generatePassword(signature);
     if (!password || password.length < 32) {
       throw new Error('Password generata non valida');
     }
+
+    console.log('Password Generated');
 
     // Creiamo l'account Ethereum
     const userData = await gun.ethToGunAccount();
