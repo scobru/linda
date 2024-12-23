@@ -1,7 +1,7 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import GunEthModule from './gun-eth.mjs';
-//import GunEthModule from '@scobru/gun-eth';
+// import GunEthModule from './gun-eth.mjs';
+import GunEthModule from '@scobru/gun-eth';
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
@@ -17,13 +17,15 @@ let isConnected = false;
 const GunEth = GunEthModule.GunEth;
 
 const gunOptions = {
-  peers: [process.env.REACT_APP_RELAY_URL || 'http://localhost:8765/gun'],
+  peers: DEFAULT_PEERS,
   localStorage: false,
   radisk: false,
   retry: 1500,
   file: false,
   web: false,
-  // Configurazione WebSocket
+  axe: true,
+  multicast: false,
+  // Configurazione WebSocket migliorata
   ws: {
     protocols: ['gun'],
     reconnect: true,
@@ -35,7 +37,10 @@ const gunOptions = {
 };
 
 // Inizializza Gun con le opzioni
-const gun = Gun(gunOptions);
+export const gun = GunEth.initializeGun(gunOptions);
+
+// Inizializza l'utente
+export const user = gun.user().recall({ sessionStorage: true });
 
 // Gestione errori di connessione
 gun.on('error', (err) => {
@@ -45,11 +50,13 @@ gun.on('error', (err) => {
 // Gestione riconnessione
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;
+let isReconnecting = false;
 
 gun.on('disconnected', async (peer) => {
   console.log('Disconnesso dal peer:', peer);
 
-  if (reconnectAttempts < maxReconnectAttempts) {
+  if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
+    isReconnecting = true;
     reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
 
@@ -58,9 +65,10 @@ gun.on('disconnected', async (peer) => {
     );
 
     setTimeout(() => {
-      gun.opt({ peers: gunOptions.peers });
+      gun.opt({ peers: DEFAULT_PEERS });
+      isReconnecting = false;
     }, delay);
-  } else {
+  } else if (reconnectAttempts >= maxReconnectAttempts) {
     console.error('Numero massimo di tentativi di riconnessione raggiunto');
   }
 });
@@ -68,10 +76,8 @@ gun.on('disconnected', async (peer) => {
 gun.on('connected', (peer) => {
   console.log('Connesso al peer:', peer);
   reconnectAttempts = 0;
+  isReconnecting = false;
 });
-
-// Inizializza l'utente
-export const user = gun.user().recall({ sessionStorage: true });
 
 // Costanti
 export const DAPP_NAME = 'linda-messenger';
@@ -101,26 +107,40 @@ export const getPeers = () => {
 // Verifica connessione
 export const checkConnection = () => {
   return new Promise((resolve) => {
-    if (isConnected) {
-      resolve(true);
-      return;
-    }
+    const timeout = setTimeout(() => {
+      console.log('Timeout verifica connessione');
+      resolve(false);
+    }, 5000);
 
-    const timeout = setTimeout(() => resolve(false), 5000);
     gun.on('hi', () => {
       clearTimeout(timeout);
-      isConnected = true; // Aggiorna lo stato della connessione
       resolve(true);
     });
   });
 };
 
-// Riconnessione
-export const reconnect = () => {
+// Riconnessione forzata
+export const reconnect = async () => {
+  console.log('Tentativo di riconnessione forzata...');
   gun.off();
-  setTimeout(() => {
-    window.location.reload();
-  }, 1000);
+  reconnectAttempts = 0;
+  isReconnecting = false;
+
+  // Rimuovi tutti i peer esistenti
+  const currentPeers = Object.keys(gun._.opt.peers || {});
+  currentPeers.forEach((peer) => removePeer(peer));
+
+  // Aggiungi nuovamente i peer predefiniti
+  DEFAULT_PEERS.forEach((peer) => addPeer(peer));
+
+  // Attendi un breve periodo
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // Verifica la connessione
+  const isConnected = await checkConnection();
+  console.log('Stato connessione dopo riconnessione:', isConnected);
+
+  return isConnected;
 };
 
 // Esporta SEA
