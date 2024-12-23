@@ -9,7 +9,7 @@ import GunEthModule from './gun-eth.mjs';
 
 const DEFAULT_PEERS = [
   'https://gun-relay.scobrudot.dev/gun',
-  /* 'http://localhost:8765/gun', */
+  'http://localhost:8765/gun',
 ];
 
 let isConnected = false;

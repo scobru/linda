@@ -26,26 +26,26 @@ const port = 8765;
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: app,
-  multicast: {
-    address: MULTICAST_ADDRESS,
-    port: MULTICAST_PORT,
-  },
+  multicast: false, // Disabilita multicast per il relay remoto
+  host: process.env.HOST || "0.0.0.0", // Ascolta su tutte le interfacce
+  port: port,
+  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
   radisk: true,
-  localStorage: false,
-  store: false,
-  rindexed: false,
   file: "./radata",
   axe: true,
-  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
-  host: process.env.HOST || "0.0.0.0",
-  port: port,
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: "*",
-    exposedHeaders: "*",
-    credentials: true,
-    maxAge: 600,
+  super: true, // Abilita modalità super peer
+  // Configurazione di rete
+  network: {
+    retry: 2000, // Retry ogni 2 secondi
+    max: 3, // Massimo 3 tentativi
+    silent: false, // Log degli errori di rete
+  },
+  // Configurazione WebSocket
+  ws: {
+    path: "/gun", // Path per le connessioni WebSocket
+    maxPayload: 2 * 1024 * 1024, // 2MB max payload
+    keepalive: true,
+    keepaliveInterval: 30000, // 30 secondi
   },
 };
 
@@ -148,6 +148,8 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Headers", "*");
   res.header("Access-Control-Expose-Headers", "*");
   res.header("Access-Control-Allow-Credentials", "true");
+
+  // Gestione preflight OPTIONS
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -664,14 +666,24 @@ async function initializeServer() {
 
     // Inizializza Gun con la configurazione
     gun = new Gun(gunConfig);
-    console.log("Gun server started on port", port);
-    console.log("Listening on interfaces:", GUN_CONFIG.host);
-    console.log("CORS enabled for all origins");
+
+    // Abilita il debug per Gun
+    gun.on("out", (msg) => {
+      if (msg.err) {
+        console.error("Gun error:", msg.err);
+      }
+    });
 
     // Avvia il server HTTP
     server.listen(port, GUN_CONFIG.host, () => {
       console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
       console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
+      console.log("Gun server started with config:", {
+        port: port,
+        host: GUN_CONFIG.host,
+        peers: GUN_CONFIG.peers,
+        super: GUN_CONFIG.super,
+      });
     });
 
     // Gestione errori del server
@@ -680,6 +692,26 @@ async function initializeServer() {
       if (error.code === "EADDRINUSE") {
         console.error(`Port ${port} is already in use`);
       }
+    });
+
+    // Gestione connessioni WebSocket
+    const wss = new WebSocket.Server({ server });
+
+    wss.on("connection", (ws, req) => {
+      console.log("New WebSocket connection from:", req.socket.remoteAddress);
+
+      ws.on("message", (message) => {
+        try {
+          const data = JSON.parse(message);
+          console.log("WebSocket message:", data);
+        } catch (error) {
+          console.error("Invalid WebSocket message:", error);
+        }
+      });
+
+      ws.on("error", (error) => {
+        console.error("WebSocket error:", error);
+      });
     });
 
     // Inizializza Mogu se abilitato

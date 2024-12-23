@@ -35,21 +35,17 @@ export default function SignIn() {
         user.leave();
       }
 
-      const result = await new Promise((resolve, reject) => {
-        authentication.loginUser({ username, password }, (response) => {
+      const result = await authentication.loginUser(
+        { username, password },
+        (response) => {
           console.log("Login response:", response);
           if (response.success) {
-            resolve(response);
-          } else if (
-            response.errMessage ===
-            "User is already being created or authenticated!"
-          ) {
-            resolve(response);
+            return response;
           } else {
-            reject(new Error(response.errMessage || "Login failed"));
+            console.log("Login failed");
           }
-        });
-      });
+        }
+      );
 
       console.log(result);
 

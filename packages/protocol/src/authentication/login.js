@@ -151,7 +151,7 @@ export const loginWithMetaMask = async (address) => {
 const loginUser = (credentials = {}, callback = () => {}) => {
   let timeoutId;
 
-  const loginPromise = new Promise(async (resolve, reject) => {
+  const loginPromise = new Promise((resolve, reject) => {
     try {
       // Validazione input
       if (!credentials.username || !credentials.password) {
@@ -161,7 +161,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
       // Se l'utente è già autenticato, procedi
       if (user.is) {
         // Recupera i dati dell'utente
-        const userData = await new Promise((resolve) => {
+        const userData = new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
             .get('users')
@@ -176,13 +176,14 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           throw new Error('Impossibile recuperare i dati utente');
         }
 
+        console.log('userData', userData);
+
         // Decifra le chiavi
-        const [decryptedPair, decryptedVPair, decryptedSPair] =
-          await Promise.all([
-            gun.decryptWithPassword(userData.env_pair, credentials.password),
-            gun.decryptWithPassword(userData.env_v_pair, credentials.password),
-            gun.decryptWithPassword(userData.env_s_pair, credentials.password),
-          ]);
+        const [decryptedPair, decryptedVPair, decryptedSPair] = Promise.all([
+          gun.decryptWithPassword(userData.env_pair, credentials.password),
+          gun.decryptWithPassword(userData.env_v_pair, credentials.password),
+          gun.decryptWithPassword(userData.env_s_pair, credentials.password),
+        ]);
 
         // Salva nel localStorage
         const walletData = {
@@ -199,16 +200,20 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           },
         };
 
+        console.log('walletData', walletData);
+
         localStorage.setItem(
           `gunWallet_${user.is.pub}`,
           JSON.stringify(walletData)
         );
 
+        console.log('Local Storage Updated');
+
         // Aggiorna metriche
         updateGlobalMetrics('totalLogins', 1);
 
         // Crea i certificati
-        await Promise.all([
+        Promise.all([
           createFriendRequestCertificate(),
           createNotificationCertificate(),
         ]);
@@ -226,12 +231,12 @@ const loginUser = (credentials = {}, callback = () => {}) => {
         console.log('Resetting user state...');
         user.leave();
         // Attendi che lo stato sia resettato
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       // Verifica se l'utente esiste
       console.log('Verifica esistenza utente...');
-      const userExists = await new Promise((resolve) => {
+      const userExists = new Promise((resolve) => {
         gun.get(`~@${credentials.username}`).once((data) => {
           console.log('User data:', data);
           resolve(!!data);
@@ -246,7 +251,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
 
       // Tenta l'autenticazione
       console.log('Tentativo di autenticazione...');
-      const authResult = await new Promise((resolve, reject) => {
+      const authResult = new Promise((resolve, reject) => {
         user.auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
             reject(new Error(ack.err));
@@ -261,7 +266,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             const maxAttempts = 20;
 
             while (attempts < maxAttempts && !user.is) {
-              await new Promise((resolve) => setTimeout(resolve, 100));
+              new Promise((resolve) => setTimeout(resolve, 100));
               attempts++;
             }
 
@@ -270,24 +275,23 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             }
 
             // Recupera i dati dell'utente
-            const userData = await new Promise((resolve) => {
+            const userData = new Promise((resolve) => {
               gun
                 .get(DAPP_NAME)
                 .get('users')
                 .get(user.is.pub)
-                .once((data) => {
-                  resolve(data);
-                });
-              setTimeout(() => resolve(null), 3000);
+                .once((data) => resolve(data));
             });
+
+            console.log('userData', userData);
 
             if (!userData) {
               throw new Error('Impossibile recuperare i dati utente');
             }
 
             // Decifra le chiavi
-            const [decryptedPair, decryptedVPair, decryptedSPair] =
-              await Promise.all([
+            const [decryptedPair, decryptedVPair, decryptedSPair] = Promise.all(
+              [
                 gun.decryptWithPassword(
                   userData.env_pair,
                   credentials.password
@@ -300,7 +304,12 @@ const loginUser = (credentials = {}, callback = () => {}) => {
                   userData.env_s_pair,
                   credentials.password
                 ),
-              ]);
+              ]
+            );
+
+            console.log('decryptedPair', decryptedPair);
+            console.log('decryptedVPair', decryptedVPair);
+            console.log('decryptedSPair', decryptedSPair);
 
             // Salva nel localStorage
             const walletData = {
@@ -317,6 +326,8 @@ const loginUser = (credentials = {}, callback = () => {}) => {
               },
             };
 
+            console.log('walletData', walletData);
+
             localStorage.setItem(
               `gunWallet_${user.is.pub}`,
               JSON.stringify(walletData)
@@ -325,11 +336,17 @@ const loginUser = (credentials = {}, callback = () => {}) => {
             // Aggiorna metriche
             updateGlobalMetrics('totalLogins', 1);
 
-            // Crea i certificati
-            await Promise.all([
-              createFriendRequestCertificate(),
-              createNotificationCertificate(),
-            ]);
+            console.log('Creating certificates...');
+
+            const [friendRequestCertificate, notificationCertificate] =
+              await Promise.all([
+                createFriendRequestCertificate(),
+                createNotificationCertificate(),
+              ]);
+
+            console.log('friendRequestCertificate', friendRequestCertificate);
+            console.log('notificationCertificate', notificationCertificate);
+            console.log('Certificati Created');
 
             resolve({
               success: true,
