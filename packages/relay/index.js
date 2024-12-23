@@ -35,24 +35,15 @@ const GUN_CONFIG = {
   axe: true,
   super: true,
   // Configurazione WebSocket migliorata
-  websocket: {
+  ws: {
     path: "/gun",
-    server: null, // Sarà impostato dopo la creazione del server HTTP
+    noServer: true, // Importante: lascia che il server HTTP gestisca l'upgrade
     maxPayload: 2 * 1024 * 1024,
-    perMessageDeflate: {
-      zlibDeflateOptions: {
-        chunkSize: 1024,
-        memLevel: 7,
-        level: 3,
-      },
-      zlibInflateOptions: {
-        chunkSize: 10 * 1024,
-      },
-      clientNoContextTakeover: true,
-      serverNoContextTakeover: true,
-      serverMaxWindowBits: 10,
-      concurrencyLimit: 10,
-      threshold: 1024,
+    perMessageDeflate: false, // Disabilita la compressione per evitare problemi di header
+    verifyClient: (info, callback) => {
+      // Verifica l'origine della richiesta
+      const origin = info.origin || info.req.headers.origin;
+      callback(true); // Accetta tutte le origini per ora
     },
   },
 };
@@ -668,15 +659,34 @@ async function initializeServer() {
 
     // Configura WebSocket Server
     const wss = new WebSocket.Server({
-      server: server,
-      path: "/gun",
-      perMessageDeflate: GUN_CONFIG.websocket.perMessageDeflate,
-      maxPayload: GUN_CONFIG.websocket.maxPayload,
+      noServer: true, // Importante: gestisci manualmente l'upgrade
+      maxPayload: GUN_CONFIG.ws.maxPayload,
+      perMessageDeflate: false, // Disabilita la compressione
+    });
+
+    // Gestione upgrade HTTP -> WebSocket
+    server.on("upgrade", (request, socket, head) => {
+      const pathname = new URL(request.url, "http://localhost").pathname;
+
+      if (pathname === "/gun") {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit("connection", ws, request);
+        });
+      } else {
+        socket.destroy();
+      }
     });
 
     // Gestione eventi WebSocket
     wss.on("connection", (ws, req) => {
       console.log("New WebSocket connection from:", req.socket.remoteAddress);
+      metrics.connections++;
+
+      // Imposta timeout più lungo per la connessione
+      ws.isAlive = true;
+      ws.on("pong", () => {
+        ws.isAlive = true;
+      });
 
       ws.on("message", (message) => {
         try {
@@ -699,27 +709,37 @@ async function initializeServer() {
       });
 
       ws.on("close", () => {
-        console.log("WebSocket connection closed");
-      });
-
-      // Ping/Pong per mantenere la connessione attiva
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.ping();
-        }
-      }, 30000);
-
-      ws.on("close", () => {
-        clearInterval(pingInterval);
+        metrics.connections = Math.max(0, metrics.connections - 1);
+        console.log(
+          "WebSocket connection closed - Total connections:",
+          metrics.connections
+        );
       });
     });
 
-    // Aggiorna la configurazione Gun con il server WebSocket
+    // Ping/Pong per mantenere le connessioni attive
+    const interval = setInterval(() => {
+      wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          console.log("Terminating inactive WebSocket connection");
+          return ws.terminate();
+        }
+
+        ws.isAlive = false;
+        ws.ping(() => {});
+      });
+    }, 30000);
+
+    wss.on("close", () => {
+      clearInterval(interval);
+    });
+
+    // Aggiorna la configurazione Gun
     const gunConfig = {
       ...GUN_CONFIG,
       web: server,
-      websocket: {
-        ...GUN_CONFIG.websocket,
+      ws: {
+        ...GUN_CONFIG.ws,
         server: wss,
       },
     };
