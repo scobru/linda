@@ -34,18 +34,6 @@ const GUN_CONFIG = {
   file: "./radata",
   axe: true,
   super: true,
-  // Configurazione WebSocket migliorata
-  ws: {
-    path: "/gun",
-    noServer: true, // Importante: lascia che il server HTTP gestisca l'upgrade
-    maxPayload: 2 * 1024 * 1024,
-    perMessageDeflate: false, // Disabilita la compressione per evitare problemi di header
-    verifyClient: (info, callback) => {
-      // Verifica l'origine della richiesta
-      const origin = info.origin || info.req.headers.origin;
-      callback(true); // Accetta tutte le origini per ora
-    },
-  },
 };
 
 // Configurazione
@@ -657,95 +645,11 @@ async function initializeServer() {
     // Crea il server HTTP
     const server = http.createServer(app);
 
-    // Configura WebSocket Server
-    const wss = new WebSocket.Server({
-      noServer: true, // Importante: gestisci manualmente l'upgrade
-      maxPayload: GUN_CONFIG.ws.maxPayload,
-      perMessageDeflate: false, // Disabilita la compressione
-    });
-
-    // Gestione upgrade HTTP -> WebSocket
-    server.on("upgrade", (request, socket, head) => {
-      const pathname = new URL(request.url, "http://localhost").pathname;
-
-      if (pathname === "/gun") {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          wss.emit("connection", ws, request);
-        });
-      } else {
-        socket.destroy();
-      }
-    });
-
-    // Gestione eventi WebSocket
-    wss.on("connection", (ws, req) => {
-      console.log("New WebSocket connection from:", req.socket.remoteAddress);
-      metrics.connections++;
-
-      // Imposta timeout più lungo per la connessione
-      ws.isAlive = true;
-      ws.on("pong", () => {
-        ws.isAlive = true;
-      });
-
-      ws.on("message", (message) => {
-        try {
-          const data = JSON.parse(message);
-          if (data.put) {
-            metrics.putOperations++;
-            metrics.bytesTransferred += message.length;
-          }
-          if (data.get) {
-            metrics.getOperations++;
-            metrics.bytesTransferred += message.length;
-          }
-        } catch (error) {
-          console.error("Invalid WebSocket message:", error);
-        }
-      });
-
-      ws.on("error", (error) => {
-        console.error("WebSocket error:", error);
-      });
-
-      ws.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(
-          "WebSocket connection closed - Total connections:",
-          metrics.connections
-        );
-      });
-    });
-
-    // Ping/Pong per mantenere le connessioni attive
-    const interval = setInterval(() => {
-      wss.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-          console.log("Terminating inactive WebSocket connection");
-          return ws.terminate();
-        }
-
-        ws.isAlive = false;
-        ws.ping(() => {});
-      });
-    }, 30000);
-
-    wss.on("close", () => {
-      clearInterval(interval);
-    });
-
-    // Aggiorna la configurazione Gun
-    const gunConfig = {
+    // Inizializza Gun con il server HTTP
+    gun = Gun({
       ...GUN_CONFIG,
       web: server,
-      ws: {
-        ...GUN_CONFIG.ws,
-        server: wss,
-      },
-    };
-
-    // Inizializza Gun con la configurazione aggiornata
-    gun = new Gun(gunConfig);
+    });
 
     // Abilita il debug per Gun
     gun.on("out", (msg) => {
@@ -757,7 +661,6 @@ async function initializeServer() {
     // Avvia il server HTTP
     server.listen(port, GUN_CONFIG.host, () => {
       console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
-      console.log("WebSocket server enabled on /gun");
       console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
     });
 
@@ -767,6 +670,36 @@ async function initializeServer() {
       if (error.code === "EADDRINUSE") {
         console.error(`Port ${port} is already in use`);
       }
+    });
+
+    // Tracking connessioni
+    server.on("connection", (socket) => {
+      metrics.connections++;
+      console.log(`New connection - Total: ${metrics.connections}`);
+
+      socket.on("close", () => {
+        metrics.connections = Math.max(0, metrics.connections - 1);
+        console.log(`Connection closed - Total: ${metrics.connections}`);
+      });
+    });
+
+    // Tracking eventi Gun
+    gun.on("hi", (peer) => {
+      metrics.connections++;
+      console.log(
+        `Peer connected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
+    });
+
+    gun.on("bye", (peer) => {
+      metrics.connections = Math.max(0, metrics.connections - 1);
+      console.log(
+        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
     });
 
     // Inizializza Mogu se abilitato
@@ -806,36 +739,6 @@ async function initializeServer() {
     initializeGunListeners(gun, mogu);
 
     app.use(Gun.serve);
-
-    // Tracking connessioni WebSocket
-    server.on("connection", (socket) => {
-      metrics.connections++;
-      console.log(`New connection - Total: ${metrics.connections}`);
-
-      socket.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(`Connection closed - Total: ${metrics.connections}`);
-      });
-    });
-
-    // Tracking eventi Gun
-    gun.on("hi", (peer) => {
-      metrics.connections++;
-      console.log(
-        `Peer connected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    gun.on("bye", (peer) => {
-      metrics.connections = Math.max(0, metrics.connections - 1);
-      console.log(
-        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
 
     return { gun, mogu };
   } catch (error) {

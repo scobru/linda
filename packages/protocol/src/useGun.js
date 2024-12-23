@@ -16,24 +16,58 @@ let isConnected = false;
 
 const GunEth = GunEthModule.GunEth;
 
-// Inizializza Gun con storage locale completamente disabilitato
-export const gun = GunEth.initializeGun({
-  peers: DEFAULT_PEERS,
+const gunOptions = {
+  peers: [process.env.REACT_APP_RELAY_URL || 'http://localhost:8765/gun'],
   localStorage: false,
-  store: {
-    // Override del metodo put per prevenire il salvataggio
-    put: function () {
-      return;
-    },
-    // Override del metodo get per prevenire la lettura
-    get: function () {
-      return;
-    },
-  },
   radisk: false,
-  rindexed: false,
-  indexedDB: false, // Disabilita esplicitamente IndexedDB
-  web: false, // Disabilita il web storage
+  retry: 1500,
+  file: false,
+  web: false,
+  // Configurazione WebSocket
+  ws: {
+    protocols: ['gun'],
+    reconnect: true,
+    pingTimeout: 45000,
+    pingInterval: 30000,
+    maxPayload: 2 * 1024 * 1024,
+    perMessageDeflate: false,
+  },
+};
+
+// Inizializza Gun con le opzioni
+const gun = Gun(gunOptions);
+
+// Gestione errori di connessione
+gun.on('error', (err) => {
+  console.error('Gun error:', err);
+});
+
+// Gestione riconnessione
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 5;
+
+gun.on('disconnected', async (peer) => {
+  console.log('Disconnesso dal peer:', peer);
+
+  if (reconnectAttempts < maxReconnectAttempts) {
+    reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+
+    console.log(
+      `Tentativo di riconnessione ${reconnectAttempts}/${maxReconnectAttempts} tra ${delay}ms...`
+    );
+
+    setTimeout(() => {
+      gun.opt({ peers: gunOptions.peers });
+    }, delay);
+  } else {
+    console.error('Numero massimo di tentativi di riconnessione raggiunto');
+  }
+});
+
+gun.on('connected', (peer) => {
+  console.log('Connesso al peer:', peer);
+  reconnectAttempts = 0;
 });
 
 // Inizializza l'utente
