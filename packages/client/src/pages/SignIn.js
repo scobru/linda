@@ -131,21 +131,51 @@ export default function SignIn() {
     const toastId = toast.loading("Signing in with MetaMask...");
 
     try {
+      // Pulisci lo stato precedente
+      if (user.is) {
+        user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
       const result = await authentication.loginWithMetaMask(address);
+      console.log("MetaMask login result:", result);
 
-      if (result.success) {
-        toast.success("Successfully signed in with MetaMask", { id: toastId });
+      if (!result.success) {
+        throw new Error(result.errMessage || "Login failed");
+      }
 
-        // Modifica qui: usa un formato più user-friendly per gli utenti MetaMask
-        const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
+      // Verifica che l'utente sia effettivamente autenticato
+      let attempts = 0;
+      const maxAttempts = 20;
 
-        localStorage.setItem("userPub", result.pub);
-        localStorage.setItem("username", displayName);
-        localStorage.setItem("userAlias", displayName);
-        localStorage.setItem("walletAddress", address);
+      while (attempts < maxAttempts && !user?.is?.pub) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        attempts++;
+      }
 
-        // Salva nel nodo Gun
-        gun.get(DAPP_NAME).get("userList").get("users").set({
+      if (!user?.is?.pub) {
+        throw new Error("Failed to verify authentication");
+      }
+
+      toast.success("Successfully signed in with MetaMask", { id: toastId });
+
+      // Usa un formato più user-friendly per gli utenti MetaMask
+      const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+      // Salva nel localStorage
+      localStorage.setItem("userPub", result.pub);
+      localStorage.setItem("username", displayName);
+      localStorage.setItem("userAlias", displayName);
+      localStorage.setItem("walletAddress", address);
+      localStorage.setItem("authType", "metamask");
+
+      // Salva nel nodo Gun
+      await gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
+        .get(result.pub)
+        .put({
           pub: result.pub,
           username: displayName,
           nickname: displayName,
@@ -155,19 +185,30 @@ export default function SignIn() {
           authType: "wallet",
         });
 
-        setIsRedirecting(true);
-        navigate("/homepage", { replace: true });
-      }
+      setIsRedirecting(true);
+      window.location.href = "/homepage";
     } catch (error) {
-      console.error("Errore login MetaMask:", error);
+      console.error("MetaMask login error:", error);
+
+      // Se l'utente non è registrato, reindirizza alla registrazione
       if (error.message.includes("non registrato")) {
-        navigate("/register", {
-          state: { isMetaMask: true, address },
-        });
-      } else {
-        toast.error(error.message || "Errore durante l'accesso con MetaMask", {
+        toast.error("Account not registered. Redirecting to registration...", {
           id: toastId,
         });
+        setTimeout(() => {
+          navigate("/register", {
+            state: { isMetaMask: true, address },
+          });
+        }, 2000);
+      } else {
+        toast.error(error.message || "Error during MetaMask login", {
+          id: toastId,
+        });
+      }
+
+      // Pulisci lo stato in caso di errore
+      if (user.is) {
+        user.leave();
       }
     } finally {
       setIsLoading(false);

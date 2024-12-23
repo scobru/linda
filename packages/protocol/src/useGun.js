@@ -1,13 +1,15 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import GunEthModule from './gun-eth.mjs';
-//import GunEthModule from '@scobru/gun-eth';
+
+//import GunEthModule from './gun-eth.mjs';
+
+import GunEthModule from '@scobru/gun-eth';
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ['http://localhost:8765/gun'];
+const DEFAULT_PEERS = ['https://gun-relay.scobrudot.dev/gun'];
 
 let isConnected = false;
 

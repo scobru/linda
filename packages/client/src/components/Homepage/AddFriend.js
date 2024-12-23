@@ -8,27 +8,27 @@ export default function AddFriend({ onClose }) {
   const [isLoading, setIsLoading] = React.useState(false);
   const [searchResult, setSearchResult] = React.useState(null);
 
-  // Funzione per cercare l'utente
+  // Function to search for user
   const searchUser = async (value) => {
-    // Se il valore sembra essere una chiave pubblica, ritornalo direttamente
-    if (value.includes('.')) {
-      const result = await gun.get("~"+value).get('alias')
-      console.log('Result:', result);
+    // If the value looks like a public key, return it directly
+    if (value.includes(".")) {
+      const result = await gun.get("~" + value).get("alias");
+      console.log("Result:", result);
       return {
         pub: value,
-        alias: result
+        alias: result,
       };
     }
 
     return new Promise((resolve) => {
       gun.get(`~@${value}`).once((data) => {
         if (data) {
-          // Trova la chiave che inizia con ~
-          const pubKey = Object.keys(data).find(key => key.startsWith('~'));
+          // Find the key that starts with ~
+          const pubKey = Object.keys(data).find((key) => key.startsWith("~"));
           if (pubKey) {
             resolve({
-              pub: pubKey.slice(1), // Rimuovi il ~ iniziale
-              alias: value
+              pub: pubKey.slice(1), // Remove initial ~
+              alias: value,
             });
           } else {
             resolve(null);
@@ -42,43 +42,43 @@ export default function AddFriend({ onClose }) {
 
   const handleSubmit = async () => {
     if (!input.trim()) {
-      toast.error("Inserisci un username");
+      toast.error("Please enter a username");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Ricerca utente...");
+    const toastId = toast.loading("Searching user...");
 
     try {
-      // Prima cerca l'utente
+      // First search for the user
       const userData = await searchUser(input.trim());
-      console.log('User search result:', userData);
+      console.log("User search result:", userData);
 
       if (!userData) {
-        throw new Error("Utente non trovato");
+        throw new Error("User not found");
       }
 
       setSearchResult(userData);
 
-      // Invia la richiesta di amicizia
+      // Send friend request
       await new Promise((resolve, reject) => {
         friends.addFriendRequest(userData.alias, (response) => {
-          console.log('Friend request response:', response);
+          console.log("Friend request response:", response);
           if (response.success) {
             resolve(response);
           } else {
-            reject(new Error(response.errMessage || 'Errore invio richiesta'));
+            reject(new Error(response.errMessage || "Error sending request"));
           }
         });
       });
 
-      toast.success("Richiesta inviata con successo", { id: toastId });
+      toast.success("Request sent successfully", { id: toastId });
       setTimeout(() => {
         onClose();
       }, 1000);
     } catch (error) {
-      console.error("Errore:", error);
-      toast.error(error.message || "Errore nell'operazione", { id: toastId });
+      console.error("Error:", error);
+      toast.error(error.message || "Operation failed", { id: toastId });
       setSearchResult(null);
     } finally {
       setIsLoading(false);
@@ -89,7 +89,7 @@ export default function AddFriend({ onClose }) {
     <div className="p-4">
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Inserisci username
+          Enter username
         </label>
         <input
           type="text"
@@ -98,7 +98,7 @@ export default function AddFriend({ onClose }) {
           onKeyDown={(e) =>
             e.key === "Enter" && !isLoading && input.trim() && handleSubmit()
           }
-          placeholder="Inserisci username..."
+          placeholder="Enter username..."
           disabled={isLoading}
           className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             isLoading ? "bg-gray-100 cursor-not-allowed" : ""
@@ -108,8 +108,10 @@ export default function AddFriend({ onClose }) {
 
       {searchResult && (
         <div className="mb-4 p-2 bg-gray-50 rounded">
-          <p className="text-sm">Utente trovato: {searchResult.alias}</p>
-          <p className="text-xs text-gray-500 truncate">ID: {searchResult.pub}</p>
+          <p className="text-sm">User found: {searchResult.alias}</p>
+          <p className="text-xs text-gray-500 truncate">
+            ID: {searchResult.pub}
+          </p>
         </div>
       )}
 
@@ -121,7 +123,7 @@ export default function AddFriend({ onClose }) {
             isLoading ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
-          Annulla
+          Cancel
         </button>
         <button
           onClick={handleSubmit}
@@ -152,10 +154,12 @@ export default function AddFriend({ onClose }) {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 ></path>
               </svg>
-              {searchResult ? "Invio richiesta..." : "Ricerca..."}
+              {searchResult ? "Sending request..." : "Searching..."}
             </div>
+          ) : searchResult ? (
+            "Send request"
           ) : (
-            searchResult ? "Invia richiesta" : "Cerca"
+            "Search"
           )}
         </button>
       </div>

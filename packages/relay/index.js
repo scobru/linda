@@ -42,7 +42,7 @@ const GUN_CONFIG = {
 // Configurazione
 const CONFIG = {
   STORAGE: {
-    enabled: !!(process.env.PINATA_API_KEY && process.env.PINATA_API_SECRET),
+    enabled: !!process.env.PINATA_JWT,
     service: "PINATA",
     config: {
       pinataJwt: process.env.PINATA_API_KEY || "",

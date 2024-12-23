@@ -20,7 +20,7 @@ const { userBlocking } = blocking;
 const { channels } = messaging;
 const { chat } = messaging;
 
-// Custom hook per l'intersection observer
+// Custom hook for the intersection observer
 const useIntersectionObserver = (callback, deps = []) => {
   const observer = React.useRef(null);
 
@@ -249,7 +249,7 @@ const createMessageTracking = () => ({
   },
 });
 
-// Aggiungi questa funzione per ottenere lo username
+// Add this function to get the username
 const getUserUsername = async (userPub) => {
   return new Promise((resolve) => {
     gun
@@ -260,12 +260,12 @@ const getUserUsername = async (userPub) => {
       .once((nickname) => {
         resolve(nickname);
       });
-    // Timeout dopo 2 secondi, usa l'alias come fallback
+    // Timeout after 2 seconds, use alias as fallback
     setTimeout(() => resolve(null), 2000);
   });
 };
 
-// Modifica il componente MessageItem per gestire meglio il layout e le scritte tagliate
+// Modify MessageItem component to better handle layout and truncated text
 const MessageItem = ({
   message,
   isOwnMessage,
@@ -304,7 +304,7 @@ const MessageItem = ({
         isOwnMessage ? "items-end" : "items-start"
       } mb-4 max-w-[85%] ${isOwnMessage ? "ml-auto" : "mr-auto"}`}
     >
-      {/* Header del messaggio con mittente e timestamp */}
+      {/* Message header with sender and timestamp */}
       {shouldShowSender && (
         <div className="flex items-center mb-1">
           <div className="w-8 h-8 rounded-full flex-shrink-0">
@@ -316,7 +316,7 @@ const MessageItem = ({
           </div>
           <div className="ml-2 flex flex-col">
             <span className="text-sm text-gray-600 font-medium break-words">
-              {isOwnMessage ? "Tu" : senderName}
+              {isOwnMessage ? "You" : senderName}
             </span>
             <span className="text-xs text-gray-400">
               {new Date(message.timestamp).toLocaleTimeString([], {
@@ -328,7 +328,7 @@ const MessageItem = ({
         </div>
       )}
 
-      {/* Contenuto del messaggio */}
+      {/* Message content */}
       <div className="flex items-end w-full">
         <div
           className={`rounded-lg px-4 py-2 break-words ${
@@ -340,26 +340,26 @@ const MessageItem = ({
           <span className="whitespace-pre-wrap">
             {typeof message.content === "string"
               ? message.content
-              : "[Messaggio non valido]"}
+              : "[Invalid message]"}
           </span>
         </div>
         {isOwnMessage && <MessageStatus message={message} />}
       </div>
 
-      {/* Pulsante elimina */}
+      {/* Delete button */}
       {isCreator && selected?.type === "board" && (
         <button
           onClick={() => handleDeleteMessage(message.id)}
-          className="text-red-500 text-xs hover:text-red-700 mt-1 "
+          className="text-red-500 text-xs hover:text-red-700 mt-1"
         >
-          Elimina
+          Delete
         </button>
       )}
     </div>
   );
 };
 
-// Aggiungi queste funzioni di gestione dei messaggi
+// Add these message handling functions
 const handleMessages = (data) => {
   if (!isSubscribed) return;
 
@@ -385,7 +385,7 @@ const handleMessages = (data) => {
 const handleError = (error) => {
   if (!isSubscribed) return;
   console.error("Error loading messages:", error);
-  setError("Errore nel caricamento dei messaggi");
+  setError("Error loading messages");
   setLoading(false);
 };
 
@@ -432,7 +432,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         const wallet = await walletService.getCurrentWallet(user.is.pub);
         setMyWalletInfo(wallet);
 
-        // Verifica che l'indirizzo sia valido prima di caricare il balance
+        // Verify that the address is valid before loading balance
         if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
           try {
             const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
@@ -445,7 +445,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
             setBalance("0.0");
           }
         } else {
-          console.log("Wallet senza indirizzo valido:", wallet);
+          console.log("Wallet without valid address:", wallet);
           setBalance("0.0");
         }
 
@@ -476,17 +476,17 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
     }
   }, [isOpen, selectedChain, selectedUser?.pub, user.is?.pub]);
 
-  // Modifica la funzione di cleanup nel WalletModal
+  // Cleanup function in WalletModal
   React.useEffect(() => {
     return () => {
-      // Pulisci solo lo stato locale del componente
+      // Clean only the component's local state
       setMyWalletInfo(null);
       setBalance(null);
       setSelectedChain(null);
     };
   }, []);
 
-  // Modifica handleChainChange per aggiornare solo il wallet corrente
+  // Modify handleChainChange to update only the current wallet
   const handleChainChange = async (chainKey) => {
     try {
       setIsLoading(true);
@@ -494,11 +494,11 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
       const newChain = walletService.getCurrentChain();
       setSelectedChain(newChain);
 
-      // Ricarica le informazioni del wallet
+      // Reload wallet info
       const wallet = await walletService.getCurrentWallet(user.is.pub);
       setMyWalletInfo(wallet);
 
-      // Verifica che l'indirizzo sia valido prima di aggiornare il balance
+      // Verify that the address is valid before updating balance
       if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
         try {
           const provider = new ethers.JsonRpcProvider(newChain.rpcUrl);
@@ -511,7 +511,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           setBalance("0.0");
         }
       } else {
-        console.log("Wallet senza indirizzo valido:", wallet);
+        console.log("Wallet without valid address:", wallet);
         setBalance("0.0");
       }
 
@@ -527,14 +527,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const handleCopyAddress = () => {
     if (myWalletInfo?.address) {
       navigator.clipboard.writeText(myWalletInfo.address);
-      toast.success("Indirizzo copiato negli appunti!");
+      toast.success("Address copied to clipboard!");
     }
   };
 
   const handleCopyPrivateKey = () => {
     if (myWalletInfo?.privateKey) {
       navigator.clipboard.writeText(myWalletInfo.privateKey);
-      toast.success("Chiave privata copiata negli appunti!");
+      toast.success("Private key copied to clipboard!");
     }
   };
 
@@ -552,14 +552,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         await walletService.sendTransaction(customAddress, amount);
       }
 
-      toast.success("Transazione inviata con successo!");
+      toast.success("Transaction sent successfully!");
       onClose();
       setAmount("");
       setCustomAddress("");
       setIsStealthMode(false);
     } catch (error) {
       console.error("Error sending transaction:", error);
-      toast.error(error.message || "Errore durante l'invio");
+      toast.error(error.message || "Error during transaction");
     } finally {
       setIsLoading(false);
     }
@@ -612,15 +612,15 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           </select>
         </div>
 
-        {/* Il mio wallet */}
+        {/* My wallet */}
         {myWalletInfo ? (
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <h4 className="text-sm font-medium text-gray-700 mb-2">
-              Il mio wallet
+              Your Wallet
             </h4>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Indirizzo:</span>
+                <span className="text-xs text-gray-500">Address:</span>
                 <div className="flex items-center">
                   <span className="text-xs font-mono mr-2">
                     {myWalletInfo.internalWalletAddress
@@ -628,7 +628,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                           0,
                           6
                         )}...${myWalletInfo.internalWalletAddress.slice(-4)}`
-                      : "Caricamento..."}
+                      : "Loading..."}
                   </span>
                   <button
                     onClick={() => {
@@ -636,7 +636,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                         navigator.clipboard.writeText(
                           myWalletInfo.internalWalletAddress
                         );
-                        toast.success("Indirizzo copiato!");
+                        toast.success("Address copied!");
                       }
                     }}
                     className="p-1 hover:bg-gray-200 rounded"
@@ -666,7 +666,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     ? `${Number(balance).toFixed(8)} ${
                         selectedChain?.nativeCurrency?.symbol || "MATIC"
                       }`
-                    : "Caricamento..."}
+                    : "Loading..."}
                 </span>
               </div>
 
@@ -676,7 +676,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     onClick={() => setShowPrivateKey(!showPrivateKey)}
                     className="text-xs text-blue-500 hover:text-blue-600"
                   >
-                    {showPrivateKey ? "Nascondi" : "Mostra"} chiave privata
+                    {showPrivateKey ? "Hide" : "Show"} private key
                   </button>
                   {showPrivateKey && (
                     <div className="mt-1 flex items-center justify-between">
@@ -688,7 +688,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                           navigator.clipboard.writeText(
                             myWalletInfo.internalWalletPk
                           );
-                          toast.success("Chiave privata copiata!");
+                          toast.success("Private key copied!");
                         }}
                         className="p-1 hover:bg-gray-200 rounded"
                       >
@@ -718,128 +718,127 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           </div>
         )}
 
-        {/* Aggiungi il selettore del tipo di invio */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Tipo di invio
-          </label>
-          <div className="flex space-x-4">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="contact"
-                checked={sendType === "contact"}
-                onChange={(e) => setSendType(e.target.value)}
-                className="mr-2"
-              />
-              <span className="text-sm">Contatto</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="custom"
-                checked={sendType === "custom"}
-                onChange={(e) => setSendType(e.target.value)}
-                className="mr-2"
-              />
-              <span className="text-sm">Indirizzo personalizzato</span>
-            </label>
-          </div>
-        </div>
+        {/* Send section */}
+        <div className="mt-6">
+          <h4 className="text-lg font-medium mb-4">
+            Send {selectedChain?.symbol}
+          </h4>
 
-        {/* Destinatario condizionale */}
-        {sendType === "contact" ? (
-          <div className="break-all">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Destinatario
-            </label>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm font-medium">{selectedUser.alias}</p>
-              <p className="text-xs text-gray-500">
-                Chiave pubblica: {selectedUser.pub.slice(0, 8)}...
-              </p>
-              {recipientWalletInfo?.address && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Indirizzo Wallet: {recipientWalletInfo.address}
-                </p>
-              )}
+          <div className="space-y-4">
+            {/* Send type selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Send to
+              </label>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setSendType("contact")}
+                  className={`flex-1 py-2 px-4 rounded-lg ${
+                    sendType === "contact"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  Contact
+                </button>
+                <button
+                  onClick={() => setSendType("address")}
+                  className={`flex-1 py-2 px-4 rounded-lg ${
+                    sendType === "address"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  Address
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Indirizzo POL
-            </label>
-            <input
-              type="text"
-              value={customAddress}
-              onChange={(e) => setCustomAddress(e.target.value)}
-              placeholder="0x..."
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        )}
 
-        {/* Importo */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Importo (POL)
-          </label>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.0"
-            step="0.0001"
-            min="0"
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-
-        {/* Aggiungi il toggle per la modalità stealth */}
-        {sendType === "contact" && (
-          <div className="mt-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={isStealthMode}
-                onChange={(e) => setIsStealthMode(e.target.checked)}
-                className="form-checkbox h-4 w-4 text-blue-500"
-              />
-              <span className="text-sm text-gray-700">
-                Usa pagamento stealth
-              </span>
-            </label>
-            {isStealthMode && (
-              <p className="mt-1 text-xs text-gray-500">
-                Il pagamento stealth offre maggiore privacy nascondendo
-                l'indirizzo del destinatario
-              </p>
+            {/* Recipient info */}
+            {sendType === "contact" ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Recipient
+                </label>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <div className="font-medium">{selectedUser?.username}</div>
+                  {recipientWalletInfo?.address && (
+                    <div className="text-sm text-gray-500 truncate">
+                      {recipientWalletInfo.address}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Recipient Address
+                </label>
+                <input
+                  type="text"
+                  value={customAddress}
+                  onChange={(e) => setCustomAddress(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter wallet address..."
+                />
+              </div>
             )}
-          </div>
-        )}
 
-        {/* Pulsante invio */}
-        <button
-          onClick={handleSend}
-          disabled={
-            isLoading || !amount || (sendType === "custom" && !customAddress)
-          }
-          className={`w-full py-2 rounded-lg bg-blue-500 text-white transition-colors ${
-            isLoading || !amount || (sendType === "custom" && !customAddress)
-              ? "opacity-50 cursor-not-allowed"
-              : "hover:bg-blue-600"
-          }`}
-        >
-          {isLoading ? (
-            <div className="flex items-center justify-center">
-              <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
-              Invio in corso...
+            {/* Amount */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg pr-16"
+                  placeholder="0.0"
+                />
+                <span className="absolute right-3 top-2 text-gray-500">
+                  {selectedChain?.symbol}
+                </span>
+              </div>
             </div>
-          ) : (
-            "Invia"
-          )}
-        </button>
+
+            {/* Stealth mode toggle */}
+            {sendType === "contact" && (
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={isStealthMode}
+                  onChange={(e) => setIsStealthMode(e.target.checked)}
+                  className="mr-2"
+                />
+                <label className="text-sm text-gray-700">Stealth mode</label>
+              </div>
+            )}
+
+            {/* Send button */}
+            <button
+              onClick={handleSend}
+              disabled={
+                isLoading ||
+                !amount ||
+                (sendType === "address" && !customAddress) ||
+                (sendType === "contact" && !recipientWalletInfo?.address)
+              }
+              className={`w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
+                ${
+                  isLoading ||
+                  !amount ||
+                  (sendType === "address" && !customAddress) ||
+                  (sendType === "contact" && !recipientWalletInfo?.address)
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                }`}
+            >
+              {isLoading ? "Sending..." : "Send"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -880,7 +879,7 @@ export default function Messages({ chatData }) {
   );
   const messagesContainerRef = useRef(null);
   const [chatUserInfo, setChatUserInfo] = React.useState({
-    displayName: selected?.name || "Caricamento...",
+    displayName: selected?.name || "Loading...",
     username: "",
     nickname: "",
   });
@@ -897,7 +896,7 @@ export default function Messages({ chatData }) {
       }
 
       try {
-        // Se è una chat privata
+        // If it's a private chat
         if (!chatData.type || chatData.type === "friend") {
           const messageCert = await gun
             .get(DAPP_NAME)
@@ -917,27 +916,27 @@ export default function Messages({ chatData }) {
             setCanWrite(true);
           }
         }
-        // Se è un canale o una bacheca
+        // If it's a channel or board
         else if (chatData.type === "channel" || chatData.type === "board") {
-          // Se è il creatore, può sempre scrivere
+          // If creator, can always write
           if (chatData.creator === user?.is?.pub) {
             setCanWrite(true);
             return;
           }
 
-          // Se è un canale, solo il creatore può scrivere
+          // If channel, only creator can write
           if (chatData.type === "channel") {
             setCanWrite(chatData.creator === user.is.pub);
             return;
           }
 
-          // Se è una bacheca, tutti i membri possono scrivere
+          // If board, all members can write
           if (chatData.type === "board") {
             setCanWrite(true);
           }
         }
       } catch (error) {
-        console.error("Errore verifica permessi:", error);
+        console.error("Error checking permissions:", error);
         setCanWrite(false);
       }
     };
@@ -945,7 +944,7 @@ export default function Messages({ chatData }) {
     checkPermissions();
   }, [chatData, user?.is]);
 
-  // Usa useCallback per le funzioni che non devono essere ricreate
+  // Use useCallback for functions that shouldn't be recreated
   const handleMessageVisible = useCallback(
     (messageId) => {
       if (!selected?.pub || !selected?.roomId) return;
@@ -957,13 +956,13 @@ export default function Messages({ chatData }) {
     [selected?.pub, selected?.roomId, messages]
   );
 
-  // Crea l'observer per i messaggi
+  // Create the observer for messages
   const messageObserver = useIntersectionObserver(handleMessageVisible, [
     selected?.pub,
     selected?.roomId,
   ]);
 
-  // Modifica la funzione loadMoreMessages
+  // Modify the loadMoreMessages function
   const loadMoreMessages = async () => {
     if (isLoadingMore || !hasMoreMessages) return;
 
@@ -984,11 +983,11 @@ export default function Messages({ chatData }) {
         id = selected.id;
       }
 
-      // Usa il limite configurabile dal messageList
+      // Use configurable limit from messageList
       const olderMessages = await messaging.chat.messageList.loadMessages(
         path,
         id,
-        null, // Usa il limite predefinito configurato in messageList
+        null, // Use default limit configured in messageList
         oldestMessageTimestamp
       );
 
@@ -997,7 +996,7 @@ export default function Messages({ chatData }) {
         return;
       }
 
-      // Processa i messaggi come prima
+      // Process messages as before
       let processedMessages = [];
       if (selected.type === "friend") {
         processedMessages = await Promise.all(
@@ -1016,7 +1015,7 @@ export default function Messages({ chatData }) {
               console.warn("Error decrypting message:", error);
               return {
                 ...msg,
-                content: "[Chiave di decrittazione non trovata]",
+                content: "[Decryption key not found]",
               };
             }
           })
@@ -1025,13 +1024,13 @@ export default function Messages({ chatData }) {
         processedMessages = olderMessages;
       }
 
-      // Aggiorna il timestamp del messaggio più vecchio
+      // Update oldest message timestamp
       const newOldestTimestamp = Math.min(
         ...processedMessages.map((msg) => msg.timestamp)
       );
       setOldestMessageTimestamp(newOldestTimestamp);
 
-      // Aggiungi i nuovi messaggi mantenendo l'ordine
+      // Add new messages maintaining order
       setMessages((prevMessages) => {
         const allMessages = [...prevMessages, ...processedMessages];
         return allMessages.sort((a, b) => a.timestamp - b.timestamp);
@@ -1068,19 +1067,19 @@ export default function Messages({ chatData }) {
     setIsSubscribed(true);
     setLoading(true);
     setIsInitializing(true);
-    setMessages([]); // Reset immediato dei messaggi
+    setMessages([]); // Immediate reset of messages
 
     const setupChat = async () => {
       try {
-        // Verifica lo stato di blocco
+        // Check block status
         if (selected.type === "friend") {
           const blockStatus = await userBlocking.getBlockStatus(selected.pub);
           if (blockStatus.blocked || blockStatus.blockedBy) {
             setCanWrite(false);
             if (blockStatus.blocked) {
-              setError("Hai bloccato questo utente");
+              setError("You have blocked this user");
             } else {
-              setError("Questo utente ti ha bloccato");
+              setError("This user has blocked you");
             }
             setLoading(false);
             setIsInitializing(false);
@@ -1088,7 +1087,7 @@ export default function Messages({ chatData }) {
           }
         }
 
-        // Pulisci le sottoscrizioni precedenti
+        // Clean previous subscriptions
         if (messageSubscriptionRef.current) {
           if (typeof messageSubscriptionRef.current === "function") {
             messageSubscriptionRef.current();
@@ -1098,7 +1097,7 @@ export default function Messages({ chatData }) {
           messageSubscriptionRef.current = null;
         }
 
-        // Determina il percorso
+        // Determine path
         let path =
           selected.type === "friend"
             ? "chats"
@@ -1107,17 +1106,17 @@ export default function Messages({ chatData }) {
             : "boards";
         let id = selected.type === "friend" ? selected.roomId : selected.id;
 
-        // Carica i messaggi iniziali usando il limite configurabile
+        // Load initial messages using configurable limit
         const existingMessages = await messaging.chat.messageList.loadMessages(
           path,
           id,
-          null, // Usa il limite predefinito configurato in messageList
+          null, // Use default limit configured in messageList
           Date.now()
         );
 
         if (!isSubscribed) return;
 
-        // Processa i messaggi
+        // Process messages
         let processedMessages =
           selected.type === "friend"
             ? await Promise.all(
@@ -1136,14 +1135,14 @@ export default function Messages({ chatData }) {
                     console.warn("Error decrypting message:", error);
                     return {
                       ...msg,
-                      content: "[Chiave di decrittazione non trovata]",
+                      content: "[Decryption key not found]",
                     };
                   }
                 })
               )
             : existingMessages;
 
-        // Aggiorna i messaggi solo se siamo ancora sottoscritti
+        // Update messages only if we're still subscribed
         if (isSubscribed) {
           if (processedMessages.length > 0) {
             setMessages(
@@ -1157,7 +1156,7 @@ export default function Messages({ chatData }) {
           setIsInitializing(false);
         }
 
-        // Sottoscrivi ai nuovi messaggi
+        // Subscribe to new messages
         const messageHandler = messaging.chat.messageList.subscribeToMessages(
           path,
           id,
@@ -1396,10 +1395,10 @@ export default function Messages({ chatData }) {
 
       await chat.messageList.deleteMessage(path, id, messageId);
       setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
-      toast.success("Messaggio eliminato");
+      toast.success("Message deleted");
     } catch (error) {
       console.error("Error deleting message:", error);
-      toast.error("Errore durante l'eliminazione del messaggio");
+      toast.error("Error deleting message");
     }
   };
 
