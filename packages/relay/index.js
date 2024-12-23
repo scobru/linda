@@ -26,26 +26,34 @@ const port = 8765;
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: app,
-  multicast: false, // Disabilita multicast per il relay remoto
-  host: process.env.HOST || "0.0.0.0", // Ascolta su tutte le interfacce
+  multicast: false,
+  host: process.env.HOST || "0.0.0.0",
   port: port,
   peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
   radisk: true,
   file: "./radata",
   axe: true,
-  super: true, // Abilita modalità super peer
-  // Configurazione di rete
-  network: {
-    retry: 2000, // Retry ogni 2 secondi
-    max: 3, // Massimo 3 tentativi
-    silent: false, // Log degli errori di rete
-  },
-  // Configurazione WebSocket
-  ws: {
-    path: "/gun", // Path per le connessioni WebSocket
-    maxPayload: 2 * 1024 * 1024, // 2MB max payload
-    keepalive: true,
-    keepaliveInterval: 30000, // 30 secondi
+  super: true,
+  // Configurazione WebSocket migliorata
+  websocket: {
+    path: "/gun",
+    server: null, // Sarà impostato dopo la creazione del server HTTP
+    maxPayload: 2 * 1024 * 1024,
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 7,
+        level: 3,
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024,
+      },
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+      serverMaxWindowBits: 10,
+      concurrencyLimit: 10,
+      threshold: 1024,
+    },
   },
 };
 
@@ -658,13 +666,65 @@ async function initializeServer() {
     // Crea il server HTTP
     const server = http.createServer(app);
 
-    // Configura Gun con il server HTTP
+    // Configura WebSocket Server
+    const wss = new WebSocket.Server({
+      server: server,
+      path: "/gun",
+      perMessageDeflate: GUN_CONFIG.websocket.perMessageDeflate,
+      maxPayload: GUN_CONFIG.websocket.maxPayload,
+    });
+
+    // Gestione eventi WebSocket
+    wss.on("connection", (ws, req) => {
+      console.log("New WebSocket connection from:", req.socket.remoteAddress);
+
+      ws.on("message", (message) => {
+        try {
+          const data = JSON.parse(message);
+          if (data.put) {
+            metrics.putOperations++;
+            metrics.bytesTransferred += message.length;
+          }
+          if (data.get) {
+            metrics.getOperations++;
+            metrics.bytesTransferred += message.length;
+          }
+        } catch (error) {
+          console.error("Invalid WebSocket message:", error);
+        }
+      });
+
+      ws.on("error", (error) => {
+        console.error("WebSocket error:", error);
+      });
+
+      ws.on("close", () => {
+        console.log("WebSocket connection closed");
+      });
+
+      // Ping/Pong per mantenere la connessione attiva
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      }, 30000);
+
+      ws.on("close", () => {
+        clearInterval(pingInterval);
+      });
+    });
+
+    // Aggiorna la configurazione Gun con il server WebSocket
     const gunConfig = {
       ...GUN_CONFIG,
       web: server,
+      websocket: {
+        ...GUN_CONFIG.websocket,
+        server: wss,
+      },
     };
 
-    // Inizializza Gun con la configurazione
+    // Inizializza Gun con la configurazione aggiornata
     gun = new Gun(gunConfig);
 
     // Abilita il debug per Gun
@@ -677,13 +737,8 @@ async function initializeServer() {
     // Avvia il server HTTP
     server.listen(port, GUN_CONFIG.host, () => {
       console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
+      console.log("WebSocket server enabled on /gun");
       console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
-      console.log("Gun server started with config:", {
-        port: port,
-        host: GUN_CONFIG.host,
-        peers: GUN_CONFIG.peers,
-        super: GUN_CONFIG.super,
-      });
     });
 
     // Gestione errori del server
@@ -692,26 +747,6 @@ async function initializeServer() {
       if (error.code === "EADDRINUSE") {
         console.error(`Port ${port} is already in use`);
       }
-    });
-
-    // Gestione connessioni WebSocket
-    const wss = new WebSocket.Server({ server });
-
-    wss.on("connection", (ws, req) => {
-      console.log("New WebSocket connection from:", req.socket.remoteAddress);
-
-      ws.on("message", (message) => {
-        try {
-          const data = JSON.parse(message);
-          console.log("WebSocket message:", data);
-        } catch (error) {
-          console.error("Invalid WebSocket message:", error);
-        }
-      });
-
-      ws.on("error", (error) => {
-        console.error("WebSocket error:", error);
-      });
     });
 
     // Inizializza Mogu se abilitato

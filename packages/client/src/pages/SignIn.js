@@ -29,31 +29,50 @@ export default function SignIn() {
     const toastId = toast.loading("Signing in...");
 
     try {
-      console.log("user.is", user.is);
-      // Pulisci lo stato precedente
+      // Pulisci lo stato precedente e attendi che sia completato
       if (user.is) {
         user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
-      const result = await authentication.loginUser(
-        { username, password },
-        (response) => {
-          console.log("Login response:", response);
-          if (response.success) {
-            return response;
+      // Tentativo di login con retry
+      let loginAttempts = 0;
+      let loginSuccess = false;
+      let loginResult = null;
+
+      while (loginAttempts < maxRetries && !loginSuccess) {
+        try {
+          loginResult = await new Promise((resolve, reject) => {
+            authentication.loginUser({ username, password }, (response) => {
+              console.log("Login response:", response);
+              if (response.success) {
+                resolve(response);
+              } else {
+                reject(new Error(response.errMessage || "Login failed"));
+              }
+            });
+          });
+          loginSuccess = true;
+        } catch (error) {
+          loginAttempts++;
+          if (loginAttempts < maxRetries) {
+            console.log(`Login attempt ${loginAttempts} failed, retrying...`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
           } else {
-            console.log("Login failed");
+            throw error;
           }
         }
-      );
+      }
 
-      console.log(result);
+      if (!loginSuccess || !loginResult) {
+        throw new Error("Login failed after multiple attempts");
+      }
 
       // Verifica che l'utente sia effettivamente autenticato
       let attempts = 0;
-      const maxAttempts = 20;
+      const maxAuthAttempts = 20;
 
-      while (attempts < maxAttempts && !user?.is?.pub) {
+      while (attempts < maxAuthAttempts && !user?.is?.pub) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         attempts++;
       }
