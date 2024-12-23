@@ -49,7 +49,7 @@ export default function Register() {
       const isConnected = await checkGunConnectionWithRetry();
       setIsGunConnected(isConnected);
       if (!isConnected) {
-        toast.error("Impossibile connettersi al nodo Gun. Riprova più tardi.");
+        toast.error("Unable to connect to Gun node. Please try again later.");
       }
     };
 
@@ -69,12 +69,12 @@ export default function Register() {
   const handleRegister = async () => {
     if (isLoading) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Inserisci username e password");
+      toast.error("Please enter username and password");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Registrazione in corso...");
+    const toastId = toast.loading("Registration in progress...");
 
     try {
       const result = await new Promise((resolve, reject) => {
@@ -82,18 +82,20 @@ export default function Register() {
           if (response.success) {
             resolve(response);
           } else {
-            reject(new Error(response.errMessage || "Errore durante la registrazione"));
+            reject(
+              new Error(response.errMessage || "Error during registration")
+            );
           }
         });
       });
 
-      toast.success("Registrazione completata", { id: toastId });
+      toast.success("Registration completed", { id: toastId });
       setTimeout(() => {
         navigate("/signin", { replace: true });
       }, 1500);
     } catch (error) {
       console.error("Registration error:", error);
-      toast.error(error.message || "Errore durante la registrazione", {
+      toast.error(error.message || "Error during registration", {
         id: toastId,
       });
     } finally {
@@ -103,65 +105,62 @@ export default function Register() {
 
   const handleMetaMaskRegister = async () => {
     if (!address) {
-      toast.error("Connetti prima il tuo wallet MetaMask");
+      toast.error("Please connect your MetaMask wallet first");
       return;
     }
 
-    // Chiedi conferma prima di procedere
+    // Ask for confirmation before proceeding
     const wantsToSign = window.confirm(
-      "Per completare la registrazione è necessario firmare un messaggio con MetaMask. Vuoi procedere?"
+      "To complete the registration, you need to sign a message with MetaMask. Do you want to proceed?"
     );
-    
+
     if (!wantsToSign) {
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Registrazione con MetaMask in corso...");
+    const toastId = toast.loading("Registering with MetaMask...");
 
     try {
-      console.log("Inizio registrazione con indirizzo:", address);
+      console.log("Starting registration with address:", address);
 
-      // Verifica che l'indirizzo non sia già registrato
+      // Check if address is already registered
       const existingUser = await gun
         .get(`${DAPP_NAME}/users`)
         .get(address)
         .once();
       if (existingUser) {
-        throw new Error("Questo indirizzo è già registrato");
+        throw new Error("This address is already registered");
       }
 
       const result = await authentication.registerWithMetaMask(address);
 
       if (result.success) {
-        toast.success("Registrazione completata con successo", { id: toastId });
-        // Aumentato ulteriormente il timeout
+        toast.success("Registration completed successfully", { id: toastId });
         setTimeout(() => {
           navigate("/signin", { replace: true });
         }, 5000);
       } else {
-        throw new Error(
-          result.error || "Errore sconosciuto durante la registrazione"
-        );
+        throw new Error(result.error || "Unknown error during registration");
       }
     } catch (error) {
-      console.error("Errore dettagliato registrazione MetaMask:", {
+      console.error("Detailed MetaMask registration error:", {
         message: error.message,
         stack: error.stack,
         error,
       });
 
-      let errorMessage = "Errore durante la registrazione";
+      let errorMessage = "Error during registration";
 
       if (error.message.includes("Timeout")) {
         errorMessage =
-          "Timeout durante la registrazione. Il server potrebbe essere sovraccarico, riprova tra qualche minuto.";
+          "Registration timeout. The server might be overloaded, please try again in a few minutes.";
       } else if (error.message.includes("Malformed UTF-8")) {
         errorMessage =
-          "Errore nella codifica dei dati. Prova a disconnettere e riconnettere MetaMask.";
-      } else if (error.message.includes("già registrato")) {
+          "Data encoding error. Try disconnecting and reconnecting MetaMask.";
+      } else if (error.message.includes("already registered")) {
         errorMessage =
-          "Questo indirizzo è già registrato. Prova ad accedere invece.";
+          "This address is already registered. Try signing in instead.";
       }
 
       toast.error(errorMessage, { id: toastId });
@@ -179,9 +178,9 @@ export default function Register() {
   return (
     <div className="w-screen h-screen flex flex-col justify-center items-center bg-gray-50">
       <div className="text-center -mt-24">
-        <h2 className="text-4xl mb-8">Registrati</h2>
+        <h2 className="text-4xl mb-8">Sign Up</h2>
 
-        {/* Bottoni per scegliere il metodo di registrazione */}
+        {/* Registration method selection buttons */}
         <div className="flex justify-center gap-2 mb-6">
           <button
             onClick={() => setRegistrationMethod("traditional")}
@@ -206,7 +205,7 @@ export default function Register() {
         </div>
 
         {registrationMethod === "traditional" ? (
-          // Form tradizionale
+          // Traditional form
           <div className="flex flex-col place-items-center">
             <input
               className="w-80 h-14 rounded-full text-center border border-gray-300 mb-3"
@@ -234,7 +233,7 @@ export default function Register() {
               {isLoading ? (
                 <div className="flex items-center justify-center">
                   <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Registrazione in corso...
+                  Registration in progress...
                 </div>
               ) : (
                 "Sign me up!"
@@ -242,7 +241,7 @@ export default function Register() {
             </button>
           </div>
         ) : (
-          // Sezione MetaMask
+          // MetaMask section
           <div className="flex flex-col items-center">
             <div className="w-80 mb-3">
               <ConnectButton.Custom>
@@ -274,7 +273,7 @@ export default function Register() {
                               type="button"
                               className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
                             >
-                              Connetti Wallet
+                              Connect Wallet
                             </button>
                           );
                         }
@@ -285,7 +284,7 @@ export default function Register() {
                               type="button"
                               className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
                             >
-                              Registrati con {account.displayName}
+                              Register with {account.displayName}
                             </button>
                           </div>
                         );
@@ -301,13 +300,13 @@ export default function Register() {
         <div className="flex flex-col gap-3 mt-6">
           <Link to="/signin">
             <button className="w-80 h-14 bg-white hover:bg-gray-100 text-blue-500 font-bold rounded-full border-2 border-blue-500">
-              Hai già un account? Accedi
+              Already have an account? Sign In
             </button>
           </Link>
 
           <Link to="/landing">
             <button className="w-80 h-14 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-full">
-              Torna indietro
+              Go Back
             </button>
           </Link>
         </div>

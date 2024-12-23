@@ -6,12 +6,12 @@ const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const { Mogu } = require("@scobru/mogu");
-const http = require('http');
-const WebSocket = require('ws');
+const http = require("http");
+const WebSocket = require("ws");
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
-const MULTICAST_ADDRESS = '239.255.255.250';
+const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
 
 // Importazioni Gun necessarie
@@ -28,15 +28,15 @@ const GUN_CONFIG = {
   web: app,
   multicast: {
     address: MULTICAST_ADDRESS,
-    port: MULTICAST_PORT
+    port: MULTICAST_PORT,
   },
-  radisk: true,           // mantieni radisk per la persistenza su filesystem
-  localStorage: false,     // disabilita localStorage
-  store: false,           // disabilita store generico
-  rindexed: false,        // disabilita IndexedDB
-  file: "./radata",       // mantieni il path per radisk
+  radisk: true, // mantieni radisk per la persistenza su filesystem
+  localStorage: false, // disabilita localStorage
+  store: false, // disabilita store generico
+  rindexed: false, // disabilita IndexedDB
+  file: "./radata", // mantieni il path per radisk
   axe: true,
-  peers: process.env.PEERS ? process.env.PEERS.split(',') : []
+  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
 };
 
 // Configurazione
@@ -45,9 +45,22 @@ const CONFIG = {
     enabled: !!(process.env.PINATA_API_KEY && process.env.PINATA_API_SECRET),
     service: "PINATA",
     config: {
-      apiKey: process.env.PINATA_API_KEY || "",
-      apiSecret: process.env.PINATA_API_SECRET || "",
+      pinataJwt: process.env.PINATA_API_KEY || "",
+      pinataGateway: process.env.PINATA_GATEWAY || "",
     },
+  },
+  features: {
+    encryption: {
+      enabled: true,
+      algorithm: "aes-256-gcm",
+    },
+    useIPFS: false,
+  },
+  performance: {
+    chunkSize: 1024 * 1024, // 1MB
+    maxConcurrent: 3,
+    cacheEnabled: true,
+    cacheSize: 100,
   },
 };
 
@@ -171,7 +184,7 @@ const metrics = {
 
 // Aggiungi variabile per tracciare l'ultimo backup
 let lastBackupTime = 0;
-const BACKUP_COOLDOWN = 2 * 60 * 1000; // 2 minuti di cooldown tra i backup
+const BACKUP_INTERVAL = 5 * 60 * 1000; // 30 minuti
 
 // Aggiungi le costanti per il retry
 const MAX_RETRIES = 3;
@@ -179,48 +192,75 @@ const RETRY_DELAY = 1000;
 
 // Modifica la funzione performBackup per gestire correttamente l'hash
 async function performBackup() {
-  if (!mogu || !CONFIG.STORAGE.enabled) {
-    console.log("Backup skipped: mogu not initialized or storage disabled");
-    return;
+  // Verifica se Mogu è inizializzato e se abbiamo le credenziali Pinata
+  if (!mogu) {
+    console.log("Backup skipped: mogu not initialized");
+    return false;
+  }
+
+  if (!process.env.PINATA_JWT) {
+    console.log(
+      "Backup skipped: PINATA_JWT not found in environment variables"
+    );
+    return false;
   }
 
   let retries = 0;
   while (retries < MAX_RETRIES) {
     try {
-      console.log(`Tentativo di backup ${retries + 1}/${MAX_RETRIES}`);
-      const backupResult = await mogu.backup();
+      console.log(`Backup attempt ${retries + 1}/${MAX_RETRIES}`);
 
-      // Estrai l'hash dal risultato del backup
-      const hash = backupResult?.hash || backupResult;
-      
-      if (hash) {
-        console.log("New backup created with hash:", hash);
+      // Verifica se la directory radata esiste e non è vuota
+      if (
+        !fs.existsSync("./radata") ||
+        fs.readdirSync("./radata").length === 0
+      ) {
+        console.log(
+          "Backup skipped: radata directory is empty or does not exist"
+        );
+        return false;
+      }
+
+      const backupOptions = {
+        encryption: CONFIG.features.encryption,
+        metadata: {
+          timestamp: Date.now(),
+          appName: DAPP_NAME,
+          version: "1.0",
+        },
+      };
+
+      const backupResult = await mogu.backup("./radata", backupOptions);
+
+      if (backupResult?.hash) {
+        console.log("New backup created with hash:", backupResult.hash);
         lastBackupTime = Date.now();
-        
+
         const radataSize = getRadataSize();
-        
-        // Aggiorna le metriche con l'hash corretto
+
         metrics.backups.lastBackup = {
-          hash: typeof hash === 'object' ? JSON.stringify(hash) : hash,
+          hash: backupResult.hash,
           time: new Date().toISOString(),
           size: radataSize,
-          link: `https://gateway.pinata.cloud/ipfs/${typeof hash === 'object' ? hash.hash || hash : hash}`
+          link: `https://gateway.pinata.cloud/ipfs/${backupResult.hash}`,
         };
-        
+
         metrics.backups.stats.successful++;
         metrics.backups.stats.total++;
-        
+
         return true;
+      } else {
+        throw new Error("Backup completed but no hash was returned");
       }
     } catch (error) {
       retries++;
-      console.error(`Tentativo di backup ${retries} fallito:`, error);
+      console.error(`Backup attempt ${retries} failed:`, error.message);
 
       if (retries < MAX_RETRIES) {
-        console.log(`Attendo ${RETRY_DELAY}ms prima del prossimo tentativo...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        console.log(`Waiting ${RETRY_DELAY}ms before next attempt...`);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
       } else {
-        console.error("Tutti i tentativi di backup sono falliti");
+        console.error("All backup attempts failed");
         metrics.backups.stats.failed++;
         metrics.backups.stats.total++;
       }
@@ -230,132 +270,40 @@ async function performBackup() {
   return false;
 }
 
-// Modifica l'inizializzazione del server
-async function initializeServer() {
-  try {
-    // Crea il server HTTP
-    const server = http.createServer(app);
-    
-    // Configura Gun con il server HTTP invece di express
-    const gunConfig = {
-      ...GUN_CONFIG,
-      web: server  // Usa il server HTTP invece di app
-    };
+// Funzione per verificare se è il momento di fare un backup
+const shouldPerformBackup = () => {
+  const now = Date.now();
+  return now - lastBackupTime >= BACKUP_INTERVAL;
+};
 
-    // Inizializza Gun con la configurazione
-    gun = new Gun(gunConfig);
-    console.log("Gun server started");
-
-    // Avvia il server HTTP
-    server.listen(port, () => {
-      console.log(`Relay listening at http://localhost:${port}`);
-    });
-
-    // Inizializza Mogu se abilitato
-    if (CONFIG.STORAGE.enabled) {
-      mogu = new Mogu({
-        key: "", // chiave opzionale
-        storageService: CONFIG.STORAGE.service,
-        storageConfig: CONFIG.STORAGE.config,
-        server: gun,
-        useIPFS: false // disabilita IPFS
-      });
-
-      try {
-        console.log("Mogu initialized successfully");
-
-        // Verifica e ripristina l'ultimo backup se esiste
-        const lastBackup = metrics.backups.lastBackup.hash;
-        if (lastBackup) {
-          const comparison = await mogu.compareBackup(lastBackup);
-          if (comparison.isEqual) {
-            await mogu.restore(lastBackup);
-            console.log("Last backup restored successfully");
-          }
-        }
-      } catch (error) {
-        console.error("Error initializing Mogu:", error);
-      }
-    }
-
-    initializeGunListeners(gun, mogu);
-
-    app.use(Gun.serve);
-
-    // Tracking connessioni WebSocket
-    server.on("connection", (socket) => {
-      metrics.connections++;
-      console.log(`Nuova connessione - Totale: ${metrics.connections}`);
-
-      socket.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(`Connessione chiusa - Totale: ${metrics.connections}`);
-      });
-    });
-
-    // Tracking eventi Gun
-    gun.on("hi", (peer) => {
-      metrics.connections++;
-      console.log(
-        `Peer connesso: ${peer.id || "unknown"} - Totale: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    gun.on("bye", (peer) => {
-      metrics.connections = Math.max(0, metrics.connections - 1);
-      console.log(
-        `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    return { gun, mogu };
-  } catch (error) {
-    console.error("Error initializing server:", error);
-    process.exit(1);
+// Scheduler per i backup
+const scheduleBackup = async () => {
+  if (shouldPerformBackup()) {
+    console.log("Starting scheduled backup...");
+    await performBackup();
   }
-}
+};
 
-// Inizializza il server
-initializeServer()
-  .then(({ gun: g, mogu: m }) => {
-    gun = g;
-    mogu = m;
-    console.log("Server initialized successfully");
-  })
-  .catch((error) => {
-    console.error("Failed to start server:", error);
-    process.exit(1);
-  });
-
-// Variabili per il monitoraggio CPU
-let lastCPUUsage = process.cpuUsage();
-let lastCPUTime = Date.now();
-
-// Funzione getCPUUsage
-function getCPUUsage() {
+// Modifica la funzione syncGlobalMetrics per gestire l'inizializzazione
+async function syncGlobalMetrics() {
   try {
-    const currentUsage = process.cpuUsage();
-    const currentTime = Date.now();
-    
-    const userDiff = currentUsage.user - lastCPUUsage.user;
-    const systemDiff = currentUsage.system - lastCPUUsage.system;
-    const timeDiff = currentTime - lastCPUTime;
-    
-    const cpuPercent = Math.min(100, Math.max(0, 
-      (userDiff + systemDiff) / (timeDiff * 1000) * 100
-    ));
-    
-    lastCPUUsage = currentUsage;
-    lastCPUTime = currentTime;
-    
-    return cpuPercent;
+    await waitForGunInit();
+    gun
+      .get(DAPP_NAME)
+      .get("globalMetrics")
+      .once((data) => {
+        if (data) {
+          const cleanMetrics = {};
+          Object.entries(data).forEach(([key, value]) => {
+            if (key !== "_" && key !== "#" && key !== ">") {
+              cleanMetrics[key] = Number(value);
+            }
+          });
+          console.log("Metriche globali sincronizzate:", cleanMetrics);
+        }
+      });
   } catch (error) {
-    console.error('Error getting CPU usage:', error);
-    return 0;
+    console.error("Errore durante la sincronizzazione delle metriche:", error);
   }
 }
 
@@ -368,22 +316,22 @@ function getMemoryUsage() {
       heapTotal: used.heapTotal || 0,
       external: used.external || 0,
       rss: used.rss || 0,
-      arrayBuffers: used.arrayBuffers || 0
+      arrayBuffers: used.arrayBuffers || 0,
     };
   } catch (error) {
-    console.error('Error getting memory usage:', error);
+    console.error("Error getting memory usage:", error);
     return {
       heapUsed: 0,
       heapTotal: 0,
       external: 0,
       rss: 0,
-      arrayBuffers: 0
+      arrayBuffers: 0,
     };
   }
 }
 
 // Modifica l'endpoint delle metriche
-app.get('/metrics', (req, res) => {
+app.get("/metrics", (req, res) => {
   try {
     const memUsage = getMemoryUsage();
     const cpuUsage = getCPUUsage();
@@ -396,7 +344,7 @@ app.get('/metrics', (req, res) => {
       bytesTransferred: metrics.bytesTransferred || 0,
       storage: {
         radata: formatBytes(radataSize),
-        total: formatBytes(radataSize)
+        total: formatBytes(radataSize),
       },
       system: {
         cpu: [cpuUsage],
@@ -405,31 +353,31 @@ app.get('/metrics', (req, res) => {
           heapTotal: memUsage.heapTotal,
           formatted: {
             heapUsed: formatBytes(memUsage.heapUsed),
-            heapTotal: formatBytes(memUsage.heapTotal)
-          }
-        }
+            heapTotal: formatBytes(memUsage.heapTotal),
+          },
+        },
       },
       backups: metrics.backups || {
         lastBackup: {
           hash: null,
           time: null,
           size: 0,
-          link: '#'
+          link: "#",
         },
         stats: {
           total: 0,
           successful: 0,
-          failed: 0
-        }
-      }
+          failed: 0,
+        },
+      },
     };
 
     res.json(currentMetrics);
   } catch (error) {
-    console.error('Error serving metrics:', error);
+    console.error("Error serving metrics:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: "Internal server error",
     });
   }
 });
@@ -530,20 +478,21 @@ function initializeGunListeners(gun, mogu) {
     });
 
   // Tracking separato per board e canali
-  gun.get(DAPP_NAME)
-    .get('channels')
+  gun
+    .get(DAPP_NAME)
+    .get("channels")
     .map()
     .on((data, key) => {
       if (data && !processedEvents.has(key)) {
         processedEvents.add(key);
-        
+
         // Verifica il tipo di canale
-        if (data.type === 'channel') {
-          updateGlobalMetric('totalChannels', 1);
-          console.log('Nuovo canale creato:', data.name);
-        } else if (data.type === 'board') {
-          updateGlobalMetric('totalBoards', 1);
-          console.log('Nuova board creata:', data.name);
+        if (data.type === "channel") {
+          updateGlobalMetric("totalChannels", 1);
+          console.log("Nuovo canale creato:", data.name);
+        } else if (data.type === "board") {
+          updateGlobalMetric("totalBoards", 1);
+          console.log("Nuova board creata:", data.name);
         }
       }
     });
@@ -574,10 +523,7 @@ function updateGlobalMetric(metric, value = 1) {
       const newValue = current + value;
 
       // Usa gun direttamente invece di mogu
-      gun.get(DAPP_NAME)
-        .get("globalMetrics")
-        .get(metric)
-        .put(newValue);
+      gun.get(DAPP_NAME).get("globalMetrics").get(metric).put(newValue);
 
       // Aggiorna anche la metrica locale
       globalMetrics[metric] = newValue;
@@ -593,14 +539,14 @@ app.get("/global-metrics", (req, res) => {
   try {
     const cleanMetrics = {};
     Object.entries(globalMetrics).forEach(([key, value]) => {
-      cleanMetrics[key] = typeof value === 'number' ? value : 0;
+      cleanMetrics[key] = typeof value === "number" ? value : 0;
     });
-    
+
     // Aggiungi il totale combinato di canali e board per retrocompatibilità
-    cleanMetrics.totalChannelsAndBoards = 
+    cleanMetrics.totalChannelsAndBoards =
       (cleanMetrics.totalChannels || 0) + (cleanMetrics.totalBoards || 0);
-    
-    console.log('Sending global metrics:', cleanMetrics);
+
+    console.log("Sending global metrics:", cleanMetrics);
     res.json(cleanMetrics);
   } catch (error) {
     console.error("Error fetching global metrics:", error);
@@ -653,7 +599,7 @@ const waitForGunInit = () => {
     if (gun && gun._.opt.peers && Object.keys(gun._.opt.peers).length > 0) {
       resolve();
     } else {
-      gun.on('hi', resolve);
+      gun.on("hi", resolve);
     }
   });
 };
@@ -678,5 +624,148 @@ async function syncGlobalMetrics() {
       });
   } catch (error) {
     console.error("Errore durante la sincronizzazione delle metriche:", error);
+  }
+}
+
+// Funzione di inizializzazione del server
+async function initializeServer() {
+  try {
+    // Crea il server HTTP
+    const server = http.createServer(app);
+
+    // Configura Gun con il server HTTP invece di express
+    const gunConfig = {
+      ...GUN_CONFIG,
+      web: server, // Usa il server HTTP invece di app
+    };
+
+    // Inizializza Gun con la configurazione
+    gun = new Gun(gunConfig);
+    console.log("Gun server started");
+
+    // Avvia il server HTTP
+    server.listen(port, () => {
+      console.log(`Relay listening at http://localhost:${port}`);
+    });
+
+    // Inizializza Mogu se abilitato
+    if (CONFIG.STORAGE.enabled) {
+      mogu = new Mogu({
+        storage: {
+          service: CONFIG.STORAGE.service,
+          config: CONFIG.STORAGE.config,
+        },
+        features: CONFIG.features,
+        performance: CONFIG.performance,
+        paths: {
+          backup: "./radata",
+          restore: "./radata",
+          storage: "./radata",
+          logs: "./logs",
+        },
+      });
+
+      try {
+        console.log("Mogu initialized successfully");
+
+        // Verifica e ripristina l'ultimo backup se esiste
+        const lastBackup = metrics.backups.lastBackup.hash;
+        if (lastBackup) {
+          const comparison = await mogu.compare(lastBackup, "./radata");
+          if (comparison && !comparison.totalChanges?.modified) {
+            await mogu.restore(lastBackup, "./radata");
+            console.log("Last backup restored successfully");
+          }
+        }
+      } catch (error) {
+        console.error("Error initializing Mogu:", error);
+      }
+    }
+
+    initializeGunListeners(gun, mogu);
+
+    app.use(Gun.serve);
+
+    // Tracking connessioni WebSocket
+    server.on("connection", (socket) => {
+      metrics.connections++;
+      console.log(`New connection - Total: ${metrics.connections}`);
+
+      socket.on("close", () => {
+        metrics.connections = Math.max(0, metrics.connections - 1);
+        console.log(`Connection closed - Total: ${metrics.connections}`);
+      });
+    });
+
+    // Tracking eventi Gun
+    gun.on("hi", (peer) => {
+      metrics.connections++;
+      console.log(
+        `Peer connected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
+    });
+
+    gun.on("bye", (peer) => {
+      metrics.connections = Math.max(0, metrics.connections - 1);
+      console.log(
+        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
+    });
+
+    return { gun, mogu };
+  } catch (error) {
+    console.error("Error initializing server:", error);
+    process.exit(1);
+  }
+}
+
+// Inizializza il server
+initializeServer()
+  .then(({ gun: g, mogu: m }) => {
+    gun = g;
+    mogu = m;
+    console.log("Server initialized successfully");
+
+    // Avvia lo scheduler dei backup
+    setInterval(scheduleBackup, 5 * 60 * 1000); // Controlla ogni 5 minuti
+
+    // Esegui il primo backup dopo 5 minuti dall'avvio
+    setTimeout(scheduleBackup, 5 * 60 * 1000);
+  })
+  .catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
+
+// Variabili per il monitoraggio CPU
+let lastCPUUsage = process.cpuUsage();
+let lastCPUTime = Date.now();
+
+// Funzione getCPUUsage
+function getCPUUsage() {
+  try {
+    const currentUsage = process.cpuUsage();
+    const currentTime = Date.now();
+
+    const userDiff = currentUsage.user - lastCPUUsage.user;
+    const systemDiff = currentUsage.system - lastCPUUsage.system;
+    const timeDiff = currentTime - lastCPUTime;
+
+    const cpuPercent = Math.min(
+      100,
+      Math.max(0, ((userDiff + systemDiff) / (timeDiff * 1000)) * 100)
+    );
+
+    lastCPUUsage = currentUsage;
+    lastCPUTime = currentTime;
+
+    return cpuPercent;
+  } catch (error) {
+    console.error("Error getting CPU usage:", error);
+    return 0;
   }
 }

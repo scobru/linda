@@ -1,12 +1,13 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
 import GunEthModule from './gun-eth.mjs';
+//import GunEthModule from '@scobru/gun-eth';
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ["http://localhost:8765/gun"];
+const DEFAULT_PEERS = ['http://localhost:8765/gun'];
 
 let isConnected = false;
 
@@ -18,14 +19,18 @@ export const gun = GunEth.initializeGun({
   localStorage: false,
   store: {
     // Override del metodo put per prevenire il salvataggio
-    put: function() { return },
+    put: function () {
+      return;
+    },
     // Override del metodo get per prevenire la lettura
-    get: function() { return }
+    get: function () {
+      return;
+    },
   },
   radisk: false,
   rindexed: false,
-  indexedDB: false,  // Disabilita esplicitamente IndexedDB
-  web: false         // Disabilita il web storage
+  indexedDB: false, // Disabilita esplicitamente IndexedDB
+  web: false, // Disabilita il web storage
 });
 
 // Inizializza l'utente

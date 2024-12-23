@@ -17,7 +17,7 @@
     "@rollup/plugin-commonjs": "^28.0.1",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.3.0",
-    "@scobru/gun-eth": "^1.0.0",
+    "@scobru/gun-eth": "^1.0.1",
     "gun": "^0.2020.1240",
     "gun-eth": "^3.0.2",
     "rollup-plugin-polyfill-node": "^0.13.0",

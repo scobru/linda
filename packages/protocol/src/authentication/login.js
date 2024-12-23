@@ -106,6 +106,12 @@ export const loginWithMetaMask = async (address) => {
           // Aggiorna metriche
           updateGlobalMetrics('totalLogins', 1);
 
+          // Crea i certificati in modo asincrono
+          await Promise.all([
+            createFriendRequestCertificate(),
+            createNotificationCertificate(),
+          ]);
+
           resolve({
             success: true,
             pub: userData.pub,
@@ -147,32 +153,33 @@ const loginUser = (credentials = {}, callback = () => {}) => {
 
   const loginPromise = new Promise(async (resolve, reject) => {
     try {
+      // Validazione input
       if (!credentials.username || !credentials.password) {
-        reject(new Error('Username e password sono richiesti'));
-        return;
+        throw new Error('Username e password sono richiesti');
       }
 
-      // Reset dello stato di autenticazione
+      // Reset completo dello stato di autenticazione
       if (user.is) {
         user.leave();
       }
 
-      // Verifica se l'utente esiste prima di tentare il login
+      // Pulizia aggressiva dello stato
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Verifica se l'utente esiste
       const userExists = await new Promise((resolve) => {
         gun.get(`~@${credentials.username}`).once((data) => {
           resolve(!!data);
         });
-        // Timeout più breve per la verifica dell'esistenza
         setTimeout(() => resolve(false), 3000);
       });
 
       if (!userExists) {
-        reject(new Error('Utente non trovato'));
-        return;
+        throw new Error('Utente non trovato');
       }
 
-      // Tenta l'autenticazione
-      await new Promise((resolve, reject) => {
+      // Tenta l'autenticazione una sola volta
+      const authResult = await new Promise((resolve, reject) => {
         user.auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
             reject(new Error(ack.err));
@@ -180,91 +187,97 @@ const loginUser = (credentials = {}, callback = () => {}) => {
           }
 
           try {
-            // Verifica che l'utente sia effettivamente autenticato
-            let authCheckAttempts = 0;
-            const maxAuthCheckAttempts = 10;
-            const checkAuth = setInterval(() => {
-              authCheckAttempts++;
-              if (user.is) {
-                clearInterval(checkAuth);
-                resolve();
-              } else if (authCheckAttempts >= maxAuthCheckAttempts) {
-                clearInterval(checkAuth);
-                reject(new Error('Verifica autenticazione fallita'));
-              }
-            }, 500);
+            // Verifica che l'utente sia autenticato
+            let attempts = 0;
+            const maxAttempts = 20;
+
+            while (attempts < maxAttempts && !user.is) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              attempts++;
+            }
+
+            if (!user.is) {
+              throw new Error('Verifica autenticazione fallita');
+            }
+
+            // Recupera i dati dell'utente
+            const userData = await new Promise((resolve) => {
+              gun
+                .get(DAPP_NAME)
+                .get('users')
+                .get(user.is.pub)
+                .once((data) => {
+                  resolve(data);
+                });
+              setTimeout(() => resolve(null), 3000);
+            });
+
+            if (!userData) {
+              throw new Error('Impossibile recuperare i dati utente');
+            }
+
+            // Decifra le chiavi
+            const [decryptedPair, decryptedVPair, decryptedSPair] =
+              await Promise.all([
+                gun.decryptWithPassword(
+                  userData.env_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_v_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_s_pair,
+                  credentials.password
+                ),
+              ]);
+
+            // Salva nel localStorage
+            const walletData = {
+              internalWalletAddress: userData.internalWalletAddress,
+              externalWalletAddress: userData.externalWalletAddress,
+              pair: decryptedPair,
+              v_Pair: decryptedVPair,
+              s_Pair: decryptedSPair,
+              viewingPublicKey: userData.viewingPublicKey,
+              spendingPublicKey: userData.spendingPublicKey,
+              credentials: {
+                username: credentials.username,
+                password: credentials.password,
+              },
+            };
+
+            localStorage.setItem(
+              `gunWallet_${user.is.pub}`,
+              JSON.stringify(walletData)
+            );
+
+            // Aggiorna metriche
+            updateGlobalMetrics('totalLogins', 1);
+
+            // Crea i certificati
+            await Promise.all([
+              createFriendRequestCertificate(),
+              createNotificationCertificate(),
+            ]);
+
+            resolve({
+              success: true,
+              pub: user.is.pub,
+              userData: userData,
+            });
           } catch (error) {
             reject(error);
           }
         });
       });
 
-      // Recupera i dati dell'utente
-      const userData = await new Promise((resolve) => {
-        gun
-          .get(DAPP_NAME)
-          .get('users')
-          .get(user.is.pub)
-          .once((data) => {
-            resolve(data);
-          });
-        setTimeout(() => resolve(null), 3000);
-      });
-
-      console.log('userData', userData);
-
-      if (!userData) {
-        throw new Error('Impossibile recuperare i dati utente');
-      }
-
-      // Decifra le chiavi
-      const [decryptedPair, decryptedVPair, decryptedSPair] = await Promise.all(
-        [
-          await gun.decryptWithPassword(
-            userData.env_pair,
-            credentials.password
-          ),
-          await gun.decryptWithPassword(
-            userData.env_v_pair,
-            credentials.password
-          ),
-          await gun.decryptWithPassword(
-            userData.env_s_pair,
-            credentials.password
-          ),
-        ]
-      );
-
-      // Salva nel localStorage
-      const walletData = {
-        internalWalletAddress: userData.internalWalletAddress,
-        externalWalletAddress: userData.externalWalletAddress,
-        pair: decryptedPair,
-        v_Pair: decryptedVPair,
-        s_Pair: decryptedSPair,
-        viewingPublicKey: userData.viewingPublicKey,
-        spendingPublicKey: userData.spendingPublicKey,
-        credentials: {
-          username: credentials.username,
-          password: credentials.password,
-        },
-      };
-
-      localStorage.setItem(
-        `gunWallet_${user.is.pub}`,
-        JSON.stringify(walletData)
-      );
-
-      // Aggiorna metriche
-      updateGlobalMetrics('totalLogins', 1);
-
-      resolve({
-        success: true,
-        pub: user.is.pub,
-        userData: userData,
-      });
+      resolve(authResult);
     } catch (error) {
-      console.error('Login error:', error);
+      if (user.is) {
+        user.leave();
+      }
       reject(error);
     }
   });
@@ -279,6 +292,7 @@ const loginUser = (credentials = {}, callback = () => {}) => {
     }, LOGIN_TIMEOUT);
   });
 
+  // Race tra login e timeout
   Promise.race([loginPromise, timeoutPromise])
     .then((result) => {
       clearTimeout(timeoutId);

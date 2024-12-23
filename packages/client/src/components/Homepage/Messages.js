@@ -963,7 +963,7 @@ export default function Messages({ chatData }) {
     selected?.roomId,
   ]);
 
-  // Funzione per caricare più messaggi
+  // Modifica la funzione loadMoreMessages
   const loadMoreMessages = async () => {
     if (isLoadingMore || !hasMoreMessages) return;
 
@@ -984,10 +984,11 @@ export default function Messages({ chatData }) {
         id = selected.id;
       }
 
+      // Usa il limite configurabile dal messageList
       const olderMessages = await messaging.chat.messageList.loadMessages(
         path,
         id,
-        20, // Carica 20 messaggi alla volta
+        null, // Usa il limite predefinito configurato in messageList
         oldestMessageTimestamp
       );
 
@@ -1003,11 +1004,10 @@ export default function Messages({ chatData }) {
           olderMessages.map(async (msg) => {
             try {
               if (
-                typeof msg.content === "string" &&
+                typeof msg.content !== "string" ||
                 !msg.content.startsWith("SEA{")
-              ) {
+              )
                 return msg;
-              }
               return await messaging.chat.messageList.decryptMessage(
                 msg,
                 selected.pub
@@ -1016,7 +1016,7 @@ export default function Messages({ chatData }) {
               console.warn("Error decrypting message:", error);
               return {
                 ...msg,
-                content: "[Messaggio non decifrabile]",
+                content: "[Chiave di decrittazione non trovata]",
               };
             }
           })
@@ -1107,11 +1107,11 @@ export default function Messages({ chatData }) {
             : "boards";
         let id = selected.type === "friend" ? selected.roomId : selected.id;
 
-        // Carica i messaggi iniziali
+        // Carica i messaggi iniziali usando il limite configurabile
         const existingMessages = await messaging.chat.messageList.loadMessages(
           path,
           id,
-          20,
+          null, // Usa il limite predefinito configurato in messageList
           Date.now()
         );
 
@@ -1123,14 +1123,21 @@ export default function Messages({ chatData }) {
             ? await Promise.all(
                 existingMessages.map(async (msg) => {
                   try {
-                    if (!msg.content.startsWith("SEA{")) return msg;
+                    if (
+                      typeof msg.content !== "string" ||
+                      !msg.content.startsWith("SEA{")
+                    )
+                      return msg;
                     return await messaging.chat.messageList.decryptMessage(
                       msg,
                       selected.pub
                     );
                   } catch (error) {
                     console.warn("Error decrypting message:", error);
-                    return { ...msg, content: "[Messaggio non decifrabile]" };
+                    return {
+                      ...msg,
+                      content: "[Chiave di decrittazione non trovata]",
+                    };
                   }
                 })
               )
@@ -1183,7 +1190,7 @@ export default function Messages({ chatData }) {
       } catch (error) {
         console.error("Error setting up chat:", error);
         if (isSubscribed) {
-          setError("Errore nel caricamento della chat");
+          setError("Error loading chat");
           setLoading(false);
           setIsInitializing(false);
         }
@@ -1685,25 +1692,6 @@ export default function Messages({ chatData }) {
       });
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
-
-  const handleStealthPayment = async (recipientPub, amount) => {
-    try {
-      setIsLoading(true);
-
-      // Usa sempre il wallet interno per i pagamenti stealth
-      const tx = await walletService.sendTip(recipientPub, amount, true);
-
-      toast.success("Pagamento stealth inviato con successo!");
-
-      // Aggiorna la UI se necessario
-      // ...
-    } catch (error) {
-      console.error("Error sending stealth payment:", error);
-      toast.error("Errore nell'invio del pagamento stealth");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   if (!selected?.pub) {
     return (
