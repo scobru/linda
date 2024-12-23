@@ -1,26 +1,26 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { 
-  DAPP_NAME,
-  user, 
-  gun,
-  checkConnection 
-} from 'linda-protocol';
-import Context from './contexts/context';
-import RequireAuth from './components/RequireAuth';
-import { useEffect } from 'react';
-import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
-import { WagmiConfig } from 'wagmi';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { wagmiConfig, chains } from './config/wagmi';
-import Header from './components/Header';
-import '@rainbow-me/rainbowkit/styles.css';
+import React from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { DAPP_NAME, user, gun, checkConnection } from "linda-protocol";
+import Context from "./contexts/context";
+import RequireAuth from "./components/RequireAuth";
+import { useEffect } from "react";
+import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { WagmiConfig } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { wagmiConfig, chains } from "./config/wagmi";
+import Header from "./components/Header";
+import "@rainbow-me/rainbowkit/styles.css";
 
 // Importa le pagine
-import LandingPage from './pages/LandingPage';
-import SignIn from './pages/SignIn';
-import SignUp from './pages/SignUp';
-import Homepage from './pages/Homepage';
+import LandingPage from "./pages/LandingPage";
+import SignIn from "./pages/SignIn";
+import SignUp from "./pages/SignUp";
+import Homepage from "./pages/Homepage";
 
 const queryClient = new QueryClient();
 
@@ -30,7 +30,7 @@ function App() {
   const [friends, setFriends] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
   const [currentChat, setCurrentChat] = React.useState(null);
-  const [connectionState, setConnectionState] = React.useState('disconnected');
+  const [connectionState, setConnectionState] = React.useState("disconnected");
   const [chatLoading, setChatLoading] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
 
@@ -41,32 +41,35 @@ function App() {
 
     const checkPeerConnection = async () => {
       if (isCheckingConnection) return;
-      
+
       try {
         isCheckingConnection = true;
         const isConnected = await checkConnection();
 
-        setConnectionState(isConnected ? 'connected' : 'disconnected');
+        setConnectionState(isConnected ? "connected" : "disconnected");
 
         if (!isConnected) {
-          console.log('Tentativo di riconnessione al peer locale...', gun._.opt.peers );
-          gun.get('ping').put({ timestamp: Date.now() });
+          console.log(
+            "Tentativo di riconnessione al peer locale...",
+            gun._.opt.peers
+          );
+          gun.get("ping").put({ timestamp: Date.now() });
         }
       } catch (error) {
-        console.error('Errore verifica connessione:', error);
-        setConnectionState('disconnected');
+        console.error("Errore verifica connessione:", error);
+        setConnectionState("disconnected");
       } finally {
         isCheckingConnection = false;
       }
     };
 
     // Verifica iniziale con un breve delay
-    setTimeout(checkPeerConnection, 1000);
+    setTimeout(checkPeerConnection, 50000);
 
     // Eventi di connessione
     const hiHandler = (peer) => {
       if (peer && peer.url) {
-        setConnectionState('connected');
+        setConnectionState("connected");
       }
     };
 
@@ -76,16 +79,16 @@ function App() {
       }
     };
 
-    gun.on('hi', hiHandler);
-    gun.on('bye', byeHandler);
+    gun.on("hi", hiHandler);
+    gun.on("bye", byeHandler);
 
     // Verifica periodica meno frequente
-    connectionCheck = setInterval(checkPeerConnection, 10000);
+    connectionCheck = setInterval(checkPeerConnection, 50000);
 
     return () => {
       clearInterval(connectionCheck);
-      gun.off('hi', hiHandler);
-      gun.off('bye', byeHandler);
+      gun.off("hi", hiHandler);
+      gun.off("bye", byeHandler);
     };
   }, []);
 
@@ -98,7 +101,7 @@ function App() {
 
       // Verifica se la chat esiste già
       const chatRef = gun.get(`${DAPP_NAME}/chats`).get(chatId);
-      
+
       const existingChat = await new Promise((resolve) => {
         chatRef.once((chat) => {
           resolve(chat);
@@ -107,29 +110,31 @@ function App() {
 
       if (existingChat) {
         setCurrentChat(existingChat);
-        
-        // Sottoscrivi ai messaggi della chat
-        chatRef.get('messages').map().on((msg, id) => {
-          if (!msg || !msg.timestamp) return;
-          
-          setMessages(prev => {
-            // Evita duplicati
-            const exists = prev.some(m => m.id === id);
-            if (exists) return prev;
-            
-            // Aggiungi il nuovo messaggio ordinato per timestamp
-            const newMessages = [...prev, { ...msg, id }];
-            return newMessages.sort((a, b) => a.timestamp - b.timestamp);
-          });
-        });
 
+        // Sottoscrivi ai messaggi della chat
+        chatRef
+          .get("messages")
+          .map()
+          .on((msg, id) => {
+            if (!msg || !msg.timestamp) return;
+
+            setMessages((prev) => {
+              // Evita duplicati
+              const exists = prev.some((m) => m.id === id);
+              if (exists) return prev;
+
+              // Aggiungi il nuovo messaggio ordinato per timestamp
+              const newMessages = [...prev, { ...msg, id }];
+              return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+            });
+          });
       } else {
         // Se la chat non esiste, inizializzala
         const newChat = {
           id: chatId,
           created: Date.now(),
           participants: [pub, chatId],
-          messages: []
+          messages: [],
         };
 
         await new Promise((resolve, reject) => {
@@ -142,7 +147,7 @@ function App() {
         setCurrentChat(newChat);
       }
     } catch (error) {
-      console.error('Errore nella selezione della chat:', error);
+      console.error("Errore nella selezione della chat:", error);
       setSelected(null);
       setCurrentChat(null);
       setMessages([]);
@@ -161,30 +166,29 @@ function App() {
     // Monitora le richieste di amicizia
     const requestsHandler = friendRequests.map().on((request, id) => {
       if (!request) return;
-      setFriends(prev => {
-        const existing = prev.find(f => f.id === request.id);
+      setFriends((prev) => {
+        const existing = prev.find((f) => f.id === request.id);
         if (existing) return prev;
-        return [...prev, { ...request, status: 'pending' }];
+        return [...prev, { ...request, status: "pending" }];
       });
     });
 
     // Monitora gli amici accettati
     const friendsHandler = friends.map().on((friend, id) => {
       if (!friend) return;
-      setFriends(prev => {
-        const existing = prev.find(f => f.id === friend.id);
-        if (existing && existing.status === 'accepted') return prev;
-        return prev.map(f => 
-          f.id === friend.id 
-            ? { ...f, status: 'accepted' }
-            : f
+      setFriends((prev) => {
+        const existing = prev.find((f) => f.id === friend.id);
+        if (existing && existing.status === "accepted") return prev;
+        return prev.map((f) =>
+          f.id === friend.id ? { ...f, status: "accepted" } : f
         );
       });
     });
 
     // Monitora le chat attive e i messaggi
-    const chatRef = selected ? 
-      gun.get(`${DAPP_NAME}/chats`).get(selected) : null;
+    const chatRef = selected
+      ? gun.get(`${DAPP_NAME}/chats`).get(selected)
+      : null;
 
     if (chatRef) {
       // Sottoscrivi ai cambiamenti della chat corrente
@@ -195,23 +199,26 @@ function App() {
       });
 
       // Sottoscrivi ai messaggi
-      const messagesHandler = chatRef.get('messages').map().on((msg, id) => {
-        if (!msg || !msg.timestamp) return;
-        
-        setMessages(prev => {
-          const exists = prev.some(m => m.id === id);
-          if (exists) return prev;
-          
-          const newMessages = [...prev, { ...msg, id }];
-          return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+      const messagesHandler = chatRef
+        .get("messages")
+        .map()
+        .on((msg, id) => {
+          if (!msg || !msg.timestamp) return;
+
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === id);
+            if (exists) return prev;
+
+            const newMessages = [...prev, { ...msg, id }];
+            return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+          });
         });
-      });
 
       return () => {
         friendRequests.map().off();
         friends.map().off();
         chatRef.off();
-        chatRef.get('messages').map().off();
+        chatRef.get("messages").map().off();
         messagesHandler.off();
         chatHandler.off();
       };
@@ -226,10 +233,7 @@ function App() {
   return (
     <WagmiConfig config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider 
-          chains={chains}
-          modalSize="compact"
-        >
+        <RainbowKitProvider chains={chains} modalSize="compact">
           <Context.Provider
             value={{
               pub,
@@ -246,25 +250,31 @@ function App() {
               setConnectionState,
               chatLoading,
               messages,
-              setMessages
+              setMessages,
             }}
           >
             <Router>
-              <div style={{ paddingTop: '60px' }}>
+              <div style={{ paddingTop: "60px" }}>
                 <Routes>
                   <Route path="/landing" element={<LandingPage />} />
                   <Route path="/login" element={<SignIn />} />
                   <Route path="/register" element={<SignUp />} />
-                  <Route 
-                    path="/homepage" 
+                  <Route
+                    path="/homepage"
                     element={
                       <RequireAuth>
                         <Homepage />
                       </RequireAuth>
-                    } 
+                    }
                   />
-                  <Route path="/" element={<Navigate to="/landing" replace />} />
-                  <Route path="*" element={<Navigate to="/landing" replace />} />
+                  <Route
+                    path="/"
+                    element={<Navigate to="/landing" replace />}
+                  />
+                  <Route
+                    path="*"
+                    element={<Navigate to="/landing" replace />}
+                  />
                 </Routes>
               </div>
             </Router>

@@ -30,13 +30,23 @@ const GUN_CONFIG = {
     address: MULTICAST_ADDRESS,
     port: MULTICAST_PORT,
   },
-  radisk: true, // mantieni radisk per la persistenza su filesystem
-  localStorage: false, // disabilita localStorage
-  store: false, // disabilita store generico
-  rindexed: false, // disabilita IndexedDB
-  file: "./radata", // mantieni il path per radisk
+  radisk: true,
+  localStorage: false,
+  store: false,
+  rindexed: false,
+  file: "./radata",
   axe: true,
   peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
+  host: process.env.HOST || "0.0.0.0",
+  port: port,
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: "*",
+    exposedHeaders: "*",
+    credentials: true,
+    maxAge: 600,
+  },
 };
 
 // Configurazione
@@ -128,6 +138,19 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept"
   );
+  next();
+});
+
+// Middleware CORS più permissivo
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Expose-Headers", "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
   next();
 });
 
@@ -633,19 +656,30 @@ async function initializeServer() {
     // Crea il server HTTP
     const server = http.createServer(app);
 
-    // Configura Gun con il server HTTP invece di express
+    // Configura Gun con il server HTTP
     const gunConfig = {
       ...GUN_CONFIG,
-      web: server, // Usa il server HTTP invece di app
+      web: server,
     };
 
     // Inizializza Gun con la configurazione
     gun = new Gun(gunConfig);
-    console.log("Gun server started");
+    console.log("Gun server started on port", port);
+    console.log("Listening on interfaces:", GUN_CONFIG.host);
+    console.log("CORS enabled for all origins");
 
     // Avvia il server HTTP
-    server.listen(port, () => {
-      console.log(`Relay listening at http://localhost:${port}`);
+    server.listen(port, GUN_CONFIG.host, () => {
+      console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
+      console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
+    });
+
+    // Gestione errori del server
+    server.on("error", (error) => {
+      console.error("Server error:", error);
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${port} is already in use`);
+      }
     });
 
     // Inizializza Mogu se abilitato
@@ -769,3 +803,12 @@ function getCPUUsage() {
     return 0;
   }
 }
+
+// Aggiungi handler per gli errori non gestiti
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});

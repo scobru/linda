@@ -5,7 +5,7 @@ import {
 } from '../security/index.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 
-const LOGIN_TIMEOUT = 15000; // Aumentiamo il timeout a 15 secondi
+const LOGIN_TIMEOUT = 50000; // Aumentiamo il timeout a 15 secondi
 
 export const loginWithMetaMask = async (address) => {
   try {
@@ -158,33 +158,102 @@ const loginUser = (credentials = {}, callback = () => {}) => {
         throw new Error('Username e password sono richiesti');
       }
 
-      // Reset completo dello stato di autenticazione
+      // Se l'utente è già autenticato, procedi
       if (user.is) {
-        user.leave();
+        // Recupera i dati dell'utente
+        const userData = await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('users')
+            .get(user.is.pub)
+            .once((data) => {
+              resolve(data);
+            });
+          setTimeout(() => resolve(null), 3000);
+        });
+
+        if (!userData) {
+          throw new Error('Impossibile recuperare i dati utente');
+        }
+
+        // Decifra le chiavi
+        const [decryptedPair, decryptedVPair, decryptedSPair] =
+          await Promise.all([
+            gun.decryptWithPassword(userData.env_pair, credentials.password),
+            gun.decryptWithPassword(userData.env_v_pair, credentials.password),
+            gun.decryptWithPassword(userData.env_s_pair, credentials.password),
+          ]);
+
+        // Salva nel localStorage
+        const walletData = {
+          internalWalletAddress: userData.internalWalletAddress,
+          externalWalletAddress: userData.externalWalletAddress,
+          pair: decryptedPair,
+          v_Pair: decryptedVPair,
+          s_Pair: decryptedSPair,
+          viewingPublicKey: userData.viewingPublicKey,
+          spendingPublicKey: userData.spendingPublicKey,
+          credentials: {
+            username: credentials.username,
+            password: credentials.password,
+          },
+        };
+
+        localStorage.setItem(
+          `gunWallet_${user.is.pub}`,
+          JSON.stringify(walletData)
+        );
+
+        // Aggiorna metriche
+        updateGlobalMetrics('totalLogins', 1);
+
+        // Crea i certificati
+        await Promise.all([
+          createFriendRequestCertificate(),
+          createNotificationCertificate(),
+        ]);
+
+        resolve({
+          success: true,
+          pub: user.is.pub,
+          userData: userData,
+        });
+        return;
       }
 
-      // Pulizia aggressiva dello stato
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Reset completo dello stato di autenticazione
+      if (user.is) {
+        console.log('Resetting user state...');
+        user.leave();
+        // Attendi che lo stato sia resettato
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
 
       // Verifica se l'utente esiste
+      console.log('Verifica esistenza utente...');
       const userExists = await new Promise((resolve) => {
         gun.get(`~@${credentials.username}`).once((data) => {
+          console.log('User data:', data);
           resolve(!!data);
         });
-        setTimeout(() => resolve(false), 3000);
       });
+
+      console.log('userExists', userExists);
 
       if (!userExists) {
         throw new Error('Utente non trovato');
       }
 
-      // Tenta l'autenticazione una sola volta
+      // Tenta l'autenticazione
+      console.log('Tentativo di autenticazione...');
       const authResult = await new Promise((resolve, reject) => {
         user.auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
             reject(new Error(ack.err));
             return;
           }
+
+          console.log('ack', ack);
 
           try {
             // Verifica che l'utente sia autenticato

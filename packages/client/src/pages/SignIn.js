@@ -18,6 +18,7 @@ export default function SignIn() {
   const [loginMethod, setLoginMethod] = React.useState("traditional"); // 'traditional' o 'metamask'
 
   const handleLogin = async () => {
+    console.log("handleLogin");
     if (isLoading || isRedirecting) return;
     if (!username.trim() || !password.trim()) {
       toast.error("Please enter username and password");
@@ -28,10 +29,10 @@ export default function SignIn() {
     const toastId = toast.loading("Signing in...");
 
     try {
+      console.log("user.is", user.is);
       // Pulisci lo stato precedente
       if (user.is) {
         user.leave();
-        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
       const result = await new Promise((resolve, reject) => {
@@ -39,11 +40,18 @@ export default function SignIn() {
           console.log("Login response:", response);
           if (response.success) {
             resolve(response);
+          } else if (
+            response.errMessage ===
+            "User is already being created or authenticated!"
+          ) {
+            resolve(response);
           } else {
             reject(new Error(response.errMessage || "Login failed"));
           }
         });
       });
+
+      console.log(result);
 
       // Verifica che l'utente sia effettivamente autenticato
       let attempts = 0;

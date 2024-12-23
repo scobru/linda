@@ -10,7 +10,7 @@ const checkGunConnectionWithRetry = async (maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const isConnected = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => resolve(false), 3000);
+        const timeout = setTimeout(() => resolve(false), 10000);
 
         gun.get("healthcheck").once((data) => {
           clearTimeout(timeout);
