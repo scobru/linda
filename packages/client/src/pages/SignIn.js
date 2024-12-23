@@ -36,38 +36,12 @@ export default function SignIn() {
       }
 
       // Tentativo di login con retry
-      let loginAttempts = 0;
-      let loginSuccess = false;
-      let loginResult = null;
+      const loginResult = await authentication.loginUser({
+        username,
+        password,
+      });
 
-      while (loginAttempts < maxRetries && !loginSuccess) {
-        try {
-          loginResult = await new Promise((resolve, reject) => {
-            authentication.loginUser({ username, password }, (response) => {
-              console.log("Login response:", response);
-              if (response.success) {
-                resolve(response);
-              } else {
-                reject(new Error(response.errMessage || "Login failed"));
-              }
-            });
-          });
-          loginSuccess = true;
-        } catch (error) {
-          loginAttempts++;
-          if (loginAttempts < maxRetries) {
-            console.log(`Login attempt ${loginAttempts} failed, retrying...`);
-            await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          } else {
-            throw error;
-          }
-        }
-      }
-
-      if (!loginSuccess || !loginResult) {
-        throw new Error("Login failed after multiple attempts");
-      }
-
+      console.log("Login result:", loginResult);
       // Verifica che l'utente sia effettivamente autenticato
       let attempts = 0;
       const maxAuthAttempts = 20;
