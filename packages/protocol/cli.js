@@ -28,15 +28,7 @@ const __dirname = dirname(__filename);
 
 let currentUser = null;
 
-/**
- * Initialize Gun with robust error handling
- */
-const initGun = () => {
-  // Gun error handling
-  gun.on('error', (error) => {
-    console.error(chalk.red('Gun error:', error));
-  });
-};
+
 
 /**
  * Get hidden password input from user
@@ -87,7 +79,6 @@ program
     const spinner = ora('Registering...').start();
 
     try {
-      initGun();
       const password =
         options.password || (await getPasswordInput('Password: '));
 
@@ -143,7 +134,6 @@ program
     const spinner = ora('Logging in...').start();
 
     try {
-      initGun();
       const password =
         options.password || (await getPasswordInput('Password: '));
 

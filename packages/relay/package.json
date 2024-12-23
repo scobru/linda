@@ -7,15 +7,15 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "prometheus": "prometheus --config.file=prometheus.yml",
     "clean:radata": "node scripts/cleanRadata.js",
     "restore:radata": "node scripts/restoreRadata.js"
   },
   "dependencies": {
-    "@scobru/mogu": "^2.2.3",
+    "@scobru/mogu": "^4.0.7",
+    "dayjs": "^1.11.13",
     "express-prometheus-middleware": "^1.2.0",
     "gun": "^0.2020.1240",
-    "gun-eth": "^1.5.4",
+    "gun-eth": "^3.0.2",
     "install": "^0.13.0",
     "npm": "^10.9.0",
     "prom-client": "^15.1.3",

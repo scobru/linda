@@ -5,108 +5,120 @@ import {
 } from '../security/index.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 
-const LOGIN_TIMEOUT = 10000; // 10 seconds
+const LOGIN_TIMEOUT = 15000; // Aumentiamo il timeout a 15 secondi
 
 export const loginWithMetaMask = async (address) => {
   try {
-    const signer = await gun.getSigner;
-    console.log('Signer:', signer);
-
-    const signature = await gun.createSignature(gun.MESSAGE_TO_SIGN);
-    console.log('Signature:', signature);
-
-    const pair = await gun.getAndDecryptPair(signer.address, signature);
-    console.log('Pair:', pair);
-
-    if (!pair) {
-      throw new Error('Utente non registrato. Per favore registrati prima.');
+    if (!address) {
+      throw new Error('Indirizzo non valido');
     }
 
+    const normalizedAddress = address.toLowerCase();
+
+    // Cerca l'utente nell'indice degli indirizzi
+    const existingUser = await gun
+      .get(DAPP_NAME)
+      .get('addresses')
+      .get(normalizedAddress)
+      .once();
+
+    if (!existingUser) {
+      throw new Error('Utente non trovato');
+    }
+
+    console.log('Found user:', existingUser);
+
+    // Ottieni il signer e firma il messaggio
+    const signer = await gun.getSigner();
+    if (!signer) {
+      throw new Error('Signer non valido');
+    }
+
+    const signature = await signer.signMessage(gun.MESSAGE_TO_SIGN);
+    if (!signature) {
+      throw new Error('Firma non valida');
+    }
+
+    // Genera la password dalla firma
+    const password = await gun.generatePassword(signature);
+
+    // Recupera i dati dell'utente usando il pub
+    let userData = await gun
+      .get(DAPP_NAME)
+      .get('users')
+      .get(existingUser.pub)
+      .once();
+
+    if (!userData) {
+      // 4. Se non troviamo nel profilo, cerca negli indirizzi
+      userData = await gun
+        .get(DAPP_NAME)
+        .get('addresses')
+        .get(signer.address.toLowerCase())
+        .once();
+      console.log('User data from addresses:', userData);
+    }
+
+    if (!userData) {
+      throw new Error('Dati utente non trovati');
+    }
+
+    // Decifra le chiavi usando la password
+    const [decryptedPair, decryptedVPair, decryptedSPair] = await Promise.all([
+      gun.decryptWithPassword(userData.env_pair, password),
+      gun.decryptWithPassword(userData.env_v_pair, password),
+      gun.decryptWithPassword(userData.env_s_pair, password),
+    ]);
+
+    if (!decryptedPair || !decryptedVPair || !decryptedSPair) {
+      throw new Error('Impossibile decifrare le chiavi');
+    }
+
+    // Autentica l'utente con le chiavi decifrate
     return new Promise((resolve, reject) => {
-      gun.user().auth(pair, async (ack) => {
+      user.auth(decryptedPair, async (ack) => {
         if (ack.err) {
           reject(new Error(ack.err));
           return;
         }
 
         try {
-          // Genera/recupera il wallet interno
-          const privateKey = user._.sea.priv;
-          const internalWallet = await gun.gunToEthAccount(privateKey);
-          
-          // Salva il wallet interno
-          localStorage.setItem('gunWallet', JSON.stringify(internalWallet));
+          // Salva nel localStorage
+          const walletData = {
+            internalWalletAddress: userData.internalWalletAddress,
+            externalWalletAddress: address,
+            pair: decryptedPair,
+            v_Pair: decryptedVPair,
+            s_Pair: decryptedSPair,
+            viewingPublicKey: userData.viewingPublicKey,
+            spendingPublicKey: userData.spendingPublicKey,
+            credentials: {
+              username: address,
+              password: password,
+            },
+          };
 
-          // Salva l'auth di MetaMask
           localStorage.setItem(
-            'walletAuth',
-            JSON.stringify({
-              address: signer.address,
-              timestamp: Date.now(),
-            })
+            `gunWallet_${userData.pub}`,
+            JSON.stringify(walletData)
           );
 
-          // Aggiorna i dati utente usando l'indirizzo interno
-          await gun.get(DAPP_NAME)
-            .get('userList')
-            .get('users')
-            .set({
-              pub: pair.pub,
-              address: internalWallet.account.address, // Usa l'indirizzo del wallet interno
-              metamaskAddress: signer.address, // Mantieni riferimento a MetaMask
-              timestamp: Date.now(),
-              lastSeen: Date.now(),
-              authType: 'wallet'
-            });
+          // Aggiorna metriche
+          updateGlobalMetrics('totalLogins', 1);
 
-          // Aggiorna anche il profilo utente
-          await gun.user().get(DAPP_NAME).get('profile').put({
-            address: internalWallet.account.address // Usa l'indirizzo del wallet interno
-          });
-
-          // Aggiorna il nickname se necessario
-          await gun.get(DAPP_NAME)
-            .get('userList')
-            .get('nicknames')
-            .get(pair.pub)
-            .put(internalWallet.account.address.slice(0, 8));
-
-          let addFriendRequestCertificate = gun
-            .user()
-            .get(DAPP_NAME)
-            .get('certificates')
-            .get('friendRequests');
-
-          if (!addFriendRequestCertificate) {
-            await createFriendRequestCertificate();
-          }
-
-          // Controlla il certificato per le notifiche
-          let notificationCertificate = gun
-            .user()
-            .get(DAPP_NAME)
-            .get('certificates')
-            .get('notifications');
-
-          if (!notificationCertificate) {
-            await createNotificationCertificate();
-          }
-
-          // Salva i dati di autenticazione
-          sessionStorage.setItem('isAuthenticated', 'true');
-          sessionStorage.setItem('userPub', pair.pub);
+          // Crea i certificati in modo asincrono
+          await Promise.all([
+            createFriendRequestCertificate(),
+            createNotificationCertificate(),
+          ]);
 
           resolve({
             success: true,
-            pub: pair.pub,
-            message: 'Autenticazione completata con successo.',
-            user: { 
-              pub: pair.pub, 
-              address: internalWallet.account.address // Usa l'indirizzo del wallet interno
-            },
+            pub: userData.pub,
+            userData: userData,
           });
         } catch (error) {
-          reject(error);
+          reject(new Error(`Errore durante il login: ${error.message}`));
         }
       });
     });
@@ -141,131 +153,146 @@ const loginUser = (credentials = {}, callback = () => {}) => {
 
   const loginPromise = new Promise(async (resolve, reject) => {
     try {
+      // Validazione input
       if (!credentials.username || !credentials.password) {
-        reject(new Error('Username and password are required'));
-        return;
+        throw new Error('Username e password sono richiesti');
       }
 
-      await gun
-        .user()
-        .auth(credentials.username, credentials.password, async (ack) => {
+      // Reset completo dello stato di autenticazione
+      if (user.is) {
+        user.leave();
+      }
+
+      // Pulizia aggressiva dello stato
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Verifica se l'utente esiste
+      const userExists = await new Promise((resolve) => {
+        gun.get(`~@${credentials.username}`).once((data) => {
+          resolve(!!data);
+        });
+        setTimeout(() => resolve(false), 3000);
+      });
+
+      if (!userExists) {
+        throw new Error('Utente non trovato');
+      }
+
+      // Tenta l'autenticazione una sola volta
+      const authResult = await new Promise((resolve, reject) => {
+        user.auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
             reject(new Error(ack.err));
             return;
           }
 
           try {
-            // Usa gun.gunToEthAccount invece di walletService
-            const privateKey = user._.sea.priv;
-            const userWallet = await gun.gunToEthAccount(privateKey);
-            console.log('Retrieved wallet:', userWallet);
+            // Verifica che l'utente sia autenticato
+            let attempts = 0;
+            const maxAttempts = 20;
 
-            // salva wallet in localstorage
-            localStorage.setItem('gunWallet', JSON.stringify(userWallet));
+            while (attempts < maxAttempts && !user.is) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              attempts++;
+            }
 
-            // Aggiorna i dati del wallet
-            gun.get(DAPP_NAME)
-              .get('userList')
-              .get('users')
-              .set({
-                pub: user.is.pub,
-                username: credentials.username,
-                address: userWallet?.account.address,
-                timestamp: Date.now(),
-                lastSeen: Date.now(),
-                authType: 'gun'
-              });
+            if (!user.is) {
+              throw new Error('Verifica autenticazione fallita');
+            }
 
-            // Aggiorna anche il profilo utente
-            gun.user().get(DAPP_NAME).get('profile').put({
-              address: userWallet?.account.address
+            // Recupera i dati dell'utente
+            const userData = await new Promise((resolve) => {
+              gun
+                .get(DAPP_NAME)
+                .get('users')
+                .get(user.is.pub)
+                .once((data) => {
+                  resolve(data);
+                });
+              setTimeout(() => resolve(null), 3000);
             });
 
-            let addFriendRequestCertificate = await gun
-              .user()
-              .get(DAPP_NAME)
-              .get('certificates')
-              .get('friendRequests');
-
-            if (!addFriendRequestCertificate) {
-              await createFriendRequestCertificate();
+            if (!userData) {
+              throw new Error('Impossibile recuperare i dati utente');
             }
 
-            // Controlla il certificato per le notifiche
-            let notificationCertificate = await gun
-              .user()
-              .get(DAPP_NAME)
-              .get('certificates')
-              .get('notifications');
+            // Decifra le chiavi
+            const [decryptedPair, decryptedVPair, decryptedSPair] =
+              await Promise.all([
+                gun.decryptWithPassword(
+                  userData.env_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_v_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_s_pair,
+                  credentials.password
+                ),
+              ]);
 
-            if (!notificationCertificate) {
-              await createNotificationCertificate();
-            }
+            // Salva nel localStorage
+            const walletData = {
+              internalWalletAddress: userData.internalWalletAddress,
+              externalWalletAddress: userData.externalWalletAddress,
+              pair: decryptedPair,
+              v_Pair: decryptedVPair,
+              s_Pair: decryptedSPair,
+              viewingPublicKey: userData.viewingPublicKey,
+              spendingPublicKey: userData.spendingPublicKey,
+              credentials: {
+                username: credentials.username,
+                password: credentials.password,
+              },
+            };
 
-            // Wait for user.is to be available
-            let attempts = 0;
-            const maxAttempts = 10;
+            localStorage.setItem(
+              `gunWallet_${user.is.pub}`,
+              JSON.stringify(walletData)
+            );
 
-            const checkUser = setInterval(() => {
-              attempts++;
-              console.log('Checking user.is:', user.is, 'Attempt:', attempts);
+            // Aggiorna metriche
+            updateGlobalMetrics('totalLogins', 1);
 
-              if (user.is) {
-                clearInterval(checkUser);
-                resolve({
-                  success: true,
-                  pub: user.is.pub,
-                  message: 'Successfully authenticated user.',
-                  user: user.is,
-                });
-              } else if (attempts >= maxAttempts) {
-                clearInterval(checkUser);
-                reject(new Error('Failed to get user data'));
-              }
-            }, 100);
+            // Crea i certificati
+            await Promise.all([
+              createFriendRequestCertificate(),
+              createNotificationCertificate(),
+            ]);
 
-            // Aggiorna le metriche globali
-            gun.get(DAPP_NAME)
-              .get('globalMetrics')
-              .get('totalLogins')
-              .once((val) => {
-                const current = val || 0;
-                gun.get(DAPP_NAME)
-                  .get('globalMetrics')
-                  .get('totalLogins')
-                  .put(current + 1);
-              });
-
-            // Aggiorna anche le metriche del protocollo
-            gun.get(DAPP_NAME)
-              .get('protocol')
-              .get('authentication')
-              .get('logins')
-              .once((val) => {
-                const current = val || 0;
-                gun.get(DAPP_NAME)
-                  .get('protocol')
-                  .get('authentication')
-                  .get('logins')
-                  .put(current + 1);
-              });
+            resolve({
+              success: true,
+              pub: user.is.pub,
+              userData: userData,
+            });
           } catch (error) {
             reject(error);
           }
         });
+      });
+
+      resolve(authResult);
     } catch (error) {
+      if (user.is) {
+        user.leave();
+      }
       reject(error);
     }
   });
 
-  // Set a timeout
+  // Gestione del timeout
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error('Timeout during login'));
+      if (user.is) {
+        user.leave();
+      }
+      reject(new Error('Timeout durante il login'));
     }, LOGIN_TIMEOUT);
   });
 
-  // Execute login with timeout
+  // Race tra login e timeout
   Promise.race([loginPromise, timeoutPromise])
     .then((result) => {
       clearTimeout(timeoutId);
@@ -276,15 +303,15 @@ const loginUser = (credentials = {}, callback = () => {}) => {
     })
     .catch((error) => {
       clearTimeout(timeoutId);
+      if (user.is) {
+        user.leave();
+      }
       callback({
         success: false,
         errMessage: error.message,
         errCode: 'login-error',
       });
     });
-
-  // Incrementa il contatore dei login
-  updateGlobalMetrics('totalLogins', 1);
 
   return loginPromise;
 };

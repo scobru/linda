@@ -1,55 +1,37 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import 'gun-eth'
+import GunEthModule from './gun-eth.mjs';
+//import GunEthModule from '@scobru/gun-eth';
 
-// Usa solo il peer locale
+// Non importare i moduli di storage
+// require('gun/lib/store');
+// require('gun/lib/rindexed');
+
 const DEFAULT_PEERS = ['http://localhost:8765/gun'];
 
 let isConnected = false;
 
-const initGun = () => {
-  const options = {
-    peers: DEFAULT_PEERS,
-    localStorage: false
-  };
+const GunEth = GunEthModule.GunEth;
 
-  if (window.Gun === undefined) {
-    const gunInstance = Gun(options);
-
-    // Gestione degli eventi di connessione
-    gunInstance.on('hi', peer => {
-      if (!peer || !peer.url) return;
-      console.log(`Peer connesso: ${peer.url}`);
-      isConnected = true;
-    });
-
-    gunInstance.on('bye', peer => {
-      if (!peer || !peer.url) return;
-      console.log(`Peer disconnesso: ${peer.url}`);
-      isConnected = false;
-    });
-
-    // Aggiungi gestione dello storage locale
-    gunInstance.on('put', function(msg) {
-      // Salva i dati localmente
-      if (msg.put) {
-        try {
-          const data = JSON.stringify(msg.put);
-          localStorage.setItem(`gun/${msg.put['#']}`, data);
-        } catch (e) {
-          console.warn('Errore nel salvataggio locale:', e);
-        }
-      }
-    });
-
-    return gunInstance;
-  } else {
-    return window.Gun(options);
-  }
-};
-
-// Inizializza Gun
-export const gun = initGun();
+// Inizializza Gun con storage locale completamente disabilitato
+export const gun = GunEth.initializeGun({
+  peers: DEFAULT_PEERS,
+  localStorage: false,
+  store: {
+    // Override del metodo put per prevenire il salvataggio
+    put: function () {
+      return;
+    },
+    // Override del metodo get per prevenire la lettura
+    get: function () {
+      return;
+    },
+  },
+  radisk: false,
+  rindexed: false,
+  indexedDB: false, // Disabilita esplicitamente IndexedDB
+  web: false, // Disabilita il web storage
+});
 
 // Inizializza l'utente
 export const user = gun.user().recall({ sessionStorage: true });
@@ -90,6 +72,7 @@ export const checkConnection = () => {
     const timeout = setTimeout(() => resolve(false), 5000);
     gun.on('hi', () => {
       clearTimeout(timeout);
+      isConnected = true; // Aggiorna lo stato della connessione
       resolve(true);
     });
   });
@@ -109,7 +92,7 @@ export { SEA };
 // Funzione per pulire la cache locale
 export const clearLocalCache = () => {
   const keys = Object.keys(localStorage);
-  keys.forEach(key => {
+  keys.forEach((key) => {
     if (key.startsWith('gun/')) {
       localStorage.removeItem(key);
     }
@@ -120,7 +103,7 @@ export const clearLocalCache = () => {
 export const getLocalCacheSize = () => {
   let size = 0;
   const keys = Object.keys(localStorage);
-  keys.forEach(key => {
+  keys.forEach((key) => {
     if (key.startsWith('gun/')) {
       size += localStorage.getItem(key).length;
     }

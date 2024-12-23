@@ -15,7 +15,7 @@ import { createMessagesCertificate } from "linda-protocol";
 import { walletService } from "linda-protocol";
 import { formatEther } from "ethers";
 import { ethers } from "ethers";
-  
+
 const { userBlocking } = blocking;
 const { channels } = messaging;
 const { chat } = messaging;
@@ -389,7 +389,7 @@ const handleError = (error) => {
   setLoading(false);
 };
 
-// Modifica il WalletModal per includere le informazioni del wallet
+// Modify the WalletModal component
 const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [amount, setAmount] = useState("");
   const [customAddress, setCustomAddress] = useState("");
@@ -399,51 +399,130 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [recipientWalletInfo, setRecipientWalletInfo] = useState(null);
   const [balance, setBalance] = useState(null);
-  const [network, setNetwork] = useState(null);
+  const [selectedChain, setSelectedChain] = useState(null);
+  const [availableChains, setAvailableChains] = useState({});
   const [isStealthMode, setIsStealthMode] = useState(false);
 
-  // Carica le informazioni dei wallet all'apertura del modale
+  // Load available chains and wallet info
   React.useEffect(() => {
-    const loadWalletInfo = async () => {
+    const loadChainInfo = async () => {
       try {
-        // Carica il wallet dell'utente corrente
-        const wallet = await walletService.getCurrentWallet();
-        setMyWalletInfo(wallet);
-
-        // Carica il balance
-        const provider = new ethers.JsonRpcProvider(
-          "https://sepolia.optimism.io"
-        );
-        const balance = await provider.getBalance(wallet.address);
-        setBalance(formatEther(balance));
-
-        // Imposta la rete
-        setNetwork({
-          name: "Optimism Sepolia",
-          chainId: 11155420,
-        });
-
-        // Carica il wallet del destinatario
-        if (selectedUser?.pub) {
-          const recipientAddress = await walletService.getUserWalletAddress(
-            selectedUser.pub
-          );
-          console.log("Recipient address:", recipientAddress);
-          setRecipientWalletInfo({
-            address: recipientAddress,
-            type: "derived",
-          });
-        }
+        const chains = walletService.getSupportedChains();
+        setAvailableChains(chains);
+        const currentChain = walletService.getCurrentChain();
+        setSelectedChain(currentChain);
       } catch (error) {
-        console.error("Error loading wallet info:", error);
-        toast.error("Errore nel caricamento delle informazioni del wallet");
+        console.error("Error loading chain info:", error);
+        toast.error("Error loading chain information");
       }
     };
 
     if (isOpen) {
+      loadChainInfo();
+    }
+  }, [isOpen]);
+
+  // Load wallet info when chain changes
+  React.useEffect(() => {
+    const loadWalletInfo = async () => {
+      try {
+        if (!selectedChain) return;
+
+        // Load the wallet for current chain
+        const wallet = await walletService.getCurrentWallet(user.is.pub);
+        setMyWalletInfo(wallet);
+
+        // Verifica che l'indirizzo sia valido prima di caricare il balance
+        if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
+          try {
+            const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
+            const balance = await provider.getBalance(
+              wallet.internalWalletAddress
+            );
+            setBalance(formatEther(balance));
+          } catch (error) {
+            console.error("Error loading balance:", error);
+            setBalance("0.0");
+          }
+        } else {
+          console.log("Wallet senza indirizzo valido:", wallet);
+          setBalance("0.0");
+        }
+
+        // Load recipient info if available
+        if (selectedUser?.pub) {
+          try {
+            const recipientAddress = await walletService.getUserWalletAddress(
+              selectedUser.pub
+            );
+            if (recipientAddress) {
+              setRecipientWalletInfo({
+                address: recipientAddress,
+                type: "derived",
+              });
+            }
+          } catch (error) {
+            console.error("Error loading recipient info:", error);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading wallet info:", error);
+        toast.error("Error loading wallet information");
+      }
+    };
+
+    if (isOpen && selectedChain && user.is?.pub) {
       loadWalletInfo();
     }
-  }, [isOpen, selectedUser?.pub]);
+  }, [isOpen, selectedChain, selectedUser?.pub, user.is?.pub]);
+
+  // Modifica la funzione di cleanup nel WalletModal
+  React.useEffect(() => {
+    return () => {
+      // Pulisci solo lo stato locale del componente
+      setMyWalletInfo(null);
+      setBalance(null);
+      setSelectedChain(null);
+    };
+  }, []);
+
+  // Modifica handleChainChange per aggiornare solo il wallet corrente
+  const handleChainChange = async (chainKey) => {
+    try {
+      setIsLoading(true);
+      await walletService.setChain(chainKey);
+      const newChain = walletService.getCurrentChain();
+      setSelectedChain(newChain);
+
+      // Ricarica le informazioni del wallet
+      const wallet = await walletService.getCurrentWallet(user.is.pub);
+      setMyWalletInfo(wallet);
+
+      // Verifica che l'indirizzo sia valido prima di aggiornare il balance
+      if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
+        try {
+          const provider = new ethers.JsonRpcProvider(newChain.rpcUrl);
+          const balance = await provider.getBalance(
+            wallet.internalWalletAddress
+          );
+          setBalance(formatEther(balance));
+        } catch (error) {
+          console.error("Error loading balance:", error);
+          setBalance("0.0");
+        }
+      } else {
+        console.log("Wallet senza indirizzo valido:", wallet);
+        setBalance("0.0");
+      }
+
+      toast.success(`Switched to ${newChain.name}`);
+    } catch (error) {
+      console.error("Error changing chain:", error);
+      toast.error("Error switching chain");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleCopyAddress = () => {
     if (myWalletInfo?.address) {
@@ -463,11 +542,13 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
     try {
       setIsLoading(true);
 
+      if (!selectedChain) {
+        throw new Error("Please select a chain first");
+      }
+
       if (sendType === "contact") {
-        // Invia al contatto selezionato usando la modalità stealth se selezionata
         await onSend(selectedUser.pub, amount, isStealthMode);
       } else {
-        // Per indirizzi custom non è disponibile la modalità stealth
         await walletService.sendTransaction(customAddress, amount);
       }
 
@@ -512,9 +593,28 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           </button>
         </div>
 
+        {/* Chain Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Select Chain
+          </label>
+          <select
+            value={selectedChain?.name || ""}
+            onChange={(e) => handleChainChange(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            disabled={isLoading}
+          >
+            {Object.keys(availableChains).map((chainKey) => (
+              <option key={chainKey} value={chainKey}>
+                {availableChains[chainKey].name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Il mio wallet */}
         {myWalletInfo ? (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg break-all">
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <h4 className="text-sm font-medium text-gray-700 mb-2">
               Il mio wallet
             </h4>
@@ -523,18 +623,24 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 <span className="text-xs text-gray-500">Indirizzo:</span>
                 <div className="flex items-center">
                   <span className="text-xs font-mono mr-2">
-                    {myWalletInfo.address
-                      ? `${myWalletInfo.address.slice(
+                    {myWalletInfo.internalWalletAddress
+                      ? `${myWalletInfo.internalWalletAddress.slice(
                           0,
                           6
-                        )}...${myWalletInfo.address.slice(-4)}`
+                        )}...${myWalletInfo.internalWalletAddress.slice(-4)}`
                       : "Caricamento..."}
                   </span>
                   <button
-                    onClick={handleCopyAddress}
+                    onClick={() => {
+                      if (myWalletInfo.internalWalletAddress) {
+                        navigator.clipboard.writeText(
+                          myWalletInfo.internalWalletAddress
+                        );
+                        toast.success("Indirizzo copiato!");
+                      }
+                    }}
                     className="p-1 hover:bg-gray-200 rounded"
-                    title="Copia indirizzo"
-                    disabled={!myWalletInfo.address}
+                    disabled={!myWalletInfo.internalWalletAddress}
                   >
                     <svg
                       className="w-4 h-4 text-gray-500"
@@ -553,32 +659,18 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                 </div>
               </div>
 
-              {/* Balance */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Balance:</span>
                 <span className="text-xs font-medium">
                   {balance
-                    ? `${Number(balance).toFixed(8)} ETH`
+                    ? `${Number(balance).toFixed(8)} ${
+                        selectedChain?.nativeCurrency?.symbol || "MATIC"
+                      }`
                     : "Caricamento..."}
                 </span>
               </div>
 
-              {/* Network */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Rete:</span>
-                <span className="text-xs font-medium">
-                  {network ? (
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {network.name}
-                    </span>
-                  ) : (
-                    "Caricamento..."
-                  )}
-                </span>
-              </div>
-
-              {/* Chiave privata (solo per wallet derivati) */}
-              {myWalletInfo.type === "derived" && myWalletInfo.privateKey && (
+              {myWalletInfo.internalWalletPk && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowPrivateKey(!showPrivateKey)}
@@ -589,12 +681,16 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                   {showPrivateKey && (
                     <div className="mt-1 flex items-center justify-between">
                       <span className="text-xs font-mono truncate max-w-[180px]">
-                        {myWalletInfo.privateKey}
+                        {myWalletInfo.internalWalletPk}
                       </span>
                       <button
-                        onClick={handleCopyPrivateKey}
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            myWalletInfo.internalWalletPk
+                          );
+                          toast.success("Chiave privata copiata!");
+                        }}
                         className="p-1 hover:bg-gray-200 rounded"
-                        title="Copia chiave privata"
                       >
                         <svg
                           className="w-4 h-4 text-gray-500"
@@ -614,13 +710,6 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                   )}
                 </div>
               )}
-
-              <div className="text-xs text-gray-500">
-                Tipo:{" "}
-                {myWalletInfo.type === "metamask"
-                  ? "MetaMask"
-                  : "Wallet Derivato"}
-              </div>
             </div>
           </div>
         ) : (
@@ -629,7 +718,36 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
           </div>
         )}
 
-        {/* Destinatario */}
+        {/* Aggiungi il selettore del tipo di invio */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Tipo di invio
+          </label>
+          <div className="flex space-x-4">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="contact"
+                checked={sendType === "contact"}
+                onChange={(e) => setSendType(e.target.value)}
+                className="mr-2"
+              />
+              <span className="text-sm">Contatto</span>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="custom"
+                checked={sendType === "custom"}
+                onChange={(e) => setSendType(e.target.value)}
+                className="mr-2"
+              />
+              <span className="text-sm">Indirizzo personalizzato</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Destinatario condizionale */}
         {sendType === "contact" ? (
           <div className="break-all">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -650,7 +768,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         ) : (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Indirizzo ETH
+              Indirizzo POL
             </label>
             <input
               type="text"
@@ -665,7 +783,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
         {/* Importo */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Importo (ETH)
+            Importo (POL)
           </label>
           <input
             type="number"
@@ -845,7 +963,7 @@ export default function Messages({ chatData }) {
     selected?.roomId,
   ]);
 
-  // Funzione per caricare più messaggi
+  // Modifica la funzione loadMoreMessages
   const loadMoreMessages = async () => {
     if (isLoadingMore || !hasMoreMessages) return;
 
@@ -866,10 +984,11 @@ export default function Messages({ chatData }) {
         id = selected.id;
       }
 
+      // Usa il limite configurabile dal messageList
       const olderMessages = await messaging.chat.messageList.loadMessages(
         path,
         id,
-        20, // Carica 20 messaggi alla volta
+        null, // Usa il limite predefinito configurato in messageList
         oldestMessageTimestamp
       );
 
@@ -885,11 +1004,10 @@ export default function Messages({ chatData }) {
           olderMessages.map(async (msg) => {
             try {
               if (
-                typeof msg.content === "string" &&
+                typeof msg.content !== "string" ||
                 !msg.content.startsWith("SEA{")
-              ) {
+              )
                 return msg;
-              }
               return await messaging.chat.messageList.decryptMessage(
                 msg,
                 selected.pub
@@ -898,7 +1016,7 @@ export default function Messages({ chatData }) {
               console.warn("Error decrypting message:", error);
               return {
                 ...msg,
-                content: "[Messaggio non decifrabile]",
+                content: "[Chiave di decrittazione non trovata]",
               };
             }
           })
@@ -989,11 +1107,11 @@ export default function Messages({ chatData }) {
             : "boards";
         let id = selected.type === "friend" ? selected.roomId : selected.id;
 
-        // Carica i messaggi iniziali
+        // Carica i messaggi iniziali usando il limite configurabile
         const existingMessages = await messaging.chat.messageList.loadMessages(
           path,
           id,
-          20,
+          null, // Usa il limite predefinito configurato in messageList
           Date.now()
         );
 
@@ -1005,14 +1123,21 @@ export default function Messages({ chatData }) {
             ? await Promise.all(
                 existingMessages.map(async (msg) => {
                   try {
-                    if (!msg.content.startsWith("SEA{")) return msg;
+                    if (
+                      typeof msg.content !== "string" ||
+                      !msg.content.startsWith("SEA{")
+                    )
+                      return msg;
                     return await messaging.chat.messageList.decryptMessage(
                       msg,
                       selected.pub
                     );
                   } catch (error) {
                     console.warn("Error decrypting message:", error);
-                    return { ...msg, content: "[Messaggio non decifrabile]" };
+                    return {
+                      ...msg,
+                      content: "[Chiave di decrittazione non trovata]",
+                    };
                   }
                 })
               )
@@ -1065,7 +1190,7 @@ export default function Messages({ chatData }) {
       } catch (error) {
         console.error("Error setting up chat:", error);
         if (isSubscribed) {
-          setError("Errore nel caricamento della chat");
+          setError("Error loading chat");
           setLoading(false);
           setIsInitializing(false);
         }
@@ -1567,25 +1692,6 @@ export default function Messages({ chatData }) {
       });
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
-
-  const handleStealthPayment = async (recipientPub, amount) => {
-    try {
-      setIsLoading(true);
-
-      // Usa sempre il wallet interno per i pagamenti stealth
-      const tx = await walletService.sendTip(recipientPub, amount, true);
-
-      toast.success("Pagamento stealth inviato con successo!");
-
-      // Aggiorna la UI se necessario
-      // ...
-    } catch (error) {
-      console.error("Error sending stealth payment:", error);
-      toast.error("Errore nell'invio del pagamento stealth");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   if (!selected?.pub) {
     return (

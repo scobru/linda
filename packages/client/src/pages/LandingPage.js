@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { authentication } from 'linda-protocol';
+import React, { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { authentication } from "linda-protocol";
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -9,12 +9,12 @@ export default function LandingPage() {
     const subscription = authentication.observeAuthState().subscribe({
       next: (authState) => {
         if (authState.success) {
-          navigate('/homepage', { replace: true });
+          navigate("/homepage", { replace: true });
         }
       },
       error: (error) => {
-        console.error('Errore verifica autenticazione:', error);
-      }
+        console.error("Errore verifica autenticazione:", error);
+      },
     });
 
     return () => subscription.unsubscribe();
@@ -35,22 +35,20 @@ export default function LandingPage() {
       <div className="flex-1 flex flex-col justify-center items-center">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Benvenuto su Linda Messenger
+            Welcome to Linda Messenger
           </h2>
-          <p className="text-gray-600">
-            Messaggistica decentralizzata e sicura
-          </p>
+          <p className="text-gray-600">Secure and decentralized messaging</p>
         </div>
 
         <div className="space-y-4 w-full max-w-sm px-4">
           <Link to="/login">
             <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
-              Accedi
+              Sign In
             </button>
           </Link>
           <Link to="/register">
             <button className="w-full bg-white hover:bg-gray-50 text-blue-600 font-medium py-3 px-4 rounded-lg border border-blue-600 transition-colors">
-              Registrati
+              Sign Up
             </button>
           </Link>
         </div>
@@ -58,7 +56,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <div className="py-8 text-center text-gray-500 text-sm">
-        <p>© 2024 Linda Messenger. Tutti i diritti riservati.</p>
+        <p>© 2024 Linda Messenger. All rights reserved.</p>
       </div>
     </div>
   );
