@@ -1,40 +1,83 @@
 import Gun from 'gun';
 import SEA from 'gun/sea.js';
-import GunEthModule from './gun-eth.mjs';
-//import GunEthModule from '@scobru/gun-eth';
+// import GunEthModule from './gun-eth.mjs';
+import GunEthModule from '@scobru/gun-eth';
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ['http://localhost:8765/gun'];
+const DEFAULT_PEERS = [
+  'https://gun-relay.scobrudot.dev/gun',
+  /*   'http://localhost:8765/gun', */
+];
 
 let isConnected = false;
 
 const GunEth = GunEthModule.GunEth;
 
-// Inizializza Gun con storage locale completamente disabilitato
-export const gun = GunEth.initializeGun({
+const gunOptions = {
   peers: DEFAULT_PEERS,
   localStorage: false,
-  store: {
-    // Override del metodo put per prevenire il salvataggio
-    put: function () {
-      return;
-    },
-    // Override del metodo get per prevenire la lettura
-    get: function () {
-      return;
-    },
-  },
   radisk: false,
-  rindexed: false,
-  indexedDB: false, // Disabilita esplicitamente IndexedDB
-  web: false, // Disabilita il web storage
-});
+  retry: 1500,
+  file: false,
+  web: false,
+  axe: true,
+  multicast: false,
+  // Configurazione WebSocket migliorata
+  ws: {
+    protocols: ['gun'],
+    reconnect: true,
+    pingTimeout: 45000,
+    pingInterval: 30000,
+    maxPayload: 2 * 1024 * 1024,
+    perMessageDeflate: false,
+  },
+};
+
+// Inizializza Gun con le opzioni
+export const gun = GunEth.initializeGun(gunOptions);
 
 // Inizializza l'utente
 export const user = gun.user().recall({ sessionStorage: true });
+
+// Gestione errori di connessione
+gun.on('error', (err) => {
+  console.error('Gun error:', err);
+});
+
+// Gestione riconnessione
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 5;
+let isReconnecting = false;
+
+gun.on('disconnected', async (peer) => {
+  console.log('Disconnesso dal peer:', peer);
+
+  if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
+    isReconnecting = true;
+    reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+
+    console.log(
+      `Tentativo di riconnessione ${reconnectAttempts}/${maxReconnectAttempts} tra ${delay}ms...`
+    );
+
+    setTimeout(() => {
+      gun.opt({ peers: DEFAULT_PEERS });
+      isReconnecting = false;
+    }, delay);
+  } else if (reconnectAttempts >= maxReconnectAttempts) {
+    console.error('Numero massimo di tentativi di riconnessione raggiunto');
+  }
+});
+
+gun.on('connected', (peer) => {
+  console.log('Connesso al peer:', peer);
+  reconnectAttempts = 0;
+  isReconnecting = false;
+});
 
 // Costanti
 export const DAPP_NAME = 'linda-messenger';
@@ -64,26 +107,40 @@ export const getPeers = () => {
 // Verifica connessione
 export const checkConnection = () => {
   return new Promise((resolve) => {
-    if (isConnected) {
-      resolve(true);
-      return;
-    }
+    const timeout = setTimeout(() => {
+      console.log('Timeout verifica connessione');
+      resolve(false);
+    }, 5000);
 
-    const timeout = setTimeout(() => resolve(false), 5000);
     gun.on('hi', () => {
       clearTimeout(timeout);
-      isConnected = true; // Aggiorna lo stato della connessione
       resolve(true);
     });
   });
 };
 
-// Riconnessione
-export const reconnect = () => {
+// Riconnessione forzata
+export const reconnect = async () => {
+  console.log('Tentativo di riconnessione forzata...');
   gun.off();
-  setTimeout(() => {
-    window.location.reload();
-  }, 1000);
+  reconnectAttempts = 0;
+  isReconnecting = false;
+
+  // Rimuovi tutti i peer esistenti
+  const currentPeers = Object.keys(gun._.opt.peers || {});
+  currentPeers.forEach((peer) => removePeer(peer));
+
+  // Aggiungi nuovamente i peer predefiniti
+  DEFAULT_PEERS.forEach((peer) => addPeer(peer));
+
+  // Attendi un breve periodo
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // Verifica la connessione
+  const isConnected = await checkConnection();
+  console.log('Stato connessione dopo riconnessione:', isConnected);
+
+  return isConnected;
 };
 
 // Esporta SEA

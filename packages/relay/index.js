@@ -26,26 +26,23 @@ const port = 8765;
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: app,
-  multicast: {
-    address: MULTICAST_ADDRESS,
-    port: MULTICAST_PORT,
-  },
-  radisk: true, // mantieni radisk per la persistenza su filesystem
-  localStorage: false, // disabilita localStorage
-  store: false, // disabilita store generico
-  rindexed: false, // disabilita IndexedDB
-  file: "./radata", // mantieni il path per radisk
-  axe: true,
+  multicast: false,
+  host: process.env.HOST || "0.0.0.0",
+  port: port,
   peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
+  radisk: true,
+  file: "./radata",
+  axe: true,
+  super: true,
 };
 
 // Configurazione
 const CONFIG = {
   STORAGE: {
-    enabled: !!(process.env.PINATA_API_KEY && process.env.PINATA_API_SECRET),
+    enabled: !!process.env.PINATA_JWT,
     service: "PINATA",
     config: {
-      pinataJwt: process.env.PINATA_API_KEY || "",
+      pinataJwt: process.env.PINATA_JWT || "",
       pinataGateway: process.env.PINATA_GATEWAY || "",
     },
   },
@@ -128,6 +125,21 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept"
   );
+  next();
+});
+
+// Middleware CORS più permissivo
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Expose-Headers", "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  // Gestione preflight OPTIONS
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
   next();
 });
 
@@ -633,19 +645,61 @@ async function initializeServer() {
     // Crea il server HTTP
     const server = http.createServer(app);
 
-    // Configura Gun con il server HTTP invece di express
-    const gunConfig = {
+    // Inizializza Gun con il server HTTP
+    gun = Gun({
       ...GUN_CONFIG,
-      web: server, // Usa il server HTTP invece di app
-    };
+      web: server,
+    });
 
-    // Inizializza Gun con la configurazione
-    gun = new Gun(gunConfig);
-    console.log("Gun server started");
+    // Abilita il debug per Gun
+    gun.on("out", (msg) => {
+      if (msg.err) {
+        console.error("Gun error:", msg.err);
+      }
+    });
 
     // Avvia il server HTTP
-    server.listen(port, () => {
-      console.log(`Relay listening at http://localhost:${port}`);
+    server.listen(port, GUN_CONFIG.host, () => {
+      console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
+      console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
+    });
+
+    // Gestione errori del server
+    server.on("error", (error) => {
+      console.error("Server error:", error);
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${port} is already in use`);
+      }
+    });
+
+    // Tracking connessioni
+    server.on("connection", (socket) => {
+      metrics.connections++;
+      console.log(`New connection - Total: ${metrics.connections}`);
+
+      socket.on("close", () => {
+        metrics.connections = Math.max(0, metrics.connections - 1);
+        console.log(`Connection closed - Total: ${metrics.connections}`);
+      });
+    });
+
+    // Tracking eventi Gun
+    gun.on("hi", (peer) => {
+      metrics.connections++;
+      console.log(
+        `Peer connected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
+    });
+
+    gun.on("bye", (peer) => {
+      metrics.connections = Math.max(0, metrics.connections - 1);
+      console.log(
+        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
+          metrics.connections
+        }`
+      );
     });
 
     // Inizializza Mogu se abilitato
@@ -685,36 +739,6 @@ async function initializeServer() {
     initializeGunListeners(gun, mogu);
 
     app.use(Gun.serve);
-
-    // Tracking connessioni WebSocket
-    server.on("connection", (socket) => {
-      metrics.connections++;
-      console.log(`New connection - Total: ${metrics.connections}`);
-
-      socket.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(`Connection closed - Total: ${metrics.connections}`);
-      });
-    });
-
-    // Tracking eventi Gun
-    gun.on("hi", (peer) => {
-      metrics.connections++;
-      console.log(
-        `Peer connected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    gun.on("bye", (peer) => {
-      metrics.connections = Math.max(0, metrics.connections - 1);
-      console.log(
-        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
 
     return { gun, mogu };
   } catch (error) {
@@ -769,3 +793,12 @@ function getCPUUsage() {
     return 0;
   }
 }
+
+// Aggiungi handler per gli errori non gestiti
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});

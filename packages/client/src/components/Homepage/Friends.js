@@ -304,378 +304,221 @@ const FriendItem = React.memo(
   }
 );
 
-export default function Friends({ onSelect, loading, selectedUser }) {
+export default function Friends({
+  onSelect,
+  pendingRequests,
+  loading,
+  selectedUser,
+  setPendingRequests,
+}) {
   const [friends, setFriends] = React.useState([]);
-  const [pendingRequests, setPendingRequests] = React.useState([]);
-  const friendsRef = React.useRef(new Map());
-  const [activeMenu, setActiveMenu] = React.useState(null);
-  const [blockedUsers, setBlockedUsers] = React.useState(new Set());
-  const blockedUsersRef = React.useRef(new Set());
-  const [isLoading, setIsLoading] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [filteredFriends, setFilteredFriends] = React.useState([]);
+  const [activeMenu, setActiveMenu] = React.useState(null);
+  const [isLoading, setIsLoading] = React.useState(false);
 
-  // Funzione per gestire la rimozione delle richieste processate
-  const handleRequestProcessed = (fromPub) => {
-    // Rimuovi immediatamente la richiesta dalla lista locale
-    setPendingRequests((prev) => prev.filter((r) => r.from !== fromPub));
-  };
+  // Filter friends based on search query
+  const filteredFriends = React.useMemo(() => {
+    if (!searchQuery.trim()) return friends;
 
+    return friends.filter((friend) => {
+      const searchLower = searchQuery.toLowerCase();
+      const alias = (friend.alias || "").toLowerCase();
+      const username = (friend.username || "").toLowerCase();
+      const nickname = (friend.nickname || "").toLowerCase();
+
+      return (
+        alias.includes(searchLower) ||
+        username.includes(searchLower) ||
+        nickname.includes(searchLower)
+      );
+    });
+  }, [friends, searchQuery]);
+
+  // Load friends
   React.useEffect(() => {
     if (!user?.is) return;
 
     let mounted = true;
-    const unsubscribers = new Map();
-
-    const updateFriendData = async (friendPub) => {
-      if (!mounted) return;
-
-      // Sottoscrizione al nickname dell'amico
-      const unsubNickname = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("nicknames")
-        .get(friendPub)
-        .on((nickname) => {
-          if (!mounted) return;
-
-          setFriends((prev) =>
-            prev.map((friend) => {
-              if (friend.pub === friendPub) {
-                return {
-                  ...friend,
-                  alias:
-                    nickname ||
-                    `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-                };
-              }
-              return friend;
-            })
-          );
-        });
-
-      unsubscribers.set(friendPub, unsubNickname);
+    const loadFriends = async () => {
+      try {
+        setIsLoading(true);
+        const friendsList = await userUtils.getFriends();
+        if (mounted) {
+          setFriends(friendsList);
+        }
+      } catch (error) {
+        console.error("Error loading friends:", error);
+        toast.error("Error loading friends list");
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
     };
 
-    // Monitora la lista amici
-    const unsubFriendships = gun
-      .get(DAPP_NAME)
-      .get("friendships")
-      .map()
-      .on((friendship, id) => {
-        if (!friendship || !mounted) return;
-
-        if (
-          friendship.user1 === user.is.pub ||
-          friendship.user2 === user.is.pub
-        ) {
-          const friendPub =
-            friendship.user1 === user.is.pub
-              ? friendship.user2
-              : friendship.user1;
-
-          if (!friendsRef.current.has(friendPub)) {
-            friendsRef.current.set(friendPub, true);
-
-            // Aggiorna la lista amici
-            setFriends((prev) => {
-              const exists = prev.some((f) => f.pub === friendPub);
-              if (!exists) {
-                return [
-                  ...prev,
-                  {
-                    pub: friendPub,
-                    alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-                    friendshipId: id,
-                    added: friendship.created,
-                    type: "friend",
-                  },
-                ];
-              }
-              return prev;
-            });
-
-            // Sottoscrivi agli aggiornamenti del nickname
-            updateFriendData(friendPub);
-          }
-        }
-      });
-
+    loadFriends();
     return () => {
       mounted = false;
-      unsubscribers.forEach((unsub) => {
-        if (typeof unsub === "function") unsub();
-      });
-      if (typeof unsubFriendships === "function") unsubFriendships();
-      friendsRef.current.clear();
     };
   }, [user?.is]);
 
+  // Monitor friends status
   React.useEffect(() => {
     if (!user?.is) return;
 
-    const unsubRequests = gun
+    const unsubscribe = gun
       .get(DAPP_NAME)
-      .get("all_friend_requests")
+      .get("userList")
+      .get("users")
       .map()
-      .on((request) => {
-        if (request && request.to === user.is.pub) {
-          setPendingRequests((prev) => {
-            const exists = prev.some((r) => r.from === request.from);
-            if (!exists) {
-              return [...prev, request];
-            }
-            return prev;
-          });
-        }
+      .on((userData, key) => {
+        if (!userData || !userData.pub) return;
+
+        setFriends((prev) => {
+          const index = prev.findIndex((f) => f.pub === userData.pub);
+          if (index === -1) return prev;
+
+          const updated = [...prev];
+          updated[index] = {
+            ...updated[index],
+            alias:
+              userData.nickname || userData.username || updated[index].alias,
+            username: userData.username,
+            nickname: userData.nickname,
+            lastSeen: userData.lastSeen,
+          };
+          return updated;
+        });
       });
 
     return () => {
-      if (typeof unsubRequests === "function") {
-        unsubRequests();
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
       }
     };
-  }, []);
-
-  React.useEffect(() => {
-    let isSubscribed = true;
-
-    const loadBlockedUsers = async () => {
-      try {
-        // Usa Promise.allSettled invece di Promise.all per gestire meglio gli errori
-        const [blockedListResult, blockedChatsResult] =
-          await Promise.allSettled([
-            userBlocking.getBlockedUsers(),
-            chat.getBlockedChats(),
-          ]);
-
-        if (!isSubscribed) return;
-
-        const blockedList =
-          blockedListResult.status === "fulfilled"
-            ? blockedListResult.value
-            : [];
-        const blockedChats =
-          blockedChatsResult.status === "fulfilled"
-            ? blockedChatsResult.value
-            : [];
-
-        const blockedSet = new Set(blockedList.map((user) => user.pub));
-        setBlockedUsers(blockedSet);
-        blockedUsersRef.current = blockedSet;
-
-        // Aggiorna la lista amici per riflettere lo stato di blocco
-        setFriends((prev) =>
-          prev.map((friend) => {
-            const chatId = [user.is.pub, friend.pub].sort().join("_");
-            const isChatBlocked = blockedChats.includes(chatId);
-
-            return {
-              ...friend,
-              isBlocked: blockedSet.has(friend.pub),
-              canChat: !blockedSet.has(friend.pub) && !isChatBlocked,
-            };
-          })
-        );
-      } catch (error) {
-        console.error("Error loading blocked users:", error);
-      }
-    };
-
-    loadBlockedUsers();
-
-    // Ascolta gli eventi di cambio stato utente
-    const handleUserStatusChange = async (event) => {
-      const { type, userPub } = event.detail;
-
-      if (type === "block") {
-        setBlockedUsers((prev) => {
-          const newSet = new Set(prev);
-          newSet.add(userPub);
-          blockedUsersRef.current = newSet;
-          return newSet;
-        });
-
-        setFriends((prev) =>
-          prev.map((friend) =>
-            friend.pub === userPub ? { ...friend, isBlocked: true } : friend
-          )
-        );
-      } else if (type === "unblock") {
-        setBlockedUsers((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(userPub);
-          blockedUsersRef.current = newSet;
-          return newSet;
-        });
-
-        setFriends((prev) =>
-          prev.map((friend) =>
-            friend.pub === userPub ? { ...friend, isBlocked: false } : friend
-          )
-        );
-      }
-    };
-
-    window.addEventListener("userStatusChanged", handleUserStatusChange);
-
-    return () => {
-      isSubscribed = false;
-      window.removeEventListener("userStatusChanged", handleUserStatusChange);
-    };
-  }, [setFriends]);
-
-  const handleRemoveFriend = async (friend) => {
-    try {
-      if (window.confirm("Sei sicuro di voler rimuovere questo amico?")) {
-        await removeFriend(friend.pub);
-        toast.success("Amico rimosso con successo");
-        // La lista amici si aggiornerà automaticamente tramite le sottoscrizioni
-      }
-    } catch (error) {
-      console.error("Errore rimozione amico:", error);
-      toast.error("Errore durante la rimozione");
-    }
-  };
-
-  const handleUnblock = async (friend) => {
-    try {
-      // Sblocca l'utente
-      const unblockResult = await userBlocking.unblockUser(friend.pub);
-      if (!unblockResult.success) {
-        throw new Error(unblockResult.message);
-      }
-
-      // Sblocca anche la chat
-      const chatId = [user.is.pub, friend.pub].sort().join("_");
-      await chat.unblockChat(chatId);
-
-      // Aggiorna lo stato locale
-      setFriends((prev) =>
-        prev.map((f) => (f.pub === friend.pub ? { ...f, isBlocked: false } : f))
-      );
-
-      toast.success(`${friend.alias} è stato sbloccato`);
-      setActiveMenu(null);
-    } catch (error) {
-      console.error("Error unblocking user:", error);
-      toast.error("Errore durante lo sblocco dell'utente");
-    }
-  };
-
-  const handleSendTip = async (friendPub, amount) => {
-    try {
-      setIsLoading(true);
-
-      // Usa sempre il wallet interno per i tip
-      const tx = await walletService.sendTip(friendPub, amount);
-
-      toast.success("Tip inviato con successo!");
-
-      // Aggiorna la UI se necessario
-      // ...
-    } catch (error) {
-      console.error("Error sending tip:", error);
-      toast.error("Errore nell'invio del tip");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleMenuToggle = (friendPub) => {
-    setActiveMenu(activeMenu === friendPub ? null : friendPub);
-  };
-
-  const handleBlock = async (friend) => {
-    try {
-      const result = await userBlocking.blockUser(friend.pub);
-      if (result.success) {
-        toast.success(`${friend.alias} è stato bloccato`);
-        // Aggiorna lo stato locale
-        setFriends((prev) =>
-          prev.map((f) =>
-            f.pub === friend.pub ? { ...f, isBlocked: true } : f
-          )
-        );
-      }
-    } catch (error) {
-      console.error("Error blocking user:", error);
-      toast.error("Errore durante il blocco dell'utente");
-    }
-  };
-
-  // Aggiungi questo effetto per gestire la ricerca
-  React.useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredFriends(friends);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase();
-    const filtered = friends.filter(
-      (friend) =>
-        friend.alias?.toLowerCase().includes(query) ||
-        friend.pub?.toLowerCase().includes(query)
-    );
-    setFilteredFriends(filtered);
-  }, [searchQuery, friends]);
+  }, [user?.is]);
 
   return (
-    <div className="flex flex-col space-y-4">
-      {/* Box di ricerca */}
-      <div className="px-4">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Cerca una chat..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="flex flex-col h-full">
+      {/* Search bar */}
+      <div className="p-4 border-b">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search friends..."
+            className="w-full px-4 py-2 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </span>
+        </div>
       </div>
 
-      {/* Richieste in sospeso */}
-      {pendingRequests?.length > 0 && (
-        <div className="p-4 bg-yellow-50 rounded-lg">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">
-            Richieste di amicizia ({pendingRequests.length})
+      {/* Friend requests section */}
+      {pendingRequests.length > 0 && (
+        <div className="p-4 border-b">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">
+            Friend Requests ({pendingRequests.length})
           </h3>
           <div className="space-y-2">
             {pendingRequests.map((request) => (
               <FriendRequest
-                key={request.pub || request.from}
+                key={request.pub}
                 request={request}
-                onRequestProcessed={handleRequestProcessed}
+                onRequestProcessed={(pub) =>
+                  setPendingRequests((prev) =>
+                    prev.filter((r) => r.pub !== pub)
+                  )
+                }
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Lista amici filtrata */}
-      <div className="divide-y divide-gray-200">
-        {filteredFriends.map((friend) => (
-          <FriendItem
-            key={friend.pub}
-            friend={friend}
-            isSelected={selectedUser?.pub === friend.pub}
-            onSelect={onSelect}
-            onRemove={handleRemoveFriend}
-            onBlock={handleBlock}
-            onUnblock={handleUnblock}
-            isActiveMenu={activeMenu === friend.pub}
-            onMenuToggle={handleMenuToggle}
-          />
-        ))}
+      {/* Friends list */}
+      <div className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="flex justify-center items-center h-32">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+          </div>
+        ) : filteredFriends.length > 0 ? (
+          filteredFriends.map((friend) => (
+            <FriendItem
+              key={friend.pub}
+              friend={friend}
+              isSelected={selectedUser?.pub === friend.pub}
+              onSelect={onSelect}
+              onRemove={async () => {
+                try {
+                  await removeFriend(friend.pub);
+                  setFriends((prev) =>
+                    prev.filter((f) => f.pub !== friend.pub)
+                  );
+                  toast.success("Friend removed");
+                } catch (error) {
+                  console.error("Error removing friend:", error);
+                  toast.error("Error removing friend");
+                }
+              }}
+              onBlock={async () => {
+                try {
+                  await userBlocking.blockUser(friend.pub);
+                  setFriends((prev) =>
+                    prev.map((f) =>
+                      f.pub === friend.pub ? { ...f, isBlocked: true } : f
+                    )
+                  );
+                  toast.success("User blocked");
+                } catch (error) {
+                  console.error("Error blocking user:", error);
+                  toast.error("Error blocking user");
+                }
+              }}
+              onUnblock={async () => {
+                try {
+                  await userBlocking.unblockUser(friend.pub);
+                  setFriends((prev) =>
+                    prev.map((f) =>
+                      f.pub === friend.pub ? { ...f, isBlocked: false } : f
+                    )
+                  );
+                  toast.success("User unblocked");
+                } catch (error) {
+                  console.error("Error unblocking user:", error);
+                  toast.error("Error unblocking user");
+                }
+              }}
+              isActiveMenu={activeMenu === friend.pub}
+              onMenuToggle={(pub) =>
+                setActiveMenu(activeMenu === pub ? null : pub)
+              }
+            />
+          ))
+        ) : (
+          <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+            {searchQuery ? (
+              <p>No friends found matching "{searchQuery}"</p>
+            ) : (
+              <p>No friends yet</p>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* Stato vuoto modificato per mostrare messaggi diversi in base alla ricerca */}
-      {!loading && filteredFriends.length === 0 && (
-        <div className="text-center text-gray-500 py-4">
-          {searchQuery.trim()
-            ? "Nessun risultato trovato"
-            : "Nessun amico trovato"}
-        </div>
-      )}
     </div>
   );
 }

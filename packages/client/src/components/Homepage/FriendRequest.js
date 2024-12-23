@@ -1,14 +1,14 @@
-import React from 'react';
-import { gun, user, DAPP_NAME } from 'linda-protocol';
-import { userUtils } from 'linda-protocol';
-import { acceptFriendRequest, rejectFriendRequest } from 'linda-protocol';
-import { toast } from 'react-hot-toast';
+import React from "react";
+import { gun, user, DAPP_NAME } from "linda-protocol";
+import { userUtils } from "linda-protocol";
+import { acceptFriendRequest, rejectFriendRequest } from "linda-protocol";
+import { toast } from "react-hot-toast";
 
 const FriendRequest = ({ request, onRequestProcessed }) => {
   const [userInfo, setUserInfo] = React.useState({
-    displayName: 'Caricamento...',
-    username: '',
-    nickname: ''
+    displayName: "Loading...",
+    username: "",
+    nickname: "",
   });
   const [isProcessing, setIsProcessing] = React.useState(false);
 
@@ -24,43 +24,43 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
     try {
       setIsProcessing(true);
       const result = await acceptFriendRequest(request);
-      
+
       if (result.success) {
-        // Rimuovi immediatamente la richiesta dall'UI
+        // Immediately remove the request from UI
         onRequestProcessed(request.from);
 
-        // Rimuovi la richiesta da Gun
-        gun.get(DAPP_NAME)
-          .get('all_friend_requests')
+        // Remove the request from Gun
+        gun
+          .get(DAPP_NAME)
+          .get("all_friend_requests")
           .map()
           .once((data, key) => {
             if (data && data.from === request.from) {
-              gun.get(DAPP_NAME)
-                .get('all_friend_requests')
-                .get(key)
-                .put(null);
+              gun.get(DAPP_NAME).get("all_friend_requests").get(key).put(null);
             }
           });
 
-        gun.get(DAPP_NAME)
-          .get('friend_requests')
+        gun
+          .get(DAPP_NAME)
+          .get("friend_requests")
           .get(user.is.pub)
           .map()
           .once((data, key) => {
             if (data && data.from === request.from) {
-              gun.get(DAPP_NAME)
-                .get('friend_requests')
+              gun
+                .get(DAPP_NAME)
+                .get("friend_requests")
                 .get(user.is.pub)
                 .get(key)
                 .put(null);
             }
           });
 
-        toast.success('Richiesta di amicizia accettata');
+        toast.success("Friend request accepted");
       }
     } catch (error) {
-      console.error('Errore accettazione richiesta:', error);
-      toast.error('Errore nell\'accettare la richiesta');
+      console.error("Error accepting request:", error);
+      toast.error("Error accepting the request");
     } finally {
       setIsProcessing(false);
     }
@@ -71,40 +71,40 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
       setIsProcessing(true);
       await rejectFriendRequest(request);
 
-      // Rimuovi immediatamente la richiesta dall'UI
+      // Immediately remove the request from UI
       onRequestProcessed(request.from);
 
-      // Rimuovi la richiesta da Gun
-      gun.get(DAPP_NAME)
-        .get('all_friend_requests')
+      // Remove the request from Gun
+      gun
+        .get(DAPP_NAME)
+        .get("all_friend_requests")
         .map()
         .once((data, key) => {
           if (data && data.from === request.from) {
-            gun.get(DAPP_NAME)
-              .get('all_friend_requests')
-              .get(key)
-              .put(null);
+            gun.get(DAPP_NAME).get("all_friend_requests").get(key).put(null);
           }
         });
 
-      gun.get(DAPP_NAME)
-        .get('friend_requests')
+      gun
+        .get(DAPP_NAME)
+        .get("friend_requests")
         .get(user.is.pub)
         .map()
         .once((data, key) => {
           if (data && data.from === request.from) {
-            gun.get(DAPP_NAME)
-              .get('friend_requests')
+            gun
+              .get(DAPP_NAME)
+              .get("friend_requests")
               .get(user.is.pub)
               .get(key)
               .put(null);
           }
         });
 
-      toast.success('Richiesta di amicizia rifiutata');
+      toast.success("Friend request rejected");
     } catch (error) {
-      console.error('Errore rifiuto richiesta:', error);
-      toast.error('Errore nel rifiutare la richiesta');
+      console.error("Error rejecting request:", error);
+      toast.error("Error rejecting the request");
     } finally {
       setIsProcessing(false);
     }
@@ -123,9 +123,7 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
             {userInfo.displayName}
           </p>
           {userInfo.username && (
-            <p className="text-xs text-gray-500">
-              @{userInfo.username}
-            </p>
+            <p className="text-xs text-gray-500">@{userInfo.username}</p>
           )}
         </div>
       </div>
@@ -134,21 +132,21 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
           onClick={handleAccept}
           disabled={isProcessing}
           className={`px-3 py-1 text-sm font-medium text-white bg-blue-500 rounded hover:bg-blue-600 
-            ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            ${isProcessing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          {isProcessing ? 'In corso...' : 'Accetta'}
+          {isProcessing ? "Processing..." : "Accept"}
         </button>
         <button
           onClick={handleReject}
           disabled={isProcessing}
           className={`px-3 py-1 text-sm font-medium text-white bg-red-500 rounded hover:bg-red-600
-            ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            ${isProcessing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          Rifiuta
+          Reject
         </button>
       </div>
     </div>
   );
 };
 
-export default FriendRequest; 
+export default FriendRequest;
