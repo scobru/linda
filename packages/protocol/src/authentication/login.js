@@ -5,93 +5,114 @@ import {
 } from '../security/index.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 
-const LOGIN_TIMEOUT = 10000; // 10 seconds
+const LOGIN_TIMEOUT = 15000; // Aumentiamo il timeout a 15 secondi
 
 export const loginWithMetaMask = async (address) => {
   try {
-    // Ottieni il signer e crea la firma
-    const signer = await gun.getSigner();
-    const signature = await signer.signMessage(MESSAGE_TO_SIGN);
-    const password = await gun.generatePassword(signature);
+    if (!address) {
+      throw new Error('Indirizzo non valido');
+    }
 
-    // Verifica se l'utente esiste già
+    const normalizedAddress = address.toLowerCase();
+
+    // Cerca l'utente nell'indice degli indirizzi
     const existingUser = await gun
       .get(DAPP_NAME)
-      .get('users')
-      .get(address.toLowerCase())
+      .get('addresses')
+      .get(normalizedAddress)
       .once();
 
     if (!existingUser) {
-      throw new Error('Utente non registrato. Per favore registrati prima.');
+      throw new Error('Utente non trovato');
     }
 
-    // Recupera le chiavi cifrate e decifrale
-    const decryptedPairs = {
-      pair: await gun.decryptWithPassword(
-        existingUser.encryptedPairs.pair,
-        password
-      ),
-      viewingKeyPair: await gun.decryptWithPassword(
-        existingUser.encryptedPairs.viewingKeyPair,
-        password
-      ),
-      spendingKeyPair: await gun.decryptWithPassword(
-        existingUser.encryptedPairs.spendingKeyPair,
-        password
-      ),
-    };
+    console.log('Found user:', existingUser);
 
-    // Converti la chiave privata nel formato corretto per Ethereum
-    const hexPrivateKey = await gun.convertToEthAddress(
-      decryptedPairs.pair.epriv
-    );
+    // Ottieni il signer e firma il messaggio
+    const signer = await gun.getSigner();
+    if (!signer) {
+      throw new Error('Signer non valido');
+    }
 
+    const signature = await signer.signMessage(gun.MESSAGE_TO_SIGN);
+    if (!signature) {
+      throw new Error('Firma non valida');
+    }
+
+    // Genera la password dalla firma
+    const password = await gun.generatePassword(signature);
+
+    // Recupera i dati dell'utente usando il pub
+    let userData = await gun
+      .get(DAPP_NAME)
+      .get('users')
+      .get(existingUser.pub)
+      .once();
+
+    if (!userData) {
+      // 4. Se non troviamo nel profilo, cerca negli indirizzi
+      userData = await gun
+        .get(DAPP_NAME)
+        .get('addresses')
+        .get(signer.address.toLowerCase())
+        .once();
+      console.log('User data from addresses:', userData);
+    }
+
+    if (!userData) {
+      throw new Error('Dati utente non trovati');
+    }
+
+    // Decifra le chiavi usando la password
+    const [decryptedPair, decryptedVPair, decryptedSPair] = await Promise.all([
+      gun.decryptWithPassword(userData.env_pair, password),
+      gun.decryptWithPassword(userData.env_v_pair, password),
+      gun.decryptWithPassword(userData.env_s_pair, password),
+    ]);
+
+    if (!decryptedPair || !decryptedVPair || !decryptedSPair) {
+      throw new Error('Impossibile decifrare le chiavi');
+    }
+
+    // Autentica l'utente con le chiavi decifrate
     return new Promise((resolve, reject) => {
-      gun.user().auth(decryptedPairs.pair, async (ack) => {
+      user.auth(decryptedPair, async (ack) => {
         if (ack.err) {
           reject(new Error(ack.err));
           return;
         }
 
         try {
-          // Salva nel localStorage per accesso rapido
+          // Salva nel localStorage
           const walletData = {
-            internalWalletAddress: existingUser.address,
-            internalWalletPk: hexPrivateKey,
-            viewingPublicKey: existingUser.viewingPublicKey,
-            spendingPublicKey: existingUser.spendingPublicKey,
-            pair: decryptedPairs.pair,
-            v_Pair: decryptedPairs.v_Pair,
-            s_Pair: decryptedPairs.s_Pair,
-            credentials,
+            internalWalletAddress: userData.internalWalletAddress,
+            externalWalletAddress: address,
+            pair: decryptedPair,
+            v_Pair: decryptedVPair,
+            s_Pair: decryptedSPair,
+            viewingPublicKey: userData.viewingPublicKey,
+            spendingPublicKey: userData.spendingPublicKey,
+            credentials: {
+              username: address,
+              password: password,
+            },
           };
 
           localStorage.setItem(
-            `gunWallet_${existingUser.pub}`,
+            `gunWallet_${userData.pub}`,
             JSON.stringify(walletData)
           );
-
-          // Verifica/crea certificati
-          await Promise.all([
-            createFriendRequestCertificate(),
-            createNotificationCertificate(),
-          ]);
 
           // Aggiorna metriche
           updateGlobalMetrics('totalLogins', 1);
 
           resolve({
             success: true,
-            pub: existingUser.pub,
-            message: 'Autenticazione completata con successo.',
-            user: {
-              pub: existingUser.pub,
-              address: existingUser.address,
-            },
+            pub: userData.pub,
+            userData: userData,
           });
         } catch (error) {
-          console.error('Error in auth callback:', error);
-          reject(error);
+          reject(new Error(`Errore durante il login: ${error.message}`));
         }
       });
     });
@@ -123,170 +144,138 @@ export const loginWithMetaMask = async (address) => {
  */
 const loginUser = (credentials = {}, callback = () => {}) => {
   let timeoutId;
-  console.log('loginUser', credentials);
 
   const loginPromise = new Promise(async (resolve, reject) => {
     try {
       if (!credentials.username || !credentials.password) {
-        reject(new Error('Username and password are required'));
+        reject(new Error('Username e password sono richiesti'));
         return;
       }
 
-      gun
-        .user()
-        .auth(credentials.username, credentials.password, async (ack) => {
+      // Reset dello stato di autenticazione
+      if (user.is) {
+        user.leave();
+      }
+
+      // Verifica se l'utente esiste prima di tentare il login
+      const userExists = await new Promise((resolve) => {
+        gun.get(`~@${credentials.username}`).once((data) => {
+          resolve(!!data);
+        });
+        // Timeout più breve per la verifica dell'esistenza
+        setTimeout(() => resolve(false), 3000);
+      });
+
+      if (!userExists) {
+        reject(new Error('Utente non trovato'));
+        return;
+      }
+
+      // Tenta l'autenticazione
+      await new Promise((resolve, reject) => {
+        user.auth(credentials.username, credentials.password, async (ack) => {
           if (ack.err) {
             reject(new Error(ack.err));
             return;
           }
 
-          const pub = user.is.pub;
-          console.log('User authenticated:', { pub });
-
-          // Cerca i dati utente in tutti i percorsi possibili
-          let userData = null;
-
-          // 1. Prima cerca per username
-          const usernameData = await gun
-            .get(`~@${credentials.username}`)
-            .once();
-          console.log('Username data:', usernameData);
-
-          if (usernameData) {
-            // 2. Se troviamo il riferimento username, cerca per pub
-            userData = await gun
-              .get(DAPP_NAME)
-              .get('users')
-              .get(usernameData.pub)
-              .once();
-            console.log('User data from pub:', userData);
-          }
-
-          if (!userData) {
-            // 3. Se non troviamo per pub, cerca nel profilo
-            userData = await gun
-              .user()
-              .get(DAPP_NAME)
-              .get('profiles')
-              .get(pub)
-              .once();
-            console.log('User data from profile:', userData);
-          }
-
-          if (!userData) {
-            // 4. Se non troviamo nel profilo, cerca negli indirizzi
-            userData = await gun
-              .get(DAPP_NAME)
-              .get('addresses')
-              .get(pub)
-              .once();
-            console.log('User data from addresses:', userData);
-          }
-
-          if (!userData) {
-            reject(new Error('Dati utente non trovati'));
-            return;
-          }
-
-          // Modifica la verifica dei dati di cifratura
-          if (
-            !userData ||
-            !userData.pair ||
-            !userData.viewingKeyPair ||
-            !userData.spendingKeyPair
-          ) {
-            console.error('Dati utente o chiavi mancanti:', { userData });
-            reject(new Error('Dati utente non validi'));
-            return;
-          }
-
           try {
-            // Decifra le chiavi
-            const [decryptedPair, decryptedVPair, decryptedSPair] =
-              await Promise.all([
-                gun.decryptWithPassword(userData.pair, credentials.password),
-                gun.decryptWithPassword(
-                  userData.viewingKeyPair,
-                  credentials.password
-                ),
-                gun.decryptWithPassword(
-                  userData.spendingKeyPair,
-                  credentials.password
-                ),
-              ]);
-
-            console.log('Chiavi decifrate con successo:', {
-              hasPair: !!decryptedPair,
-              hasVPair: !!decryptedVPair,
-              hasSPair: !!decryptedSPair,
-            });
-
-            // Converti la chiave privata nel formato corretto per Ethereum
-            const hexPrivateKey = await gun.convertToEthAddress(
-              decryptedPair.epriv
-            );
-
-            // Salva nel localStorage
-            const walletData = {
-              internalWalletAddress: userData.address,
-              internalWalletPk: hexPrivateKey,
-              viewingPublicKey: userData.viewingPublicKey,
-              spendingPublicKey: userData.spendingPublicKey,
-              pair: decryptedPair,
-              v_Pair: decryptedVPair,
-              s_Pair: decryptedSPair,
-              credentials,
-            };
-
-            localStorage.setItem(
-              `gunWallet_${pub}`,
-              JSON.stringify(walletData)
-            );
-
-            // Verifica/crea certificati
-            await Promise.all([
-              createFriendRequestCertificate(),
-              createNotificationCertificate(),
-            ]);
-
-            // Verifica user.is con timeout
-            let attempts = 0;
-            const maxAttempts = 10;
-            const checkUser = setInterval(() => {
-              attempts++;
+            // Verifica che l'utente sia effettivamente autenticato
+            let authCheckAttempts = 0;
+            const maxAuthCheckAttempts = 10;
+            const checkAuth = setInterval(() => {
+              authCheckAttempts++;
               if (user.is) {
-                clearInterval(checkUser);
-                resolve({
-                  success: true,
-                  pub: user.is.pub,
-                  message: 'Successfully authenticated user.',
-                  user: {
-                    pub: user.is.pub,
-                    address: userData.address,
-                  },
-                });
-              } else if (attempts >= maxAttempts) {
-                clearInterval(checkUser);
-                reject(new Error('Failed to get user data'));
+                clearInterval(checkAuth);
+                resolve();
+              } else if (authCheckAttempts >= maxAuthCheckAttempts) {
+                clearInterval(checkAuth);
+                reject(new Error('Verifica autenticazione fallita'));
               }
-            }, 100);
-
-            // Aggiorna metriche
-            updateGlobalMetrics('totalLogins', 1);
+            }, 500);
           } catch (error) {
-            console.error('Error in auth callback:', error);
             reject(error);
           }
         });
+      });
+
+      // Recupera i dati dell'utente
+      const userData = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(user.is.pub)
+          .once((data) => {
+            resolve(data);
+          });
+        setTimeout(() => resolve(null), 3000);
+      });
+
+      console.log('userData', userData);
+
+      if (!userData) {
+        throw new Error('Impossibile recuperare i dati utente');
+      }
+
+      // Decifra le chiavi
+      const [decryptedPair, decryptedVPair, decryptedSPair] = await Promise.all(
+        [
+          await gun.decryptWithPassword(
+            userData.env_pair,
+            credentials.password
+          ),
+          await gun.decryptWithPassword(
+            userData.env_v_pair,
+            credentials.password
+          ),
+          await gun.decryptWithPassword(
+            userData.env_s_pair,
+            credentials.password
+          ),
+        ]
+      );
+
+      // Salva nel localStorage
+      const walletData = {
+        internalWalletAddress: userData.internalWalletAddress,
+        externalWalletAddress: userData.externalWalletAddress,
+        pair: decryptedPair,
+        v_Pair: decryptedVPair,
+        s_Pair: decryptedSPair,
+        viewingPublicKey: userData.viewingPublicKey,
+        spendingPublicKey: userData.spendingPublicKey,
+        credentials: {
+          username: credentials.username,
+          password: credentials.password,
+        },
+      };
+
+      localStorage.setItem(
+        `gunWallet_${user.is.pub}`,
+        JSON.stringify(walletData)
+      );
+
+      // Aggiorna metriche
+      updateGlobalMetrics('totalLogins', 1);
+
+      resolve({
+        success: true,
+        pub: user.is.pub,
+        userData: userData,
+      });
     } catch (error) {
+      console.error('Login error:', error);
       reject(error);
     }
   });
 
-  // Gestione timeout e callback rimangono invariati
+  // Gestione del timeout
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error('Timeout during login'));
+      if (user.is) {
+        user.leave();
+      }
+      reject(new Error('Timeout durante il login'));
     }, LOGIN_TIMEOUT);
   });
 
@@ -300,6 +289,9 @@ const loginUser = (credentials = {}, callback = () => {}) => {
     })
     .catch((error) => {
       clearTimeout(timeoutId);
+      if (user.is) {
+        user.leave();
+      }
       callback({
         success: false,
         errMessage: error.message,
@@ -307,7 +299,6 @@ const loginUser = (credentials = {}, callback = () => {}) => {
       });
     });
 
-  updateGlobalMetrics('totalLogins', 1);
   return loginPromise;
 };
 

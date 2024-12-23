@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Context from "../contexts/context";
 import { messaging } from "linda-protocol";
 import { toast } from "react-hot-toast";
@@ -13,7 +13,9 @@ import { useNavigate } from "react-router-dom";
 import { authentication, DAPP_NAME } from "linda-protocol";
 import Channels from "../components/Homepage/Channels";
 import { walletService } from "linda-protocol";
-import TransactionHistory from '../components/Homepage/TransactionHistory';
+import TransactionHistory from "../components/Homepage/TransactionHistory";
+import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
+import TransactionModal from "../components/Homepage/TransactionModal";
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -33,6 +35,8 @@ export default function Homepage() {
   const chatInitializedRef = useRef(false);
   const [currentChatData, setCurrentChatData] = React.useState(null);
   const [activeView, setActiveView] = React.useState("chats");
+  const [isGlobalWalletModalOpen, setIsGlobalWalletModalOpen] = useState(false);
+  const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -598,7 +602,49 @@ export default function Homepage() {
                 }}
               />
             </div>
-            <AppStatus />
+            <div className="flex items-center space-x-2">
+              {/* Pulsante Wallet */}
+              <button
+                onClick={() => setIsGlobalWalletModalOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title="Apri Wallet"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
+              {/* Pulsante Transazioni */}
+              <button
+                onClick={() => setIsTransactionModalOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title="Visualizza Transazioni"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+              </button>
+              <AppStatus />
+            </div>
           </div>
         </div>
       </div>
@@ -628,16 +674,6 @@ export default function Homepage() {
               }`}
             >
               Bacheche e Canali
-            </button>
-            <button
-              onClick={() => setActiveView("transactions")}
-              className={`flex-1 py-3 text-sm font-medium ${
-                activeView === "transactions"
-                  ? "text-blue-500 border-b-2 border-blue-500"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Transazioni
             </button>
           </div>
 
@@ -747,6 +783,14 @@ export default function Homepage() {
           </div>
         </div>
       )}
+      <GlobalWalletModal
+        isOpen={isGlobalWalletModalOpen}
+        onClose={() => setIsGlobalWalletModalOpen(false)}
+      />
+      <TransactionModal
+        isOpen={isTransactionModalOpen}
+        onClose={() => setIsTransactionModalOpen(false)}
+      />
     </div>
   );
 }

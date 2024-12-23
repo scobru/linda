@@ -40,14 +40,18 @@ export default function SignIn() {
               "User is already being created or authenticated!"
             ) {
               // Se l'utente è già in fase di autenticazione, aspetta un po' e riprova
-              setTimeout(() => resolve(response), 1000);
+              setTimeout(() => resolve(response), 5000);
             } else {
               reject(new Error(response.errMessage));
             }
           });
         });
 
-        if (result.success) {
+        if (
+          result.success ||
+          result.errMessage ===
+            "User is already being created or authenticated!"
+        ) {
           // Attendi che l'utente sia completamente autenticato
           await new Promise((resolve) => {
             const checkAuth = () => {

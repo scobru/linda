@@ -57,8 +57,10 @@ export const registerWithMetaMask = async (address) => {
       throw new Error('Creazione account fallita');
     }
 
+    console.log('userData', userData);
+
     return new Promise((resolve, reject) => {
-      user.create(userData.pair, async (ack) => {
+      user.create(signerAddress, userData.pair, async (ack) => {
         if (ack.err) {
           reject(
             new Error(`Errore durante la creazione dell'utente: ${ack.err}`)
@@ -83,20 +85,20 @@ export const registerWithMetaMask = async (address) => {
             }
           }, 100);
 
-          // Prepara i dati utente
+          // Prepara i dati utente con struttura corretta
           const userDataToSave = {
             pub: userData.pub,
             address: userData.internalWalletAddress,
-            externalWalletAddress: signer.address,
-            username: signer.address,
-            nickname: signer.address,
+            externalWalletAddress: signerAddress, // Usa l'indirizzo ottenuto dal signer
+            username: signerAddress,
+            nickname: signerAddress,
             timestamp: Date.now(),
             authType: 'wallet',
             viewingPublicKey: userData.viewingPublicKey,
             spendingPublicKey: userData.spendingPublicKey,
-            pair: userData.env_pair,
-            v_Pair: userData.env_v_pair,
-            s_Pair: userData.env_s_pair,
+            env_pair: userData.env_pair,
+            env_v_pair: userData.env_v_pair,
+            env_s_pair: userData.env_s_pair,
           };
 
           // Salva nella lista utenti pubblica
@@ -111,22 +113,25 @@ export const registerWithMetaMask = async (address) => {
               });
           });
 
-          // Salva nel localStorage
+          // Salva nel localStorage con struttura corretta
+          const walletData = {
+            internalWalletAddress: userData.internalWalletAddress,
+            internalWalletPk: userData.internalWalletPk,
+            externalWalletAddress: signerAddress,
+            pair: userData.pair,
+            v_Pair: userData.v_pair,
+            s_Pair: userData.s_pair,
+            viewingPublicKey: userData.viewingPublicKey,
+            spendingPublicKey: userData.spendingPublicKey,
+            credentials: {
+              username: signerAddress,
+              password: password,
+            },
+          };
+
           localStorage.setItem(
             `gunWallet_${userData.pub}`,
-            JSON.stringify({
-              internalWalletAddress: userData.internalWalletAddress,
-              internalWalletPk: userData.internalWalletPk,
-              pair: userData.pair,
-              v_Pair: userData.vPair,
-              s_Pair: userData.sPair,
-              viewingPublicKey: userData.viewingPublicKey,
-              spendingPublicKey: userData.spendingPublicKey,
-              credentials: {
-                username: signer.address,
-                password: password,
-              },
-            })
+            JSON.stringify(walletData)
           );
 
           // Salva nel profilo utente
@@ -142,21 +147,22 @@ export const registerWithMetaMask = async (address) => {
               });
           });
 
-          // Salva anche nel nodo gun-eth
+          // Salva nell'indice degli indirizzi
           await new Promise((resolve, reject) => {
             gun
               .get(DAPP_NAME)
               .get('addresses')
-              .get(userData.internalWalletAddress.toLowerCase())
+              .get(signerAddress.toLowerCase())
               .put(
                 {
                   pub: userData.pub,
                   internalWalletAddress: userData.internalWalletAddress,
+                  externalWalletAddress: signerAddress,
                   viewingPublicKey: userData.viewingPublicKey,
                   spendingPublicKey: userData.spendingPublicKey,
-                  pair: userData.env_pair,
-                  v_Pair: userData.env_v_pair,
-                  s_Pair: userData.env_s_pair,
+                  env_pair: userData.env_pair,
+                  env_v_pair: userData.env_v_pair,
+                  env_s_pair: userData.env_s_pair,
                 },
                 (ack) => {
                   if (ack.err) reject(new Error(ack.err));
@@ -173,10 +179,6 @@ export const registerWithMetaMask = async (address) => {
 
           // Aggiorna metriche globali
           updateGlobalMetrics('totalRegistrations', 1);
-
-          console.log('Dati salvati in users:', userDataToSave);
-          console.log('Dati salvati in profiles:', userDataToSave);
-          console.log('Dati salvati in addresses:', userDataToSave);
 
           resolve({
             success: true,
@@ -199,28 +201,14 @@ export const registerWithMetaMask = async (address) => {
   }
 };
 
-const registerUser = (credentials = {}, callback = () => {}) => {
+const registerUser = async (credentials = {}, callback = () => {}) => {
   let timeoutId;
 
   const registerPromise = new Promise(async (resolve, reject) => {
     try {
-      // Validazione iniziale
+      // Validazione input
       if (!credentials.username || !credentials.password) {
-        reject(new Error('Username e password sono richiesti'));
-        return;
-      }
-
-      // Verifica esistenza utente
-      const existingUser = await new Promise((resolve) => {
-        gun.get(`~@${credentials.username}`).once((user) => {
-          console.log('Verifica utente esistente:', user);
-          resolve(user);
-        });
-      });
-
-      if (existingUser) {
-        reject(new Error('Username già in uso.'));
-        return;
+        throw new Error('Username e password sono richiesti');
       }
 
       // 1. Prima crea l'utente
@@ -250,10 +238,11 @@ const registerUser = (credentials = {}, callback = () => {}) => {
         credentials.password
       );
 
-      // 4. Prepara i dati utente con le chiavi cifrate direttamente nella struttura
+      // 4. Prepara i dati utente con struttura allineata a registerWithMetaMask
       const userDataToSave = {
         pub: user.is.pub,
         address: userData.internalWalletAddress,
+        internalWalletAddress: userData.internalWalletAddress,
         externalWalletAddress: null,
         username: credentials.username,
         nickname: credentials.username,
@@ -261,9 +250,9 @@ const registerUser = (credentials = {}, callback = () => {}) => {
         authType: 'credentials',
         viewingPublicKey: userData.viewingPublicKey,
         spendingPublicKey: userData.spendingPublicKey,
-        pair: userData.env_pair,
-        v_Pair: userData.env_v_pair,
-        s_Pair: userData.env_s_pair,
+        env_pair: userData.env_pair,
+        env_v_pair: userData.env_v_pair,
+        env_s_pair: userData.env_s_pair,
       };
 
       // 5. Salva i dati in tutti i percorsi necessari
@@ -295,12 +284,12 @@ const registerUser = (credentials = {}, callback = () => {}) => {
             });
         }),
 
-        // Salva anche nell'indirizzo
+        // Salva anche nell'indice degli indirizzi usando l'indirizzo interno
         new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
             .get('addresses')
-            .get(user.is.pub)
+            .get(userData.internalWalletAddress.toLowerCase())
             .put(userDataToSave, (ack) => {
               console.log('Salvataggio addresses:', ack);
               if (ack.err) reject(new Error(ack.err));
@@ -309,57 +298,25 @@ const registerUser = (credentials = {}, callback = () => {}) => {
         }),
       ]);
 
-      // Verifica il salvataggio
-      const verifyData = async () => {
-        const [usersData, profilesData, addressesData] = await Promise.all([
-          gun.get(DAPP_NAME).get('users').get(user.is.pub).once(),
-          gun.user().get(DAPP_NAME).get('profiles').get(user.is.pub).once(),
-          gun.get(DAPP_NAME).get('addresses').get(user.is.pub).once(),
-        ]);
-
-        console.log('Verifica dati salvati:', {
-          users: usersData,
-          profiles: profilesData,
-          addresses: addressesData,
-          hasKeys: {
-            users: !!(
-              usersData?.pair &&
-              usersData?.v_Pair &&
-              usersData?.s_Pair
-            ),
-            profiles: !!(
-              profilesData?.pair &&
-              profilesData?.v_Pair &&
-              profilesData?.s_Pair
-            ),
-            addresses: !!(
-              addressesData?.pair &&
-              addressesData?.v_Pair &&
-              addressesData?.s_Pair
-            ),
-          },
-        });
-
-        if (!usersData?.pair || !profilesData?.pair || !addressesData?.pair) {
-          throw new Error('Verifica salvataggio dati fallita: chiavi mancanti');
-        }
+      // Salva nel localStorage con struttura allineata
+      const walletData = {
+        internalWalletAddress: userData.internalWalletAddress,
+        internalWalletPk: userData.internalWalletPk,
+        externalWalletAddress: null,
+        pair: userData.pair,
+        v_Pair: userData.v_pair,
+        s_Pair: userData.s_pair,
+        viewingPublicKey: userData.viewingPublicKey,
+        spendingPublicKey: userData.spendingPublicKey,
+        credentials: {
+          username: credentials.username,
+          password: credentials.password,
+        },
       };
 
-      await verifyData();
-
-      // Salva nel localStorage
       localStorage.setItem(
         `gunWallet_${user.is.pub}`,
-        JSON.stringify({
-          internalWalletAddress: userData.internalWalletAddress,
-          internalWalletPk: userData.internalWalletPk,
-          viewingPublicKey: userData.viewingPublicKey,
-          spendingPublicKey: userData.spendingPublicKey,
-          pair: userData.pair,
-          v_Pair: userData.vPair,
-          s_Pair: userData.sPair,
-          credentials,
-        })
+        JSON.stringify(walletData)
       );
 
       // Crea i certificati
@@ -371,26 +328,19 @@ const registerUser = (credentials = {}, callback = () => {}) => {
       // Aggiorna metriche globali
       updateGlobalMetrics('totalRegistrations', 1);
 
-      console.log('Dati salvati in users:', userDataToSave);
-      console.log('Dati salvati in profiles:', userDataToSave);
-      console.log('Dati salvati in addresses:', userDataToSave);
-
       resolve({
         success: true,
         pub: user.is.pub,
         userData: userDataToSave,
         message: 'Utente creato con successo',
       });
-
-      if (callback)
-        callback({ success: true, pub: user.is.pub, userData: userDataToSave });
     } catch (error) {
       console.error('Errore nel salvataggio dei dati:', error);
       throw error;
     }
   });
 
-  // Aggiungi la gestione del timeout come in login.js
+  // Gestione timeout
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
       reject(new Error('Timeout durante la registrazione'));

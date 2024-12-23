@@ -6549,7 +6549,7 @@ function requireSea() {
 }
 
 var seaExports = requireSea();
-var SEA$2 = /*@__PURE__*/ getDefaultExportFromCjs(seaExports);
+var SEA$1 = /*@__PURE__*/ getDefaultExportFromCjs(seaExports);
 
 var then = {};
 
@@ -16403,7 +16403,7 @@ async function encrypt(data, keypair) {
   try {
     const dataToEncrypt =
       typeof data === 'object' ? JSON.stringify(data) : data;
-    const encrypted = await SEA$2.encrypt(dataToEncrypt, keypair);
+    const encrypted = await SEA$1.encrypt(dataToEncrypt, keypair);
 
     if (!encrypted) {
       throw new Error('Encryption failed');
@@ -16427,7 +16427,7 @@ async function encryptWithPassword(data, password) {
     const dataToEncrypt =
       typeof data === 'object' ? JSON.stringify(data) : data;
 
-    const encrypted = await SEA$2.encrypt(dataToEncrypt, password);
+    const encrypted = await SEA$1.encrypt(dataToEncrypt, password);
 
     if (!encrypted) {
       throw new Error('Encryption failed');
@@ -16449,7 +16449,7 @@ async function encryptWithPassword(data, password) {
  */
 async function decrypt(data, keypair) {
   try {
-    const decrypted = await SEA$2.decrypt(data, keypair);
+    const decrypted = await SEA$1.decrypt(data, keypair);
     if (!decrypted) {
       console.log('Decryption returned null');
       throw new Error('Decryption failed');
@@ -16491,7 +16491,7 @@ async function decryptWithPassword(encryptedData, password) {
       passwordLength: password.length,
     });
 
-    const decrypted = await SEA$2.decrypt(encryptedData, password);
+    const decrypted = await SEA$1.decrypt(encryptedData, password);
 
     if (!decrypted) {
       throw new Error('Decryption failed');
@@ -16517,7 +16517,7 @@ async function deriveSharedKey(recipientEpub, senderKeypair) {
       throw new Error('Invalid parameters for shared key derivation');
     }
 
-    const sharedKey = await SEA$2.secret(recipientEpub, senderKeypair);
+    const sharedKey = await SEA$1.secret(recipientEpub, senderKeypair);
     if (!sharedKey) {
       throw new Error('Failed to derive shared key');
     }
@@ -16565,7 +16565,7 @@ async function verifySignature(message, signature) {
 
 /** @typedef {Window & { ethereum?: EthereumProvider }} WindowWithEthereum */
 
-const window$1 = globalThis.window;
+const window$2 = globalThis.window;
 
 // Singleton for signer management
 class SignerManager {
@@ -16597,9 +16597,9 @@ class SignerManager {
       return SignerManager.signer;
     }
 
-    if (typeof window$1 !== 'undefined' && window$1?.ethereum) {
+    if (typeof window$2 !== 'undefined' && window$2?.ethereum) {
       /** @type {WindowWithEthereum} */
-      const windowWithEthereum = window$1;
+      const windowWithEthereum = window$2;
       await windowWithEthereum.ethereum?.request({
         method: 'eth_requestAccounts',
       });
@@ -16636,19 +16636,427 @@ async function getSigner$1() {
   return SignerManager.getSigner();
 }
 
+var stealthAnnouncer_abi = [
+  {
+    inputs: [
+      {
+        internalType: 'address',
+        name: '_devAddress',
+        type: 'address',
+      },
+    ],
+    stateMutability: 'nonpayable',
+    type: 'constructor',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'newAddress',
+        type: 'address',
+      },
+    ],
+    name: 'DevAddressUpdated',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'newFee',
+        type: 'uint256',
+      },
+    ],
+    name: 'DevFeeUpdated',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'string',
+        name: 'senderPublicKey',
+        type: 'string',
+      },
+      {
+        indexed: false,
+        internalType: 'string',
+        name: 'spendingPublicKey',
+        type: 'string',
+      },
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'stealthAddress',
+        type: 'address',
+      },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'timestamp',
+        type: 'uint256',
+      },
+    ],
+    name: 'StealthPaymentAnnounced',
+    type: 'event',
+  },
+  {
+    inputs: [
+      {
+        internalType: 'string',
+        name: 'senderPublicKey',
+        type: 'string',
+      },
+      {
+        internalType: 'string',
+        name: 'spendingPublicKey',
+        type: 'string',
+      },
+      {
+        internalType: 'address',
+        name: 'stealthAddress',
+        type: 'address',
+      },
+    ],
+    name: 'announcePayment',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: '',
+        type: 'uint256',
+      },
+    ],
+    name: 'announcements',
+    outputs: [
+      {
+        internalType: 'string',
+        name: 'senderPublicKey',
+        type: 'string',
+      },
+      {
+        internalType: 'string',
+        name: 'spendingPublicKey',
+        type: 'string',
+      },
+      {
+        internalType: 'address',
+        name: 'stealthAddress',
+        type: 'address',
+      },
+      {
+        internalType: 'uint256',
+        name: 'timestamp',
+        type: 'uint256',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'devAddress',
+    outputs: [
+      {
+        internalType: 'address',
+        name: '',
+        type: 'address',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'devFee',
+    outputs: [
+      {
+        internalType: 'uint256',
+        name: '',
+        type: 'uint256',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'getAnnouncementsCount',
+    outputs: [
+      {
+        internalType: 'uint256',
+        name: '',
+        type: 'uint256',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: 'fromIndex',
+        type: 'uint256',
+      },
+      {
+        internalType: 'uint256',
+        name: 'toIndex',
+        type: 'uint256',
+      },
+    ],
+    name: 'getAnnouncementsInRange',
+    outputs: [
+      {
+        components: [
+          {
+            internalType: 'string',
+            name: 'senderPublicKey',
+            type: 'string',
+          },
+          {
+            internalType: 'string',
+            name: 'spendingPublicKey',
+            type: 'string',
+          },
+          {
+            internalType: 'address',
+            name: 'stealthAddress',
+            type: 'address',
+          },
+          {
+            internalType: 'uint256',
+            name: 'timestamp',
+            type: 'uint256',
+          },
+        ],
+        internalType: 'struct StealthAnnouncer.StealthAnnouncement[]',
+        name: '',
+        type: 'tuple[]',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      {
+        internalType: 'address',
+        name: '_newAddress',
+        type: 'address',
+      },
+    ],
+    name: 'updateDevAddress',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: '_newFee',
+        type: 'uint256',
+      },
+    ],
+    name: 'updateDevFee',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'withdrawStuckETH',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+];
+
+const addresses = {
+  polygon: {
+    StealthAnnouncer: '0xD0CDbD17E4f2DDCE27B51721095048302768434f',
+    BubbleRegistry: '0xc70DC231B9690D9dA988f6D4E518356eE9e45cd9',
+  },
+};
+
 // @ts-check
 
+// Funzioni di utilità
+function base64ToHex(base64) {
+  try {
+    // Rimuovi il punto e prendi la prima parte
+    const parts = base64.split('.');
+    const cleanBase64 = parts[0];
+
+    // Sostituisci i caratteri speciali di base64url con base64 standard
+    const standardBase64 = cleanBase64.replace(/-/g, '+').replace(/_/g, '/');
+
+    // Aggiungi il padding se necessario
+    const padding = '='.repeat((4 - (standardBase64.length % 4)) % 4);
+    const paddedBase64 = standardBase64 + padding;
+
+    // Decodifica base64 in binario
+    const raw = atob(paddedBase64);
+
+    // Converti binario in hex
+    let hex = '';
+    for (let i = 0; i < raw.length; i++) {
+      const hexByte = raw.charCodeAt(i).toString(16).padStart(2, '0');
+      hex += hexByte;
+    }
+
+    return '0x' + hex;
+  } catch (error) {
+    console.error('Errore nella conversione base64 a hex:', error);
+    throw new Error(
+      `Impossibile convertire la chiave da base64 a hex: ${error.message}`
+    );
+  }
+}
+
+function deriveStealthPrivateKey(sharedSecretHex, receiverSpendingKeyHex) {
+  return ethers.keccak256(
+    ethers.concat([
+      ethers.getBytes(sharedSecretHex),
+      ethers.getBytes(receiverSpendingKeyHex),
+    ])
+  );
+}
+
+function deriveStealthAddress(
+  stealthPrivateKey,
+  senderEphemeralKeyHex,
+  receiverViewingKeyHex
+) {
+  const wallet = new ethers.Wallet(stealthPrivateKey);
+  return wallet.address;
+}
+
 class StealthChain {
+  constructor(provider = null, chainId = null) {
+    this.provider = provider;
+    this.chainId = chainId;
+    this.contract = null;
+
+    // Initialize contract only if provider and chainId are provided
+    if (provider && chainId) {
+      if (!addresses[chainId]?.stealthAnnouncer) {
+        throw new Error(`Chain ${chainId} not supported`);
+      }
+      this.contract = new ethers.Contract(
+        addresses[chainId].stealthAnnouncer,
+        stealthAnnouncer_abi,
+        provider
+      );
+    }
+
+    // Mapping delle chain supportate
+    this.supportedChains = {
+      polygon: {
+        chainId: '0x89', // 137 in hex
+        name: 'Polygon Mainnet',
+        rpcUrl: 'https://polygon-rpc.com',
+        explorerUrl: 'https://polygonscan.com',
+      },
+    };
+  }
+
   /**
-   * Genera un indirizzo stealth per il destinatario
+   * Verifica se l'istanza è configurata per operazioni on-chain
+   * @returns {boolean}
+   */
+  isOnChainEnabled() {
+    return !!(this.provider && this.chainId && this.contract);
+  }
+
+  /**
+   * Verifica che l'istanza sia configurata per operazioni on-chain
+   * @throws {Error} Se l'istanza non è configurata per operazioni on-chain
+   */
+  requireOnChain() {
+    if (!this.isOnChainEnabled()) {
+      throw new Error('Provider and chainId required for on-chain operations');
+    }
+  }
+
+  /**
+   * Verifica se la chain corrente è supportata
+   * @returns {Promise<boolean>}
+   */
+  async isOnSupportedChain() {
+    try {
+      const network = await this.provider.getNetwork();
+      return (
+        network.chainId.toString(16) ===
+        this.supportedChains[this.chainId].chainId
+      );
+    } catch (error) {
+      console.error('Errore nella verifica della chain:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Richiede il cambio di chain
+   * @returns {Promise<void>}
+   */
+  async requestChainSwitch() {
+    try {
+      const chainConfig = this.supportedChains[this.chainId];
+      await this.provider.send('wallet_switchEthereumChain', [
+        { chainId: chainConfig.chainId },
+      ]);
+    } catch (error) {
+      if (error.code === 4902) {
+        // Chain non aggiunta al wallet
+        await this.addChainToWallet();
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Aggiunge la chain al wallet
+   * @returns {Promise<void>}
+   */
+  async addChainToWallet() {
+    const chainConfig = this.supportedChains[this.chainId];
+    await this.provider.send('wallet_addEthereumChain', [
+      {
+        chainId: chainConfig.chainId,
+        chainName: chainConfig.name,
+        rpcUrls: [chainConfig.rpcUrl],
+        blockExplorerUrls: [chainConfig.explorerUrl],
+        nativeCurrency: {
+          name: 'MATIC',
+          symbol: 'MATIC',
+          decimals: 18,
+        },
+      },
+    ]);
+  }
+
+  /**
+   * Genera un indirizzo stealth
    * @param {string} receiverViewingKey - Chiave pubblica di visualizzazione del destinatario
    * @param {string} receiverSpendingKey - Chiave pubblica di spesa del destinatario
-   * @returns {Promise<Object>} Indirizzo stealth generato e chiavi associate
+   * @returns {Promise<Object>} Informazioni sull'indirizzo stealth generato
    */
   async generateStealthAddress(receiverViewingKey, receiverSpendingKey) {
     try {
       // Genera una nuova coppia di chiavi effimere del mittente
-      const senderEphemeralPair = await SEA.pair();
+      const senderEphemeralPair = await SEA$1.pair();
 
       if (!senderEphemeralPair || !senderEphemeralPair.epub) {
         throw new Error("Failed to generate sender's ephemeral keypair");
@@ -16688,75 +17096,40 @@ class StealthChain {
    * Deriva un indirizzo stealth dai parametri forniti
    * @param {string} sharedSecret - Segreto condiviso tra mittente e destinatario
    * @param {string} receiverSpendingKey - Chiave pubblica di spesa del destinatario
-   * @param {string} senderEphemeralKey - Chiave pubblica effimera del mittente
+   * @param {string} senderEphemeralPublicKey - Chiave pubblica effimera del mittente
    * @param {string} receiverViewingKey - Chiave pubblica di visualizzazione del destinatario
-   * @returns {Object} Indirizzo stealth e chiavi derivate
+   * @returns {Object} Informazioni sull'indirizzo stealth derivato
    */
   deriveStealthAddress(
     sharedSecret,
     receiverSpendingKey,
-    senderEphemeralKey,
+    senderEphemeralPublicKey,
     receiverViewingKey
   ) {
     try {
-      // Funzione migliorata per convertire base64 in hex
-      const base64ToHex = (base64) => {
-        try {
-          // Rimuovi il punto e prendi la prima parte
-          const parts = base64.split('.');
-          const cleanBase64 = parts[0];
-
-          // Sostituisci i caratteri speciali di base64url con base64 standard
-          const standardBase64 = cleanBase64
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
-          // Aggiungi il padding se necessario
-          const padding = '='.repeat((4 - (standardBase64.length % 4)) % 4);
-          const paddedBase64 = standardBase64 + padding;
-
-          // Decodifica base64 in binario
-          const raw = atob(paddedBase64);
-
-          // Converti binario in hex
-          let hex = '';
-          for (let i = 0; i < raw.length; i++) {
-            const hexByte = raw.charCodeAt(i).toString(16).padStart(2, '0');
-            hex += hexByte;
-          }
-
-          return '0x' + hex;
-        } catch (error) {
-          console.error('Errore nella conversione base64 a hex:', error);
-          throw new Error(
-            `Impossibile convertire la chiave da base64 a hex: ${error.message}`
-          );
-        }
-      };
-
-      // Converti tutti i valori in hex
       const sharedSecretHex = base64ToHex(sharedSecret);
       const receiverSpendingKeyHex = base64ToHex(receiverSpendingKey);
-      const senderEphemeralKeyHex = base64ToHex(senderEphemeralKey);
+      const senderEphemeralKeyHex = base64ToHex(senderEphemeralPublicKey);
       const receiverViewingKeyHex = base64ToHex(receiverViewingKey);
 
-      // Genera la chiave privata stealth combinando tutti i parametri
-      const stealthPrivateKey = ethers.keccak256(
-        ethers.concat([
-          ethers.getBytes(sharedSecretHex),
-          ethers.getBytes(receiverSpendingKeyHex),
-          ethers.getBytes(senderEphemeralKeyHex),
-          ethers.getBytes(receiverViewingKeyHex),
-        ])
+      // Deriva l'indirizzo stealth
+      const stealthPrivateKey = deriveStealthPrivateKey(
+        sharedSecretHex,
+        receiverSpendingKeyHex
+      );
+      const stealthAddress = deriveStealthAddress(
+        stealthPrivateKey,
+        senderEphemeralKeyHex,
+        receiverViewingKeyHex
       );
 
       // Crea il wallet stealth
-      const stealthWallet = new ethers.Wallet(stealthPrivateKey);
+      const wallet = new ethers.Wallet(stealthPrivateKey);
 
       return {
         stealthPrivateKey,
-        stealthAddress: stealthWallet.address,
-        wallet: stealthWallet,
+        stealthAddress,
+        wallet,
       };
     } catch (error) {
       console.error('Error in deriveStealthAddress:', error);
@@ -16767,32 +17140,32 @@ class StealthChain {
   /**
    * Crea un annuncio di pagamento stealth
    * @param {string} stealthAddress - Indirizzo stealth generato
-   * @param {string} senderEphemeralKey - Chiave pubblica effimera del mittente
+   * @param {string} senderEphemeralPublicKey - Chiave pubblica effimera del mittente
    * @param {string} receiverViewingKey - Chiave pubblica di visualizzazione del destinatario
    * @param {string} receiverSpendingKey - Chiave pubblica di spesa del destinatario
+   * @returns {Object} Dati dell'annuncio
    */
   createStealthAnnouncement(
     stealthAddress,
-    senderEphemeralKey,
+    senderEphemeralPublicKey,
     receiverViewingKey,
     receiverSpendingKey
   ) {
     return {
       stealthAddress,
-      senderEphemeralKey,
+      senderEphemeralKey: senderEphemeralPublicKey,
       receiverViewingKey,
       receiverSpendingKey,
-      timestamp: Date.now(),
     };
   }
 
   /**
-   * Recupera i fondi stealth
-   * @param {string} stealthAddress - Indirizzo stealth
+   * Crea i dati per il recupero dei fondi
+   * @param {string} stealthAddress - Indirizzo stealth da cui recuperare i fondi
    * @param {string} senderPublicKey - Chiave pubblica del mittente
    * @param {string} signature - Firma per l'autenticazione
    * @param {string} spendingPublicKey - Chiave pubblica di spesa
-   * @returns {Object} Dettagli del recupero
+   * @returns {Object} Dati per il recupero
    */
   createRecoveryData(
     stealthAddress,
@@ -16803,14 +17176,339 @@ class StealthChain {
     return {
       stealthAddress,
       senderPublicKey,
-      spendingPublicKey,
       signature,
-      timestamp: Date.now(),
+      spendingPublicKey,
     };
+  }
+
+  /**
+   * Annuncia un nuovo pagamento stealth sulla blockchain con verifica della chain
+   * @param {string} senderPublicKey - Chiave pubblica del mittente
+   * @param {string} spendingPublicKey - Chiave pubblica di spesa
+   * @param {string} stealthAddress - Indirizzo stealth generato
+   * @returns {Promise<ethers.ContractTransaction>}
+   */
+  async announcePaymentOnChain(
+    senderPublicKey,
+    spendingPublicKey,
+    stealthAddress
+  ) {
+    this.requireOnChain();
+    try {
+      // Verifica che siamo sulla chain corretta
+      const isCorrectChain = await this.isOnSupportedChain();
+      if (!isCorrectChain) {
+        throw new Error(
+          `Per favore passa alla ${
+            this.supportedChains[this.chainId].name
+          } per continuare`
+        );
+      }
+
+      const devFee = await this.contract.devFee();
+      const tx = await this.contract.announcePayment(
+        senderPublicKey,
+        spendingPublicKey,
+        stealthAddress,
+        { value: devFee }
+      );
+      return await tx.wait();
+    } catch (error) {
+      console.error("Errore nell'annuncio del pagamento:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recupera tutti gli annunci in un determinato range
+   * @param {number} fromIndex - Indice iniziale
+   * @param {number} toIndex - Indice finale
+   * @returns {Promise<Array>}
+   */
+  async getAnnouncementsInRange(fromIndex, toIndex) {
+    this.requireOnChain();
+    try {
+      return await this.contract.getAnnouncementsInRange(fromIndex, toIndex);
+    } catch (error) {
+      console.error('Errore nel recupero degli annunci:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recupera il numero totale di annunci
+   * @returns {Promise<number>}
+   */
+  async getTotalAnnouncements() {
+    this.requireOnChain();
+    try {
+      return await this.contract.getAnnouncementsCount();
+    } catch (error) {
+      console.error('Errore nel recupero del conteggio degli annunci:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recupera il fee corrente per gli annunci
+   * @returns {Promise<ethers.BigNumberish>}
+   */
+  async getCurrentFee() {
+    this.requireOnChain();
+    try {
+      return await this.contract.devFee();
+    } catch (error) {
+      console.error('Errore nel recupero del fee:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ascolta gli eventi di nuovi annunci
+   * @param {Function} callback - Funzione da chiamare quando viene rilevato un nuovo annuncio
+   * @returns {ethers.Contract} L'istanza del contratto per rimuovere il listener
+   */
+  listenToNewAnnouncements(callback) {
+    this.requireOnChain();
+    try {
+      this.contract.on(
+        'StealthPaymentAnnounced',
+        (
+          senderPublicKey,
+          spendingPublicKey,
+          stealthAddress,
+          timestamp,
+          event
+        ) => {
+          callback({
+            senderPublicKey,
+            spendingPublicKey,
+            stealthAddress,
+            timestamp: timestamp.toString(),
+            transactionHash: event.transactionHash,
+          });
+        }
+      );
+      return this.contract;
+    } catch (error) {
+      console.error("Errore nell'ascolto degli eventi:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verifica se un indirizzo stealth è stato annunciato
+   * @param {string} stealthAddress - Indirizzo stealth da verificare
+   * @returns {Promise<boolean>}
+   */
+  async isStealthAddressAnnounced(stealthAddress) {
+    try {
+      const count = await this.getTotalAnnouncements();
+      const batchSize = 100;
+
+      for (let i = 0; i < count; i += batchSize) {
+        const toIndex = Math.min(i + batchSize - 1, count - 1);
+        const announcements = await this.getAnnouncementsInRange(i, toIndex);
+
+        if (
+          announcements.some(
+            (a) =>
+              a.stealthAddress.toLowerCase() === stealthAddress.toLowerCase()
+          )
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error("Errore nella verifica dell'indirizzo stealth:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ottiene l'URL dell'explorer per una transazione
+   * @param {string} txHash - Hash della transazione
+   * @returns {string} URL dell'explorer
+   */
+  getExplorerUrl(txHash) {
+    return `${this.supportedChains[this.chainId].explorerUrl}/tx/${txHash}`;
+  }
+
+  /**
+   * Annuncia un pagamento stealth sulla blockchain
+   * @param {string} stealthAddress - Indirizzo stealth generato
+   * @param {string} senderEphemeralKey - Chiave pubblica effimera del mittente
+   * @param {string} receiverViewingKey - Chiave pubblica di visualizzazione del destinatario
+   * @param {string} receiverSpendingKey - Chiave pubblica di spesa del destinatario
+   * @returns {Promise<ethers.ContractTransaction>} Transazione di annuncio
+   */
+  async announceStealthPayment(
+    stealthAddress,
+    senderEphemeralKey,
+    receiverViewingKey,
+    receiverSpendingKey
+  ) {
+    try {
+      // Verifica che siamo sulla chain corretta
+      const isCorrectChain = await this.isOnSupportedChain();
+      if (!isCorrectChain) {
+        throw new Error(
+          `Per favore passa alla ${
+            this.supportedChains[this.chainId].name
+          } per continuare`
+        );
+      }
+
+      // Crea l'annuncio
+      const announcement = this.createStealthAnnouncement(
+        stealthAddress,
+        senderEphemeralKey,
+        receiverViewingKey,
+        receiverSpendingKey
+      );
+
+      // Invia la transazione onchain
+      const tx = await this.contract.announceStealthPayment(
+        announcement.stealthAddress,
+        announcement.senderEphemeralKey,
+        announcement.receiverViewingKey,
+        announcement.receiverSpendingKey
+      );
+
+      // Attendi la conferma
+      await tx.wait();
+
+      return tx;
+    } catch (error) {
+      console.error('Error in announceStealthPayment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recupera i pagamenti stealth dalla blockchain
+   * @param {string} viewingKey - Chiave di visualizzazione del destinatario
+   * @param {Object} options - Opzioni di recupero
+   * @param {number} [options.fromBlock=0] - Blocco di partenza per la ricerca
+   * @param {number|string} [options.toBlock] - Blocco finale per la ricerca
+   * @returns {Promise<Array>} Lista dei pagamenti stealth
+   */
+  async getStealthPayments(
+    viewingKey,
+    options = { fromBlock: 0, toBlock: 'latest' }
+  ) {
+    try {
+      // Verifica che siamo sulla chain corretta
+      const isCorrectChain = await this.isOnSupportedChain();
+      if (!isCorrectChain) {
+        throw new Error(
+          `Per favore passa alla ${
+            this.supportedChains[this.chainId].name
+          } per continuare`
+        );
+      }
+
+      // Recupera gli eventi dalla blockchain
+      const filter = this.contract.filters.StealthPayment();
+      const events = await this.contract.queryFilter(
+        filter,
+        options.fromBlock,
+        options.toBlock
+      );
+
+      // Filtra e decodifica gli eventi
+      const payments = events
+        .map((event) => {
+          // Verifica che l'evento sia di tipo EventLog
+          if (!('args' in event)) return null;
+
+          const args = event.args;
+          if (!args) return null;
+
+          const {
+            stealthAddress,
+            senderEphemeralKey,
+            receiverViewingKey,
+            receiverSpendingKey,
+          } = args;
+
+          // Verifica se il pagamento è per questo destinatario
+          if (receiverViewingKey === viewingKey) {
+            return {
+              stealthAddress,
+              senderEphemeralKey,
+              receiverViewingKey,
+              receiverSpendingKey,
+              blockNumber: event.blockNumber,
+              transactionHash: event.transactionHash,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      return payments;
+    } catch (error) {
+      console.error('Error in getStealthPayments:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recupera i fondi da un indirizzo stealth
+   * @param {string} stealthAddress - Indirizzo stealth da cui recuperare i fondi
+   * @param {string} senderPublicKey - Chiave pubblica del mittente
+   * @param {string} signature - Firma per l'autenticazione
+   * @param {string} spendingPublicKey - Chiave pubblica di spesa
+   * @returns {Promise<ethers.ContractTransaction>} Transazione di recupero
+   */
+  async recoverStealthFunds(
+    stealthAddress,
+    senderPublicKey,
+    signature,
+    spendingPublicKey
+  ) {
+    try {
+      // Verifica che siamo sulla chain corretta
+      const isCorrectChain = await this.isOnSupportedChain();
+      if (!isCorrectChain) {
+        throw new Error(
+          `Per favore passa alla ${
+            this.supportedChains[this.chainId].name
+          } per continuare`
+        );
+      }
+
+      // Crea i dati di recupero
+      const recoveryData = this.createRecoveryData(
+        stealthAddress,
+        senderPublicKey,
+        signature,
+        spendingPublicKey
+      );
+
+      // Invia la transazione onchain
+      const tx = await this.contract.recoverStealthFunds(
+        recoveryData.stealthAddress,
+        recoveryData.senderPublicKey,
+        recoveryData.signature,
+        recoveryData.spendingPublicKey
+      );
+
+      // Attendi la conferma
+      await tx.wait();
+
+      return tx;
+    } catch (error) {
+      console.error('Error in recoverStealthFunds:', error);
+      throw error;
+    }
   }
 }
 
-const SEA$1 = Gun$1.SEA;
+const SEA = Gun$1.SEA;
 let gun = null;
 
 /**
@@ -16857,6 +17555,7 @@ async function convertToEthAddress(gunPrivateKey) {
 /**
  * Converte un account Gun in un account Ethereum
  * @param {Object} gunKeyPair - Coppia di chiavi Gun
+ * @param {string} password - Password per la crittografia delle chiavi
  * @returns {Promise<Object>} Account convertito
  */
 async function gunToEthAccount(gunKeyPair, password) {
@@ -16869,7 +17568,7 @@ async function gunToEthAccount(gunKeyPair, password) {
 
     const internalWallet = new ethers.Wallet(hexPrivateKey);
 
-    const [v_pair, s_pair] = await Promise.all([SEA$1.pair(), SEA$1.pair()]);
+    const [v_pair, s_pair] = await Promise.all([SEA.pair(), SEA.pair()]);
 
     if (!v_pair || !s_pair) {
       throw new Error('Impossibile generare le coppie di chiavi stealth');
@@ -16932,9 +17631,9 @@ async function ethToGunAccount(isSecondary = false) {
 
     // Generiamo le coppie di chiavi per stealth paymentseth
     const [pair, v_pair, s_pair] = await Promise.all([
-      SEA$1.pair(),
-      SEA$1.pair(),
-      SEA$1.pair(),
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
     ]);
 
     if (!pair || !v_pair || !s_pair) {
@@ -17119,22 +17818,22 @@ async function createSignature(message) {
 /**
  * @typedef {Object} BrowserGunEth
  * @property {Object} GunEth
- * @property {function} GunEth.init
- * @property {function} GunEth.generatePassword
+ * @property {string} GunEth.MESSAGE_TO_SIGN
+ * @property {function} GunEth.generateRandomId
  * @property {function} GunEth.getSigner
+ * @property {function} GunEth.generatePassword
  * @property {function} GunEth.verifySignature
  * @property {function} GunEth.initializeGun
+ * @property {function} GunEth.extendGun
+ * @property {function} GunEth.createSignature
  * @property {function} GunEth.setSigner
  * @property {function} GunEth.gunToEthAccount
+ * @property {function} GunEth.ethToGunAccount
  * @property {function} GunEth.decryptWithPassword
  * @property {function} GunEth.encryptWithPassword
  * @property {function} GunEth.encrypt
  * @property {function} GunEth.decrypt
- * @property {function} GunEth.ethToGunAccount
- * @property {function} GunEth.createSignature
- * @property {function} GunEth.generateRandomId
- * @property {function} GunEth.extendGun
- * @property {string} GunEth.MESSAGE_TO_SIGN
+ * @property {function} GunEth.convertToEthAddress
  */
 
 /** @type {BrowserGunEth} */
@@ -17150,15 +17849,20 @@ const browserGunEth = {
     createSignature,
     setSigner,
     gunToEthAccount,
+    ethToGunAccount,
     decryptWithPassword,
     encryptWithPassword,
     encrypt,
     decrypt,
-    ethToGunAccount,
-    async init() {
-      return this;
-    },
+    convertToEthAddress,
   },
 };
+
+/** @type {any} */
+const window$1 = globalThis;
+
+if (typeof window$1 !== 'undefined') {
+  window$1.GunEth = browserGunEth.GunEth;
+}
 
 export { browserGunEth as default };

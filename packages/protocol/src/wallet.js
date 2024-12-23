@@ -174,7 +174,7 @@ export const walletService = {
       }
 
       // Se non trovato nel localStorage o dati incompleti, cerca nei dati utente
-      const userData = await new Promise((resolve) => {
+      let userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get('users')
@@ -184,6 +184,14 @@ export const walletService = {
             resolve(data);
           });
       });
+
+      if (!userData) {
+        userData = await gun
+          .get(DAPP_NAME)
+          .get('addresses')
+          .get(signer.address.toLowerCase())
+          .once();
+      }
 
       if (!userData) {
         throw new Error('Dati utente non trovati');
@@ -203,9 +211,9 @@ export const walletService = {
 
       // Verifica che i dati necessari siano presenti
       if (
-        !userData.pair ||
-        !userData.viewingKeyPair ||
-        !userData.spendingKeyPair
+        !userData.env_v_pair ||
+        !userData.env_s_pair ||
+        !userData.env_v_pair
       ) {
         console.error('Dati mancanti:', { userData });
         throw new Error('Dati di cifratura mancanti');
@@ -215,15 +223,9 @@ export const walletService = {
       try {
         const [decryptedPair, decryptedVPair, decryptedSPair] =
           await Promise.all([
-            gun.decryptWithPassword(userData.pair, credentials.password),
-            gun.decryptWithPassword(
-              userData.viewingKeyPair,
-              credentials.password
-            ),
-            gun.decryptWithPassword(
-              userData.spendingKeyPair,
-              credentials.password
-            ),
+            gun.decryptWithPassword(userData.env_pair, credentials.password),
+            gun.decryptWithPassword(userData.env_v_pair, credentials.password),
+            gun.decryptWithPassword(userData.env_s_pair, credentials.password),
           ]);
 
         // Converti la chiave privata nel formato corretto per Ethereum

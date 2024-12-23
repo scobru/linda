@@ -49,7 +49,6 @@ export default function Profile() {
   const [newNickname, setNewNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const [internalAddress, setInternalAddress] = useState("");
 
   React.useEffect(() => {
     const loadUserData = async () => {
@@ -155,19 +154,6 @@ export default function Profile() {
     console.log("loadWalletInfo");
     const loadWalletInfo = async () => {
       try {
-        console.log("Iniziando loadWalletInfo...");
-        const internalWallet = await walletService.getCurrentWallet(user.is.pub);
-        console.log("Wallet interno recuperato:", internalWallet);
-
-        // Verifica che il wallet abbia l'indirizzo o internalWalletAddress
-        if (!internalWallet?.internalWalletAddress && !internalWallet?.address) {
-          console.error("Wallet interno non valido:", internalWallet);
-          return;
-        }
-
-        // Usa internalWalletAddress se disponibile, altrimenti usa address
-        setInternalAddress(internalWallet.internalWalletAddress || internalWallet.address);
-
         // Carica l'indirizzo MetaMask se presente
         const walletAuth = localStorage.getItem("walletAuth");
         if (walletAuth) {
@@ -417,14 +403,6 @@ export default function Profile() {
           </p>
         </div>
       )}
-
-      <div className="mt-4">
-        <p className="text-sm text-gray-600">Indirizzo Wallet Interno:</p>
-        <p className="text-sm font-mono">{internalAddress}</p>
-        <p className="text-xs text-gray-500 mt-1">
-          (Utilizzato per i tip e i pagamenti stealth)
-        </p>
-      </div>
     </>
   );
 }
