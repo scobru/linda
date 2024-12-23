@@ -45,7 +45,7 @@ const CONFIG = {
     enabled: !!process.env.PINATA_JWT,
     service: "PINATA",
     config: {
-      pinataJwt: process.env.PINATA_API_KEY || "",
+      pinataJwt: process.env.PINATA_JWT || "",
       pinataGateway: process.env.PINATA_GATEWAY || "",
     },
   },
