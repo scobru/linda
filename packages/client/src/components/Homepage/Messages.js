@@ -844,7 +844,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   );
 };
 
-export default function Messages({ chatData }) {
+export default function Messages({ chatData, isMobileView, onBack }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
   const [newMessage, setNewMessage] = React.useState("");
@@ -1694,18 +1694,39 @@ export default function Messages({ chatData }) {
 
   if (!selected?.pub) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="hidden md:flex items-center justify-center h-full w-full bg-gray-50">
         <p className="text-gray-500">Seleziona un amico per chattare</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header della chat - aggiunto padding orizzontale per allinearlo */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
+    <div className="flex flex-col h-full w-full bg-white md:bg-gray-50">
+      {/* Header della chat con pulsante indietro per mobile */}
+      <div className="sticky top-0 flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-white">
         <div className="flex items-center">
-          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+          {isMobileView && (
+            <button
+              onClick={onBack}
+              className="mr-2 p-1 hover:bg-gray-100 rounded-full"
+              aria-label="Torna alla lista chat"
+            >
+              <svg
+                className="w-6 h-6 text-gray-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+            </button>
+          )}
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center">
             {selected.type === "channel" ? (
               "📢"
             ) : selected.type === "board" ? (
@@ -1720,12 +1741,14 @@ export default function Messages({ chatData }) {
               />
             )}
           </div>
-          <div className="ml-3">
-            <p className="text-sm font-medium text-gray-900">
+          <div className="ml-2 sm:ml-3">
+            <p className="text-xs sm:text-sm font-medium text-gray-900 truncate max-w-[150px] sm:max-w-[200px]">
               {chatUserInfo.displayName}
             </p>
             {chatUserInfo.username && (
-              <p className="text-xs text-gray-500">@{chatUserInfo.username}</p>
+              <p className="text-xs text-gray-500 truncate max-w-[150px] sm:max-w-[200px]">
+                @{chatUserInfo.username}
+              </p>
             )}
             <p className="text-xs text-gray-500">
               {selected.type === "channel"
@@ -1736,16 +1759,15 @@ export default function Messages({ chatData }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          {/* Aggiungi il pulsante per eliminare tutti i messaggi */}
+        <div className="flex items-center space-x-1 sm:space-x-2">
           {selected.type === "friend" && (
             <button
               onClick={handleDeleteAllMessages}
-              className="p-2 hover:bg-red-100 rounded-full text-red-500"
+              className="p-1 sm:p-2 hover:bg-red-100 rounded-full text-red-500"
               title="Elimina tutti i messaggi"
             >
               <svg
-                className="w-5 h-5"
+                className="w-4 h-4 sm:w-5 sm:h-5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1761,11 +1783,11 @@ export default function Messages({ chatData }) {
           )}
           <button
             onClick={() => setIsWalletModalOpen(true)}
-            className="p-2 hover:bg-gray-100 rounded-full"
+            className="p-1 sm:p-2 hover:bg-gray-100 rounded-full"
             title="Apri wallet"
           >
             <svg
-              className="w-5 h-5 text-gray-500"
+              className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1781,10 +1803,10 @@ export default function Messages({ chatData }) {
         </div>
       </div>
 
-      {/* Area messaggi - Modifica questa parte */}
+      {/* Area messaggi - responsive */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50"
         onScroll={handleScroll}
       >
         {/* Stato di caricamento iniziale */}
@@ -1839,36 +1861,39 @@ export default function Messages({ chatData }) {
         <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
 
-      {/* Input area */}
-      {canWrite ? (
-        <div className="border-t p-4 bg-white">
-          <div className="flex items-center">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) =>
-                e.key === "Enter" && !e.shiftKey && sendMessage()
-              }
-              placeholder="Scrivi un messaggio..."
-              className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!newMessage.trim()}
-              className={`ml-2 p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors ${
-                !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-            >
-              <AiOutlineSend size={20} />
-            </button>
+      {/* Input area - responsive */}
+      <div className="sticky bottom-0 w-full bg-white border-t">
+        {canWrite ? (
+          <div className="p-2 sm:p-4">
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={(e) =>
+                  e.key === "Enter" && !e.shiftKey && sendMessage()
+                }
+                placeholder="Scrivi un messaggio..."
+                className="flex-1 rounded-full px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!newMessage.trim()}
+                className={`p-1.5 sm:p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors flex-shrink-0 ${
+                  !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              >
+                <AiOutlineSend className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="border-t p-4 bg-white text-center text-gray-500">
-          Non hai i permessi per scrivere qui
-        </div>
-      )}
+        ) : (
+          <div className="p-2 sm:p-4 text-center text-xs sm:text-sm text-gray-500">
+            Non hai i permessi per scrivere qui
+          </div>
+        )}
+      </div>
+
       <Toaster />
       <WalletModal
         isOpen={isWalletModalOpen}
