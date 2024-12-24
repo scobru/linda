@@ -15,16 +15,17 @@ export const createFriendRequestCertificate = async () => {
       alias: user?.is?.alias,
       timestamp: Date.now(),
       certKey: certPair.pub,
-      permissions: ['send', 'receive']
+      permissions: ['send', 'receive'],
     };
 
     const signedCert = await SEA.sign(certificate, user?._.sea);
-    
+
     // Salva sia nella sezione pubblica che privata
-    await Promise.all([
+    await Promise.resolve([
       // Certificato pubblico
       new Promise((resolve) => {
-        gun.user()
+        gun
+          .user()
           .get(DAPP_NAME)
           .get('certificates')
           .get('friendRequests')
@@ -34,14 +35,15 @@ export const createFriendRequestCertificate = async () => {
       }),
       // Certificato privato
       new Promise((resolve) => {
-        gun.user()
+        gun
+          .user()
           .get(DAPP_NAME)
           .get('private_certificates')
           .get('friendRequests')
           .put(signedCert, (ack) => {
             resolve(ack);
           });
-      })
+      }),
     ]);
 
     return signedCert;
@@ -65,7 +67,7 @@ export const generateAddFriendCertificate = async (targetPub) => {
       target: targetPub,
       timestamp: Date.now(),
       certKey: certPair.pub,
-      permissions: ['add']
+      permissions: ['add'],
     };
 
     const signedCert = await SEA.sign(certificate, user?._.sea);
@@ -90,13 +92,14 @@ export const createNotificationCertificate = async () => {
       alias: user?.is?.alias,
       timestamp: Date.now(),
       certKey: certPair.pub,
-      permissions: ['receive']
+      permissions: ['receive'],
     };
 
     const signedCert = await SEA.sign(certificate, user._.sea);
-    
+
     await new Promise((resolve) => {
-      gun.user()
+      gun
+        .user()
         .get(DAPP_NAME)
         .get('certificates')
         .get('notifications')
@@ -143,13 +146,14 @@ export const friendsCertificates = {
         pub: user.is.pub,
         alias: user.is.alias,
         timestamp: Date.now(),
-        certKey: certPair.pub
+        certKey: certPair.pub,
       };
 
       const signedCert = await SEA.sign(certificate, user._.sea);
 
       await new Promise((resolve) => {
-        gun.user()
+        gun
+          .user()
           .get(DAPP_NAME)
           .get('authCertificate')
           .put(signedCert, (ack) => {
@@ -169,7 +173,8 @@ export const friendsCertificates = {
 
     try {
       const cert = await new Promise((resolve) => {
-        gun.user()
+        gun
+          .user()
           .get(DAPP_NAME)
           .get('authCertificate')
           .once((data) => {
@@ -200,12 +205,12 @@ export const friendsCertificates = {
       console.error('Errore verifica certificato:', error);
       return false;
     }
-  }
+  },
 };
 
 export default {
   createFriendRequestCertificate,
   generateAddFriendCertificate,
   createNotificationCertificate,
-  friendsCertificates
+  friendsCertificates,
 };

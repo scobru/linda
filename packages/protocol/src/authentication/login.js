@@ -248,172 +248,262 @@ export const loginWithMetaMask = async (address) => {
  *   - user: {Object} The authenticated user object
  * @throws {Error} If credentials are invalid or authentication fails
  */
-const loginUser = (credentials = {}, callback = () => {}) => {
-  let timeoutId;
-
-  const loginPromise = new Promise((resolve, reject) => {
+export const loginUser = async (credentials) => {
+  return new Promise(async (resolve, reject) => {
     try {
-      // Validazione input
-      if (!credentials.username || !credentials.password) {
-        throw new Error('Username e password sono richiesti');
+      // Verifica input
+      if (!credentials?.username || !credentials?.password) {
+        resolve({
+          success: false,
+          errMessage: 'Username e password sono richiesti',
+          errCode: 'login-error',
+        });
+        return;
       }
 
-      // Reset completo dello stato di autenticazione
+      // Assicurati che non ci siano sessioni attive
       if (user.is) {
         user.leave();
+        // Attendi che l'utente sia effettivamente disconnesso
+        await new Promise((r) => setTimeout(r, 1000));
       }
-
-      // Pulizia aggressiva dello stato
-      new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Verifica se l'utente esiste
-      const userExists = new Promise((resolve) => {
-        gun.get(`~@${credentials.username}`).once((data) => {
-          resolve(!!data);
-        });
-        setTimeout(() => resolve(false), 3000);
-      });
-
-      if (!userExists) {
-        throw new Error('Utente non trovato');
-      }
-
-      // Tenta l'autenticazione una sola volta
-      const authResult = new Promise((resolve, reject) => {
-        user.auth(credentials.username, credentials.password, async (ack) => {
-          if (ack.err) {
-            reject(new Error(ack.err));
-            return;
-          }
-
+      const checkUserExists = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
           try {
-            // Verifica che l'utente sia autenticato
-            let attempts = 0;
-            const maxAttempts = 20;
+            const exists = await new Promise((resolve) => {
+              gun.get(`~@${credentials.username}`).once((data) => {
+                console.log(
+                  'Verifica utente (tentativo ' + (i + 1) + '):',
+                  data
+                );
+                resolve(!!data);
+              });
+              setTimeout(() => resolve(false), 2000);
+            });
 
-            while (attempts < maxAttempts && !user.is) {
-              await new Promise((resolve) => setTimeout(resolve, 100));
-              attempts++;
-            }
+            if (exists) return true;
 
-            if (!user.is) {
-              throw new Error('Verifica autenticazione fallita');
-            }
-
-            // Recupera i dati dell'utente
-            const userData = new Promise((resolve) => {
+            // Se non esiste, prova anche nel nodo users
+            const userInNode = await new Promise((resolve) => {
               gun
                 .get(DAPP_NAME)
                 .get('users')
-                .get(user.is.pub)
+                .map()
                 .once((data) => {
-                  resolve(data);
+                  if (data && data.username === credentials.username) {
+                    resolve(true);
+                  }
                 });
-              setTimeout(() => resolve(null), 3000);
+              setTimeout(() => resolve(false), 2000);
             });
 
-            if (!userData) {
-              throw new Error('Impossibile recuperare i dati utente');
+            if (userInNode) return true;
+
+            if (i < retries - 1) {
+              console.log('Utente non trovato, riprovo...');
+              await new Promise((r) => setTimeout(r, 1000));
             }
-
-            // Decifra le chiavi
-            const [decryptedPair, decryptedVPair, decryptedSPair] =
-              Promise.resolve([
-                gun.decryptWithPassword(
-                  userData.env_pair,
-                  credentials.password
-                ),
-                gun.decryptWithPassword(
-                  userData.env_v_pair,
-                  credentials.password
-                ),
-                gun.decryptWithPassword(
-                  userData.env_s_pair,
-                  credentials.password
-                ),
-              ]);
-
-            // Salva nel localStorage
-            const walletData = {
-              internalWalletAddress: userData.internalWalletAddress,
-              externalWalletAddress: userData.externalWalletAddress,
-              pair: decryptedPair,
-              v_Pair: decryptedVPair,
-              s_Pair: decryptedSPair,
-              viewingPublicKey: userData.viewingPublicKey,
-              spendingPublicKey: userData.spendingPublicKey,
-              credentials: {
-                username: credentials.username,
-                password: credentials.password,
-              },
-            };
-
-            localStorage.setItem(
-              `gunWallet_${user.is.pub}`,
-              JSON.stringify(walletData)
-            );
-
-            // Aggiorna metriche
-            updateGlobalMetrics('totalLogins', 1);
-
-            // Crea i certificati
-            Promise.all([
-              createFriendRequestCertificate(),
-              createNotificationCertificate(),
-            ]);
-
-            resolve({
-              success: true,
-              pub: user.is.pub,
-              userData: userData,
-            });
           } catch (error) {
-            reject(error);
+            console.error('Errore verifica utente:', error);
+            if (i === retries - 1) return false;
+            await new Promise((r) => setTimeout(r, 1000));
           }
+        }
+        return false;
+      };
+
+      const userExists = await checkUserExists();
+      console.log('Risultato verifica utente:', userExists);
+
+      if (!userExists) {
+        resolve({
+          success: false,
+          errMessage: 'Utente non trovato',
+          errCode: 'login-error',
+        });
+        return;
+      }
+
+      // Timeout per l'autenticazione
+      const timeoutId = setTimeout(() => {
+        if (user.is) user.leave();
+        resolve({
+          success: false,
+          errMessage: 'Timeout durante il login',
+          errCode: 'login-error',
+        });
+      }, LOGIN_TIMEOUT);
+
+      // Tenta l'autenticazione
+      user.auth(credentials.username, credentials.password, async (ack) => {
+        clearTimeout(timeoutId);
+
+        if (ack.err) {
+          resolve({
+            success: false,
+            errMessage: ack.err,
+            errCode: 'login-error',
+          });
+          return;
+        }
+
+        // Verifica che l'autenticazione sia avvenuta correttamente
+        let attempts = 0;
+        while (attempts < 30 && !user.is?.pub) {
+          await new Promise((r) => setTimeout(r, 100));
+          attempts++;
+        }
+
+        if (!user.is?.pub) {
+          resolve({
+            success: false,
+            errMessage: 'Verifica autenticazione fallita',
+            errCode: 'login-error',
+          });
+          return;
+        }
+
+        // Recupera i dati dell'utente con retry
+        const getUserData = async (retries = 3) => {
+          for (let i = 0; i < retries; i++) {
+            try {
+              const data = await new Promise((resolve) => {
+                gun
+                  .get(DAPP_NAME)
+                  .get('users')
+                  .get(user.is.pub)
+                  .once((data) => {
+                    console.log('Dati utente recuperati:', data);
+                    resolve(data);
+                  });
+                setTimeout(() => resolve(null), 3000);
+              });
+
+              if (data) return data;
+
+              // Se non troviamo i dati in users, proviamo in addresses
+              const addressData = await new Promise((resolve) => {
+                gun
+                  .get(DAPP_NAME)
+                  .get('addresses')
+                  .get(user.is.pub)
+                  .once((data) => resolve(data));
+                setTimeout(() => resolve(null), 3000);
+              });
+
+              if (addressData) return addressData;
+
+              if (i < retries - 1) {
+                console.log('Dati utente non trovati, riprovo...');
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+            } catch (error) {
+              console.error('Errore recupero dati:', error);
+              if (i === retries - 1) throw error;
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+          return null;
+        };
+
+        const userData = await getUserData();
+
+        // Se non troviamo i dati, creiamo un oggetto base
+        const userDataToUse = userData || {
+          pub: user.is.pub,
+          username: credentials.username,
+          timestamp: Date.now(),
+          lastSeen: Date.now(),
+          authType: 'credentials',
+          pair: user._.sea,
+        };
+
+        // Prepara i dati della sessione
+        const sessionData = {
+          userPub: user.is.pub,
+          walletData: {
+            address: user.is.pub,
+            displayName: credentials.username,
+            pair: user._.sea,
+            v_Pair: userDataToUse.v_Pair || null,
+            s_Pair: userDataToUse.s_Pair || null,
+            viewingPublicKey: userDataToUse.viewingPublicKey || null,
+            spendingPublicKey: userDataToUse.spendingPublicKey || null,
+            credentials: {
+              username: credentials.username,
+              password: credentials.password,
+            },
+          },
+        };
+
+        // Salva la sessione e i dati correlati
+        const sessionSaved = await sessionManager.saveSession(sessionData);
+        if (!sessionSaved) {
+          resolve({
+            success: false,
+            errMessage: 'Errore nel salvataggio della sessione',
+            errCode: 'login-error',
+          });
+          return;
+        }
+
+        // Salva dati aggiuntivi nel localStorage
+        localStorage.setItem('userPub', user.is.pub);
+        localStorage.setItem('username', credentials.username);
+        localStorage.setItem('userAlias', credentials.username);
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('lastLogin', Date.now().toString());
+        localStorage.setItem('sessionData', JSON.stringify(sessionData));
+
+        // Aggiorna o crea i dati utente in Gun
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('users')
+            .get(user.is.pub)
+            .put(
+              {
+                ...userDataToUse,
+                lastSeen: Date.now(),
+                username: credentials.username,
+                nickname: credentials.username,
+              },
+              (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve(ack);
+              }
+            );
+        });
+
+        // Aggiorna metriche e crea certificati
+        await Promise.all([
+          updateGlobalMetrics('totalLogins', 1),
+          createFriendRequestCertificate(),
+          createNotificationCertificate(),
+        ]);
+
+        resolve({
+          success: true,
+          pub: user.is.pub,
+          userData: {
+            ...userDataToUse,
+            username: credentials.username,
+            nickname: credentials.username,
+          },
         });
       });
-
-      resolve(authResult);
     } catch (error) {
-      if (user.is) {
-        user.leave();
-      }
-      reject(error);
-    }
-  });
-
-  // Gestione del timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      if (user.is) {
-        user.leave();
-      }
-      reject(new Error('Timeout durante il login'));
-    }, LOGIN_TIMEOUT);
-  });
-
-  // Race tra login e timeout
-  Promise.race([loginPromise, timeoutPromise])
-    .then((result) => {
-      clearTimeout(timeoutId);
-      callback({
-        success: true,
-        ...result,
-      });
-    })
-    .catch((error) => {
-      clearTimeout(timeoutId);
-      if (user.is) {
-        user.leave();
-      }
-      callback({
+      console.error('Errore login:', error);
+      if (user.is) user.leave();
+      resolve({
         success: false,
         errMessage: error.message,
         errCode: 'login-error',
       });
-    });
-
-  return loginPromise;
+    }
+  });
 };
 
 export default loginUser;

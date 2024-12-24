@@ -197,6 +197,7 @@ export const registerWithMetaMask = async (address) => {
 };
 
 const registerUser = async (credentials = {}, callback = () => {}) => {
+  console.log('registerUser called');
   let timeoutId;
 
   const registerPromise = new Promise(async (resolve, reject) => {
@@ -206,48 +207,127 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         throw new Error('Username e password sono richiesti');
       }
 
-      // 1. Prima crea l'utente
-      const createAck = await new Promise((resolve, reject) => {
-        user.create(credentials.username, credentials.password, (ack) => {
-          console.log('Risposta creazione utente:', ack);
-          if (ack.err) {
-            reject(new Error(ack.err));
-            return;
-          }
-          resolve(ack);
+      // Pulisci lo stato precedente in modo aggressivo
+      if (user.is) {
+        user.leave();
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      // Forza una pulizia completa di Gun
+      gun.user().leave();
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Verifica se l'utente esiste già
+      const userExists = await new Promise((resolve) => {
+        gun.get(`~@${credentials.username}`).once((data) => {
+          resolve(!!data);
         });
+        setTimeout(() => resolve(false), 3000);
       });
 
-      // 2. Autentica l'utente
-      await new Promise((resolve, reject) => {
-        user.auth(credentials.username, credentials.password, (ack) => {
-          console.log('Risposta autenticazione:', ack);
-          if (ack.err) reject(new Error(ack.err));
-          else resolve(ack);
-        });
-      });
+      if (userExists) {
+        throw new Error('Username già in uso');
+      }
+
+      // 1. Prima crea l'utente con retry e pulizia aggressiva
+      const createUserWithRetry = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            // Pulizia aggressiva prima di ogni tentativo
+            if (user.is) {
+              user.leave();
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+            gun.user().leave();
+            await new Promise((r) => setTimeout(r, 2000));
+
+            // Tenta la creazione
+            const result = await new Promise((resolve, reject) => {
+              console.log('Tentativo di creazione utente:', i + 1);
+              user.create(credentials.username, credentials.password, (ack) => {
+                console.log('Risposta creazione utente:', ack);
+                if (ack.err && !ack.err.includes('already created')) {
+                  if (ack.err.includes('already being created')) {
+                    console.log('Utente in fase di creazione, attendo...');
+                    setTimeout(() => reject(new Error(ack.err)), 1000);
+                  } else {
+                    reject(new Error(ack.err));
+                  }
+                } else {
+                  resolve(ack);
+                }
+              });
+            });
+
+            return result;
+          } catch (error) {
+            console.log(`Tentativo ${i + 1} fallito:`, error);
+            if (i === retries - 1) throw error;
+            // Attendi più a lungo tra i tentativi
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+        }
+      };
+
+      await createUserWithRetry();
+
+      // Attendi più a lungo prima di procedere con l'autenticazione
+      await new Promise((r) => setTimeout(r, 3000));
+
+      // 2. Autentica l'utente con retry
+      const authenticateWithRetry = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            const result = await new Promise((resolve, reject) => {
+              user.auth(credentials.username, credentials.password, (ack) => {
+                console.log('Risposta autenticazione:', ack);
+                if (ack.err) reject(new Error(ack.err));
+                else resolve(ack);
+              });
+            });
+
+            return result;
+          } catch (error) {
+            console.log(`Tentativo autenticazione ${i + 1} fallito:`, error);
+            if (i === retries - 1) throw error;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+      };
+
+      await authenticateWithRetry();
+
+      console.log('User.is:', user.is);
+
+      // Verifica che l'utente sia autenticato
+      let attempts = 0;
+      while (attempts < 30 && !user.is?.pub) {
+        await new Promise((r) => setTimeout(r, 100));
+        attempts++;
+      }
+
+      if (!user.is?.pub) {
+        throw new Error('Verifica autenticazione fallita');
+      }
 
       // 3. Genera l'account Ethereum
-      const userData = await gun.gunToEthAccount(
-        user._.sea,
-        credentials.password
-      );
+      const userData = gun.gunToEthAccount(user._.sea, credentials.password);
 
-      // 4. Prepara i dati utente con struttura allineata a registerWithMetaMask
+      // 4. Prepara i dati utente
       const userDataToSave = {
         pub: user.is.pub,
-        address: userData.internalWalletAddress,
-        internalWalletAddress: userData.internalWalletAddress,
+        address: userData?.internalWalletAddress || user.is.pub,
+        internalWalletAddress: userData?.internalWalletAddress || user.is.pub,
         externalWalletAddress: null,
         username: credentials.username,
         nickname: credentials.username,
         timestamp: Date.now(),
         authType: 'credentials',
-        viewingPublicKey: userData.viewingPublicKey,
-        spendingPublicKey: userData.spendingPublicKey,
-        env_pair: userData.env_pair,
-        env_v_pair: userData.env_v_pair,
-        env_s_pair: userData.env_s_pair,
+        viewingPublicKey: userData?.viewingPublicKey || null,
+        spendingPublicKey: userData?.spendingPublicKey || null,
+        env_pair: userData?.env_pair || null,
+        env_v_pair: userData?.env_v_pair || null,
+        env_s_pair: userData?.env_s_pair || null,
       };
 
       // 5. Salva i dati in tutti i percorsi necessari
@@ -279,12 +359,15 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             });
         }),
 
-        // Salva anche nell'indice degli indirizzi usando l'indirizzo interno
+        // Salva nell'indice degli indirizzi
         new Promise((resolve, reject) => {
+          const addressToUse = (
+            userData?.internalWalletAddress || user.is.pub
+          ).toLowerCase();
           gun
             .get(DAPP_NAME)
             .get('addresses')
-            .get(userData.internalWalletAddress.toLowerCase())
+            .get(addressToUse)
             .put(userDataToSave, (ack) => {
               console.log('Salvataggio addresses:', ack);
               if (ack.err) reject(new Error(ack.err));
@@ -293,16 +376,16 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         }),
       ]);
 
-      // Salva nel localStorage con struttura allineata
+      // Salva nel localStorage
       const walletData = {
-        internalWalletAddress: userData.internalWalletAddress,
-        internalWalletPk: userData.internalWalletPk,
+        internalWalletAddress: userData?.internalWalletAddress || user.is.pub,
+        internalWalletPk: userData?.internalWalletPk || null,
         externalWalletAddress: null,
-        pair: userData.pair,
-        v_Pair: userData.v_pair,
-        s_Pair: userData.s_pair,
-        viewingPublicKey: userData.viewingPublicKey,
-        spendingPublicKey: userData.spendingPublicKey,
+        pair: userData?.pair || user._.sea,
+        v_Pair: userData?.v_pair || null,
+        s_Pair: userData?.s_pair || null,
+        viewingPublicKey: userData?.viewingPublicKey || null,
+        spendingPublicKey: userData?.spendingPublicKey || null,
         credentials: {
           username: credentials.username,
           password: credentials.password,
@@ -314,14 +397,12 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         JSON.stringify(walletData)
       );
 
-      // Crea i certificati
+      // Crea i certificati e aggiorna metriche
       await Promise.all([
         createFriendRequestCertificate(),
         createNotificationCertificate(),
+        updateGlobalMetrics('totalRegistrations', 1),
       ]);
-
-      // Aggiorna metriche globali
-      updateGlobalMetrics('totalRegistrations', 1);
 
       resolve({
         success: true,
@@ -331,13 +412,15 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
       });
     } catch (error) {
       console.error('Errore nel salvataggio dei dati:', error);
-      throw error;
+      if (user.is) user.leave();
+      reject(error);
     }
   });
 
   // Gestione timeout
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
+      if (user.is) user.leave();
       reject(new Error('Timeout durante la registrazione'));
     }, LOGIN_TIMEOUT);
   });
@@ -352,6 +435,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
     })
     .catch((error) => {
       clearTimeout(timeoutId);
+      if (user.is) user.leave();
       callback({
         success: false,
         errMessage: error.message,

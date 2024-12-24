@@ -202,14 +202,31 @@ export const sessionManager = {
         return false;
       }
 
-      const isValid = await this.verifyAuthentication();
-      if (!isValid) {
-        console.log('Verifica autenticazione fallita');
+      // Verifica che l'utente sia ancora autenticato
+      if (!user.is?.pub) {
+        console.log('Utente non autenticato');
         this.clearSession();
         return false;
       }
 
-      // Aggiorna il timestamp dell'ultimo login
+      // Verifica che il pub dell'utente corrisponda
+      const parsedSessionData = JSON.parse(sessionData);
+      if (parsedSessionData.userPub !== user.is.pub) {
+        console.log('Mismatch tra pub della sessione e utente corrente');
+        this.clearSession();
+        return false;
+      }
+
+      // Verifica che i dati essenziali siano presenti
+      const username = localStorage.getItem('username');
+      const userPub = localStorage.getItem('userPub');
+      if (!username || !userPub || userPub !== user.is.pub) {
+        console.log('Dati utente mancanti o non corrispondenti');
+        this.clearSession();
+        return false;
+      }
+
+      // Se tutto è ok, aggiorna il timestamp
       localStorage.setItem('lastLogin', Date.now().toString());
       return true;
     } catch (error) {
