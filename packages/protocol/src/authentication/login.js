@@ -115,6 +115,14 @@ export const loginWithMetaMask = async (address) => {
       throw new Error('Errore nella decifratura delle chiavi');
     }
 
+    if (
+      !decryptedKeys?.pair ||
+      !decryptedKeys?.v_Pair ||
+      !decryptedKeys?.s_Pair
+    ) {
+      throw new Error('Chiavi di cifratura mancanti o non valide');
+    }
+
     // 6. Autentica l'utente con retry
     const authenticateUser = async (retries = 3) => {
       // Prima pulisci lo stato precedente
@@ -203,14 +211,34 @@ export const loginWithMetaMask = async (address) => {
       createdAt: userDataCache.createdAt || Date.now(),
       authType: 'metamask',
       lastSeen: Date.now(),
+      pair: decryptedKeys.pair,
+      v_Pair: decryptedKeys.v_Pair,
+      s_Pair: decryptedKeys.s_Pair,
       credentials: {
         username: userDataCache.internalWalletAddress,
         password: password,
       },
     };
 
-    sessionManager.saveSession(walletData);
-    console.log('Sessione salvata');
+    // Verifica che il salvataggio sia avvenuto con successo
+    const sessionSaved = await sessionManager.saveSession(walletData);
+    if (!sessionSaved) {
+      throw new Error('Errore nel salvataggio della sessione');
+    }
+
+    // Verifica che la sessione sia stata salvata correttamente
+    const isValid = await sessionManager.validateSession();
+    if (!isValid) {
+      sessionManager.clearSession();
+      throw new Error('Errore nella validazione della sessione');
+    }
+
+    // Aggiorna metriche e crea certificati
+    await Promise.all([
+      updateGlobalMetrics('totalLogins', 1),
+      createFriendRequestCertificate(),
+      createNotificationCertificate(),
+    ]);
 
     return {
       success: true,
@@ -426,7 +454,6 @@ export const loginUser = async (credentials) => {
           timestamp: Date.now(),
           lastSeen: Date.now(),
           authType: 'credentials',
-          pair: user._.sea,
         };
 
         // Prepara i dati della sessione
@@ -444,6 +471,10 @@ export const loginUser = async (credentials) => {
           createdAt: userDataToUse.createdAt || Date.now(),
           authType: 'credentials',
           lastSeen: Date.now(),
+          // Usa direttamente le chiavi da user._.sea
+          pair: user._.sea,
+          v_Pair: user._.sea, // Per il login normale, usiamo la stessa coppia di chiavi
+          s_Pair: user._.sea, // Per il login normale, usiamo la stessa coppia di chiavi
           credentials: {
             username: credentials.username,
             password: credentials.password,

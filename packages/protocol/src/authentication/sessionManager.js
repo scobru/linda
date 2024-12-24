@@ -120,6 +120,11 @@ export const sessionManager = {
         throw new Error('Mismatch tra pub della sessione e utente corrente');
       }
 
+      // Verifica che le chiavi necessarie siano presenti
+      if (!sessionData.pair || !sessionData.v_Pair || !sessionData.s_Pair) {
+        throw new Error('Chiavi di cifratura mancanti');
+      }
+
       // Salva tutti i dati necessari
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('sessionData', JSON.stringify(sessionData));
@@ -134,6 +139,9 @@ export const sessionManager = {
         env_pair: '***',
         env_v_pair: '***',
         env_s_pair: '***',
+        pair: '***',
+        v_Pair: '***',
+        s_Pair: '***',
         credentials: '***',
       });
 
@@ -218,6 +226,17 @@ export const sessionManager = {
       const parsedSessionData = JSON.parse(sessionData);
       if (parsedSessionData.pub !== user.is.pub) {
         console.log('Mismatch tra pub della sessione e utente corrente');
+        this.clearSession();
+        return false;
+      }
+
+      // Verifica che le chiavi necessarie siano presenti
+      if (
+        !parsedSessionData.pair ||
+        !parsedSessionData.v_Pair ||
+        !parsedSessionData.s_Pair
+      ) {
+        console.log('Chiavi di cifratura mancanti nella sessione');
         this.clearSession();
         return false;
       }
