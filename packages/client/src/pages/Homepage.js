@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import Context from "../contexts/context";
 import { messaging, sessionManager } from "linda-protocol";
 import { toast } from "react-hot-toast";
@@ -588,10 +588,10 @@ export default function Homepage() {
   }, [selected, isMobileView]);
 
   // Handler per tornare alla lista chat
-  const handleBackToList = () => {
-    setSelected(null);
+  const handleBackToList = useCallback(() => {
     setShowChatList(true);
-  };
+    setSelected(null);
+  }, [setSelected]);
 
   return (
     <div className="flex h-screen bg-white">
