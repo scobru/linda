@@ -9,12 +9,16 @@ const acceptFriendRequest = async (request) => {
     throw new Error('Utente non autenticato');
   }
 
+  console.log('Accepting friend request:', request);
+
   try {
     // Crea i certificati necessari
-    await Promise.all([
-      createMessagesCertificate(request.from),
-      createChatsCertificate(request.from),
-    ]);
+
+    const messagesCertificate = await createMessagesCertificate(request.from);
+    const chatsCertificate = await createChatsCertificate(request.from);
+
+    console.log('Messages certificate:', messagesCertificate);
+    console.log('Chats certificate:', chatsCertificate);
 
     // Genera un ID univoco per la chat
     const chatId = [user.is.pub, request.from].sort().join('_');
@@ -30,16 +34,13 @@ const acceptFriendRequest = async (request) => {
     };
 
     // Salva la chat
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('chats')
-        .get(chatId)
-        .put(chatData, (ack) => {
-          if (ack.err) reject(new Error(ack.err));
-          else resolve();
-        });
-    });
+    await gun
+      .get(DAPP_NAME)
+      .get('chats')
+      .get(chatId)
+      .put(chatData, (ack) => {
+        return ack;
+      });
 
     // Crea il record di amicizia
     const friendshipData = {
@@ -51,18 +52,15 @@ const acceptFriendRequest = async (request) => {
     };
 
     // Salva l'amicizia
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('friendships')
-        .set(friendshipData, (ack) => {
-          if (ack.err) reject(new Error(ack.err));
-          else resolve();
-        });
-    });
+    await gun
+      .get(DAPP_NAME)
+      .get('friendships')
+      .set(friendshipData, (ack) => {
+        return ack;
+      });
 
     // Rimuovi tutte le richieste correlate
-    gun
+    await gun
       .get(DAPP_NAME)
       .get('all_friend_requests')
       .map()
@@ -77,7 +75,7 @@ const acceptFriendRequest = async (request) => {
       });
 
     // Rimuovi le richieste private
-    gun
+    await gun
       .get(DAPP_NAME)
       .get('friend_requests')
       .get(user.is.pub)
