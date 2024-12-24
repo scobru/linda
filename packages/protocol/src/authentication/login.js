@@ -456,6 +456,46 @@ export const loginUser = async (credentials) => {
           authType: 'credentials',
         };
 
+        // Decifra le chiavi se presenti
+        let decryptedKeys = null;
+        if (
+          userData?.env_pair &&
+          userData?.env_v_pair &&
+          userData?.env_s_pair
+        ) {
+          try {
+            const [decryptedPair, decryptedVPair, decryptedSPair] =
+              await Promise.all([
+                gun.decryptWithPassword(
+                  userData.env_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_v_pair,
+                  credentials.password
+                ),
+                gun.decryptWithPassword(
+                  userData.env_s_pair,
+                  credentials.password
+                ),
+              ]);
+
+            if (!decryptedPair || !decryptedVPair || !decryptedSPair) {
+              throw new Error('Decifratura chiavi fallita');
+            }
+
+            decryptedKeys = {
+              pair: decryptedPair,
+              v_Pair: decryptedVPair,
+              s_Pair: decryptedSPair,
+            };
+            console.log('Chiavi decifrate con successo');
+          } catch (error) {
+            console.error('Errore decifratura:', error);
+            throw new Error('Errore nella decifratura delle chiavi');
+          }
+        }
+
         // Prepara i dati della sessione
         const walletData = {
           pub: user.is.pub,
@@ -471,10 +511,10 @@ export const loginUser = async (credentials) => {
           createdAt: userDataToUse.createdAt || Date.now(),
           authType: 'credentials',
           lastSeen: Date.now(),
-          // Usa direttamente le chiavi da user._.sea
-          pair: user._.sea,
-          v_Pair: user._.sea, // Per il login normale, usiamo la stessa coppia di chiavi
-          s_Pair: user._.sea, // Per il login normale, usiamo la stessa coppia di chiavi
+          // Usa le chiavi decifrate se disponibili, altrimenti usa quelle di default
+          pair: decryptedKeys?.pair || user._.sea,
+          v_Pair: decryptedKeys?.v_Pair || user._.sea,
+          s_Pair: decryptedKeys?.s_Pair || user._.sea,
           credentials: {
             username: credentials.username,
             password: credentials.password,
