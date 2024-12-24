@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Context from "../contexts/context";
 import { messaging, sessionManager } from "linda-protocol";
 import { toast } from "react-hot-toast";
@@ -21,6 +21,8 @@ const { chat } = messaging; // Destruttura il servizio chat
 
 export default function Homepage() {
   const [isShown, setIsShown] = React.useState(false);
+  const [isMobileView, setIsMobileView] = React.useState(false);
+  const [showMobileChat, setShowMobileChat] = React.useState(false);
   const { setFriends, setSelected, selected, setConnectionState } =
     React.useContext(Context);
   const [pendingRequests, setPendingRequests] = React.useState([]);
@@ -37,8 +39,6 @@ export default function Homepage() {
   const [activeView, setActiveView] = React.useState("chats");
   const [isGlobalWalletModalOpen, setIsGlobalWalletModalOpen] = useState(false);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
-  const [isMobileView, setIsMobileView] = useState(false);
-  const [showChatList, setShowChatList] = useState(true);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -60,6 +60,18 @@ export default function Homepage() {
     };
   }, [setConnectionState]);
 
+  // Effetto per gestire il resize della finestra
+  React.useEffect(() => {
+    const handleResize = () => {
+      setIsMobileView(window.innerWidth < 768); // 768px è il breakpoint md di Tailwind
+    };
+
+    handleResize(); // Chiamata iniziale
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // Gestione selezione utente
   const handleSelect = React.useCallback(
     async (user) => {
@@ -73,11 +85,6 @@ export default function Homepage() {
         // Reset dello stato corrente
         setCurrentChatData(null);
         setSelected(null);
-
-        // Se siamo in mobile, nascondi la lista chat
-        if (isMobileView) {
-          setShowChatList(false);
-        }
 
         // Prepara i dati della chat in base al tipo
         let chatData;
@@ -128,6 +135,11 @@ export default function Homepage() {
 
         // Salva la selezione nel localStorage
         localStorage.setItem("selectedUser", JSON.stringify(selectedData));
+
+        // Se siamo in modalità mobile, mostra la chat
+        if (isMobileView) {
+          setShowMobileChat(true);
+        }
       } catch (error) {
         console.error("Errore selezione:", error);
         toast.error("Errore nella selezione");
@@ -570,56 +582,98 @@ export default function Homepage() {
     };
   }, [user?.is]);
 
-  // Effetto per gestire la visualizzazione mobile/desktop
-  useEffect(() => {
-    const handleResize = () => {
-      const isMobile = window.innerWidth < 768; // 768px è il breakpoint md di Tailwind
-      setIsMobileView(isMobile);
-      if (!isMobile) {
-        setShowChatList(true);
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Effetto per gestire la visualizzazione quando viene selezionata una chat
-  useEffect(() => {
-    if (isMobileView && selected) {
-      setShowChatList(false);
-    }
-  }, [selected, isMobileView]);
-
-  // Handler per tornare alla lista chat
-  const handleBackToList = useCallback(() => {
-    if (isMobileView) {
-      setShowChatList(true);
-      setSelected(null);
-      setCurrentChatData(null);
-    }
-  }, [isMobileView, setSelected]);
-
   return (
-    <div className="flex h-screen bg-white">
-      {/* Sidebar */}
-      <div
-        className={`
-          ${isMobileView ? "fixed inset-0 z-30" : "relative w-80 min-w-[320px]"}
-          ${showChatList || !isMobileView ? "block" : "hidden"}
-          bg-white border-r
-        `}
-      >
-        <div className="flex flex-col h-full">
-          {/* Tab navigation */}
+    <div className="flex flex-col h-screen bg-white">
+      {/* Header */}
+      <div className="w-full border-b border-gray-100 bg-white">
+        <div className="w-full px-4">
+          <div className="flex justify-between items-center">
+            {/* Logo e profilo allineati a sinistra */}
+            <div className="flex items-center space-x-8">
+              <Profile
+                onProfileUpdate={(updatedData) => {
+                  // Aggiorna i dati dell'utente nel nodo pubblico
+                  gun
+                    .get(DAPP_NAME)
+                    .get("userList")
+                    .get("users")
+                    .set({
+                      pub: user.is.pub,
+                      nickname: updatedData.nickname,
+                      avatarSeed: updatedData.avatarSeed,
+                      timestamp: Date.now(),
+                      lastSeen: Date.now(),
+                      username: user.is.alias,
+                      authType: localStorage.getItem("walletAuth")
+                        ? "wallet"
+                        : "gun",
+                    });
+                }}
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              {/* Pulsante Wallet */}
+              <button
+                onClick={() => setIsGlobalWalletModalOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title="Apri Wallet"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
+              {/* Pulsante Transazioni */}
+              <button
+                onClick={() => setIsTransactionModalOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title="Visualizza Transazioni"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+              </button>
+              <AppStatus />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Container principale per la chat e la sidebar */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar con TransactionHistory */}
+        <div
+          className={`w-full md:w-[380px] flex flex-col border-r border-gray-200 bg-white ${
+            showMobileChat ? "hidden md:flex" : "flex"
+          }`}
+        >
+          {/* Tab di navigazione */}
           <div className="flex border-b">
             <button
               onClick={() => setActiveView("chats")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
                   ? "text-blue-500 border-b-2 border-blue-500"
-                  : "text-gray-500"
+                  : "text-gray-500 hover:text-gray-700"
               }`}
             >
               Chat
@@ -629,34 +683,81 @@ export default function Homepage() {
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
                   ? "text-blue-500 border-b-2 border-blue-500"
-                  : "text-gray-500"
+                  : "text-gray-500 hover:text-gray-700"
               }`}
             >
               Boards and Channels
             </button>
           </div>
 
-          {/* Content based on active view */}
-          {activeView === "chats" ? (
-            <Friends onSelect={handleSelect} />
+          {/* Barra con pulsante aggiungi */}
+          <div className="p-4 border-b border-gray-100">
+            <div className="relative flex justify-end">
+              <button
+                onClick={() => setIsShown(true)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title={activeView === "chats" ? "Add friend" : "Create group"}
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Lista chat, canali o transazioni in base alla vista attiva */}
+          <div className="flex-1 overflow-y-auto">
+            {activeView === "chats" ? (
+              <Friends
+                onSelect={handleSelect}
+                pendingRequests={pendingRequests}
+                loading={loading}
+                selectedUser={selectedRef.current}
+                setPendingRequests={setPendingRequests}
+              />
+            ) : activeView === "channels" ? (
+              <Channels onSelect={handleSelect} />
+            ) : (
+              <TransactionHistory />
+            )}
+          </div>
+        </div>
+
+        {/* Area chat */}
+        <div
+          className={`${
+            showMobileChat ? "flex" : "hidden md:flex"
+          } flex-1 flex-col bg-gray-50`}
+        >
+          {console.log("SELECTED", selected)}
+
+          {selected ? (
+            <Messages
+              key={selected.roomId || selected.id}
+              chatData={selected}
+              isMobileView={showMobileChat}
+              onBack={() => setShowMobileChat(false)}
+            />
           ) : (
-            <Channels onSelect={handleSelect} />
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-500">
+                {activeView === "chats"
+                  ? "Seleziona un amico per chattare"
+                  : "Seleziona una bacheca o un canale"}
+              </p>
+            </div>
           )}
         </div>
-      </div>
-
-      {/* Chat area */}
-      <div
-        className={`
-          flex-1 
-          ${isMobileView ? (!showChatList ? "block" : "hidden") : "block"}
-        `}
-      >
-        <Messages
-          chatData={currentChatData}
-          isMobileView={isMobileView}
-          onBack={handleBackToList}
-        />
       </div>
 
       {/* Modal per aggiungere amici */}
