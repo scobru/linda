@@ -1707,13 +1707,7 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         <div className="flex items-center">
           {isMobileView && (
             <button
-              onClick={() => {
-                if (onBack) {
-                  onBack();
-                } else {
-                  setSelected(null);
-                }
-              }}
+              onClick={onBack}
               className="mr-2 p-1 hover:bg-gray-100 rounded-full"
               aria-label="Torna alla lista chat"
             >

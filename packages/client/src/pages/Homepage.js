@@ -74,6 +74,11 @@ export default function Homepage() {
         setCurrentChatData(null);
         setSelected(null);
 
+        // Se siamo in mobile, nascondi la lista chat
+        if (isMobileView) {
+          setShowChatList(false);
+        }
+
         // Prepara i dati della chat in base al tipo
         let chatData;
         if (user.type === "channel" || user.type === "group") {
@@ -133,7 +138,7 @@ export default function Homepage() {
         setLoading(false);
       }
     },
-    [setSelected]
+    [setSelected, isMobileView]
   );
 
   // Effetto per mantenere la selezione
@@ -589,19 +594,22 @@ export default function Homepage() {
 
   // Handler per tornare alla lista chat
   const handleBackToList = useCallback(() => {
-    setShowChatList(true);
-    setSelected(null);
-  }, [setSelected]);
+    if (isMobileView) {
+      setShowChatList(true);
+      setSelected(null);
+      setCurrentChatData(null);
+    }
+  }, [isMobileView, setSelected]);
 
   return (
     <div className="flex h-screen bg-white">
       {/* Sidebar */}
       <div
         className={`
-        ${isMobileView ? "fixed inset-0 z-30" : "relative w-80 min-w-[320px]"}
-        ${!isMobileView || showChatList ? "block" : "hidden"}
-        bg-white border-r
-      `}
+          ${isMobileView ? "fixed inset-0 z-30" : "relative w-80 min-w-[320px]"}
+          ${showChatList || !isMobileView ? "block" : "hidden"}
+          bg-white border-r
+        `}
       >
         <div className="flex flex-col h-full">
           {/* Tab navigation */}
@@ -640,9 +648,9 @@ export default function Homepage() {
       {/* Chat area */}
       <div
         className={`
-        flex-1 
-        ${isMobileView ? (showChatList ? "hidden" : "block") : "block"}
-      `}
+          flex-1 
+          ${isMobileView ? (!showChatList ? "block" : "hidden") : "block"}
+        `}
       >
         <Messages
           chatData={currentChatData}
