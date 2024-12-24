@@ -23,23 +23,157 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
   const handleAccept = async () => {
     try {
       setIsProcessing(true);
-      const result = await acceptFriendRequest(request);
+      console.log("Accettazione richiesta da:", request.from);
+
+      // Verifica che l'utente sia autenticato
+      if (!user.is?.pub) {
+        throw new Error("Utente non autenticato");
+      }
+
+      // Verifica che la richiesta sia valida
+      if (!request || !request.from) {
+        throw new Error("Richiesta non valida");
+      }
+
+      // Recupera i dati del wallet dell'utente corrente
+      const walletData = JSON.parse(
+        localStorage.getItem(`gunWallet_${user.is.pub}`)
+      );
+      if (!walletData || !walletData.pair) {
+        throw new Error("Dati wallet non trovati");
+      }
+
+      // Accetta la richiesta con i dati di cifratura
+      const result = await acceptFriendRequest({
+        ...request,
+        pair: walletData.pair,
+        v_Pair: walletData.v_Pair,
+        s_Pair: walletData.s_Pair,
+      });
+
+      console.log("Risultato accettazione:", result);
 
       if (result.success) {
-        // Rimuovi immediatamente la richiesta dall'UI
-        onRequestProcessed(request.from);
+        // Crea l'amicizia in Gun con dati di cifratura
+        await new Promise((resolve, reject) => {
+          const friendshipId = [user.is.pub, request.from].sort().join("_");
+          gun
+            .get(DAPP_NAME)
+            .get("friendships")
+            .get(friendshipId)
+            .put(
+              {
+                user1: user.is.pub,
+                user2: request.from,
+                created: Date.now(),
+                status: "accepted",
+                encryptionKey: result.encryptionKey || null,
+                viewingKey: result.viewingKey || null,
+              },
+              (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve(ack);
+              }
+            );
+        });
 
-        // Rimuovi la richiesta da Gun
+        // Aggiorna i dati dell'utente
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(user.is.pub)
+            .get("friends")
+            .set({ pub: request.from, added: Date.now() }, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
+        });
+
+        // Rimuovi la richiesta da all_friend_requests
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("all_friend_requests")
+            .map()
+            .once((data, key) => {
+              if (
+                data &&
+                data.from === request.from &&
+                data.to === user.is.pub
+              ) {
+                gun
+                  .get(DAPP_NAME)
+                  .get("all_friend_requests")
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        });
+
+        // Rimuovi la richiesta da friend_requests dell'utente
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("friend_requests")
+            .get(user.is.pub)
+            .map()
+            .once((data, key) => {
+              if (data && data.from === request.from) {
+                gun
+                  .get(DAPP_NAME)
+                  .get("friend_requests")
+                  .get(user.is.pub)
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        });
+
+        // Notifica l'UI
+        onRequestProcessed(request.from);
+        toast.success("Richiesta di amicizia accettata");
+      } else {
+        throw new Error(result.message || "Errore nell'accettare la richiesta");
+      }
+    } catch (error) {
+      console.error("Errore accettazione richiesta:", error);
+      toast.error(error.message || "Errore nell'accettare la richiesta");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      setIsProcessing(true);
+      console.log("Rifiuto richiesta da:", request.from);
+
+      // Verifica che l'utente sia autenticato
+      if (!user.is?.pub) {
+        throw new Error("Utente non autenticato");
+      }
+
+      await rejectFriendRequest(request);
+
+      // Rimuovi la richiesta da all_friend_requests
+      await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get("all_friend_requests")
           .map()
           .once((data, key) => {
-            if (data && data.from === request.from) {
+            if (data && data.from === request.from && data.to === user.is.pub) {
               gun.get(DAPP_NAME).get("all_friend_requests").get(key).put(null);
             }
           });
+        setTimeout(resolve, 500);
+      });
 
+      // Rimuovi la richiesta da friend_requests dell'utente
+      await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get("friend_requests")
@@ -55,56 +189,15 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
                 .put(null);
             }
           });
+        setTimeout(resolve, 500);
+      });
 
-        toast.success("Richiesta di amicizia accettata");
-      }
-    } catch (error) {
-      console.error("Errore accettazione richiesta:", error);
-      toast.error("Errore nell'accettare la richiesta");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleReject = async () => {
-    try {
-      setIsProcessing(true);
-      await rejectFriendRequest(request);
-
-      // Rimuovi immediatamente la richiesta dall'UI
+      // Notifica l'UI
       onRequestProcessed(request.from);
-
-      // Rimuovi la richiesta da Gun
-      gun
-        .get(DAPP_NAME)
-        .get("all_friend_requests")
-        .map()
-        .once((data, key) => {
-          if (data && data.from === request.from) {
-            gun.get(DAPP_NAME).get("all_friend_requests").get(key).put(null);
-          }
-        });
-
-      gun
-        .get(DAPP_NAME)
-        .get("friend_requests")
-        .get(user.is.pub)
-        .map()
-        .once((data, key) => {
-          if (data && data.from === request.from) {
-            gun
-              .get(DAPP_NAME)
-              .get("friend_requests")
-              .get(user.is.pub)
-              .get(key)
-              .put(null);
-          }
-        });
-
       toast.success("Richiesta di amicizia rifiutata");
     } catch (error) {
       console.error("Errore rifiuto richiesta:", error);
-      toast.error("Errore nel rifiutare la richiesta");
+      toast.error(error.message || "Errore nel rifiutare la richiesta");
     } finally {
       setIsProcessing(false);
     }

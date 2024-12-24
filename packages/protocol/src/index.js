@@ -4,22 +4,29 @@
  */
 
 // Prima importa useGun e le sue funzionalità di base
-import { 
-  gun, 
-  user, 
-  SEA, 
-  checkConnection, 
-  reconnect, 
-  DAPP_NAME, 
-  setDappName, 
-  addPeer, 
-  removePeer, 
+import {
+  gun,
+  user,
+  SEA,
+  checkConnection,
+  reconnect,
+  DAPP_NAME,
+  setDappName,
+  addPeer,
+  removePeer,
   getPeers,
 } from './useGun.js';
 
 import { walletService } from './wallet.js';
-import { userUtils, getUserInfo, updateUserProfile, subscribeToUserUpdates } from './utils/userUtils.js';
+import {
+  userUtils,
+  getUserInfo,
+  updateUserProfile,
+  subscribeToUserUpdates,
+} from './utils/userUtils.js';
+import { sessionManager } from './authentication/sessionManager.js';
 
+// Esporta le funzionalità di base
 export {
   gun,
   user,
@@ -31,7 +38,8 @@ export {
   reconnect,
   removePeer,
   getPeers,
-  walletService
+  walletService,
+  sessionManager,
 };
 
 // Poi importa gli altri moduli che potrebbero dipendere da useGun
@@ -57,7 +65,7 @@ export {
   security,
   system,
   todos,
-  posts
+  posts,
 };
 
 // Esporta le funzionalità specifiche di autenticazione
@@ -67,14 +75,11 @@ export const {
   loginUser,
   registerUser,
   logout,
-  getKeyPair
+  getKeyPair,
 } = authentication;
 
 // Esporta le funzionalità di blocking
-export const { 
-  userBlocking,
-  unblockService 
-} = blocking;
+export const { userBlocking, unblockService } = blocking;
 
 // Esporta le funzionalità di gestione amici
 export const {
@@ -82,30 +87,19 @@ export const {
   acceptFriendRequest,
   rejectFriendRequest,
   removeFriend,
-  friendsService
+  friendsService,
 } = friends;
 
 // Esporta le funzionalità di messaggistica
-export const {
-  createChat,
-  messageList,
-  sendMessage,
-  sendVoiceMessage
-} = messaging;
+export const { createChat, messageList, sendMessage, sendVoiceMessage } =
+  messaging;
 
 // Esporta le funzionalità delle note
-export const { 
-  createNote,
-  deleteNote,
-  getNote,
-  updateNote,
-  getUserNotes 
-} = notes;
+export const { createNote, deleteNote, getNote, updateNote, getUserNotes } =
+  notes;
 
 // Esporta le notifiche
-export const { 
-  messageNotifications 
-} = notifications;
+export const { messageNotifications } = notifications;
 
 // Esporta le funzionalità di sicurezza
 export const {
@@ -113,21 +107,14 @@ export const {
   createChatsCertificate,
   createMessagesCertificate,
   revokeChatsCertificate,
-  revokeMessagesCertificate
+  revokeMessagesCertificate,
 } = security;
 
 // Esporta i servizi di sistema
-export const { 
-  systemService 
-} = system;
+export const { systemService } = system;
 
 // Esporta sia le funzioni individuali che l'oggetto userUtils
-export {
-  userUtils,
-  getUserInfo,
-  updateUserProfile,
-  subscribeToUserUpdates
-};
+export { userUtils, getUserInfo, updateUserProfile, subscribeToUserUpdates };
 
 /**
  * @typedef {Object} CacheManager
@@ -220,5 +207,6 @@ export default {
   system,
   todos,
   posts,
-  cacheManager
+  cacheManager,
+  sessionManager,
 };

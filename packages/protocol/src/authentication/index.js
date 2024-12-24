@@ -1,44 +1,51 @@
-/**
- * Authentication module for managing user sessions and authentication state
- * @module authentication
- */
-
-import { checkAuth, isAuthenticated, observeAuthState } from './isAuthenticated.js';
-import loginUser from './login.js';
-import {loginWithMetaMask} from './login.js';
-import registerUser, { registerWithMetaMask } from './register.js';
-import logout from './logout.js';
-import getKeyPair from './getKeyPair.js';
-import sessionManager from './sessionManager.js';
-
-/**
- * Authentication module containing all authentication related functions
- * @type {Object}
- */
-const authentication = {
+import { default as loginUser, loginWithMetaMask } from './login.js';
+import { default as registerUser, registerWithMetaMask } from './register.js';
+import { default as logoutUser } from './logout.js';
+import { sessionManager } from './sessionManager.js';
+import {
   checkAuth,
   isAuthenticated,
   observeAuthState,
-  loginUser,
-  loginWithMetaMask,
-  registerWithMetaMask,
-  registerUser,
-  logout,
-  getKeyPair,
-  sessionManager,
-};
+} from './isAuthenticated.js';
 
+// Esporta le funzioni individuali
 export {
-  checkAuth,
-  isAuthenticated,
-  observeAuthState,
   loginUser,
   loginWithMetaMask,
   registerUser,
   registerWithMetaMask,
-  logout,
-  getKeyPair,
+  logoutUser,
+  logoutUser as logout,
   sessionManager,
+  checkAuth,
+  isAuthenticated,
+  observeAuthState,
 };
 
-export default authentication;
+// Esporta l'oggetto authentication per retrocompatibilità
+export const authentication = {
+  loginUser,
+  loginWithMetaMask,
+  registerUser,
+  registerWithMetaMask,
+  logoutUser,
+  logout: logoutUser,
+  sessionManager,
+  checkAuth,
+  isAuthenticated,
+  observeAuthState,
+};
+
+// Export default
+export default {
+  loginUser,
+  loginWithMetaMask,
+  registerUser,
+  registerWithMetaMask,
+  logoutUser,
+  logout: logoutUser,
+  sessionManager,
+  checkAuth,
+  isAuthenticated,
+  observeAuthState,
+};

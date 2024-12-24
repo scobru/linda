@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { user } from "linda-protocol";
 import { useNavigate } from "react-router-dom";
-import { authentication } from "linda-protocol";
+import { authentication, sessionManager } from "linda-protocol";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
 import {
@@ -221,16 +221,49 @@ export default function Profile() {
 
   const handleLogout = async () => {
     try {
+      // Emetti evento pre-logout per pulire le sottoscrizioni
       window.dispatchEvent(new Event("pre-logout"));
-      await authentication.logout();
 
-      localStorage.removeItem("user");
+      // Pulisci il localStorage
+      localStorage.removeItem("isAuthenticated");
+      localStorage.removeItem("userPub");
+      localStorage.removeItem("username");
+      localStorage.removeItem("userAlias");
+      localStorage.removeItem("userAddress");
+      localStorage.removeItem("redirectAfterLogin");
       localStorage.removeItem("selectedUser");
       localStorage.removeItem("walletAuth");
 
-      navigate("/login", { replace: true });
+      // Pulisci la sessione
+      await sessionManager.clearSession();
+
+      // Disconnetti l'utente da Gun
+      if (user.is) {
+        user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 500)); // Attendi che il logout sia completato
+      }
+
+      // Pulisci le sottoscrizioni Gun
+      gun.off();
+
+      // Mostra un messaggio di successo
+      toast.success("Logout effettuato con successo");
+
+      // Attendi un momento prima di reindirizzare
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Reindirizza alla pagina di login
+      window.location.replace("/login");
     } catch (error) {
       console.error("Errore durante il logout:", error);
+      toast.error("Errore durante il logout");
+
+      // Tenta comunque di reindirizzare in caso di errore
+      try {
+        window.location.replace("/login");
+      } catch (e) {
+        console.error("Errore nel reindirizzamento:", e);
+      }
     }
   };
 
