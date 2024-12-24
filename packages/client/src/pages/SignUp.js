@@ -80,35 +80,183 @@ export default function Register() {
       let timeoutId;
       const result = await Promise.race([
         new Promise((resolve, reject) => {
-          const registerCallback = (response) => {
-            if (response.success) {
-              resolve(response);
-            } else {
-              reject(
-                new Error(
-                  response.errMessage || "Errore durante la registrazione"
-                )
-              );
+          let hasShownToast = false;
+
+          const registerCallback = async (response) => {
+            try {
+              // Funzione per gestire il caso di username già esistente
+              const handleUsernameExists = () => {
+                if (hasShownToast)
+                  return resolve({
+                    success: false,
+                    status: "username-esistente",
+                  });
+
+                hasShownToast = true;
+                setIsLoading(false);
+                toast.dismiss(toastId);
+                toast.error(
+                  <div className="flex flex-col gap-2 p-2">
+                    <div className="font-medium">Username già registrato</div>
+                    <div className="text-sm text-gray-600 mb-2">
+                      Questo username è già in uso. Puoi:
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Link
+                        to="/signin"
+                        state={{ username: username.trim() }}
+                        className="text-blue-500 hover:text-blue-700 font-semibold"
+                      >
+                        Accedi con questo username →
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setUsername("");
+                          toast.dismiss();
+                          setIsLoading(false);
+                        }}
+                        className="text-gray-500 hover:text-gray-700 text-sm"
+                      >
+                        Prova con un altro username
+                      </button>
+                    </div>
+                  </div>,
+                  {
+                    duration: 10000,
+                    style: {
+                      background: "#fff",
+                      color: "#000",
+                      padding: "16px",
+                      borderRadius: "8px",
+                      maxWidth: "320px",
+                    },
+                  }
+                );
+                return resolve({
+                  success: false,
+                  status: "username-esistente",
+                });
+              };
+
+              // Se lo username è già in uso, gestisci subito
+              if (
+                response.status === "username-esistente" ||
+                response.errMessage?.includes("già in uso") ||
+                response.error?.message?.includes("già in uso")
+              ) {
+                return handleUsernameExists();
+              }
+
+              // Procedi con la registrazione
+              if (response.success) {
+                toast.success(
+                  <div>
+                    <div className="font-medium">
+                      Registrazione completata con successo!
+                    </div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      Verrai reindirizzato al login...
+                    </div>
+                  </div>,
+                  { id: toastId, duration: 2000 }
+                );
+
+                // Attendi che il toast sia mostrato
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+
+                // Reindirizza al login con l'username pre-compilato
+                navigate("/signin", {
+                  replace: true,
+                  state: { username: username.trim() },
+                });
+                resolve(response);
+                return;
+              } else {
+                // Gestisci gli altri stati della registrazione
+                if (response.status) {
+                  switch (response.status) {
+                    case "validazione":
+                      updateToast(
+                        response.status,
+                        "Validazione dati in corso..."
+                      );
+                      break;
+                    case "verifica-esistenza":
+                      updateToast(
+                        response.status,
+                        "Verifica disponibilità username..."
+                      );
+                      break;
+                    case "creazione-utente":
+                      updateToast(
+                        response.status,
+                        "Creazione account in corso..."
+                      );
+                      break;
+                    case "autenticazione":
+                      updateToast(
+                        response.status,
+                        "Autenticazione in corso..."
+                      );
+                      break;
+                    case "generazione-account":
+                      updateToast(response.status, "Generazione account...");
+                      break;
+                    case "preparazione-dati":
+                      updateToast(
+                        response.status,
+                        "Preparazione dati utente..."
+                      );
+                      break;
+                    case "salvataggio":
+                      const progress = response.progress
+                        ? `${response.progress}%`
+                        : "90%";
+                      updateToast(
+                        response.status,
+                        "Salvataggio dati utente...",
+                        progress
+                      );
+                      break;
+                    default:
+                      break;
+                  }
+                }
+
+                reject(
+                  new Error(
+                    response.errMessage || "Errore durante la registrazione"
+                  )
+                );
+              }
+            } catch (error) {
+              // Se l'errore è relativo allo username già esistente, gestiscilo
+              if (error.message?.includes("già in uso")) {
+                return handleUsernameExists();
+              }
+              reject(error);
             }
           };
 
-          try {
-            authentication.registerUser(
-              { username: username.trim(), password: password.trim() },
-              registerCallback
-            );
-          } catch (error) {
-            reject(error);
-          }
+          authentication.registerUser(
+            { username: username.trim(), password: password.trim() },
+            registerCallback
+          );
         }),
         new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
             reject(new Error("Timeout durante la registrazione"));
-          }, 60000); // Aumentato a 60 secondi
+          }, 120000);
         }),
       ]).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
+        setIsLoading(false);
       });
+
+      // Se l'username è già in uso, non procedere oltre
+      if (!result.success && result.status === "username-esistente") {
+        return;
+      }
 
       if (!result || !result.success) {
         throw new Error(
@@ -149,6 +297,7 @@ export default function Register() {
       let errorMessage = "Errore durante la registrazione";
 
       if (error.message.includes("già in uso")) {
+        setIsLoading(false);
         toast.dismiss(toastId);
         toast(
           (t) => (
@@ -174,7 +323,6 @@ export default function Register() {
             },
           }
         );
-        setIsLoading(false);
         return;
       } else if (error.message.includes("Timeout")) {
         errorMessage = "Timeout durante la registrazione. Riprova.";

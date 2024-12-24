@@ -48,12 +48,31 @@ export const AuthProvider = ({ children }) => {
             window.location.pathname !== "/register" &&
             window.location.pathname !== "/landing"
           ) {
+            console.log(
+              "AuthProvider - Redirect a /login da:",
+              window.location.pathname
+            );
+            localStorage.setItem(
+              "redirectAfterLogin",
+              window.location.pathname
+            );
             navigate("/login", { replace: true });
           }
         }
       } catch (error) {
         console.error("AuthProvider - Errore verifica sessione:", error);
-        navigate("/login", { replace: true });
+        if (
+          window.location.pathname !== "/login" &&
+          window.location.pathname !== "/register" &&
+          window.location.pathname !== "/landing"
+        ) {
+          console.log(
+            "AuthProvider - Redirect a /login dopo errore da:",
+            window.location.pathname
+          );
+          localStorage.setItem("redirectAfterLogin", window.location.pathname);
+          navigate("/login", { replace: true });
+        }
       }
     };
 

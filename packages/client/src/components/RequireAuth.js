@@ -28,43 +28,43 @@ const RequireAuth = ({ children }) => {
         const isSessionValid = await sessionManager.validateSession();
         const isAuthenticated =
           localStorage.getItem("isAuthenticated") === "true";
-        console.log("Stato autenticazione:", {
+        const storedPub = localStorage.getItem("userPub");
+
+        console.log("RequireAuth - Verifica stato autenticazione:", {
           isSessionValid,
           isAuthenticated,
+          storedPub,
+          userPub: user?.is?.pub,
+          pathname: location.pathname,
         });
 
-        if (isSessionValid && isAuthenticated && user?.is?.pub) {
-          const userPub = localStorage.getItem("userPub");
+        if (
+          isSessionValid &&
+          isAuthenticated &&
+          user?.is?.pub &&
+          storedPub === user.is.pub
+        ) {
           const username = localStorage.getItem("username");
-
-          if (userPub === user.is.pub) {
-            setPub(userPub);
-            setAlias(username || userPub);
-            if (mounted) {
-              setIsAuth(true);
-            }
-          } else {
-            console.log("Mismatch tra userPub salvato e user.is.pub");
-            if (mounted) {
-              setIsAuth(false);
-              sessionManager.clearSession();
-              localStorage.removeItem("isAuthenticated");
-            }
+          setPub(storedPub);
+          setAlias(username || storedPub);
+          if (mounted) {
+            setIsAuth(true);
           }
         } else {
-          console.log("Sessione non valida o utente non presente");
+          console.log(
+            "RequireAuth - Sessione non valida o utente non presente"
+          );
           if (mounted) {
             setIsAuth(false);
-            sessionManager.clearSession();
-            localStorage.removeItem("isAuthenticated");
           }
         }
       } catch (error) {
-        console.error("Errore nella verifica dell'autenticazione:", error);
+        console.error(
+          "RequireAuth - Errore nella verifica dell'autenticazione:",
+          error
+        );
         if (mounted) {
           setIsAuth(false);
-          sessionManager.clearSession();
-          localStorage.removeItem("isAuthenticated");
         }
       } finally {
         if (mounted) {
@@ -91,10 +91,28 @@ const RequireAuth = ({ children }) => {
 
   if (!isAuth) {
     // Salva la pagina corrente per il reindirizzamento post-login
-    if (location.pathname !== "/login") {
+    if (
+      location.pathname !== "/login" &&
+      location.pathname !== "/register" &&
+      location.pathname !== "/landing"
+    ) {
+      console.log("RequireAuth - Salvando redirect path:", location.pathname);
       localStorage.setItem("redirectAfterLogin", location.pathname);
     }
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    console.log("RequireAuth - Redirect a /login");
+    return <Navigate to="/login" replace />;
+  }
+
+  // Se siamo autenticati ma siamo su /login, redirect alla homepage o alla pagina salvata
+  if (isAuth && location.pathname === "/login") {
+    const redirectPath =
+      localStorage.getItem("redirectAfterLogin") || "/homepage";
+    console.log(
+      "RequireAuth - Utente autenticato su /login, reindirizzamento a:",
+      redirectPath
+    );
+    localStorage.removeItem("redirectAfterLogin");
+    return <Navigate to={redirectPath} replace />;
   }
 
   return children;

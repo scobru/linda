@@ -245,9 +245,9 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         for (let i = 0; i < retries; i++) {
           console.log(`Tentativo verifica esistenza ${i + 1}/${retries}`);
           try {
-            const exists = await new Promise((resolve, reject) => {
+            const exists = await new Promise((resolve) => {
               const timeoutId = setTimeout(() => {
-                resolve(false);
+                resolve({ exists: false });
               }, 5000);
 
               gun.get(`~@${credentials.username}`).once((data) => {
@@ -261,7 +261,12 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                   const aliasKey = keys.find((k) => k.startsWith('~'));
                   if (aliasKey) {
                     console.log('Username già esistente (alias trovato)');
-                    resolve(true);
+                    callback({
+                      success: false,
+                      status: 'username-esistente',
+                      errMessage: 'Username già in uso',
+                    });
+                    resolve({ exists: true, type: 'alias' });
                     return;
                   }
                 }
@@ -271,14 +276,18 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                   .get(DAPP_NAME)
                   .get('users')
                   .map()
-                  .once((userData, key) => {
+                  .once((userData) => {
                     if (
                       userData &&
                       userData.username === credentials.username
                     ) {
                       console.log('Username già esistente (trovato in users)');
-                      clearTimeout(timeoutId);
-                      resolve(true);
+                      callback({
+                        success: false,
+                        status: 'username-esistente',
+                        errMessage: 'Username già in uso',
+                      });
+                      resolve({ exists: true, type: 'user' });
                     }
                   });
 
@@ -287,12 +296,12 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                   console.log(
                     'Nessun username esistente trovato dopo la verifica completa'
                   );
-                  resolve(false);
+                  resolve({ exists: false });
                 }, 3000);
               });
             });
 
-            if (exists) {
+            if (exists.exists) {
               updateStatus('username-esistente');
               throw new Error('Username già in uso');
             }
@@ -303,6 +312,11 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             console.log(`Errore verifica esistenza:`, error);
             if (error.message === 'Username già in uso') {
               updateStatus('username-esistente');
+              callback({
+                success: false,
+                status: 'username-esistente',
+                errMessage: 'Username già in uso',
+              });
               throw error;
             }
             if (i === retries - 1) throw error;
@@ -362,13 +376,28 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         for (let i = 0; i < retries; i++) {
           console.log(`Tentativo creazione ${i + 1}/${retries}`);
           try {
+            // Verifica la connessione prima di procedere
+            const isConnected = await new Promise((resolve) => {
+              const timeoutId = setTimeout(() => resolve(false), 5000);
+              gun.get('healthcheck').once(() => {
+                clearTimeout(timeoutId);
+                resolve(true);
+              });
+            });
+
+            if (!isConnected) {
+              console.log('Connessione persa, attendo riconnessione...');
+              await new Promise((r) => setTimeout(r, 5000));
+              continue;
+            }
+
             // Attendi che eventuali operazioni precedenti siano completate
             await new Promise((r) => setTimeout(r, 5000));
 
             const createResult = await new Promise((resolve, reject) => {
               const createTimeoutId = setTimeout(() => {
                 reject(new Error('Timeout creazione utente'));
-              }, 20000); // Aumentato a 20 secondi
+              }, 30000); // Aumentato a 30 secondi
 
               // Verifica se l'utente esiste già
               gun.get(`~@${credentials.username}`).once((data) => {
@@ -407,6 +436,26 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             // Se siamo qui, la creazione è andata a buon fine
             console.log('Utente creato con successo');
 
+            // Verifica che l'utente sia stato effettivamente creato
+            const userCreated = await new Promise((resolve) => {
+              const timeoutId = setTimeout(() => resolve(false), 10000);
+              const checkUser = () => {
+                gun.get(`~@${credentials.username}`).once((data) => {
+                  if (data) {
+                    clearTimeout(timeoutId);
+                    resolve(true);
+                  } else {
+                    setTimeout(checkUser, 1000);
+                  }
+                });
+              };
+              checkUser();
+            });
+
+            if (!userCreated) {
+              throw new Error('Verifica creazione utente fallita');
+            }
+
             // Attendi che l'utente sia effettivamente creato
             await new Promise((r) => setTimeout(r, 5000));
 
@@ -422,6 +471,9 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
 
             // Pulizia completa tra i tentativi
             await cleanupGunState();
+
+            // Attendi più a lungo tra i tentativi
+            await new Promise((r) => setTimeout(r, 10000));
           }
         }
       };
@@ -743,28 +795,16 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         privateKeys: '***',
       });
 
-      // Salva la sessione con retry
+      // Salva la sessione direttamente nel localStorage
       console.log('Salvataggio sessione...');
-      const saveSessionWithRetry = async (retries = 3) => {
-        for (let i = 0; i < retries; i++) {
-          console.log(`Tentativo salvataggio sessione ${i + 1}/${retries}`);
-          try {
-            const saved = await sessionManager.saveSession(walletData);
-            if (!saved) throw new Error('Salvataggio sessione fallito');
-            console.log('Sessione salvata con successo');
-            return true;
-          } catch (error) {
-            console.log(
-              `Tentativo salvataggio sessione ${i + 1} fallito:`,
-              error
-            );
-            if (i === retries - 1) throw error;
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        }
-      };
-
-      await saveSessionWithRetry();
+      try {
+        const walletKey = `gunWallet_${user.is.pub}`;
+        localStorage.setItem(walletKey, JSON.stringify(walletData));
+        console.log('Sessione salvata con successo');
+      } catch (error) {
+        console.error('Errore salvataggio sessione:', error);
+        // Non blocchiamo la registrazione se il salvataggio della sessione fallisce
+      }
 
       // Crea i certificati e aggiorna metriche
       console.log('Creazione certificati e aggiornamento metriche...');

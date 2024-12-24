@@ -64,8 +64,7 @@ export default function SignIn() {
   }, []);
 
   const handleLogin = async () => {
-    console.log("handleLogin called");
-    if (isLoading || isRedirecting) return;
+    if (isLoading) return;
     if (!username.trim() || !password.trim()) {
       toast.error("Per favore inserisci username e password");
       return;
@@ -75,121 +74,90 @@ export default function SignIn() {
     const toastId = toast.loading("Accesso in corso...");
 
     try {
-      // Pulisci lo stato precedente in modo più aggressivo
-      localStorage.clear();
-      sessionManager.clearSession();
+      console.log("handleLogin called");
 
+      // Pulisci la sessione precedente
+      await sessionManager.clearSession();
       console.log("Pulizia stato precedente");
 
-      // Assicurati che l'utente sia completamente disconnesso
-      if (user.is) {
-        user.leave();
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-
+      // Verifica lo stato dell'utente
       console.log("User.is:", user.is);
 
-      // Tenta il login
-      const loginResult = await authentication.loginUser(
-        { username, password },
-        (response) => {
-          console.log("Login response:", response);
-          if (response.success) {
-            return response;
-          } else {
-            throw new Error(response.errMessage || "Login fallito");
-          }
+      const result = await authentication.loginUser({
+        username: username.trim(),
+        password: password.trim(),
+      });
+
+      if (result.success) {
+        // Salva lo stato di autenticazione
+        localStorage.setItem("isAuthenticated", "true");
+        localStorage.setItem("userPub", user.is.pub);
+        localStorage.setItem("username", username.trim());
+
+        // Verifica che la sessione sia stata salvata correttamente
+        const isSessionValid = await sessionManager.validateSession();
+        if (!isSessionValid) {
+          throw new Error("Errore durante il salvataggio della sessione");
         }
-      );
 
-      console.log("Login result:", loginResult);
+        // Attendi un momento per assicurarsi che la sessione sia completamente salvata
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Verifica autenticazione
-      const isAuthenticated = await new Promise((resolve) => {
-        let attempts = 0;
-        const checkAuth = setInterval(() => {
-          if (user.is && user.is.pub) {
-            clearInterval(checkAuth);
-            resolve(true);
-          }
-          if (attempts >= 30) {
-            clearInterval(checkAuth);
-            resolve(false);
-          }
-          attempts++;
-        }, 200);
-      });
+        // Verifica nuovamente la sessione
+        const finalCheck = await sessionManager.validateSession();
+        if (!finalCheck) {
+          throw new Error("Verifica finale della sessione fallita");
+        }
 
-      if (!isAuthenticated) {
-        throw new Error("Impossibile verificare l'autenticazione");
+        // Mostra il toast di successo
+        toast.success("Accesso effettuato con successo!", { id: toastId });
+
+        // Attendi che il toast sia mostrato
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Ottieni il percorso di redirect
+        const redirectPath =
+          localStorage.getItem("redirectAfterLogin") || "/homepage";
+        console.log("Reindirizzamento a:", redirectPath);
+
+        // Pulisci il redirect salvato
+        localStorage.removeItem("redirectAfterLogin");
+
+        // Usa window.location.replace per un redirect completo
+        window.location.replace(redirectPath);
+        return;
       }
 
-      if (!loginResult.success) {
-        throw new Error(loginResult.errMessage || "Login fallito");
-      }
-
-      // Verifica che i dati della sessione siano presenti
-      const sessionData = localStorage.getItem("sessionData");
-      if (!sessionData) {
-        throw new Error("Dati sessione mancanti");
-      }
-
-      // Verifica finale
-      const finalCheck = await sessionManager.verifyAuthentication();
-      if (!finalCheck) {
-        throw new Error("Verifica finale dell'autenticazione fallita");
-      }
-
-      toast.success("Accesso effettuato con successo!", {
-        id: toastId,
-        duration: 1000,
-      });
-
-      setIsRedirecting(true);
-
-      // Attendi sincronizzazione
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Ultima verifica sessione
-      const finalAuthCheck = await sessionManager.validateSession();
-      if (!finalAuthCheck) {
-        throw new Error("Verifica finale della sessione fallita");
-      }
-
-      // Reindirizza
-      const redirectPath =
-        localStorage.getItem("redirectAfterLogin") || "/homepage";
-      localStorage.removeItem("redirectAfterLogin");
-      window.location.href = redirectPath;
-      window.location.reload(true);
+      throw new Error(result.errMessage || "Errore durante il login");
     } catch (error) {
       console.error("Errore login:", error);
 
-      localStorage.clear();
-      sessionManager.clearSession();
+      // Pulisci lo stato in caso di errore
+      localStorage.removeItem("isAuthenticated");
+      localStorage.removeItem("userPub");
+      localStorage.removeItem("username");
+      await sessionManager.clearSession();
       if (user.is) {
         user.leave();
       }
 
-      let errorMessage = "Errore durante l'accesso";
+      let errorMessage = "Errore durante il login";
 
-      if (error.message.includes("già in corso")) {
-        errorMessage = "Sessione in corso. Attendi qualche secondo e riprova.";
-      } else if (error.message.includes("Timeout")) {
-        errorMessage = "Timeout durante l'accesso. Riprova.";
-      } else if (error.message.includes("not found")) {
-        errorMessage = "Username o password non corretti";
+      if (error.message.includes("credenziali")) {
+        errorMessage = "Credenziali non valide";
       } else if (error.message.includes("network")) {
         errorMessage =
           "Errore di connessione. Verifica la tua connessione internet";
-      } else if (error.message.includes("verification")) {
-        errorMessage = "Impossibile verificare l'autenticazione. Riprova";
+      } else if (error.message.includes("timeout")) {
+        errorMessage = "Timeout durante il login. Riprova";
       } else if (error.message.includes("server")) {
         errorMessage = "Impossibile connettersi al server. Riprova più tardi";
+      } else if (error.message.includes("sessione")) {
+        errorMessage = "Errore durante il salvataggio della sessione. Riprova";
       }
 
       toast.error(errorMessage, { id: toastId });
-      setIsRedirecting(false);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -215,14 +183,6 @@ export default function SignIn() {
   //     handleMetaMaskLogin();
   //   }
   // }, [isConnected, address]);
-
-  const handleRedirect = () => {
-    const redirectPath =
-      localStorage.getItem("redirectAfterLogin") || "/homepage";
-    localStorage.removeItem("redirectAfterLogin");
-    window.location.href = redirectPath;
-    window.location.reload(true);
-  };
 
   const handleMetaMaskLogin = async () => {
     if (!address) {
@@ -371,18 +331,60 @@ export default function SignIn() {
     }
   };
 
-  // Aggiungi un effetto per verificare l'autenticazione all'avvio
+  // Modifica l'effetto di verifica iniziale
   useEffect(() => {
     const checkAuth = async () => {
-      const isAuth = localStorage.getItem("isAuthenticated") === "true";
-      const storedPub = localStorage.getItem("userPub");
+      try {
+        // Se siamo già in fase di reindirizzamento, non fare nulla
+        if (isRedirecting) return;
 
-      if (isAuth && storedPub && user.is && user.is.pub === storedPub) {
-        window.location.replace("/homepage");
+        const isSessionValid = await sessionManager.validateSession();
+        const isAuthenticated =
+          localStorage.getItem("isAuthenticated") === "true";
+        const storedPub = localStorage.getItem("userPub");
+
+        console.log("Verifica stato autenticazione iniziale:", {
+          isSessionValid,
+          isAuthenticated,
+          storedPub,
+          userPub: user?.is?.pub,
+        });
+
+        if (
+          isSessionValid &&
+          isAuthenticated &&
+          storedPub &&
+          user?.is?.pub === storedPub
+        ) {
+          const redirectPath =
+            localStorage.getItem("redirectAfterLogin") || "/homepage";
+          console.log(
+            "Utente già autenticato, reindirizzamento a:",
+            redirectPath
+          );
+          localStorage.removeItem("redirectAfterLogin");
+          window.location.replace(redirectPath);
+        } else {
+          // Se non siamo autenticati, pulisci tutto
+          console.log("Pulizia stato autenticazione");
+          localStorage.removeItem("isAuthenticated");
+          localStorage.removeItem("userPub");
+          localStorage.removeItem("username");
+          await sessionManager.clearSession();
+          if (user.is) {
+            user.leave();
+          }
+        }
+      } catch (error) {
+        console.error("Errore verifica autenticazione iniziale:", error);
       }
     };
-    checkAuth();
-  }, []);
+
+    // Esegui il check solo se non siamo in fase di reindirizzamento
+    if (!isRedirecting) {
+      checkAuth();
+    }
+  }, [isRedirecting]);
 
   // Se stiamo già reindirizzando, mostra un loader
   if (isRedirecting) {
