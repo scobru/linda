@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { isAuthenticated } from "linda-protocol";
+import { sessionManager, user } from "linda-protocol";
 import { useContext } from "react";
 import Context from "../contexts/context";
 
@@ -11,63 +11,89 @@ const RequireAuth = ({ children }) => {
   const { setPub, setAlias } = useContext(Context);
 
   useEffect(() => {
+    let mounted = true;
+
     const checkAuth = async () => {
       try {
-        // Verifica autenticazione wallet
-        const walletAuth = localStorage.getItem("walletAuth");
-        if (walletAuth) {
-          const { address, timestamp } = JSON.parse(walletAuth);
-          // Verifica se l'autenticazione è ancora valida (24h)
-          if (Date.now() - timestamp < 24 * 60 * 60 * 1000) {
-            setIsAuth(true);
+        // Se siamo nella pagina di login, non fare il check
+        if (location.pathname === "/login") {
+          if (mounted) {
             setAuthChecked(true);
-            return;
-          } else {
-            localStorage.removeItem("walletAuth");
+            setIsAuth(false);
           }
+          return;
         }
 
-        // Verifica autenticazione normale
-        const authResult = await isAuthenticated();
-        if (authResult.success) {
-          setPub(authResult.user.pub);
-          setAlias(authResult.user.alias);
-          setIsAuth(true);
+        // Verifica se c'è una sessione valida
+        const isSessionValid = await sessionManager.validateSession();
+        const isAuthenticated =
+          localStorage.getItem("isAuthenticated") === "true";
+        console.log("Stato autenticazione:", {
+          isSessionValid,
+          isAuthenticated,
+        });
+
+        if (isSessionValid && isAuthenticated && user?.is?.pub) {
+          const userPub = localStorage.getItem("userPub");
+          const username = localStorage.getItem("username");
+
+          if (userPub === user.is.pub) {
+            setPub(userPub);
+            setAlias(username || userPub);
+            if (mounted) {
+              setIsAuth(true);
+            }
+          } else {
+            console.log("Mismatch tra userPub salvato e user.is.pub");
+            if (mounted) {
+              setIsAuth(false);
+              sessionManager.clearSession();
+              localStorage.removeItem("isAuthenticated");
+            }
+          }
         } else {
-          setIsAuth(false);
+          console.log("Sessione non valida o utente non presente");
+          if (mounted) {
+            setIsAuth(false);
+            sessionManager.clearSession();
+            localStorage.removeItem("isAuthenticated");
+          }
         }
       } catch (error) {
         console.error("Errore nella verifica dell'autenticazione:", error);
-        setIsAuth(false);
+        if (mounted) {
+          setIsAuth(false);
+          sessionManager.clearSession();
+          localStorage.removeItem("isAuthenticated");
+        }
       } finally {
-        setAuthChecked(true);
+        if (mounted) {
+          setAuthChecked(true);
+        }
       }
     };
 
     checkAuth();
 
-    // Polling ridotto a 30 secondi
-    const authCheck = setInterval(checkAuth, 30000);
-
     return () => {
-      clearInterval(authCheck);
+      mounted = false;
     };
-  }, [setPub, setAlias]);
+  }, [location.pathname, setPub, setAlias]);
 
   if (!authChecked) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <div className="spinner-border text-primary" role="status">
-            <span className="sr-only">Verifica sessione in corso...</span>
-          </div>
-          <p className="mt-2">Verifica sessione in corso...</p>
-        </div>
+      <div className="fixed inset-0 bg-gray-50 flex flex-col justify-center items-center z-50">
+        <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+        <p className="mt-4 text-gray-600">Verifica autenticazione...</p>
       </div>
     );
   }
 
   if (!isAuth) {
+    // Salva la pagina corrente per il reindirizzamento post-login
+    if (location.pathname !== "/login") {
+      localStorage.setItem("redirectAfterLogin", location.pathname);
+    }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

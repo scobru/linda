@@ -9,8 +9,8 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 const checkGunConnectionWithRetry = async (maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const isConnected = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => resolve(false), 10000);
+      const isConnected = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => resolve(false), 5000);
 
         gun.get("healthcheck").once((data) => {
           clearTimeout(timeout);
@@ -22,7 +22,7 @@ const checkGunConnectionWithRetry = async (maxRetries = 3) => {
 
       // Se non è connesso ma non è l'ultimo tentativo
       if (i < maxRetries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
     } catch (error) {
@@ -105,62 +105,87 @@ export default function Register() {
 
   const handleMetaMaskRegister = async () => {
     if (!address) {
-      toast.error("Please connect your MetaMask wallet first");
+      toast.error("Per favore connetti prima il tuo wallet MetaMask");
       return;
     }
 
-    // Ask for confirmation before proceeding
-    const wantsToSign = window.confirm(
-      "To complete the registration, you need to sign a message with MetaMask. Do you want to proceed?"
-    );
-
-    if (!wantsToSign) {
+    if (!isGunConnected) {
+      toast.error("Impossibile connettersi al server. Riprova più tardi.");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Registering with MetaMask...");
+    const toastId = toast.loading("Registrazione con MetaMask in corso...");
 
     try {
-      console.log("Starting registration with address:", address);
+      // Verifica se l'indirizzo è già registrato
+      const existingUser = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("addresses")
+          .get(address.toLowerCase())
+          .once((data) => {
+            resolve(data);
+          });
+        setTimeout(() => resolve(null), 5000);
+      });
 
-      // Check if address is already registered
-      const existingUser = await gun
-        .get(`${DAPP_NAME}/users`)
-        .get(address)
-        .once();
       if (existingUser) {
-        throw new Error("This address is already registered");
+        toast.error("Questo indirizzo è già registrato. Prova ad accedere.", {
+          id: toastId,
+        });
+        setIsLoading(false);
+        return;
       }
 
-      const result = await authentication.registerWithMetaMask(address);
+      // Richiedi la firma
+      const wantsToSign = window.confirm(
+        "Per completare la registrazione, è necessario firmare un messaggio con MetaMask. Vuoi procedere?"
+      );
+
+      if (!wantsToSign) {
+        toast.error("Registrazione annullata", { id: toastId });
+        setIsLoading(false);
+        return;
+      }
+
+      const result = await authentication.registerWithMetaMask(
+        address.toLowerCase()
+      );
 
       if (result.success) {
-        toast.success("Registration completed successfully", { id: toastId });
+        toast.success("Registrazione completata con successo!", {
+          id: toastId,
+        });
+
+        // Mostra un messaggio di successo più dettagliato
+        toast.success(
+          "Il tuo account è stato creato. Verrai reindirizzato alla pagina di login...",
+          { duration: 4000 }
+        );
+
+        // Reindirizza dopo un breve delay per permettere all'utente di leggere il messaggio
         setTimeout(() => {
           navigate("/signin", { replace: true });
-        }, 5000);
-      } else {
-        throw new Error(result.error || "Unknown error during registration");
+        }, 4000);
       }
     } catch (error) {
-      console.error("Detailed MetaMask registration error:", {
+      console.error("Errore dettagliato registrazione MetaMask:", {
         message: error.message,
         stack: error.stack,
         error,
       });
 
-      let errorMessage = "Error during registration";
+      let errorMessage = "Errore durante la registrazione";
 
-      if (error.message.includes("Timeout")) {
+      if (error.message.includes("User rejected")) {
         errorMessage =
-          "Registration timeout. The server might be overloaded, please try again in a few minutes.";
-      } else if (error.message.includes("Malformed UTF-8")) {
-        errorMessage =
-          "Data encoding error. Try disconnecting and reconnecting MetaMask.";
+          "Hai rifiutato la firma del messaggio. La registrazione è stata annullata.";
       } else if (error.message.includes("already registered")) {
+        errorMessage = "Questo indirizzo è già registrato. Prova ad accedere.";
+      } else if (error.message.includes("network")) {
         errorMessage =
-          "This address is already registered. Try signing in instead.";
+          "Errore di connessione. Verifica la tua connessione internet.";
       }
 
       toast.error(errorMessage, { id: toastId });

@@ -1,26 +1,76 @@
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { authentication } from 'linda-protocol';
+import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { sessionManager, user } from "linda-protocol";
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
     const checkSession = async () => {
-      const isValid = await authentication.sessionManager.validateSession();
-      if (!isValid) {
-        navigate('/login');
+      try {
+        const isSessionValid = await sessionManager.validateSession();
+        const isAuthenticated =
+          localStorage.getItem("isAuthenticated") === "true";
+        const storedPub = localStorage.getItem("userPub");
+
+        console.log("AuthProvider - Verifica sessione:", {
+          isSessionValid,
+          isAuthenticated,
+          storedPub,
+          userPub: user?.is?.pub,
+        });
+
+        if (
+          !isSessionValid ||
+          !isAuthenticated ||
+          !storedPub ||
+          !user?.is?.pub ||
+          storedPub !== user?.is?.pub
+        ) {
+          console.log("AuthProvider - Sessione non valida, pulizia...");
+          localStorage.removeItem("isAuthenticated");
+          localStorage.removeItem("userPub");
+          localStorage.removeItem("username");
+          localStorage.removeItem("userAlias");
+          localStorage.removeItem("userAddress");
+          localStorage.removeItem("redirectAfterLogin");
+          localStorage.removeItem("selectedUser");
+          localStorage.removeItem("walletAuth");
+
+          await sessionManager.clearSession();
+
+          if (user.is) {
+            user.leave();
+          }
+
+          if (
+            window.location.pathname !== "/login" &&
+            window.location.pathname !== "/register" &&
+            window.location.pathname !== "/landing"
+          ) {
+            navigate("/login", { replace: true });
+          }
+        }
+      } catch (error) {
+        console.error("AuthProvider - Errore verifica sessione:", error);
+        navigate("/login", { replace: true });
       }
     };
 
-    // Verifica la sessione ogni 5 minuti
-    const interval = setInterval(checkSession, 5 * 60 * 1000);
-    
+    // Verifica la sessione ogni minuto
+    const interval = setInterval(checkSession, 60 * 1000);
+
     // Verifica iniziale
     checkSession();
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      // Pulisci lo stato quando il componente viene smontato
+      if (user.is) {
+        user.leave();
+      }
+    };
   }, [navigate]);
 
   return children;
-}; 
+};

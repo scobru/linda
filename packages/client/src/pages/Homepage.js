@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Context from "../contexts/context";
-import { messaging } from "linda-protocol";
+import { messaging, sessionManager } from "linda-protocol";
 import { toast } from "react-hot-toast";
 import { gun, user } from "linda-protocol";
 // compos
@@ -164,91 +164,81 @@ export default function Homepage() {
   // Definisci validateSession fuori dall'effetto delle amicizie
   const validateSession = async () => {
     try {
-      // Verifichiamo solo se l'utente è presente
-      if (user?.is) {
-        const isValid = await authentication.sessionManager.validateSession();
-        return isValid;
+      // Verifica se l'utente è presente e autenticato
+      if (!user?.is || !localStorage.getItem("isAuthenticated")) {
+        console.log("Utente non presente o non autenticato");
+        localStorage.removeItem("isAuthenticated");
+        sessionManager.clearSession();
+        navigate("/login", { replace: true });
+        return false;
       }
 
-      const walletAuth = localStorage.getItem("walletAuth");
-
-      if (walletAuth) {
-        const { address } = JSON.parse(walletAuth);
-        const isValid = await authentication.sessionManager.validateSession();
-
-        if (!isValid) {
-          try {
-            const result = await authentication.loginWithMetaMask(address);
-            if (!result.success) {
-              navigate("/login", { replace: true });
-              return false;
-            }
-            return true;
-          } catch (error) {
-            console.error("Errore riautenticazione MetaMask:", error);
-            navigate("/login", { replace: true });
-            return false;
-          }
-        }
-        return isValid;
-      } else {
-        const isValid = await authentication.sessionManager.validateSession();
-        if (!isValid) {
-          navigate("/login", { replace: true });
-          return false;
-        }
-        return isValid;
+      // Verifica la sessione
+      const isValid = await sessionManager.validateSession();
+      if (!isValid) {
+        console.log("Sessione non valida");
+        localStorage.removeItem("isAuthenticated");
+        sessionManager.clearSession();
+        navigate("/login", { replace: true });
+        return false;
       }
+
+      // Verifica che il pub dell'utente corrisponda
+      const storedPub = localStorage.getItem("userPub");
+      if (!storedPub || storedPub !== user.is.pub) {
+        console.log("Mismatch tra userPub salvato e user.is.pub");
+        localStorage.removeItem("isAuthenticated");
+        sessionManager.clearSession();
+        navigate("/login", { replace: true });
+        return false;
+      }
+
+      // Aggiorna il timestamp dell'ultimo accesso
+      gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
+        .get(user.is.pub)
+        .get("lastSeen")
+        .put(Date.now());
+
+      return true;
     } catch (error) {
       console.error("Errore validazione sessione:", error);
+      localStorage.removeItem("isAuthenticated");
+      sessionManager.clearSession();
       navigate("/login", { replace: true });
       return false;
     }
   };
 
-  // Effetto separato per la gestione dell'autenticazione
+  // Modifica l'effetto per la gestione dell'autenticazione
   React.useEffect(() => {
     let mounted = true;
+    let authCheckInterval;
 
-    const subscription = authentication.observeAuthState().subscribe({
-      next: async (authState) => {
-        if (!mounted) return;
+    const checkAuth = async () => {
+      if (!mounted) return;
 
-        if (authState.success) {
-          console.log("Utente autenticato:", authState.user);
+      const isValid = await validateSession();
+      if (!isValid && mounted) {
+        console.log("Sessione non valida, reindirizzamento al login");
+        localStorage.removeItem("isAuthenticated");
+        sessionManager.clearSession();
+        navigate("/login", { replace: true });
+      }
+    };
 
-          // Aggiorna i dati utente nel gun solo se l'utente è presente
-          if (user?.is) {
-            gun.get(DAPP_NAME).get("userList").get("users").set({
-              pub: user?.is?.pub,
-              username: user?.is?.alias,
-              timestamp: Date.now(),
-              lastSeen: Date.now(),
-            });
-          }
+    // Verifica iniziale
+    checkAuth();
 
-          // Validazione sessione solo se necessario
-          const isValid = await validateSession();
-          console.log("isValid", isValid);
-
-          if (!isValid && mounted) {
-            navigate("/login", { replace: true });
-          }
-        } else {
-          console.log("Utente non autenticato");
-          navigate("/login", { replace: true });
-        }
-      },
-      error: (error) => {
-        console.error("Errore osservazione stato auth:", error);
-        if (mounted) navigate("/login", { replace: true });
-      },
-    });
+    // Verifica periodica ogni minuto invece che ogni 30 secondi
+    authCheckInterval = setInterval(checkAuth, 60000);
 
     return () => {
       mounted = false;
-      if (subscription && typeof subscription.unsubscribe === "function") {
-        subscription.unsubscribe();
+      if (authCheckInterval) {
+        clearInterval(authCheckInterval);
       }
     };
   }, [navigate]);

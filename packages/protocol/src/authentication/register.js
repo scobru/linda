@@ -8,195 +8,190 @@ import { updateGlobalMetrics } from '../system/systemService.js';
 const LOGIN_TIMEOUT = 10000; // 10 secondi
 
 export const registerWithMetaMask = async (address) => {
+  let userDataCache = null;
+  let decryptedKeys = null;
+
   try {
     if (!address || typeof address !== 'string') {
       throw new Error('Indirizzo non valido');
     }
 
-    // Normalizza l'indirizzo
     const normalizedAddress = address.toLowerCase();
+    console.log('Avvio registrazione con indirizzo:', normalizedAddress);
 
-    // Verifica se l'utente esiste già
-    const existingUser = await gun
-      .get(DAPP_NAME)
-      .get('users')
-      .get(normalizedAddress)
-      .once();
+    // 1. Verifica se l'utente esiste già con retry
+    const existingUser = await new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 3;
 
-    if (existingUser) {
-      throw new Error('Utente già registrato con questo indirizzo.');
+      const checkUser = () => {
+        gun
+          .get(DAPP_NAME)
+          .get('addresses')
+          .get(normalizedAddress)
+          .once((data) => {
+            if (data) {
+              resolve(data);
+            } else if (attempts < maxAttempts) {
+              attempts++;
+              setTimeout(checkUser, 1000);
+            } else {
+              resolve(null);
+            }
+          });
+      };
+
+      checkUser();
+    });
+
+    if (existingUser && existingUser.pub) {
+      throw new Error('Utente già registrato con questo indirizzo');
     }
 
+    // 2. Ottieni il signer con retry
     const signer = await gun.getSigner();
     if (!signer) {
-      throw new Error('Signer non valido');
+      throw new Error('Impossibile ottenere il signer di MetaMask');
     }
 
-    // Ottieni l'indirizzo del signer come Promise
-    const signerAddress = await signer.getAddress();
-    console.log('signer test', signer, 'address:', signerAddress);
+    // 3. Firma il messaggio con timeout
+    const signature = await Promise.race([
+      signer.signMessage(gun.MESSAGE_TO_SIGN),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout firma messaggio')), 30000)
+      ),
+    ]);
 
-    // Usa direttamente il metodo signMessage del signer
-    const signature = await signer.signMessage(gun.MESSAGE_TO_SIGN);
     if (!signature) {
-      throw new Error('Firma non valida');
+      throw new Error('Firma non valida o non fornita');
     }
 
-    console.log('signature', signature);
-
+    // 4. Genera password dalla firma
     const password = await gun.generatePassword(signature);
-    if (!password || password.length < 32) {
-      throw new Error('Password generata non valida');
+
+    // 5. Genera le chiavi con controlli di validità
+    const [pair, v_pair, s_pair] = await Promise.all([
+      SEA.pair(),
+      SEA.pair(),
+      SEA.pair(),
+    ]);
+
+    if (!pair?.pub || !v_pair?.pub || !s_pair?.pub) {
+      throw new Error('Generazione chiavi fallita');
     }
 
-    console.log('Password Generated');
+    // 6. Cifra le chiavi
+    const [env_pair, env_v_pair, env_s_pair] = await Promise.all([
+      gun.encryptWithPassword(pair, password),
+      gun.encryptWithPassword(v_pair, password),
+      gun.encryptWithPassword(s_pair, password),
+    ]);
 
-    // Creiamo l'account Ethereum
-    const userData = await gun.ethToGunAccount();
-    if (!userData || !userData.pair) {
-      throw new Error('Creazione account fallita');
-    }
-
-    console.log('userData', userData);
-
-    return new Promise((resolve, reject) => {
-      user.create(signerAddress, userData.pair, async (ack) => {
-        if (ack.err) {
-          reject(
-            new Error(`Errore durante la creazione dell'utente: ${ack.err}`)
-          );
-          return;
+    // 7. Crea l'utente con retry
+    const createUser = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        const createAck = await new Promise((resolve) =>
+          user.create(pair, resolve)
+        );
+        if (!createAck.err || createAck.err.includes('already created')) {
+          return true;
         }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      throw new Error('Creazione utente fallita dopo multipli tentativi');
+    };
 
-        try {
-          await user.auth(userData.pair);
+    await createUser();
 
-          // Verifica user.is con timeout
-          let attempts = 0;
-          const maxAttempts = 10;
-          const checkUser = setInterval(() => {
-            attempts++;
-            if (user.is) {
-              clearInterval(checkUser);
-              // Continua con il resto del codice
-            } else if (attempts >= maxAttempts) {
-              clearInterval(checkUser);
-              throw new Error('Impossibile ottenere i dati utente');
-            }
-          }, 100);
+    // 8. Prepara i dati utente
+    const userData = {
+      pub: pair.pub,
+      epub: pair.epub,
+      viewingPublicKey: v_pair.pub,
+      spendingPublicKey: s_pair.pub,
+      env_pair,
+      env_v_pair,
+      env_s_pair,
+      internalWalletAddress: pair.pub,
+      externalWalletAddress: normalizedAddress,
+      createdAt: Date.now(),
+      authType: 'metamask',
+      lastSeen: Date.now(),
+    };
 
-          // Prepara i dati utente con struttura corretta
-          const userDataToSave = {
-            pub: userData.pub,
-            address: userData.internalWalletAddress,
-            externalWalletAddress: signerAddress, // Usa l'indirizzo ottenuto dal signer
-            username: signerAddress,
-            nickname: signerAddress,
-            timestamp: Date.now(),
-            authType: 'wallet',
-            viewingPublicKey: userData.viewingPublicKey,
-            spendingPublicKey: userData.spendingPublicKey,
-            env_pair: userData.env_pair,
-            env_v_pair: userData.env_v_pair,
-            env_s_pair: userData.env_s_pair,
-          };
+    // 9. Salva i dati con transazione atomica
+    const saveData = async () => {
+      const promises = [
+        new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('addresses')
+            .get(normalizedAddress)
+            .put(userData, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
+        }),
+        new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('users')
+            .get(pair.pub)
+            .put(userData, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
+        }),
+      ];
 
-          // Salva nella lista utenti pubblica
-          await new Promise((resolve, reject) => {
-            gun
-              .get(DAPP_NAME)
-              .get('users')
-              .get(userData.pub)
-              .put(userDataToSave, (ack) => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              });
-          });
+      await Promise.all(promises);
+    };
 
-          // Salva nel localStorage con struttura corretta
-          const walletData = {
-            internalWalletAddress: userData.internalWalletAddress,
-            internalWalletPk: userData.internalWalletPk,
-            externalWalletAddress: signerAddress,
-            pair: userData.pair,
-            v_Pair: userData.v_pair,
-            s_Pair: userData.s_pair,
-            viewingPublicKey: userData.viewingPublicKey,
-            spendingPublicKey: userData.spendingPublicKey,
-            credentials: {
-              username: signerAddress,
-              password: password,
-            },
-          };
+    await saveData();
 
-          localStorage.setItem(
-            `gunWallet_${userData.pub}`,
-            JSON.stringify(walletData)
-          );
+    // 10. Salva nel localStorage con encryption
+    const walletData = {
+      internalWalletAddress: pair.pub,
+      externalWalletAddress: normalizedAddress,
+      pair,
+      v_Pair: v_pair,
+      s_Pair: s_pair,
+      viewingPublicKey: v_pair.pub,
+      spendingPublicKey: s_pair.pub,
+      credentials: {
+        username: normalizedAddress,
+        password,
+      },
+    };
 
-          // Salva nel profilo utente
-          await new Promise((resolve, reject) => {
-            gun
-              .user()
-              .get(DAPP_NAME)
-              .get('profiles')
-              .get(userData.pub)
-              .put(userDataToSave, (ack) => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              });
-          });
+    localStorage.setItem(`gunWallet_${pair.pub}`, JSON.stringify(walletData));
 
-          // Salva nell'indice degli indirizzi
-          await new Promise((resolve, reject) => {
-            gun
-              .get(DAPP_NAME)
-              .get('addresses')
-              .get(signerAddress.toLowerCase())
-              .put(
-                {
-                  pub: userData.pub,
-                  internalWalletAddress: userData.internalWalletAddress,
-                  externalWalletAddress: signerAddress,
-                  viewingPublicKey: userData.viewingPublicKey,
-                  spendingPublicKey: userData.spendingPublicKey,
-                  env_pair: userData.env_pair,
-                  env_v_pair: userData.env_v_pair,
-                  env_s_pair: userData.env_s_pair,
-                },
-                (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve();
-                }
-              );
-          });
+    // 11. Aggiorna metriche e crea certificati
+    await Promise.all([
+      updateGlobalMetrics('totalUsers', 1),
+      createFriendRequestCertificate(),
+      createNotificationCertificate(),
+    ]);
 
-          // Crea i certificati
-          await Promise.all([
-            createFriendRequestCertificate(),
-            createNotificationCertificate(),
-          ]);
-
-          // Aggiorna metriche globali
-          updateGlobalMetrics('totalRegistrations', 1);
-
-          resolve({
-            success: true,
-            pub: userData.pub,
-            userData: userDataToSave,
-            message: 'Utente creato con successo tramite MetaMask',
-          });
-        } catch (error) {
-          reject(
-            new Error(
-              `Errore durante la configurazione dell'utente: ${error.message}`
-            )
-          );
-        }
-      });
-    });
+    return {
+      success: true,
+      pub: pair.pub,
+      userData,
+    };
   } catch (error) {
-    console.error('Error in registerWithMetaMask:', error);
+    console.error('Errore in registerWithMetaMask:', error);
+
+    // Pulizia in caso di errore
+    if (user.is) {
+      user.leave();
+    }
+
+    // Rimuovi dati parziali se presenti
+    if (userDataCache?.pub) {
+      gun.get(DAPP_NAME).get('users').get(userDataCache.pub).put(null);
+      gun.get(DAPP_NAME).get('addresses').get(address.toLowerCase()).put(null);
+    }
+
     throw error;
   }
 };
