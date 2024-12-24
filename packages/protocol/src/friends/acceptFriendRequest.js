@@ -1,5 +1,8 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
-import { createMessagesCertificate, createChatsCertificate } from '../security/index.js';
+import {
+  createMessagesCertificate,
+  createChatsCertificate,
+} from '../security/index.js';
 
 const acceptFriendRequest = async (request) => {
   if (!user?.is) {
@@ -10,7 +13,7 @@ const acceptFriendRequest = async (request) => {
     // Crea i certificati necessari
     await Promise.all([
       createMessagesCertificate(request.from),
-      createChatsCertificate(request.from)
+      createChatsCertificate(request.from),
     ]);
 
     // Genera un ID univoco per la chat
@@ -23,12 +26,13 @@ const acceptFriendRequest = async (request) => {
       status: 'active',
       user1: user.is.pub,
       user2: request.from,
-      type: 'private'
+      type: 'private',
     };
 
     // Salva la chat
     await new Promise((resolve, reject) => {
-      gun.get(DAPP_NAME)
+      gun
+        .get(DAPP_NAME)
         .get('chats')
         .get(chatId)
         .put(chatData, (ack) => {
@@ -43,12 +47,13 @@ const acceptFriendRequest = async (request) => {
       user2: request.from,
       created: Date.now(),
       status: 'active',
-      chatId: chatId
+      chatId: chatId,
     };
 
     // Salva l'amicizia
     await new Promise((resolve, reject) => {
-      gun.get(DAPP_NAME)
+      gun
+        .get(DAPP_NAME)
         .get('friendships')
         .set(friendshipData, (ack) => {
           if (ack.err) reject(new Error(ack.err));
@@ -57,28 +62,30 @@ const acceptFriendRequest = async (request) => {
     });
 
     // Rimuovi tutte le richieste correlate
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('all_friend_requests')
       .map()
       .once((data, key) => {
-        if (data && 
-            ((data.from === request.from && data.to === user.is.pub) ||
-             (data.from === user.is.pub && data.to === request.from))) {
-          gun.get(DAPP_NAME)
-            .get('all_friend_requests')
-            .get(key)
-            .put(null);
+        if (
+          data &&
+          ((data.from === request.from && data.to === user.is.pub) ||
+            (data.from === user.is.pub && data.to === request.from))
+        ) {
+          gun.get(DAPP_NAME).get('all_friend_requests').get(key).put(null);
         }
       });
 
     // Rimuovi le richieste private
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('friend_requests')
       .get(user.is.pub)
       .map()
       .once((data, key) => {
         if (data && data.from === request.from) {
-          gun.get(DAPP_NAME)
+          gun
+            .get(DAPP_NAME)
             .get('friend_requests')
             .get(user.is.pub)
             .get(key)
@@ -89,9 +96,8 @@ const acceptFriendRequest = async (request) => {
     return {
       success: true,
       message: 'Richiesta accettata con successo',
-      chatId: chatId
+      chatId: chatId,
     };
-
   } catch (error) {
     console.error('Error accepting friend request:', error);
     throw error;

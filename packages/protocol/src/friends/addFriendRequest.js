@@ -1,5 +1,8 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
-import { generateAddFriendCertificate, createFriendRequestCertificate } from '../security/index.js';
+import {
+  generateAddFriendCertificate,
+  createFriendRequestCertificate,
+} from '../security/index.js';
 import { certificateManager } from '../security/certificateManager.js';
 import SEA from 'gun/sea.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
@@ -218,7 +221,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     // Prima di salvare la richiesta, generiamo e verifichiamo i certificati
     try {
       console.log('Getting addFriendRequestCertificate');
-      
+
       const addFriendRequestCertificate = await gun
         .user(targetPub)
         .get(DAPP_NAME)
@@ -320,7 +323,9 @@ const notifyUser = async (targetPub, signedRequestData) => {
     // Ottieni la chiave pubblica del destinatario
     const targetUser = await gun.get(`~${targetPub}`).then();
     if (!targetUser || !targetUser.epub) {
-      throw new Error('Impossibile trovare la chiave di cifratura del destinatario');
+      throw new Error(
+        'Impossibile trovare la chiave di cifratura del destinatario'
+      );
     }
 
     // Prepara i dati della notifica
@@ -328,53 +333,67 @@ const notifyUser = async (targetPub, signedRequestData) => {
       type: 'friendRequest',
       from: user.is.pub,
       timestamp: Date.now(),
-      data: signedRequestData
+      data: signedRequestData,
     };
 
     // Firma i dati con la nostra chiave privata
-    const signedNotification = await SEA.sign(JSON.stringify(notificationData), user._.sea);
+    const signedNotification = await SEA.sign(
+      JSON.stringify(notificationData),
+      user._.sea
+    );
 
     // Cifra la notifica firmata con la chiave condivisa
     const sharedSecret = await SEA.secret(targetUser.epub, user._.sea);
-    const encryptedNotification = await SEA.encrypt(signedNotification, sharedSecret);
+    const encryptedNotification = await SEA.encrypt(
+      signedNotification,
+      sharedSecret
+    );
 
     // Salva la notifica cifrata
     await Promise.all([
       // Nel nodo friend_requests
       new Promise((resolve, reject) => {
-        gun.get(DAPP_NAME)
+        gun
+          .get(DAPP_NAME)
           .get('friend_requests')
           .get(targetPub)
-          .set({
-            from: user.is.pub,
-            data: encryptedNotification,
-            timestamp: Date.now()
-          }, (ack) => {
-            if (ack.err) reject(new Error(ack.err));
-            else resolve();
-          });
+          .set(
+            {
+              from: user.is.pub,
+              data: encryptedNotification,
+              timestamp: Date.now(),
+            },
+            (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            }
+          );
       }),
 
       // Nel nodo pubblico delle richieste
       new Promise((resolve, reject) => {
-        gun.get(DAPP_NAME)
+        gun
+          .get(DAPP_NAME)
           .get('all_friend_requests')
-          .set({
-            from: user.is.pub,
-            to: targetPub,
-            timestamp: Date.now(),
-            data: encryptedNotification
-          }, (ack) => {
-            if (ack.err) reject(new Error(ack.err));
-            else resolve();
-          });
-      })
+          .set(
+            {
+              from: user.is.pub,
+              to: targetPub,
+              timestamp: Date.now(),
+              data: encryptedNotification,
+            },
+            (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            }
+          );
+      }),
     ]);
 
     console.log('Notifica inviata con successo a:', targetPub);
     return true;
   } catch (error) {
-    console.error('Errore dettagliato nell\'invio della notifica:', error);
+    console.error("Errore dettagliato nell'invio della notifica:", error);
     throw new Error(`Errore nell'invio della notifica: ${error.message}`);
   }
 };

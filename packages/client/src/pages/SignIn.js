@@ -128,12 +128,14 @@ export default function SignIn() {
     const toastId = toast.loading("Signing in with MetaMask...");
 
     try {
+      console.log("handleMetaMaskLogin");
       // Pulisci lo stato precedente
       if (user.is) {
         user.leave();
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
+      console.log("loginWithMetaMask");
       const result = await authentication.loginWithMetaMask(address);
       console.log("MetaMask login result:", result);
 

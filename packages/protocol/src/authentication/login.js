@@ -13,6 +13,8 @@ export const loginWithMetaMask = async (address) => {
       throw new Error('Indirizzo non valido');
     }
 
+    console.log('loginWithMetaMask');
+
     const normalizedAddress = address.toLowerCase();
 
     // Cerca l'utente nell'indice degli indirizzi
@@ -21,6 +23,8 @@ export const loginWithMetaMask = async (address) => {
       .get('addresses')
       .get(normalizedAddress)
       .once();
+
+    console.log('existingUser:', existingUser);
 
     if (!existingUser) {
       throw new Error('Utente non trovato');
@@ -107,10 +111,13 @@ export const loginWithMetaMask = async (address) => {
           updateGlobalMetrics('totalLogins', 1);
 
           // Crea i certificati in modo asincrono
-          await Promise.all([
-            createFriendRequestCertificate(),
-            createNotificationCertificate(),
-          ]);
+
+          const friendRequestCertificate =
+            await createFriendRequestCertificate();
+          const notificationCertificate = await createNotificationCertificate();
+
+          console.log('friendRequestCertificate:', friendRequestCertificate);
+          console.log('notificationCertificate:', notificationCertificate);
 
           resolve({
             success: true,
