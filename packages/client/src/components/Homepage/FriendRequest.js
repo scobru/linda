@@ -35,11 +35,26 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
         throw new Error("Richiesta non valida");
       }
 
-      const result = await acceptFriendRequest(request);
+      // Recupera i dati del wallet dell'utente corrente
+      const walletData = JSON.parse(
+        localStorage.getItem(`gunWallet_${user.is.pub}`)
+      );
+      if (!walletData || !walletData.pair) {
+        throw new Error("Dati wallet non trovati");
+      }
+
+      // Accetta la richiesta con i dati di cifratura
+      const result = await acceptFriendRequest({
+        ...request,
+        pair: walletData.pair,
+        v_Pair: walletData.v_Pair,
+        s_Pair: walletData.s_Pair,
+      });
+
       console.log("Risultato accettazione:", result);
 
       if (result.success) {
-        // Crea l'amicizia in Gun
+        // Crea l'amicizia in Gun con dati di cifratura
         await new Promise((resolve, reject) => {
           const friendshipId = [user.is.pub, request.from].sort().join("_");
           gun
@@ -52,12 +67,27 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
                 user2: request.from,
                 created: Date.now(),
                 status: "accepted",
+                encryptionKey: result.encryptionKey || null,
+                viewingKey: result.viewingKey || null,
               },
               (ack) => {
                 if (ack.err) reject(new Error(ack.err));
                 else resolve(ack);
               }
             );
+        });
+
+        // Aggiorna i dati dell'utente
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(user.is.pub)
+            .get("friends")
+            .set({ pub: request.from, added: Date.now() }, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
         });
 
         // Rimuovi la richiesta da all_friend_requests

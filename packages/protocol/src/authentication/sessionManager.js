@@ -106,37 +106,22 @@ export const sessionManager = {
    */
   saveSession(sessionData) {
     try {
-      if (
-        !sessionData ||
-        !sessionData.userPub ||
-        !sessionData.walletData?.pair
-      ) {
+      if (!sessionData || !sessionData.userPub || !sessionData?.pair) {
         throw new Error('Dati sessione non validi');
       }
 
-      // Salva tutti i dati necessari
-      const dataToSave = {
-        isAuthenticated: true,
-        userPub: sessionData.userPub,
-        authType: 'metamask',
-        walletData: {
-          address: sessionData.walletData.address,
-          displayName: sessionData.walletData.displayName,
-          pair: sessionData.walletData.pair,
-        },
-        timestamp: Date.now(),
-      };
-
       localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('sessionData', JSON.stringify(dataToSave));
+      localStorage.setItem('sessionData', JSON.stringify(sessionData));
       localStorage.setItem('userPub', sessionData.userPub);
       localStorage.setItem('authType', 'metamask');
       localStorage.setItem('lastLogin', Date.now().toString());
 
+      console.log('Session Data saved:', sessionData);
+
       // Salva le chiavi per la riautenticazione
       localStorage.setItem(
         `gunWallet_${sessionData.userPub}`,
-        JSON.stringify(sessionData.walletData)
+        JSON.stringify(sessionData)
       );
 
       console.log('Sessione salvata con successo');

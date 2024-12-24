@@ -1,5 +1,11 @@
 import React from "react";
-import { authentication, DAPP_NAME, gun } from "linda-protocol";
+import {
+  authentication,
+  DAPP_NAME,
+  gun,
+  user,
+  sessionManager,
+} from "linda-protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
 import { useAccount } from "../config/wagmi";
@@ -9,9 +15,8 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 const checkGunConnectionWithRetry = async (maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const isConnected = new Promise((resolve, reject) => {
+      const isConnected = await new Promise((resolve) => {
         const timeout = setTimeout(() => resolve(false), 5000);
-
         gun.get("healthcheck").once((data) => {
           clearTimeout(timeout);
           resolve(true);
@@ -20,9 +25,8 @@ const checkGunConnectionWithRetry = async (maxRetries = 3) => {
 
       if (isConnected) return true;
 
-      // Se non è connesso ma non è l'ultimo tentativo
       if (i < maxRetries - 1) {
-        new Promise((resolve) => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         continue;
       }
     } catch (error) {
@@ -43,63 +47,158 @@ export default function Register() {
     React.useState("traditional");
   const [isGunConnected, setIsGunConnected] = React.useState(true);
 
-  // Verifica connessione Gun
   React.useEffect(() => {
     const checkConnection = async () => {
       const isConnected = await checkGunConnectionWithRetry();
       setIsGunConnected(isConnected);
       if (!isConnected) {
-        toast.error("Unable to connect to Gun node. Please try again later.");
+        toast.error("Impossibile connettersi al nodo Gun. Riprova più tardi.");
       }
     };
-
     checkConnection();
   }, []);
-
-  /* React.useEffect(() => {
-    const checkAuth = async () => {
-      const isAuth = await authentication.sessionManager.validateSession();
-      if (isAuth) {
-        navigate("/", { replace: true });
-      }
-    };
-    checkAuth();
-  }, [navigate]); */
 
   const handleRegister = async () => {
     if (isLoading) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Please enter username and password");
+      toast.error("Per favore inserisci username e password");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Registration in progress...");
+    const toastId = toast.loading("Registrazione in corso...");
 
     try {
-      const result = await new Promise((resolve, reject) => {
-        authentication.registerUser({ username, password }, (response) => {
-          if (response.success) {
-            resolve(response);
-          } else {
-            reject(
-              new Error(response.errMessage || "Error during registration")
+      // Pulisci lo stato precedente
+      localStorage.clear();
+      if (user.is) {
+        user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      // Registra l'utente con timeout più lungo
+      let timeoutId;
+      const result = await Promise.race([
+        new Promise((resolve, reject) => {
+          const registerCallback = (response) => {
+            if (response.success) {
+              resolve(response);
+            } else {
+              reject(
+                new Error(
+                  response.errMessage || "Errore durante la registrazione"
+                )
+              );
+            }
+          };
+
+          try {
+            authentication.registerUser(
+              { username: username.trim(), password: password.trim() },
+              registerCallback
             );
+          } catch (error) {
+            reject(error);
           }
-        });
+        }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error("Timeout durante la registrazione"));
+          }, 60000); // Aumentato a 60 secondi
+        }),
+      ]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
       });
 
-      toast.success("Registration completed", { id: toastId });
-      setTimeout(() => {
-        navigate("/signin", { replace: true });
-      }, 1500);
-    } catch (error) {
-      console.error("Registration error:", error);
-      toast.error(error.message || "Error during registration", {
+      if (!result || !result.success) {
+        throw new Error(
+          result?.errMessage || "Errore durante la registrazione"
+        );
+      }
+
+      // Verifica che l'utente sia effettivamente registrato
+      let attempts = 0;
+      while (attempts < 30 && !user.is?.pub) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        attempts++;
+      }
+
+      if (!user.is?.pub) {
+        throw new Error("Verifica registrazione fallita");
+      }
+
+      toast.success("Registrazione completata con successo!", {
         id: toastId,
+        duration: 2000,
       });
+
+      // Attendi che il toast sia mostrato
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Reindirizza alla pagina di login
+      navigate("/signin", { replace: true });
+    } catch (error) {
+      console.error("Errore registrazione:", error);
+
+      // Pulisci lo stato in caso di errore
+      localStorage.clear();
+      if (user.is) {
+        user.leave();
+      }
+
+      let errorMessage = "Errore durante la registrazione";
+
+      if (error.message.includes("già in uso")) {
+        toast.dismiss(toastId);
+        toast(
+          (t) => (
+            <div className="flex flex-col gap-2 p-2">
+              <span className="font-medium">Username già registrato</span>
+              <Link
+                to="/signin"
+                state={{ username: username.trim() }}
+                className="text-blue-500 hover:text-blue-700 font-semibold"
+                onClick={() => toast.dismiss(t.id)}
+              >
+                Vai al login →
+              </Link>
+            </div>
+          ),
+          {
+            duration: 5000,
+            style: {
+              background: "#fff",
+              color: "#000",
+              padding: "16px",
+              borderRadius: "8px",
+            },
+          }
+        );
+        setIsLoading(false);
+        return;
+      } else if (error.message.includes("Timeout")) {
+        errorMessage = "Timeout durante la registrazione. Riprova.";
+      } else if (error.message.includes("network")) {
+        errorMessage =
+          "Errore di connessione. Verifica la tua connessione internet";
+      } else if (error.message.includes("verification")) {
+        errorMessage = "Impossibile verificare la registrazione. Riprova";
+      } else if (error.message.includes("already being created")) {
+        errorMessage =
+          "Registrazione già in corso. Attendi qualche secondo e riprova.";
+      } else if (error.message.includes("server")) {
+        errorMessage = "Impossibile connettersi al server. Riprova più tardi";
+      }
+
+      toast.error(errorMessage, { id: toastId });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !isLoading) {
+      handleRegister();
     }
   };
 
@@ -164,10 +263,13 @@ export default function Register() {
           { duration: 4000 }
         );
 
-        // Reindirizza dopo un breve delay per permettere all'utente di leggere il messaggio
-        setTimeout(() => {
-          navigate("/signin", { replace: true });
-        }, 4000);
+        // Attendi che il toast sia mostrato
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Reindirizza alla pagina di login
+        navigate("/signin", { replace: true });
+      } else {
+        throw new Error(result.errMessage || "Errore durante la registrazione");
       }
     } catch (error) {
       console.error("Errore dettagliato registrazione MetaMask:", {
@@ -186,17 +288,15 @@ export default function Register() {
       } else if (error.message.includes("network")) {
         errorMessage =
           "Errore di connessione. Verifica la tua connessione internet.";
+      } else if (error.message.includes("verification")) {
+        errorMessage = "Impossibile verificare la registrazione. Riprova.";
+      } else if (error.message.includes("server")) {
+        errorMessage = "Impossibile connettersi al server. Riprova più tardi.";
       }
 
       toast.error(errorMessage, { id: toastId });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !isLoading) {
-      handleRegister();
     }
   };
 
@@ -258,10 +358,10 @@ export default function Register() {
               {isLoading ? (
                 <div className="flex items-center justify-center">
                   <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Registration in progress...
+                  Registrazione in corso...
                 </div>
               ) : (
-                "Sign me up!"
+                "Registrati"
               )}
             </button>
           </div>
@@ -298,7 +398,7 @@ export default function Register() {
                               type="button"
                               className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
                             >
-                              Connect Wallet
+                              Connetti Wallet
                             </button>
                           );
                         }
@@ -309,7 +409,7 @@ export default function Register() {
                               type="button"
                               className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
                             >
-                              Register with {account.displayName}
+                              Registrati con {account.displayName}
                             </button>
                           </div>
                         );
@@ -325,13 +425,13 @@ export default function Register() {
         <div className="flex flex-col gap-3 mt-6">
           <Link to="/signin">
             <button className="w-80 h-14 bg-white hover:bg-gray-100 text-blue-500 font-bold rounded-full border-2 border-blue-500">
-              Already have an account? Sign In
+              Hai già un account? Accedi
             </button>
           </Link>
 
           <Link to="/landing">
             <button className="w-80 h-14 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-full">
-              Go Back
+              Torna indietro
             </button>
           </Link>
         </div>

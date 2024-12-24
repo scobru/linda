@@ -268,24 +268,6 @@ export default function SignIn() {
         throw new Error("Impossibile verificare l'autenticazione");
       }
 
-      // Prepara i dati della sessione
-      const sessionData = {
-        userPub: result.pub,
-        walletData: {
-          address: address.toLowerCase(),
-          displayName: `${address.slice(0, 6)}...${address.slice(-4)}`,
-          pair: result.userData.pair || user._.sea,
-          v_Pair: result.userData.v_Pair,
-          s_Pair: result.userData.s_Pair,
-        },
-      };
-
-      // Salva la sessione
-      const sessionSaved = await sessionManager.saveSession(sessionData);
-      if (!sessionSaved) {
-        throw new Error("Errore nel salvataggio della sessione");
-      }
-
       // Salva dati aggiuntivi
       localStorage.setItem("userPub", result.pub);
       localStorage.setItem("userAddress", address.toLowerCase());

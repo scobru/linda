@@ -160,7 +160,7 @@ export const registerWithMetaMask = async (address) => {
       spendingPublicKey: s_pair.pub,
       credentials: {
         username: normalizedAddress,
-        password,
+        password: password,
       },
     };
 
@@ -197,59 +197,264 @@ export const registerWithMetaMask = async (address) => {
 };
 
 const registerUser = async (credentials = {}, callback = () => {}) => {
-  console.log('registerUser called');
+  console.log('Inizio registerUser con credenziali:', {
+    ...credentials,
+    password: '***',
+  });
+
+  const REGISTRATION_TIMEOUT = 120000; // Aumentato a 120 secondi
   let timeoutId;
+  let resolvePromise;
+  let registrationStatus = 'idle';
+
+  const updateStatus = (status, progress) => {
+    registrationStatus = status;
+    console.log(
+      `Stato registrazione: ${status}${progress ? ` (${progress})` : ''}`
+    );
+  };
 
   const registerPromise = new Promise(async (resolve, reject) => {
+    resolvePromise = resolve;
+
     try {
+      updateStatus('validazione');
       // Validazione input
+      console.log('Validazione input...');
       if (!credentials.username || !credentials.password) {
+        console.log('Validazione fallita: username o password mancanti');
         throw new Error('Username e password sono richiesti');
       }
 
       // Pulisci lo stato precedente in modo aggressivo
+      console.log('Pulizia stato precedente...');
       if (user.is) {
+        console.log('Utente già loggato, effettuo logout');
         user.leave();
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 2000));
       }
 
       // Forza una pulizia completa di Gun
+      console.log('Pulizia completa Gun...');
       gun.user().leave();
       await new Promise((r) => setTimeout(r, 2000));
 
-      // Verifica se l'utente esiste già
-      const userExists = await new Promise((resolve) => {
-        gun.get(`~@${credentials.username}`).once((data) => {
-          resolve(!!data);
-        });
-        setTimeout(() => resolve(false), 3000);
-      });
+      updateStatus('verifica-esistenza');
+      // Verifica se l'utente esiste già con retry
+      const checkUserExists = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          console.log(`Tentativo verifica esistenza ${i + 1}/${retries}`);
+          try {
+            const exists = await new Promise((resolve, reject) => {
+              const timeoutId = setTimeout(() => {
+                resolve(false);
+              }, 5000);
 
-      if (userExists) {
-        throw new Error('Username già in uso');
+              gun.get(`~@${credentials.username}`).once((data) => {
+                clearTimeout(timeoutId);
+                console.log('Risposta verifica esistenza:', data);
+
+                // Se abbiamo una risposta non nulla, controlliamo se è un alias valido
+                if (data) {
+                  const keys = Object.keys(data);
+                  // Cerca una chiave che inizia con ~ (indica un alias)
+                  const aliasKey = keys.find((k) => k.startsWith('~'));
+                  if (aliasKey) {
+                    console.log('Username già esistente (alias trovato)');
+                    resolve(true);
+                    return;
+                  }
+                }
+
+                // Se non abbiamo trovato un alias, verifichiamo nella collezione users
+                gun
+                  .get(DAPP_NAME)
+                  .get('users')
+                  .map()
+                  .once((userData, key) => {
+                    if (
+                      userData &&
+                      userData.username === credentials.username
+                    ) {
+                      console.log('Username già esistente (trovato in users)');
+                      clearTimeout(timeoutId);
+                      resolve(true);
+                    }
+                  });
+
+                // Se dopo 3 secondi non abbiamo trovato nulla, l'username è disponibile
+                setTimeout(() => {
+                  console.log(
+                    'Nessun username esistente trovato dopo la verifica completa'
+                  );
+                  resolve(false);
+                }, 3000);
+              });
+            });
+
+            if (exists) {
+              updateStatus('username-esistente');
+              throw new Error('Username già in uso');
+            }
+
+            console.log('Username disponibile');
+            return false;
+          } catch (error) {
+            console.log(`Errore verifica esistenza:`, error);
+            if (error.message === 'Username già in uso') {
+              updateStatus('username-esistente');
+              throw error;
+            }
+            if (i === retries - 1) throw error;
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        }
+      };
+
+      try {
+        await checkUserExists();
+      } catch (error) {
+        if (error.message === 'Username già in uso') {
+          updateStatus('username-esistente');
+          resolve({
+            success: false,
+            errMessage: 'Username già in uso',
+            suggestLogin: true,
+            status: 'username-esistente',
+          });
+          return;
+        }
+        throw error;
       }
 
-      // 1. Prima crea l'utente con retry e pulizia aggressiva
-      const createUserWithRetry = async (retries = 3) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            // Pulizia aggressiva prima di ogni tentativo
-            if (user.is) {
-              user.leave();
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-            gun.user().leave();
-            await new Promise((r) => setTimeout(r, 2000));
+      // Funzione di pulizia completa
+      const cleanupGunState = async () => {
+        console.log('Pulizia completa stato Gun...');
 
-            // Tenta la creazione
+        // Forza la disconnessione dell'utente corrente
+        if (user.is) {
+          user.leave();
+        }
+
+        // Pulisci il localStorage
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith('gun/') || key.startsWith('gunWallet_')) {
+            localStorage.removeItem(key);
+          }
+        });
+
+        // Forza una pulizia completa di Gun
+        gun.user().leave();
+
+        // Attendi che la pulizia sia completata
+        await new Promise((r) => setTimeout(r, 5000));
+
+        console.log('Pulizia completata');
+      };
+
+      updateStatus('creazione-utente');
+      // 1. Crea l'utente con retry e pulizia aggressiva
+      console.log('Inizio creazione utente...');
+      const createUserWithRetry = async (retries = 3) => {
+        // Prima di iniziare, esegui una pulizia completa
+        await cleanupGunState();
+
+        for (let i = 0; i < retries; i++) {
+          console.log(`Tentativo creazione ${i + 1}/${retries}`);
+          try {
+            // Attendi che eventuali operazioni precedenti siano completate
+            await new Promise((r) => setTimeout(r, 5000));
+
+            const createResult = await new Promise((resolve, reject) => {
+              const createTimeoutId = setTimeout(() => {
+                reject(new Error('Timeout creazione utente'));
+              }, 20000); // Aumentato a 20 secondi
+
+              // Verifica se l'utente esiste già
+              gun.get(`~@${credentials.username}`).once((data) => {
+                if (data) {
+                  clearTimeout(createTimeoutId);
+                  reject(new Error('Username già in uso'));
+                  return;
+                }
+
+                // Procedi con la creazione
+                user.create(
+                  credentials.username,
+                  credentials.password,
+                  (ack) => {
+                    clearTimeout(createTimeoutId);
+                    console.log('Risposta creazione:', ack);
+
+                    if (ack.err) {
+                      if (ack.err.includes('already being created')) {
+                        // Se l'utente è in fase di creazione, attendiamo
+                        console.log('Utente in fase di creazione, attendo...');
+                        setTimeout(() => resolve(ack), 5000);
+                      } else if (!ack.err.includes('already created')) {
+                        reject(new Error(ack.err));
+                      } else {
+                        resolve(ack);
+                      }
+                    } else {
+                      resolve(ack);
+                    }
+                  }
+                );
+              });
+            });
+
+            // Se siamo qui, la creazione è andata a buon fine
+            console.log('Utente creato con successo');
+
+            // Attendi che l'utente sia effettivamente creato
+            await new Promise((r) => setTimeout(r, 5000));
+
+            return createResult;
+          } catch (error) {
+            console.log(`Tentativo creazione ${i + 1} fallito:`, error);
+
+            if (error.message.includes('già in uso')) {
+              throw error; // Non ritentare se l'username è già in uso
+            }
+
+            if (i === retries - 1) throw error;
+
+            // Pulizia completa tra i tentativi
+            await cleanupGunState();
+          }
+        }
+      };
+
+      await createUserWithRetry();
+
+      console.log("Attesa prima dell'autenticazione...");
+      await new Promise((r) => setTimeout(r, 2000));
+
+      updateStatus('autenticazione');
+      // 2. Autentica l'utente con retry
+      console.log('Inizio autenticazione...');
+      const authenticateWithRetry = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          console.log(`Tentativo autenticazione ${i + 1}/${retries}`);
+          try {
+            // Attendi che eventuali operazioni precedenti siano completate
+            await new Promise((r) => setTimeout(r, 5000));
+
             const result = await new Promise((resolve, reject) => {
-              console.log('Tentativo di creazione utente:', i + 1);
-              user.create(credentials.username, credentials.password, (ack) => {
-                console.log('Risposta creazione utente:', ack);
-                if (ack.err && !ack.err.includes('already created')) {
+              const authTimeoutId = setTimeout(() => {
+                reject(new Error('Timeout autenticazione'));
+              }, 20000);
+
+              user.auth(credentials.username, credentials.password, (ack) => {
+                clearTimeout(authTimeoutId);
+                console.log('Risposta autenticazione:', ack);
+
+                if (ack.err) {
                   if (ack.err.includes('already being created')) {
+                    // Se l'utente è in fase di creazione, attendiamo
                     console.log('Utente in fase di creazione, attendo...');
-                    setTimeout(() => reject(new Error(ack.err)), 1000);
+                    setTimeout(() => resolve(ack), 5000);
                   } else {
                     reject(new Error(ack.err));
                   }
@@ -259,61 +464,66 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
               });
             });
 
-            return result;
-          } catch (error) {
-            console.log(`Tentativo ${i + 1} fallito:`, error);
-            if (i === retries - 1) throw error;
-            // Attendi più a lungo tra i tentativi
-            await new Promise((r) => setTimeout(r, 3000));
-          }
-        }
-      };
+            // Verifica che l'utente sia autenticato
+            console.log('Verifica autenticazione in corso...');
+            let attempts = 0;
+            while (attempts < 50 && !user.is?.pub) {
+              await new Promise((r) => setTimeout(r, 200));
+              attempts++;
+            }
 
-      await createUserWithRetry();
+            if (!user.is?.pub) {
+              throw new Error('Verifica autenticazione fallita');
+            }
 
-      // Attendi più a lungo prima di procedere con l'autenticazione
-      await new Promise((r) => setTimeout(r, 3000));
-
-      // 2. Autentica l'utente con retry
-      const authenticateWithRetry = async (retries = 3) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            const result = await new Promise((resolve, reject) => {
-              user.auth(credentials.username, credentials.password, (ack) => {
-                console.log('Risposta autenticazione:', ack);
-                if (ack.err) reject(new Error(ack.err));
-                else resolve(ack);
-              });
-            });
-
+            console.log('Autenticazione completata con successo');
             return result;
           } catch (error) {
             console.log(`Tentativo autenticazione ${i + 1} fallito:`, error);
+
             if (i === retries - 1) throw error;
-            await new Promise((r) => setTimeout(r, 2000));
+
+            // Pulizia completa tra i tentativi
+            await cleanupGunState();
           }
         }
       };
 
       await authenticateWithRetry();
 
-      console.log('User.is:', user.is);
+      updateStatus('generazione-account');
+      // 3. Genera l'account Ethereum con retry
+      console.log('Generazione account Ethereum...');
+      const generateEthAccount = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          console.log(`Tentativo generazione account ${i + 1}/${retries}`);
+          try {
+            const userData = await gun.gunToEthAccount(
+              user._.sea,
+              credentials.password
+            );
+            if (!userData) throw new Error('Generazione account fallita');
+            console.log('Account Ethereum generato:', {
+              ...userData,
+              privateKeys: '***',
+            });
+            return userData;
+          } catch (error) {
+            console.log(
+              `Tentativo generazione account ${i + 1} fallito:`,
+              error
+            );
+            if (i === retries - 1) throw error;
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        }
+      };
 
-      // Verifica che l'utente sia autenticato
-      let attempts = 0;
-      while (attempts < 30 && !user.is?.pub) {
-        await new Promise((r) => setTimeout(r, 100));
-        attempts++;
-      }
+      const userData = await generateEthAccount();
 
-      if (!user.is?.pub) {
-        throw new Error('Verifica autenticazione fallita');
-      }
-
-      // 3. Genera l'account Ethereum
-      const userData = gun.gunToEthAccount(user._.sea, credentials.password);
-
+      updateStatus('preparazione-dati');
       // 4. Prepara i dati utente
+      console.log('Preparazione dati utente...');
       const userDataToSave = {
         pub: user.is.pub,
         address: userData?.internalWalletAddress || user.is.pub,
@@ -329,119 +539,268 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         env_v_pair: userData?.env_v_pair || null,
         env_s_pair: userData?.env_s_pair || null,
       };
+      console.log('Dati utente preparati:', {
+        ...userDataToSave,
+        privateKeys: '***',
+      });
 
-      // 5. Salva i dati in tutti i percorsi necessari
-      await Promise.all([
-        // Salva in users
-        new Promise((resolve, reject) => {
-          gun
-            .get(DAPP_NAME)
-            .get('users')
-            .get(user.is.pub)
-            .put(userDataToSave, (ack) => {
-              console.log('Salvataggio users:', ack);
-              if (ack.err) reject(new Error(ack.err));
-              else resolve(ack);
-            });
-        }),
+      updateStatus('salvataggio', '0%');
+      // 5. Salva i dati con retry
+      console.log('Salvataggio dati...');
+      const saveDataWithRetry = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            // Funzione per verificare la connessione
+            const checkConnection = async () => {
+              return new Promise((resolve) => {
+                const timeoutId = setTimeout(() => resolve(false), 5000);
+                gun.get('healthcheck').once(() => {
+                  clearTimeout(timeoutId);
+                  resolve(true);
+                });
+              });
+            };
 
-        // Salva nel profilo utente
-        new Promise((resolve, reject) => {
-          gun
-            .user()
-            .get(DAPP_NAME)
-            .get('profiles')
-            .get(user.is.pub)
-            .put(userDataToSave, (ack) => {
-              console.log('Salvataggio profiles:', ack);
-              if (ack.err) reject(new Error(ack.err));
-              else resolve(ack);
-            });
-        }),
+            // Funzione per attendere la riconnessione
+            const waitForConnection = async (maxAttempts = 5) => {
+              for (let i = 0; i < maxAttempts; i++) {
+                console.log(`Tentativo connessione ${i + 1}/${maxAttempts}...`);
+                const isConnected = await checkConnection();
+                if (isConnected) {
+                  console.log('Connessione ripristinata');
+                  return true;
+                }
+                await new Promise((r) => setTimeout(r, 2000));
+              }
+              throw new Error('Impossibile stabilire la connessione');
+            };
 
-        // Salva nell'indice degli indirizzi
-        new Promise((resolve, reject) => {
-          const addressToUse = (
-            userData?.internalWalletAddress || user.is.pub
-          ).toLowerCase();
-          gun
-            .get(DAPP_NAME)
-            .get('addresses')
-            .get(addressToUse)
-            .put(userDataToSave, (ack) => {
-              console.log('Salvataggio addresses:', ack);
-              if (ack.err) reject(new Error(ack.err));
-              else resolve(ack);
-            });
-        }),
-      ]);
+            // Funzione di salvataggio singolo con retry e progress
+            const saveSingleData = async (
+              path,
+              data,
+              description,
+              maxRetries = 3
+            ) => {
+              for (let j = 0; j < maxRetries; j++) {
+                try {
+                  // Verifica la connessione prima del salvataggio
+                  const isConnected = await checkConnection();
+                  if (!isConnected) {
+                    console.log(
+                      'Connessione persa, tentativo di riconnessione...'
+                    );
+                    await waitForConnection();
+                  }
+
+                  updateStatus(
+                    'salvataggio',
+                    `${description} (tentativo ${j + 1}/${maxRetries})`
+                  );
+                  const result = await new Promise((resolve, reject) => {
+                    const timeoutId = setTimeout(() => {
+                      reject(new Error(`Timeout salvataggio ${description}`));
+                    }, 30000);
+
+                    path.put(data, (ack) => {
+                      clearTimeout(timeoutId);
+                      if (ack.err) {
+                        reject(new Error(ack.err));
+                      } else {
+                        resolve(ack);
+                      }
+                    });
+                  });
+
+                  // Verifica il salvataggio con retry
+                  updateStatus('salvataggio', `Verifica ${description}`);
+                  let verifyAttempts = 0;
+                  let verifyResult = null;
+
+                  while (verifyAttempts < 3 && !verifyResult) {
+                    verifyResult = await new Promise((resolve) => {
+                      const timeoutId = setTimeout(() => resolve(null), 5000);
+                      path.once((data) => {
+                        clearTimeout(timeoutId);
+                        resolve(data);
+                      });
+                    });
+
+                    if (!verifyResult) {
+                      console.log(
+                        `Tentativo verifica ${
+                          verifyAttempts + 1
+                        } fallito, riprovo...`
+                      );
+                      await new Promise((r) => setTimeout(r, 2000));
+                      verifyAttempts++;
+                    }
+                  }
+
+                  if (!verifyResult) {
+                    throw new Error(
+                      `Verifica ${description} fallita dopo ${verifyAttempts} tentativi`
+                    );
+                  }
+
+                  console.log(
+                    `Salvataggio ${description} completato e verificato`
+                  );
+                  return result;
+                } catch (error) {
+                  console.log(
+                    `Errore salvataggio ${description} (tentativo ${
+                      j + 1
+                    }/${maxRetries}):`,
+                    error
+                  );
+
+                  if (j === maxRetries - 1) throw error;
+
+                  // Attendi più a lungo tra i tentativi
+                  await new Promise((r) => setTimeout(r, 5000));
+
+                  // Riprova autenticazione se necessario
+                  if (!user.is?.pub) {
+                    updateStatus('riautenticazione');
+                    await authenticateWithRetry();
+                  }
+                }
+              }
+            };
+
+            // Salvataggio sequenziale con attese più lunghe tra le operazioni
+            updateStatus('salvataggio', 'Dati utente (33%)');
+            await saveSingleData(
+              gun.get(DAPP_NAME).get('users').get(user.is.pub),
+              userDataToSave,
+              'dati utente'
+            );
+            await new Promise((r) => setTimeout(r, 5000));
+
+            updateStatus('salvataggio', 'Profilo (66%)');
+            await saveSingleData(
+              gun.user().get(DAPP_NAME).get('profiles').get(user.is.pub),
+              userDataToSave,
+              'profilo'
+            );
+            await new Promise((r) => setTimeout(r, 5000));
+
+            updateStatus('salvataggio', 'Indirizzo (100%)');
+            const addressToUse = (
+              userData?.internalWalletAddress || user.is.pub
+            ).toLowerCase();
+            await saveSingleData(
+              gun.get(DAPP_NAME).get('addresses').get(addressToUse),
+              userDataToSave,
+              'indirizzo'
+            );
+
+            updateStatus('salvataggio-completato');
+            return true;
+          } catch (error) {
+            console.log(`Tentativo salvataggio ${i + 1} fallito:`, error);
+
+            if (i < retries - 1) {
+              updateStatus('salvataggio', `Retry ${i + 2}/${retries}`);
+              await new Promise((r) => setTimeout(r, 10000)); // Attesa più lunga tra i retry globali
+
+              // Verifica connessione prima di riprovare
+              await waitForConnection();
+
+              if (!user.is?.pub) {
+                updateStatus('riautenticazione');
+                await authenticateWithRetry();
+              }
+
+              continue;
+            }
+            throw error;
+          }
+        }
+      };
+
+      await saveDataWithRetry();
 
       // Salva nel localStorage
+      console.log('Preparazione dati wallet...');
       const walletData = {
-        internalWalletAddress: userData?.internalWalletAddress || user.is.pub,
-        internalWalletPk: userData?.internalWalletPk || null,
+        internalWalletAddress: userData?.internalWalletAddress,
+        internalWalletPk: userData?.internalWalletPk,
         externalWalletAddress: null,
-        pair: userData?.pair || user._.sea,
-        v_Pair: userData?.v_pair || null,
-        s_Pair: userData?.s_pair || null,
-        viewingPublicKey: userData?.viewingPublicKey || null,
-        spendingPublicKey: userData?.spendingPublicKey || null,
+        pair: userData?.pair,
+        v_Pair: userData?.v_pair,
+        s_Pair: userData?.s_pair,
+        viewingPublicKey: userData?.viewingPublicKey,
+        spendingPublicKey: userData?.spendingPublicKey,
         credentials: {
           username: credentials.username,
           password: credentials.password,
         },
       };
+      console.log('Dati wallet preparati:', {
+        ...walletData,
+        privateKeys: '***',
+      });
 
-      localStorage.setItem(
-        `gunWallet_${user.is.pub}`,
-        JSON.stringify(walletData)
-      );
+      // Salva la sessione con retry
+      console.log('Salvataggio sessione...');
+      const saveSessionWithRetry = async (retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          console.log(`Tentativo salvataggio sessione ${i + 1}/${retries}`);
+          try {
+            const saved = await sessionManager.saveSession(walletData);
+            if (!saved) throw new Error('Salvataggio sessione fallito');
+            console.log('Sessione salvata con successo');
+            return true;
+          } catch (error) {
+            console.log(
+              `Tentativo salvataggio sessione ${i + 1} fallito:`,
+              error
+            );
+            if (i === retries - 1) throw error;
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        }
+      };
+
+      await saveSessionWithRetry();
 
       // Crea i certificati e aggiorna metriche
+      console.log('Creazione certificati e aggiornamento metriche...');
       await Promise.all([
         createFriendRequestCertificate(),
         createNotificationCertificate(),
         updateGlobalMetrics('totalRegistrations', 1),
       ]);
+      console.log('Certificati creati e metriche aggiornate');
 
-      resolve({
-        success: true,
-        pub: user.is.pub,
-        userData: userDataToSave,
-        message: 'Utente creato con successo',
-      });
+      clearTimeout(timeoutId);
+      updateStatus('completato');
+      resolve({ success: true, pub: user.is.pub });
     } catch (error) {
-      console.error('Errore nel salvataggio dei dati:', error);
-      if (user.is) user.leave();
-      reject(error);
+      console.error('Errore registrazione:', error);
+      clearTimeout(timeoutId);
+      updateStatus('errore');
+      resolve({
+        success: false,
+        errMessage: error.message || 'Errore durante la registrazione',
+        status: registrationStatus,
+      });
     }
   });
 
-  // Gestione timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      if (user.is) user.leave();
-      reject(new Error('Timeout durante la registrazione'));
-    }, LOGIN_TIMEOUT);
-  });
-
-  Promise.race([registerPromise, timeoutPromise])
-    .then((result) => {
-      clearTimeout(timeoutId);
-      callback({
-        success: true,
-        ...result,
-      });
-    })
-    .catch((error) => {
-      clearTimeout(timeoutId);
-      if (user.is) user.leave();
-      callback({
+  // Imposta il timeout globale
+  timeoutId = setTimeout(() => {
+    console.log('Timeout globale registrazione scaduto');
+    if (resolvePromise) {
+      resolvePromise({
         success: false,
-        errMessage: error.message,
-        errCode: 'register-error',
+        errMessage: `Timeout durante la registrazione (stato: ${registrationStatus})`,
+        status: registrationStatus,
       });
-    });
+    }
+  }, REGISTRATION_TIMEOUT);
 
   return registerPromise;
 };

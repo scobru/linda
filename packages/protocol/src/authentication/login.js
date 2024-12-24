@@ -187,20 +187,27 @@ export const loginWithMetaMask = async (address) => {
 
     // 9. Salva la sessione
     const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
-    const sessionData = {
+
+    console.log('User Data Cache:', userDataCache);
+
+    const walletData = {
       userPub: userDataCache.pub,
-      walletData: {
-        address: normalizedAddress,
-        displayName,
-        pair: decryptedKeys.pair,
-        v_Pair: decryptedKeys.v_Pair,
-        s_Pair: decryptedKeys.s_Pair,
-        viewingPublicKey: userDataCache.viewingPublicKey,
-        spendingPublicKey: userDataCache.spendingPublicKey,
+      address: userDataCache.internalWalletAddress,
+      internalWalletPk: userDataCache.internalWalletPk,
+      externalWalletAddress: normalizedAddress,
+      displayName: userDataCache.internalWalletAddress,
+      pair: decryptedKeys.pair,
+      v_Pair: decryptedKeys.v_Pair,
+      s_Pair: decryptedKeys.s_Pair,
+      viewingPublicKey: userDataCache.viewingPublicKey,
+      spendingPublicKey: userDataCache.spendingPublicKey,
+      credentials: {
+        username: userDataCache.internalWalletAddress,
+        password: password,
       },
     };
 
-    sessionManager.saveSession(sessionData);
+    sessionManager.saveSession(walletData);
     console.log('Sessione salvata');
 
     return {
@@ -421,25 +428,26 @@ export const loginUser = async (credentials) => {
         };
 
         // Prepara i dati della sessione
-        const sessionData = {
+        const walletData = {
+          internalWalletAddress: userDataToUse.internalWalletAddress,
+          internalWalletPk: userDataToUse.internalWalletPk,
+          externalWalletAddress: null,
           userPub: user.is.pub,
-          walletData: {
-            address: user.is.pub,
-            displayName: credentials.username,
-            pair: user._.sea,
-            v_Pair: userDataToUse.v_Pair || null,
-            s_Pair: userDataToUse.s_Pair || null,
-            viewingPublicKey: userDataToUse.viewingPublicKey || null,
-            spendingPublicKey: userDataToUse.spendingPublicKey || null,
-            credentials: {
-              username: credentials.username,
-              password: credentials.password,
-            },
+          address: user.is.pub,
+          displayName: credentials.username,
+          pair: user._.sea,
+          v_Pair: userDataToUse.v_Pair,
+          s_Pair: userDataToUse.s_Pair,
+          viewingPublicKey: userDataToUse.viewingPublicKey,
+          spendingPublicKey: userDataToUse.spendingPublicKey,
+          credentials: {
+            username: credentials.username,
+            password: credentials.password,
           },
         };
 
         // Salva la sessione e i dati correlati
-        const sessionSaved = await sessionManager.saveSession(sessionData);
+        const sessionSaved = await sessionManager.saveSession(walletData);
         if (!sessionSaved) {
           resolve({
             success: false,
@@ -455,7 +463,7 @@ export const loginUser = async (credentials) => {
         localStorage.setItem('userAlias', credentials.username);
         localStorage.setItem('isAuthenticated', 'true');
         localStorage.setItem('lastLogin', Date.now().toString());
-        localStorage.setItem('sessionData', JSON.stringify(sessionData));
+        localStorage.setItem('sessionData', JSON.stringify(walletData));
 
         // Aggiorna o crea i dati utente in Gun
         await new Promise((resolve, reject) => {
