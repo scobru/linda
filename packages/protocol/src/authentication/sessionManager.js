@@ -106,21 +106,40 @@ export const sessionManager = {
    */
   saveSession(sessionData) {
     try {
-      if (!sessionData || !sessionData.userPub || !sessionData?.pair) {
+      if (!sessionData || !sessionData.pub) {
         throw new Error('Dati sessione non validi');
       }
 
+      // Verifica che l'utente sia autenticato
+      if (!user.is?.pub) {
+        throw new Error('Utente non autenticato');
+      }
+
+      // Verifica che il pub corrisponda
+      if (sessionData.pub !== user.is.pub) {
+        throw new Error('Mismatch tra pub della sessione e utente corrente');
+      }
+
+      // Salva tutti i dati necessari
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('sessionData', JSON.stringify(sessionData));
-      localStorage.setItem('userPub', sessionData.userPub);
-      localStorage.setItem('authType', 'metamask');
+      localStorage.setItem('userPub', sessionData.pub);
+      localStorage.setItem('username', sessionData.credentials.username);
+      localStorage.setItem('userAlias', sessionData.credentials.username);
+      localStorage.setItem('authType', sessionData.authType);
       localStorage.setItem('lastLogin', Date.now().toString());
 
-      console.log('Session Data saved:', sessionData);
+      console.log('Session Data saved:', {
+        ...sessionData,
+        env_pair: '***',
+        env_v_pair: '***',
+        env_s_pair: '***',
+        credentials: '***',
+      });
 
       // Salva le chiavi per la riautenticazione
       localStorage.setItem(
-        `gunWallet_${sessionData.userPub}`,
+        `gunWallet_${sessionData.pub}`,
         JSON.stringify(sessionData)
       );
 
@@ -128,6 +147,7 @@ export const sessionManager = {
       return true;
     } catch (error) {
       console.error('Errore nel salvataggio della sessione:', error);
+      this.clearSession();
       return false;
     }
   },
@@ -196,7 +216,7 @@ export const sessionManager = {
 
       // Verifica che il pub dell'utente corrisponda
       const parsedSessionData = JSON.parse(sessionData);
-      if (parsedSessionData.userPub !== user.is.pub) {
+      if (parsedSessionData.pub !== user.is.pub) {
         console.log('Mismatch tra pub della sessione e utente corrente');
         this.clearSession();
         return false;
@@ -207,6 +227,23 @@ export const sessionManager = {
       const userPub = localStorage.getItem('userPub');
       if (!username || !userPub || userPub !== user.is.pub) {
         console.log('Dati utente mancanti o non corrispondenti');
+        this.clearSession();
+        return false;
+      }
+
+      // Verifica che i dati nel nodo Gun corrispondano
+      const gunData = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(user.is.pub)
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      if (!gunData) {
+        console.log('Dati utente non trovati in Gun');
         this.clearSession();
         return false;
       }

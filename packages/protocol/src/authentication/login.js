@@ -191,16 +191,18 @@ export const loginWithMetaMask = async (address) => {
     console.log('User Data Cache:', userDataCache);
 
     const walletData = {
-      userPub: userDataCache.pub,
-      address: userDataCache.internalWalletAddress,
-      internalWalletPk: userDataCache.internalWalletPk,
-      externalWalletAddress: normalizedAddress,
-      displayName: userDataCache.internalWalletAddress,
-      pair: decryptedKeys.pair,
-      v_Pair: decryptedKeys.v_Pair,
-      s_Pair: decryptedKeys.s_Pair,
+      pub: userDataCache.pub,
+      epub: userDataCache.epub,
       viewingPublicKey: userDataCache.viewingPublicKey,
       spendingPublicKey: userDataCache.spendingPublicKey,
+      env_pair: userDataCache.env_pair,
+      env_v_pair: userDataCache.env_v_pair,
+      env_s_pair: userDataCache.env_s_pair,
+      internalWalletAddress: userDataCache.internalWalletAddress,
+      externalWalletAddress: normalizedAddress,
+      createdAt: userDataCache.createdAt || Date.now(),
+      authType: 'metamask',
+      lastSeen: Date.now(),
       credentials: {
         username: userDataCache.internalWalletAddress,
         password: password,
@@ -429,43 +431,26 @@ export const loginUser = async (credentials) => {
 
         // Prepara i dati della sessione
         const walletData = {
-          internalWalletAddress: userDataToUse.internalWalletAddress,
-          internalWalletPk: userDataToUse.internalWalletPk,
-          externalWalletAddress: null,
-          userPub: user.is.pub,
-          address: user.is.pub,
-          displayName: credentials.username,
-          pair: user._.sea,
-          v_Pair: userDataToUse.v_Pair,
-          s_Pair: userDataToUse.s_Pair,
+          pub: user.is.pub,
+          epub: user._.sea?.epub,
           viewingPublicKey: userDataToUse.viewingPublicKey,
           spendingPublicKey: userDataToUse.spendingPublicKey,
+          env_pair: userDataToUse.env_pair,
+          env_v_pair: userDataToUse.env_v_pair,
+          env_s_pair: userDataToUse.env_s_pair,
+          internalWalletAddress:
+            userDataToUse.internalWalletAddress || user.is.pub,
+          externalWalletAddress: null,
+          createdAt: userDataToUse.createdAt || Date.now(),
+          authType: 'credentials',
+          lastSeen: Date.now(),
           credentials: {
             username: credentials.username,
             password: credentials.password,
           },
         };
 
-        // Salva la sessione e i dati correlati
-        const sessionSaved = await sessionManager.saveSession(walletData);
-        if (!sessionSaved) {
-          resolve({
-            success: false,
-            errMessage: 'Errore nel salvataggio della sessione',
-            errCode: 'login-error',
-          });
-          return;
-        }
-
-        // Salva dati aggiuntivi nel localStorage
-        localStorage.setItem('userPub', user.is.pub);
-        localStorage.setItem('username', credentials.username);
-        localStorage.setItem('userAlias', credentials.username);
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('lastLogin', Date.now().toString());
-        localStorage.setItem('sessionData', JSON.stringify(walletData));
-
-        // Aggiorna o crea i dati utente in Gun
+        // Prima aggiorna i dati utente in Gun
         await new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
@@ -484,6 +469,29 @@ export const loginUser = async (credentials) => {
               }
             );
         });
+
+        // Poi salva la sessione
+        const sessionSaved = await sessionManager.saveSession(walletData);
+        if (!sessionSaved) {
+          resolve({
+            success: false,
+            errMessage: 'Errore nel salvataggio della sessione',
+            errCode: 'login-error',
+          });
+          return;
+        }
+
+        // Verifica che la sessione sia stata salvata correttamente
+        const isValid = await sessionManager.validateSession();
+        if (!isValid) {
+          sessionManager.clearSession();
+          resolve({
+            success: false,
+            errMessage: 'Errore nella validazione della sessione',
+            errCode: 'login-error',
+          });
+          return;
+        }
 
         // Aggiorna metriche e crea certificati
         await Promise.all([

@@ -151,13 +151,18 @@ export const registerWithMetaMask = async (address) => {
 
     // 10. Salva nel localStorage con encryption
     const walletData = {
-      internalWalletAddress: pair.pub,
-      externalWalletAddress: normalizedAddress,
-      pair,
-      v_Pair: v_pair,
-      s_Pair: s_pair,
+      pub: pair.pub,
+      epub: pair.epub,
       viewingPublicKey: v_pair.pub,
       spendingPublicKey: s_pair.pub,
+      env_pair,
+      env_v_pair,
+      env_s_pair,
+      internalWalletAddress: pair.pub,
+      externalWalletAddress: normalizedAddress,
+      createdAt: Date.now(),
+      authType: 'metamask',
+      lastSeen: Date.now(),
       credentials: {
         username: normalizedAddress,
         password: password,
@@ -777,6 +782,8 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
       // Salva nel localStorage
       console.log('Preparazione dati wallet...');
       const walletData = {
+        userPub: user.is.pub,
+        address: userData?.internalWalletAddress || user.is.pub,
         internalWalletAddress: userData?.internalWalletAddress,
         internalWalletPk: userData?.internalWalletPk,
         externalWalletAddress: null,
