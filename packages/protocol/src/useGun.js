@@ -7,10 +7,7 @@ import GunEthModule from '@scobru/gun-eth';
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = [
-  'https://gun-relay.scobrudot.dev/gun',
-  'http://localhost:8765/gun',
-];
+const DEFAULT_PEERS = ['https://gun-relay.scobrudot.dev/gun'];
 
 let isConnected = false;
 
