@@ -366,74 +366,17 @@ const MessageItem = ({
   useEffect(() => {
     const loadSenderInfo = async () => {
       try {
-        // Se è un messaggio dell'utente corrente
         if (isOwnMessage) {
           setSenderName("Tu");
           const myAvatar = await getUserAvatar(user.is.pub);
           console.log("Avatar utente corrente caricato:", myAvatar);
           setSenderAvatar(myAvatar);
-
-          // Sottoscrizione agli aggiornamenti del proprio avatar
-          const unsubMe1 = gun
-            .get(DAPP_NAME)
-            .get("userList")
-            .get("users")
-            .get(user.is.pub)
-            .get("avatar")
-            .on((data) => {
-              console.log("Aggiornamento proprio avatar da userList:", data);
-              if (data) setSenderAvatar(data);
-            });
-
-          const unsubMe2 = gun
-            .get(DAPP_NAME)
-            .get("users")
-            .get(user.is.pub)
-            .get("avatar")
-            .on((data) => {
-              console.log("Aggiornamento proprio avatar da users:", data);
-              if (data) setSenderAvatar(data);
-            });
-
-          return () => {
-            if (typeof unsubMe1 === "function") unsubMe1();
-            if (typeof unsubMe2 === "function") unsubMe2();
-          };
         } else {
-          // Per gli altri utenti, usa il codice esistente
-          console.log("Caricamento info mittente per:", message.sender);
           const username = await getUserUsername(message.sender);
           setSenderName(username);
-
           const avatar = await getUserAvatar(message.sender);
           console.log("Avatar caricato per", message.sender, ":", avatar);
           setSenderAvatar(avatar);
-
-          const unsub1 = gun
-            .get(DAPP_NAME)
-            .get("userList")
-            .get("users")
-            .get(message.sender)
-            .get("avatar")
-            .on((data) => {
-              console.log("Aggiornamento avatar ricevuto da userList:", data);
-              if (data) setSenderAvatar(data);
-            });
-
-          const unsub2 = gun
-            .get(DAPP_NAME)
-            .get("users")
-            .get(message.sender)
-            .get("avatar")
-            .on((data) => {
-              console.log("Aggiornamento avatar ricevuto da users:", data);
-              if (data) setSenderAvatar(data);
-            });
-
-          return () => {
-            if (typeof unsub1 === "function") unsub1();
-            if (typeof unsub2 === "function") unsub2();
-          };
         }
       } catch (error) {
         console.warn("Errore nel caricamento info mittente:", error);
@@ -457,7 +400,7 @@ const MessageItem = ({
         isOwnMessage ? "items-end" : "items-start"
       } space-y-1`}
     >
-      {/* Header del messaggio con mittente e timestamp */}
+      {/* Mostro sempre l'header con avatar e nome */}
       <div className="flex items-center mb-1">
         <div className="w-8 h-8 rounded-full flex-shrink-0">
           {senderAvatar ? (
