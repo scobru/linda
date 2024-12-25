@@ -308,7 +308,7 @@ export default function Profile() {
         ? JSON.parse(localStorageData)
         : null;
 
-      // Carica dati pubblici da Gun (dai percorsi corretti)
+      // Carica dati pubblici da Gun (dai percorsi corretti come nel register.js)
       const gunData = await Promise.all([
         // Dati dal nodo users
         new Promise((resolve) => {
@@ -318,26 +318,43 @@ export default function Profile() {
             .get(currentPub)
             .once((data) => resolve(data));
         }),
-        // Dati dal profilo utente (userList)
+        // Dati dal profilo utente
         new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
-            .get("userList")
             .get("users")
             .get(currentPub)
             .once((data) => resolve(data));
         }),
-        // Dati dall'indirizzo (usando l'indirizzo interno del wallet)
+        // Dati dall'indirizzo
         new Promise((resolve) => {
           if (!parsedLocalData?.internalWalletAddress) {
             resolve(null);
             return;
           }
+          // Usa il pub dell'utente per recuperare i dati dell'indirizzo
           gun
             .get(DAPP_NAME)
-            .get("addresses")
-            .get(parsedLocalData.internalWalletAddress.toLowerCase())
-            .once((data) => resolve(data));
+            .get("users")
+            .get(currentPub)
+            .once((userData) => {
+              if (!userData) {
+                resolve(null);
+                return;
+              }
+              // Usa l'indirizzo trovato nei dati utente
+              const address =
+                userData.internalWalletAddress || userData.address;
+              if (!address) {
+                resolve(null);
+                return;
+              }
+              gun
+                .get(DAPP_NAME)
+                .get("addresses")
+                .get(address.toLowerCase())
+                .once((addressData) => resolve(addressData));
+            });
         }),
       ]);
 
@@ -358,7 +375,7 @@ export default function Profile() {
         },
         gunData: {
           users: gunData[0],
-          profiles: gunData[1],
+          profiles: gunData[1], // Questo sarà lo stesso di users perché vengono salvati nello stesso posto
           addresses: gunData[2],
         },
       });
