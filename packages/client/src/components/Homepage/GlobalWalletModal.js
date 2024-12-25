@@ -135,13 +135,13 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-96 max-w-full">
+      <div className="bg-[#373B5C] rounded-lg p-6 w-96 max-w-full border border-[#4A4F76]">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium">Wallet</h3>
+          <h3 className="text-lg font-medium text-white">Wallet</h3>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-300 hover:text-white hover:bg-[#4A4F76] rounded-full p-2 transition-colors"
           >
             <svg
               className="w-6 h-6"
@@ -161,17 +161,21 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
 
         {/* Chain Selection */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-white mb-1">
             Seleziona Chain
           </label>
           <select
             value={selectedChain?.name || ""}
             onChange={(e) => handleChainChange(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 bg-[#2D325A] border border-[#4A4F76] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white"
             disabled={isLoading}
           >
             {Object.keys(availableChains).map((chainKey) => (
-              <option key={chainKey} value={chainKey}>
+              <option
+                key={chainKey}
+                value={chainKey}
+                className="bg-[#2D325A] text-white"
+              >
                 {availableChains[chainKey].name}
               </option>
             ))}
@@ -180,15 +184,15 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
 
         {/* Wallet Info */}
         {myWalletInfo ? (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">
+          <div className="mb-6 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76]">
+            <h4 className="text-sm font-medium text-white mb-2">
               Il mio wallet
             </h4>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Indirizzo:</span>
+                <span className="text-xs text-gray-300">Indirizzo:</span>
                 <div className="flex items-center">
-                  <span className="text-xs font-mono mr-2">
+                  <span className="text-xs font-mono mr-2 text-white">
                     {myWalletInfo.internalWalletAddress
                       ? `${myWalletInfo.internalWalletAddress.slice(
                           0,
@@ -205,11 +209,11 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
                         toast.success("Indirizzo copiato!");
                       }
                     }}
-                    className="p-1 hover:bg-gray-200 rounded"
+                    className="p-1 hover:bg-[#4A4F76] rounded text-gray-300 hover:text-white transition-colors"
                     disabled={!myWalletInfo.internalWalletAddress}
                   >
                     <svg
-                      className="w-4 h-4 text-gray-500"
+                      className="w-4 h-4"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -226,8 +230,8 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Balance:</span>
-                <span className="text-xs font-medium">
+                <span className="text-xs text-gray-300">Balance:</span>
+                <span className="text-xs font-medium text-white">
                   {balance
                     ? `${Number(balance).toFixed(8)} ${
                         selectedChain?.nativeCurrency?.symbol || "MATIC"
@@ -240,13 +244,13 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
                 <div className="mt-2">
                   <button
                     onClick={() => setShowPrivateKey(!showPrivateKey)}
-                    className="text-xs text-blue-500 hover:text-blue-600"
+                    className="text-xs text-blue-400 hover:text-blue-300"
                   >
                     {showPrivateKey ? "Nascondi" : "Mostra"} chiave privata
                   </button>
                   {showPrivateKey && (
                     <div className="mt-1 flex items-center justify-between">
-                      <span className="text-xs font-mono truncate max-w-[180px]">
+                      <span className="text-xs font-mono truncate max-w-[180px] text-white">
                         {myWalletInfo.internalWalletPk}
                       </span>
                       <button
@@ -256,10 +260,10 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
                           );
                           toast.success("Chiave privata copiata!");
                         }}
-                        className="p-1 hover:bg-gray-200 rounded"
+                        className="p-1 hover:bg-[#4A4F76] rounded text-gray-300 hover:text-white transition-colors"
                       >
                         <svg
-                          className="w-4 h-4 text-gray-500"
+                          className="w-4 h-4"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -279,14 +283,14 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
             </div>
           </div>
         ) : (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-center">
-            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+          <div className="mb-6 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76] flex justify-center">
+            <div className="animate-spin h-5 w-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
           </div>
         )}
 
         {/* Invio fondi */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-white mb-1">
             Indirizzo POL
           </label>
           <input
@@ -294,10 +298,10 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
             value={customAddress}
             onChange={(e) => setCustomAddress(e.target.value)}
             placeholder="0x..."
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4"
+            className="w-full px-3 py-2 bg-[#2D325A] border border-[#4A4F76] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4 text-white placeholder-gray-400"
           />
 
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-white mb-1">
             Importo (POL)
           </label>
           <input
@@ -307,7 +311,7 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
             placeholder="0.0"
             step="0.0001"
             min="0"
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 bg-[#2D325A] border border-[#4A4F76] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400"
           />
         </div>
 

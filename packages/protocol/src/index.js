@@ -210,3 +210,39 @@ export default {
   cacheManager,
   sessionManager,
 };
+
+/**
+ * Aggiorna l'avatar dell'utente
+ * @param {string} userPub - La chiave pubblica dell'utente
+ * @param {string} avatarData - L'immagine dell'avatar in formato base64
+ * @returns {Promise<boolean>} - True se l'aggiornamento è avvenuto con successo
+ */
+export const updateUserAvatar = async (userPub, avatarData) => {
+  try {
+    if (!userPub || !avatarData) {
+      console.error('userPub e avatarData sono richiesti');
+      return false;
+    }
+
+    // Salva l'avatar nel nodo dell'utente
+    await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('users')
+        .get(userPub)
+        .get('avatar')
+        .put(avatarData, (ack) => {
+          if (ack.err) {
+            console.error("Errore nel salvataggio dell'avatar:", ack.err);
+            resolve(false);
+          }
+          resolve(true);
+        });
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Errore nell'aggiornamento dell'avatar:", error);
+    return false;
+  }
+};

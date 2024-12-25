@@ -16,6 +16,7 @@ import { walletService } from "linda-protocol";
 import TransactionHistory from "../components/Homepage/TransactionHistory";
 import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
 import TransactionModal from "../components/Homepage/TransactionModal";
+import Header from "../components/Header";
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -23,8 +24,15 @@ export default function Homepage() {
   const [isShown, setIsShown] = React.useState(false);
   const [isMobileView, setIsMobileView] = React.useState(false);
   const [showMobileChat, setShowMobileChat] = React.useState(false);
-  const { setFriends, setSelected, selected, setConnectionState } =
-    React.useContext(Context);
+  const {
+    setFriends,
+    setSelected,
+    selected,
+    friends,
+    setConnectionState,
+    currentView,
+    setCurrentView,
+  } = React.useContext(Context);
   const [pendingRequests, setPendingRequests] = React.useState([]);
   const processedRequestsRef = React.useRef(new Set());
   const friendsRef = React.useRef(new Set());
@@ -39,6 +47,33 @@ export default function Homepage() {
   const [activeView, setActiveView] = React.useState("chats");
   const [isGlobalWalletModalOpen, setIsGlobalWalletModalOpen] = useState(false);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [chatsState, setChatsState] = React.useState({
+    friends: [],
+    channels: [],
+  });
+  const [viewStates, setViewStates] = React.useState({
+    chats: {
+      selected: null,
+      list: [],
+    },
+    channels: {
+      selected: null,
+      list: [],
+    },
+  });
+  const [myChannels, setMyChannels] = React.useState([]);
+
+  // Stato separato per chat e canali
+  const [chatState, setChatState] = React.useState({
+    selected: null,
+    lastChat: null,
+  });
+
+  const [channelState, setChannelState] = React.useState({
+    selected: null,
+    lastChannel: null,
+  });
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -72,85 +107,180 @@ export default function Homepage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Gestione selezione utente
+  // Modifica la gestione del cambio tab
+  const handleViewChange = (view) => {
+    console.log("Cambio vista:", {
+      da: activeView,
+      a: view,
+      selectedAttuale: selected,
+      chatState,
+      channelState,
+    });
+
+    // Se stiamo tornando alle chat
+    if (view === "chats") {
+      // Salva lo stato corrente dei canali
+      if (
+        selected &&
+        (selected.type === "channel" || selected.type === "board")
+      ) {
+        console.log("Salvo il canale corrente:", selected);
+        setChannelState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+        // Reset della selezione corrente poiché stiamo passando alle chat
+        setSelected(null);
+      }
+
+      // Forza il caricamento degli amici
+      loadFriends().then((loadedFriends) => {
+        console.log("Amici caricati:", loadedFriends);
+        // Ripristina l'ultima chat selezionata solo se era una chat privata
+        if (chatState.selected && chatState.selected.type === "friend") {
+          console.log("Ripristino l'ultima chat:", chatState.selected);
+          setSelected(chatState.selected);
+        }
+      });
+    }
+
+    // Se stiamo passando a channels
+    if (view === "channels") {
+      // Salva lo stato corrente delle chat
+      if (selected && selected.type === "friend") {
+        console.log("Salvo la chat corrente:", selected);
+        setChatState((prev) => ({
+          ...prev,
+          selected: selected,
+          list: friends, // Preserva la lista degli amici
+        }));
+        // Reset della selezione corrente poiché stiamo passando ai canali
+        setSelected(null);
+      }
+      // Ripristina l'ultimo canale selezionato
+      if (channelState.selected) {
+        console.log("Ripristino l'ultimo canale:", channelState.selected);
+        setSelected(channelState.selected);
+      }
+    }
+
+    // Aggiorna le viste
+    setActiveView(view);
+    if (setCurrentView) {
+      setCurrentView(view);
+    }
+  };
+
+  // Funzione per caricare gli amici
+  const loadFriends = async () => {
+    try {
+      console.log("Caricamento lista amici...");
+      const friendsList = [];
+      await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("friendships")
+          .map()
+          .once((friendship, id) => {
+            if (!friendship) return;
+            if (
+              friendship.user1 === user.is.pub ||
+              friendship.user2 === user.is.pub
+            ) {
+              const friendPub =
+                friendship.user1 === user.is.pub
+                  ? friendship.user2
+                  : friendship.user1;
+              friendsList.push({
+                pub: friendPub,
+                alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+                friendshipId: id,
+                added: friendship.created,
+                type: "friend",
+              });
+            }
+          });
+        setTimeout(resolve, 1000);
+      });
+
+      console.log("Lista amici caricata:", friendsList);
+      setFriends(friendsList);
+      friendsRef.current = new Set(friendsList.map((f) => f.pub));
+      return friendsList;
+    } catch (error) {
+      console.error("Errore caricamento amici:", error);
+      return [];
+    }
+  };
+
+  // Modifica la gestione della selezione
   const handleSelect = React.useCallback(
-    async (user) => {
+    async (item) => {
       try {
         setLoading(true);
-        setChatInitialized(false);
-        chatInitializedRef.current = false;
+        console.log("Selezionando:", item);
 
-        console.log("Selecting user:", user);
+        // Determina il tipo di selezione
+        const isChannel = item.type === "channel" || item.type === "board";
 
-        // Reset dello stato corrente
-        setCurrentChatData(null);
-        setSelected(null);
-
-        // Prepara i dati della chat in base al tipo
-        let chatData;
-        if (user.type === "channel" || user.type === "group") {
-          chatData = {
-            roomId: user.id,
-            type: user.type,
-            name: user.name,
-            isGroup: true,
-            members: user.members,
-            creator: user.creator,
+        // Prepara i dati
+        let finalData;
+        if (isChannel) {
+          finalData = {
+            ...item,
+            id: item.id,
+            roomId: item.id,
+            type: item.type,
+            name: item.name,
+            creator: item.creator,
+            members: item.members || [],
           };
+
+          // Aggiorna lo stato dei canali
+          setChannelState((prev) => ({
+            ...prev,
+            selected: finalData,
+          }));
         } else {
-          // Per le chat private, usa sempre createChat per ottenere/creare la chat
-          chatData = await new Promise((resolve, reject) => {
-            chat.createChat(user.pub, (response) => {
-              console.log("Create chat response:", response);
+          // Per le chat private
+          const chatData = await new Promise((resolve, reject) => {
+            chat.createChat(item.pub, (response) => {
               if (response.success && response.chat) {
                 resolve(response.chat);
               } else {
                 reject(
-                  new Error(response.errMessage || "Failed to create chat")
+                  new Error(
+                    response.errMessage || "Errore nella creazione della chat"
+                  )
                 );
               }
             });
           });
+
+          finalData = {
+            ...item,
+            roomId: chatData.roomId || chatData.id,
+            chat: chatData,
+          };
+
+          // Aggiorna lo stato delle chat
+          setChatState((prev) => ({
+            ...prev,
+            selected: finalData,
+          }));
         }
 
-        console.log("Chat data prepared:", chatData);
-
-        // Imposta l'utente/gruppo selezionato con i dati aggiornati
-        const selectedData = {
-          ...user,
-          roomId: chatData.roomId || chatData.id,
-          type: user.type || "friend",
-          chat: chatData,
-        };
-
-        console.log("Setting selected data:", selectedData);
-
-        setSelected(selectedData);
-        selectedRef.current = selectedData;
-
-        // Imposta i dati della chat
-        setCurrentChatData(chatData);
-        setChatInitialized(true);
-        chatInitializedRef.current = true;
-
-        // Salva la selezione nel localStorage
-        localStorage.setItem("selectedUser", JSON.stringify(selectedData));
-
-        // Se siamo in modalità mobile, mostra la chat
-        if (isMobileView) {
-          setShowMobileChat(true);
-        }
+        // Aggiorna la selezione globale
+        setSelected(finalData);
+        setShowMobileChat(true);
       } catch (error) {
-        console.error("Errore selezione:", error);
-        toast.error("Errore nella selezione");
-        setSelected(null);
-        selectedRef.current = null;
-        localStorage.removeItem("selectedUser");
+        console.error("Errore nella selezione:", error);
+        toast.error("Errore nella selezione della chat");
       } finally {
         setLoading(false);
       }
     },
-    [setSelected, isMobileView]
+    [setSelected]
   );
 
   // Effetto per mantenere la selezione
@@ -159,19 +289,15 @@ export default function Homepage() {
     if (savedSelection && !selectedRef.current) {
       try {
         const parsedSelection = JSON.parse(savedSelection);
-        setSelected(parsedSelection);
-        selectedRef.current = parsedSelection;
-        if (parsedSelection.chat && parsedSelection.roomId) {
-          setCurrentChatData(parsedSelection.chat);
-          setChatInitialized(true);
-          chatInitializedRef.current = true;
+        if (parsedSelection && (parsedSelection.roomId || parsedSelection.id)) {
+          handleSelect(parsedSelection);
         }
       } catch (error) {
-        console.error("Error parsing saved selection:", error);
+        console.error("Errore nel ripristino della selezione:", error);
         localStorage.removeItem("selectedUser");
       }
     }
-  }, [setSelected]);
+  }, [handleSelect]);
 
   // Effetto per gestire il cleanup
   useEffect(() => {
@@ -582,175 +708,198 @@ export default function Homepage() {
     };
   }, [user?.is]);
 
-  return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <div className="w-full border-b border-gray-100 bg-white">
-        <div className="w-full px-4">
-          <div className="flex justify-between items-center">
-            {/* Logo e profilo allineati a sinistra */}
-            <div className="flex items-center space-x-8">
-              <Profile
-                onProfileUpdate={(updatedData) => {
-                  // Aggiorna i dati dell'utente nel nodo pubblico
-                  gun
-                    .get(DAPP_NAME)
-                    .get("userList")
-                    .get("users")
-                    .set({
-                      pub: user.is.pub,
-                      nickname: updatedData.nickname,
-                      avatarSeed: updatedData.avatarSeed,
-                      timestamp: Date.now(),
-                      lastSeen: Date.now(),
-                      username: user.is.alias,
-                      authType: localStorage.getItem("walletAuth")
-                        ? "wallet"
-                        : "gun",
-                    });
-                }}
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              {/* Pulsante Wallet */}
-              <button
-                onClick={() => setIsGlobalWalletModalOpen(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title="Apri Wallet"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </button>
-              {/* Pulsante Transazioni */}
-              <button
-                onClick={() => setIsTransactionModalOpen(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title="Visualizza Transazioni"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                  />
-                </svg>
-              </button>
-              <AppStatus />
-            </div>
-          </div>
-        </div>
-      </div>
+  // Effetto per caricare le chat
+  React.useEffect(() => {
+    if (!user?.is) return;
 
-      {/* Container principale per la chat e la sidebar */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar con TransactionHistory */}
+    console.log("Caricamento chat iniziato");
+    let mounted = true;
+
+    const loadChats = async () => {
+      try {
+        // Carica la lista amici da Gun
+        const friendsList = [];
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("friendships")
+            .map()
+            .once((friendship, id) => {
+              if (!friendship) return;
+              if (
+                friendship.user1 === user.is.pub ||
+                friendship.user2 === user.is.pub
+              ) {
+                const friendPub =
+                  friendship.user1 === user.is.pub
+                    ? friendship.user2
+                    : friendship.user1;
+                friendsList.push({
+                  pub: friendPub,
+                  alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+                  friendshipId: id,
+                  added: friendship.created,
+                  type: "friend",
+                });
+              }
+            });
+          setTimeout(resolve, 1000);
+        });
+
+        if (mounted) {
+          console.log("Chat caricate:", friendsList);
+          setFriends(friendsList);
+          friendsRef.current = new Set(friendsList.map((f) => f.pub));
+        }
+      } catch (error) {
+        console.error("Errore caricamento chat:", error);
+      }
+    };
+
+    loadChats();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.is]);
+
+  // Modifica l'effetto che monitora lo stato
+  React.useEffect(() => {
+    console.log("Stato attuale:", {
+      activeView,
+      selected: selected?.pub || selected?.id,
+      selectedType: selected?.type,
+      chatState,
+      channelState,
+      friends: friends.length,
+    });
+
+    // Aggiorna lo stato appropriato in base al tipo
+    if (selected) {
+      if (selected.type === "channel" || selected.type === "board") {
+        setChannelState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+      } else {
+        setChatState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+      }
+    }
+  }, [activeView, selected, friends]);
+
+  // Modifica l'effetto per il ripristino iniziale
+  React.useEffect(() => {
+    if (activeView === "chats" && !selected) {
+      const savedChat = localStorage.getItem("lastSelectedChat");
+      if (savedChat) {
+        const parsedChat = JSON.parse(savedChat);
+        // Ripristina solo se è una chat privata o un amico
+        if (parsedChat.type === "friend" || !parsedChat.type) {
+          console.log("Ripristino chat iniziale dal localStorage:", parsedChat);
+          setSelected(parsedChat);
+          selectedRef.current = parsedChat;
+        }
+      }
+    }
+
+    // Forza l'aggiornamento della lista amici quando si torna alla tab 'chats'
+    if (activeView === "chats") {
+      console.log("Aggiornamento lista amici");
+      setFriends((prev) => [...prev]); // Forza un aggiornamento della lista
+    }
+  }, [activeView]);
+
+  return (
+    <div className="flex flex-col h-screen max-h-screen">
+      <Header
+        onProfileUpdate={(updatedData) => {
+          gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
+            .set({
+              pub: user.is.pub,
+              nickname: updatedData.nickname,
+              avatarSeed: updatedData.avatarSeed,
+              timestamp: Date.now(),
+              lastSeen: Date.now(),
+              username: user.is.alias,
+              authType: localStorage.getItem("walletAuth") ? "wallet" : "gun",
+            });
+        }}
+        onAddClick={() => setIsShown(true)}
+        onWalletClick={() => setIsGlobalWalletModalOpen(true)}
+        onTransactionClick={() => setIsTransactionModalOpen(true)}
+        onProfileClick={() => setIsEditingProfile(true)}
+        activeView={activeView}
+      />
+
+      {/* Container principale */}
+      <div className="flex flex-1 min-h-0 bg-[#373B5C]">
+        {/* Sidebar */}
         <div
-          className={`w-full md:w-[380px] flex flex-col border-r border-gray-200 bg-white ${
-            showMobileChat ? "hidden md:flex" : "flex"
-          }`}
+          className={`${
+            showMobileChat ? "hidden" : "w-full"
+          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
         >
           {/* Tab di navigazione */}
-          <div className="flex border-b">
+          <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
             <button
-              onClick={() => setActiveView("chats")}
+              onClick={() => handleViewChange("chats")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
-                  ? "text-blue-500 border-b-2 border-blue-500"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-white border-b-2 border-white"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
               Chat
             </button>
             <button
-              onClick={() => setActiveView("channels")}
+              onClick={() => handleViewChange("channels")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
-                  ? "text-blue-500 border-b-2 border-blue-500"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-white border-b-2 border-white"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
               Boards and Channels
             </button>
           </div>
 
-          {/* Barra con pulsante aggiungi */}
-          <div className="p-4 border-b border-gray-100">
-            <div className="relative flex justify-end">
-              <button
-                onClick={() => setIsShown(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title={activeView === "chats" ? "Add friend" : "Create group"}
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Lista chat, canali o transazioni in base alla vista attiva */}
-          <div className="flex-1 overflow-y-auto">
-            {activeView === "chats" ? (
+          {/* Lista chat/canali */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {activeView === "chats" && (
               <Friends
                 onSelect={handleSelect}
                 pendingRequests={pendingRequests}
                 loading={loading}
-                selectedUser={selectedRef.current}
+                selectedUser={selected}
                 setPendingRequests={setPendingRequests}
               />
-            ) : activeView === "channels" ? (
-              <Channels onSelect={handleSelect} />
-            ) : (
-              <TransactionHistory />
             )}
+            {activeView === "channels" && <Channels onSelect={handleSelect} />}
+            {activeView === "transactions" && <TransactionHistory />}
           </div>
         </div>
 
         {/* Area chat */}
         <div
           className={`${
-            showMobileChat ? "flex" : "hidden md:flex"
-          } flex-1 flex-col bg-gray-50`}
+            !showMobileChat ? "hidden" : "w-full"
+          } md:flex flex-1 flex-col min-h-0 bg-[#424874]`}
         >
-          {console.log("SELECTED", selected)}
-
           {selected ? (
             <Messages
-              key={selected.roomId || selected.id}
+              key={selected.pub || selected.roomId || selected.id}
               chatData={selected}
-              isMobileView={showMobileChat}
+              isMobileView={isMobileView}
               onBack={() => setShowMobileChat(false)}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-gray-500">
+              <p className="text-gray-300">
                 {activeView === "chats"
                   ? "Seleziona un amico per chattare"
                   : "Seleziona una bacheca o un canale"}
@@ -760,18 +909,20 @@ export default function Homepage() {
         </div>
       </div>
 
-      {/* Modal per aggiungere amici */}
+      {/* Modali */}
       {isShown && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-medium">Aggiungi amico</h3>
+          <div className="bg-[#373B5C] rounded-lg shadow-xl w-full max-w-[320px] border border-[#4A4F76]">
+            <div className="p-4 border-b border-[#4A4F76] flex justify-between items-center">
+              <h3 className="text-base font-medium text-white">
+                Aggiungi amico
+              </h3>
               <button
                 onClick={() => setIsShown(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-2 hover:bg-[#4A4F76] rounded-full transition-colors text-gray-300 hover:text-white"
               >
                 <svg
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -791,14 +942,52 @@ export default function Homepage() {
           </div>
         </div>
       )}
-      <GlobalWalletModal
-        isOpen={isGlobalWalletModalOpen}
-        onClose={() => setIsGlobalWalletModalOpen(false)}
-      />
-      <TransactionModal
-        isOpen={isTransactionModalOpen}
-        onClose={() => setIsTransactionModalOpen(false)}
-      />
+
+      {/* Altri modali */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#373B5C] rounded-lg w-full max-w-[320px] max-h-[80vh] overflow-y-auto border border-[#4A4F76]">
+            <div className="sticky top-0 bg-[#2D325A] p-4 border-b border-[#4A4F76] flex justify-between items-center">
+              <h3 className="text-base font-medium text-white">
+                Modifica Profilo
+              </h3>
+              <button
+                onClick={() => setIsEditingProfile(false)}
+                className="p-2 hover:bg-[#4A4F76] rounded-full transition-colors text-gray-300 hover:text-white"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <Profile onClose={() => setIsEditingProfile(false)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet e Transaction modals */}
+      <div className="z-50">
+        <GlobalWalletModal
+          isOpen={isGlobalWalletModalOpen}
+          onClose={() => setIsGlobalWalletModalOpen(false)}
+        />
+        <TransactionModal
+          isOpen={isTransactionModalOpen}
+          onClose={() => setIsTransactionModalOpen(false)}
+        />
+      </div>
     </div>
   );
 }
