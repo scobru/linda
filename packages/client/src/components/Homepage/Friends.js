@@ -167,8 +167,8 @@ const FriendItem = React.memo(
     return (
       <>
         <div
-          className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
-            isSelected ? "bg-blue-50" : ""
+          className={`relative flex items-center p-3 hover:bg-[#4A4F76] cursor-pointer ${
+            isSelected ? "bg-[#4A4F76]" : ""
           } ${isBlocked ? "opacity-50" : ""}`}
         >
           <div className="flex-1 flex items-center">
