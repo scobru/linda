@@ -13,6 +13,7 @@ const WebSocket = require("ws");
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
+const RADATA_PATH = path.join(process.cwd(), "radata");
 
 // Importazioni Gun necessarie
 require("gun/gun.js");
@@ -24,8 +25,6 @@ const app = express();
 const port = 8765;
 
 // Configurazione Gun per il relay
-const RADATA_PATH = path.join(process.cwd(), "radata");
-
 const GUN_CONFIG = {
   web: app,
   multicast: false,
@@ -62,9 +61,6 @@ const CONFIG = {
     cacheSize: 100,
   },
 };
-
-// Configurazione percorsi
-const RADATA_PATH = path.join(process.cwd(), "./radata");
 
 // Aggiungi questa definizione all'inizio del file, dopo le altre costanti
 const globalMetrics = {
