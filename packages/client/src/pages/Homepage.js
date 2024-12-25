@@ -847,10 +847,7 @@ export default function Homepage() {
           {/* Tab di navigazione */}
           <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
             <button
-              onClick={() => {
-                console.log("Click su tab Chat");
-                handleViewChange("chats");
-              }}
+              onClick={() => handleViewChange("chats")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
                   ? "text-white border-b-2 border-white"
@@ -860,10 +857,7 @@ export default function Homepage() {
               Chat
             </button>
             <button
-              onClick={() => {
-                console.log("Click su tab Channels");
-                handleViewChange("channels");
-              }}
+              onClick={() => handleViewChange("channels")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
                   ? "text-white border-b-2 border-white"
@@ -878,26 +872,14 @@ export default function Homepage() {
           <div className="flex-1 overflow-y-auto min-h-0">
             {activeView === "chats" && (
               <Friends
-                onSelect={(user) => {
-                  console.log("Selezionata chat:", user);
-                  handleSelect(user);
-                  setShowMobileChat(true);
-                }}
+                onSelect={handleSelect}
                 pendingRequests={pendingRequests}
                 loading={loading}
                 selectedUser={selected}
                 setPendingRequests={setPendingRequests}
               />
             )}
-            {activeView === "channels" && (
-              <Channels
-                onSelect={(channel) => {
-                  console.log("Selezionato canale:", channel);
-                  handleSelect(channel);
-                  setShowMobileChat(true);
-                }}
-              />
-            )}
+            {activeView === "channels" && <Channels onSelect={handleSelect} />}
             {activeView === "transactions" && <TransactionHistory />}
           </div>
         </div>
@@ -906,18 +888,18 @@ export default function Homepage() {
         <div
           className={`${
             !showMobileChat ? "hidden" : "w-full"
-          } md:flex flex-1 flex-col min-h-0 bg-[#F6F6F6]`}
+          } md:flex flex-1 flex-col min-h-0 bg-[#424874]`}
         >
           {selected ? (
             <Messages
               key={selected.pub || selected.roomId || selected.id}
               chatData={selected}
-              isMobileView={window.innerWidth < 768}
+              isMobileView={isMobileView}
               onBack={() => setShowMobileChat(false)}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-gray-500 text-sm">
+              <p className="text-gray-300">
                 {activeView === "chats"
                   ? "Seleziona un amico per chattare"
                   : "Seleziona una bacheca o un canale"}
@@ -930,12 +912,14 @@ export default function Homepage() {
       {/* Modali */}
       {isShown && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-[320px]">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-base font-medium">Aggiungi amico</h3>
+          <div className="bg-[#373B5C] rounded-lg shadow-xl w-full max-w-[320px] border border-[#4A4F76]">
+            <div className="p-4 border-b border-[#4A4F76] flex justify-between items-center">
+              <h3 className="text-base font-medium text-white">
+                Aggiungi amico
+              </h3>
               <button
                 onClick={() => setIsShown(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-2 hover:bg-[#4A4F76] rounded-full transition-colors text-gray-300 hover:text-white"
               >
                 <svg
                   className="w-4 h-4"
@@ -959,15 +943,17 @@ export default function Homepage() {
         </div>
       )}
 
-      {/* Altri modali con stessi aggiustamenti */}
+      {/* Altri modali */}
       {isEditingProfile && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-[320px] max-h-[80vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white p-4 border-b flex justify-between items-center">
-              <h3 className="text-base font-medium">Modifica Profilo</h3>
+          <div className="bg-[#373B5C] rounded-lg w-full max-w-[320px] max-h-[80vh] overflow-y-auto border border-[#4A4F76]">
+            <div className="sticky top-0 bg-[#2D325A] p-4 border-b border-[#4A4F76] flex justify-between items-center">
+              <h3 className="text-base font-medium text-white">
+                Modifica Profilo
+              </h3>
               <button
                 onClick={() => setIsEditingProfile(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-2 hover:bg-[#4A4F76] rounded-full transition-colors text-gray-300 hover:text-white"
               >
                 <svg
                   className="w-4 h-4"

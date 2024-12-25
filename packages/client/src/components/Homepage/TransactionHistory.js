@@ -559,20 +559,20 @@ const TransactionHistory = () => {
   };
 
   return (
-    <div className="p-6 bg-white rounded-2xl shadow-md">
+    <div className="p-6 bg-[#2D325A] rounded-2xl">
       {loading ? (
         <div className="flex items-center justify-center h-48">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
         </div>
       ) : (
         <>
-          <h3 className="text-2xl font-semibold text-gray-900 mb-6 pb-3 border-b-2 border-gray-100">
+          <h3 className="text-2xl font-semibold text-white mb-6 pb-3 border-b border-[#4A4F76]">
             Transazioni Ricevute su {currentChain.name}
           </h3>
 
           {/* Pagamenti Stealth */}
           <div className="mb-8">
-            <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
+            <h4 className="flex items-center gap-2 text-xl font-medium text-white mb-4">
               <svg
                 className="w-5 h-5"
                 fill="none"
@@ -592,20 +592,20 @@ const TransactionHistory = () => {
               stealthPayments.map((payment) => (
                 <div
                   key={payment.originalTx}
-                  className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
+                  className="bg-[#373B5C] rounded-xl p-4 mb-4 border border-[#4A4F76] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
                 >
                   <div className="flex flex-col gap-2">
-                    <span className="text-lg font-semibold text-emerald-600">
+                    <span className="text-lg font-semibold text-emerald-400">
                       {payment.balance} {payment.chain.nativeCurrency.symbol}
                     </span>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-gray-300">
                       Network: {payment.network}
                     </span>
                     <span className="text-sm text-gray-400">
                       {new Date(payment.timestamp).toLocaleString()}
                     </span>
                     {claimError && claimingPayment === payment.originalTx && (
-                      <span className="text-red-500 text-sm mt-1">
+                      <span className="text-red-400 text-sm mt-1">
                         {claimError}
                       </span>
                     )}
@@ -617,7 +617,7 @@ const TransactionHistory = () => {
                       className={`px-4 py-2 rounded-lg font-medium transition-colors
                         ${
                           claimingPayment === payment.originalTx
-                            ? "bg-gray-400 cursor-not-allowed"
+                            ? "bg-gray-600 cursor-not-allowed"
                             : "bg-blue-500 hover:bg-blue-600"
                         } text-white`}
                     >
@@ -627,7 +627,7 @@ const TransactionHistory = () => {
                     </button>
                     <button
                       onClick={() => handleDeleteTransaction(payment, true)}
-                      className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      className="p-2 rounded-lg text-red-400 hover:bg-[#4A4F76] transition-colors"
                       title="Elimina transazione"
                     >
                       <svg
@@ -648,7 +648,7 @@ const TransactionHistory = () => {
                       href={`${payment.chain.blockExplorer}/tx/${payment.originalTx}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
+                      className="flex items-center gap-1 p-2 rounded-lg text-gray-300 hover:bg-[#4A4F76] transition-colors text-sm"
                     >
                       Vedi su Explorer
                       <svg
@@ -669,7 +669,7 @@ const TransactionHistory = () => {
                 </div>
               ))
             ) : (
-              <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+              <div className="flex flex-col items-center justify-center h-48 bg-[#373B5C] rounded-xl border-2 border-dashed border-[#4A4F76]">
                 <svg
                   className="w-12 h-12 text-gray-400"
                   fill="none"
@@ -683,7 +683,7 @@ const TransactionHistory = () => {
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                   />
                 </svg>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-400">
                   Nessun pagamento stealth ricevuto
                 </p>
               </div>
@@ -692,7 +692,7 @@ const TransactionHistory = () => {
 
           {/* Transazioni normali */}
           <div>
-            <h4 className="flex items-center gap-2 text-xl font-medium text-gray-700 mb-4">
+            <h4 className="flex items-center gap-2 text-xl font-medium text-white mb-4">
               <svg
                 className="w-5 h-5"
                 fill="none"
@@ -712,13 +712,13 @@ const TransactionHistory = () => {
               transactions.map((tx) => (
                 <div
                   key={tx.txHash}
-                  className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
+                  className="bg-[#373B5C] rounded-xl p-4 mb-4 border border-[#4A4F76] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
                 >
                   <div className="flex flex-col gap-2">
-                    <span className="text-lg font-semibold text-emerald-600">
+                    <span className="text-lg font-semibold text-emerald-400">
                       {tx.amount} {tx.network}
                     </span>
-                    <span className="text-sm text-gray-600">Da: {tx.from}</span>
+                    <span className="text-sm text-gray-300">Da: {tx.from}</span>
                     <span className="text-sm text-gray-400">
                       {new Date(tx.timestamp).toLocaleString()}
                     </span>
@@ -726,7 +726,7 @@ const TransactionHistory = () => {
                   <div className="flex items-center gap-3 mt-4">
                     <button
                       onClick={() => handleDeleteTransaction(tx)}
-                      className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      className="p-2 rounded-lg text-red-400 hover:bg-[#4A4F76] transition-colors"
                       title="Elimina transazione"
                     >
                       <svg
@@ -749,7 +749,7 @@ const TransactionHistory = () => {
                       }/tx/${tx.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors text-sm"
+                      className="flex items-center gap-1 p-2 rounded-lg text-gray-300 hover:bg-[#4A4F76] transition-colors text-sm"
                     >
                       Vedi su Explorer
                       <svg
@@ -770,7 +770,7 @@ const TransactionHistory = () => {
                 </div>
               ))
             ) : (
-              <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+              <div className="flex flex-col items-center justify-center h-48 bg-[#373B5C] rounded-xl border-2 border-dashed border-[#4A4F76]">
                 <svg
                   className="w-12 h-12 text-gray-400"
                   fill="none"
@@ -784,7 +784,7 @@ const TransactionHistory = () => {
                     d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                   />
                 </svg>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-400">
                   Nessuna transazione standard ricevuta
                 </p>
               </div>
