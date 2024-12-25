@@ -21,15 +21,16 @@ export function Header() {
         left: 0,
         right: 0,
         height: "60px",
-        backgroundColor: "white",
+        backgroundColor: "#373B5C",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 20px",
         zIndex: 1000,
+        borderBottom: "1px solid #4A4F76",
       }}
     >
-      <h1 className="text-xl font-bold text-black">linda</h1>
+      <h1 className="text-xl font-bold text-white">linda</h1>
       <ConnectButton />
     </header>
   );
@@ -434,108 +435,110 @@ export default function Profile() {
       <div className="flex items-center space-x-4 mt-2">
         {isEditingProfile ? (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
+            <div className="bg-[#373B5C] rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto border border-[#4A4F76]">
+              <h3 className="text-lg font-medium mb-4 text-white">
+                Modifica Profilo
+              </h3>
 
               <div className="space-y-4">
                 {/* Username non modificabile ma visibile */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-300">
                     Username
                   </label>
                   <input
                     type="text"
                     value={userInfo.username || ""}
                     disabled
-                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 bg-gray-100 text-gray-700"
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-[#4A4F76] bg-[#2D325A] text-white"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-400">
                     Lo username non può essere modificato
                   </p>
                 </div>
 
                 {/* Nickname modificabile */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-300">
                     Nickname
                   </label>
                   <input
                     type="text"
                     value={newNickname}
                     onChange={(e) => setNewNickname(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-[#4A4F76] bg-[#2D325A] text-white focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Inserisci un nickname"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-400">
                     Il nickname può essere modificato in qualsiasi momento
                   </p>
                 </div>
 
                 {/* Sezione Informazioni Profilo */}
                 <div className="mt-6">
-                  <h4 className="text-md font-medium text-gray-700 mb-4">
+                  <h4 className="text-md font-medium text-white mb-4">
                     Informazioni Profilo
                   </h4>
 
                   {/* Dati dal localStorage */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                  <div className="mb-4 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76]">
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
                       Dati Locali (localStorage)
                     </h5>
                     {profileInfo.localStorage ? (
-                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                      <pre className="text-xs bg-[#373B5C] p-3 rounded border border-[#4A4F76] text-white overflow-x-auto">
                         {JSON.stringify(profileInfo.localStorage, null, 2)}
                       </pre>
                     ) : (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-400">
                         Nessun dato locale disponibile
                       </p>
                     )}
                   </div>
 
                   {/* Dati da Gun - Users */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                  <div className="mb-4 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76]">
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
                       Dati Pubblici (Gun - Users)
                     </h5>
                     {profileInfo.gunData?.users ? (
-                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                      <pre className="text-xs bg-[#373B5C] p-3 rounded border border-[#4A4F76] text-white overflow-x-auto">
                         {JSON.stringify(profileInfo.gunData.users, null, 2)}
                       </pre>
                     ) : (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-400">
                         Nessun dato utente disponibile
                       </p>
                     )}
                   </div>
 
                   {/* Dati da Gun - Profiles */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                  <div className="mb-4 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76]">
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
                       Dati Pubblici (Gun - Profiles)
                     </h5>
                     {profileInfo.gunData?.profiles ? (
-                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                      <pre className="text-xs bg-[#373B5C] p-3 rounded border border-[#4A4F76] text-white overflow-x-auto">
                         {JSON.stringify(profileInfo.gunData.profiles, null, 2)}
                       </pre>
                     ) : (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-400">
                         Nessun dato profilo disponibile
                       </p>
                     )}
                   </div>
 
                   {/* Dati da Gun - Addresses */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                  <div className="mb-4 p-4 bg-[#2D325A] rounded-lg border border-[#4A4F76]">
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">
                       Dati Pubblici (Gun - Addresses)
                     </h5>
                     {profileInfo.gunData?.addresses ? (
-                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                      <pre className="text-xs bg-[#373B5C] p-3 rounded border border-[#4A4F76] text-white overflow-x-auto">
                         {JSON.stringify(profileInfo.gunData.addresses, null, 2)}
                       </pre>
                     ) : (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-400">
                         Nessun dato indirizzo disponibile
                       </p>
                     )}
@@ -545,7 +548,7 @@ export default function Profile() {
                 <div className="flex justify-end space-x-2 mt-4">
                   <button
                     onClick={() => setIsEditingProfile(false)}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+                    className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-[#4A4F76] rounded-md transition-colors"
                   >
                     Annulla
                   </button>
@@ -563,7 +566,7 @@ export default function Profile() {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setIsEditingProfile(true)}
-              className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center hover:bg-blue-600 transition-colors"
+              className="w-8 h-8 rounded-full bg-[#4A4F76] flex items-center justify-center hover:bg-[#2D325A] transition-colors"
               title="Modifica profilo"
             >
               <img
@@ -574,19 +577,19 @@ export default function Profile() {
             </button>
 
             <div className="flex flex-col">
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-white">
                 {userInfo.displayName}
               </span>
               {userInfo.username && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-300">
                   @{userInfo.username}
                 </span>
               )}
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-300">
                 {truncatePubKey(userInfo.pub)}
               </span>
               {address && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-300">
                   {truncateAddress(address)}
                 </span>
               )}
@@ -594,11 +597,11 @@ export default function Profile() {
 
             <button
               onClick={copyPublicKey}
-              className="ml-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+              className="ml-2 p-1.5 hover:bg-[#4A4F76] rounded-full transition-colors"
               title="Copia chiave pubblica"
             >
               <svg
-                className="w-4 h-4 text-gray-500"
+                className="w-4 h-4 text-gray-300"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -616,11 +619,11 @@ export default function Profile() {
 
         <button
           onClick={handleLogout}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          className="p-2 hover:bg-[#4A4F76] rounded-full transition-colors"
           title="Logout"
         >
           <svg
-            className="w-5 h-5 text-gray-500"
+            className="w-5 h-5 text-gray-300"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -635,10 +638,10 @@ export default function Profile() {
         </button>
       </div>
       {walletAddress && (
-        <div className="mt-4">
-          <p className="text-sm text-gray-600">Indirizzo MetaMask:</p>
-          <p className="text-sm font-mono">{walletAddress}</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="mt-4 text-white">
+          <p className="text-sm text-gray-300">Indirizzo MetaMask:</p>
+          <p className="text-sm font-mono text-white">{walletAddress}</p>
+          <p className="text-xs text-gray-400 mt-1">
             (Utilizzato solo per autenticazione)
           </p>
         </div>

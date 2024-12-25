@@ -374,10 +374,10 @@ const MessageItem = ({
             />
           </div>
           <div className="ml-2 flex flex-col">
-            <span className="text-sm text-gray-600 font-medium break-words">
+            <span className="text-sm text-white font-medium break-words">
               {isOwnMessage ? "Tu" : senderName}
             </span>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-300">
               {new Date(message.timestamp).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -392,8 +392,8 @@ const MessageItem = ({
         <div
           className={`rounded-lg px-4 py-2 break-words ${
             isOwnMessage
-              ? "bg-blue-500 text-white rounded-br-none ml-auto"
-              : "bg-gray-200 rounded-bl-none"
+              ? "bg-[#4A4F76] text-white rounded-br-none ml-auto"
+              : "bg-[#2D325A] text-white rounded-bl-none"
           } max-w-full`}
         >
           <span className="whitespace-pre-wrap">
@@ -409,7 +409,7 @@ const MessageItem = ({
       {isCreator && selected?.type === "board" && (
         <button
           onClick={() => handleDeleteMessage(message.id)}
-          className="text-red-500 text-xs hover:text-red-700 mt-1"
+          className="text-red-400 text-xs hover:text-red-300 mt-1"
         >
           Delete
         </button>
