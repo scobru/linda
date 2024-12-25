@@ -48,50 +48,13 @@ export const registerWithMetaMask = async (address) => {
       throw new Error('Utente già registrato con questo indirizzo');
     }
 
-    // 2. Ottieni il signer con retry
-    const signer = await gun.getSigner();
-    if (!signer) {
-      throw new Error('Impossibile ottenere il signer di MetaMask');
-    }
-
-    // 3. Firma il messaggio con timeout
-    const signature = await Promise.race([
-      signer.signMessage(gun.MESSAGE_TO_SIGN),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout firma messaggio')), 30000)
-      ),
-    ]);
-
-    if (!signature) {
-      throw new Error('Firma non valida o non fornita');
-    }
-
-    // 4. Genera password dalla firma
-    const password = await gun.generatePassword(signature);
-
-    // 5. Genera le chiavi con controlli di validità
-    const [pair, v_pair, s_pair] = await Promise.all([
-      SEA.pair(),
-      SEA.pair(),
-      SEA.pair(),
-    ]);
-
-    if (!pair?.pub || !v_pair?.pub || !s_pair?.pub) {
-      throw new Error('Generazione chiavi fallita');
-    }
-
-    // 6. Cifra le chiavi
-    const [env_pair, env_v_pair, env_s_pair] = await Promise.all([
-      gun.encryptWithPassword(pair, password),
-      gun.encryptWithPassword(v_pair, password),
-      gun.encryptWithPassword(s_pair, password),
-    ]);
+    const userData = await gun.ethToGunAccount();
 
     // 7. Crea l'utente con retry
     const createUser = async (retries = 3) => {
       for (let i = 0; i < retries; i++) {
         const createAck = await new Promise((resolve) =>
-          user.create(pair, resolve)
+          user.create(userData.pair, resolve)
         );
         if (!createAck.err || createAck.err.includes('already created')) {
           return true;
@@ -104,15 +67,15 @@ export const registerWithMetaMask = async (address) => {
     await createUser();
 
     // 8. Prepara i dati utente
-    const userData = {
-      pub: pair.pub,
-      epub: pair.epub,
-      viewingPublicKey: v_pair.pub,
-      spendingPublicKey: s_pair.pub,
-      env_pair,
-      env_v_pair,
-      env_s_pair,
-      internalWalletAddress: pair.pub,
+    const userDataToSave = {
+      pub: userData.pair.pub,
+      epub: userData.pair.epub,
+      viewingPublicKey: userData.v_pair.pub,
+      spendingPublicKey: userData.s_pair.pub,
+      env_pair: userData.env_pair,
+      env_v_pair: userData.env_v_pair,
+      env_s_pair: userData.env_s_pair,
+      internalWalletAddress: userData.internalWalletAddress,
       externalWalletAddress: normalizedAddress,
       createdAt: Date.now(),
       authType: 'metamask',
@@ -127,7 +90,7 @@ export const registerWithMetaMask = async (address) => {
             .get(DAPP_NAME)
             .get('addresses')
             .get(normalizedAddress)
-            .put(userData, (ack) => {
+            .put(userDataToSave, (ack) => {
               if (ack.err) reject(new Error(ack.err));
               else resolve(ack);
             });
@@ -136,8 +99,8 @@ export const registerWithMetaMask = async (address) => {
           gun
             .get(DAPP_NAME)
             .get('users')
-            .get(pair.pub)
-            .put(userData, (ack) => {
+            .get(userData.pair.pub)
+            .put(userDataToSave, (ack) => {
               if (ack.err) reject(new Error(ack.err));
               else resolve(ack);
             });
@@ -148,7 +111,7 @@ export const registerWithMetaMask = async (address) => {
             .get(DAPP_NAME)
             .get('users')
             .get(normalizedAddress)
-            .put(userData, (ack) => {
+            .put(userDataToSave, (ack) => {
               if (ack.err) reject(new Error(ack.err));
               else resolve(ack);
             });
@@ -162,14 +125,15 @@ export const registerWithMetaMask = async (address) => {
 
     // 10. Salva nel localStorage con encryption
     const walletData = {
-      pub: pair.pub,
-      epub: pair.epub,
-      viewingPublicKey: v_pair.pub,
-      spendingPublicKey: s_pair.pub,
-      env_pair,
-      env_v_pair,
-      env_s_pair,
-      internalWalletAddress: pair.pub,
+      pub: userData.pair.pub,
+      epub: userData.pair.epub,
+      viewingPublicKey: userData.v_pair.pub,
+      spendingPublicKey: userData.s_pair.pub,
+      env_pair: userData.env_pair,
+      env_v_pair: userData.env_v_pair,
+      env_s_pair: userData.env_s_pair,
+      internalWalletAddress: userData.internalWalletAddress,
+      internalWalletPk: userData.internalWalletPk,
       externalWalletAddress: normalizedAddress,
       createdAt: Date.now(),
       authType: 'metamask',
@@ -191,7 +155,7 @@ export const registerWithMetaMask = async (address) => {
 
     return {
       success: true,
-      pub: pair.pub,
+      pub: userData.pair.pub,
       userData,
     };
   } catch (error) {
