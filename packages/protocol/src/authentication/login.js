@@ -234,7 +234,7 @@ export const loginWithMetaMask = async (address) => {
     }
 
     // Aggiorna metriche e crea certificati
-    await Promise.all([
+    Promise.all([
       updateGlobalMetrics('totalLogins', 1),
       createFriendRequestCertificate(),
       createNotificationCertificate(),
@@ -305,6 +305,7 @@ export const loginUser = async (credentials) => {
         await new Promise((r) => setTimeout(r, 1000));
       }
 
+      let userPubFound = null;
       // Verifica se l'utente esiste
       const checkUserExists = async (retries = 3) => {
         for (let i = 0; i < retries; i++) {
@@ -315,6 +316,9 @@ export const loginUser = async (credentials) => {
                   'Verifica utente (tentativo ' + (i + 1) + '):',
                   data
                 );
+
+                userPubFound = data;
+
                 resolve(!!data);
               });
               setTimeout(() => resolve(false), 2000);
@@ -375,6 +379,20 @@ export const loginUser = async (credentials) => {
 
       // Tenta l'autenticazione
       console.log('Tentativo login con credenziali:', credentials);
+
+      console.log('User Pub Found:', userPubFound[0]);
+
+      const userInNode = await gun
+        .get(DAPP_NAME)
+        .get('users')
+        .get(userPubFound[0])
+        .once((data) => {
+          console.log('User in node', data);
+          return data;
+        });
+
+      console.log('User in node', userInNode);
+
       user.auth(credentials.username, credentials.password, async (ack) => {
         clearTimeout(timeoutId);
 
@@ -526,8 +544,10 @@ export const loginUser = async (credentials) => {
           },
         };
 
+        console.log('Wallet Data', walletData);
+
         // Prima aggiorna i dati utente in Gun
-        await new Promise((resolve, reject) => {
+        new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
             .get('users')
@@ -544,10 +564,27 @@ export const loginUser = async (credentials) => {
                 else resolve(ack);
               }
             );
+
+          gun
+            .get(DAPP_NAME)
+            .get('users')
+            .get(credentials.username)
+            .put(
+              {
+                ...userDataToUse,
+                lastSeen: Date.now(),
+                username: credentials.username,
+                nickname: credentials.username,
+              },
+              (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve(ack);
+              }
+            );
         });
 
         // Poi salva la sessione
-        const sessionSaved = await sessionManager.saveSession(walletData);
+        const sessionSaved = sessionManager.saveSession(walletData);
         if (!sessionSaved) {
           resolve({
             success: false,
@@ -570,7 +607,7 @@ export const loginUser = async (credentials) => {
         }
 
         // Aggiorna metriche e crea certificati
-        await Promise.all([
+        Promise.all([
           updateGlobalMetrics('totalLogins', 1),
           createFriendRequestCertificate(),
           createNotificationCertificate(),

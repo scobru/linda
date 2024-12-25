@@ -142,6 +142,17 @@ export const registerWithMetaMask = async (address) => {
               else resolve(ack);
             });
         }),
+
+        new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('users')
+            .get(normalizedAddress)
+            .put(userData, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
+        }),
       ];
 
       await Promise.all(promises);

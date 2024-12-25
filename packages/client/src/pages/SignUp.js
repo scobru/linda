@@ -385,17 +385,6 @@ export default function Register() {
         return;
       }
 
-      // Richiedi la firma
-      const wantsToSign = window.confirm(
-        "Per completare la registrazione, è necessario firmare un messaggio con MetaMask. Vuoi procedere?"
-      );
-
-      if (!wantsToSign) {
-        toast.error("Registrazione annullata", { id: toastId });
-        setIsLoading(false);
-        return;
-      }
-
       const result = await authentication.registerWithMetaMask(
         address.toLowerCase()
       );
