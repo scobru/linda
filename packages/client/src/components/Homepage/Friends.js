@@ -9,6 +9,7 @@ import {
 import { toast } from "react-hot-toast";
 import { walletService } from "linda-protocol";
 import FriendRequest from "./FriendRequest";
+import UserInfoModal from "./UserInfoModal";
 
 const { userBlocking } = blocking;
 const { chat } = messaging;
@@ -29,132 +30,261 @@ const FriendItem = React.memo(
       username: "",
       nickname: "",
     });
+    const [showUserInfo, setShowUserInfo] = React.useState(false);
     const isBlocked = friend.isBlocked;
 
     React.useEffect(() => {
       const loadUserInfo = async () => {
-        const info = await userUtils.getUserInfo(friend.pub);
-        setUserInfo(info);
+        try {
+          // Prima cerca l'alias dell'utente
+          const userData = await new Promise((resolve) => {
+            gun.get(`~${friend.pub}`).once((data) => {
+              resolve(data);
+            });
+          });
+
+          if (userData?.alias) {
+            const username = userData.alias.split(".")[0];
+            setUserInfo({
+              displayName: `@${username}`,
+              username: username,
+              nickname: "",
+            });
+            return;
+          }
+
+          // Se non c'è un alias, cerca nel nodo nicknames
+          const nickname = await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get("userList")
+              .get("nicknames")
+              .get(friend.pub)
+              .once((nickname) => {
+                resolve(nickname);
+              });
+          });
+
+          if (nickname) {
+            setUserInfo({
+              displayName: nickname,
+              username: "",
+              nickname: nickname,
+            });
+            return;
+          }
+
+          // Se non c'è un nickname, cerca nelle info utente
+          const userInfo = await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get("userList")
+              .get("users")
+              .get(friend.pub)
+              .once((userData) => {
+                resolve(userData);
+              });
+          });
+
+          if (userInfo?.username) {
+            setUserInfo({
+              displayName: `@${userInfo.username}`,
+              username: userInfo.username,
+              nickname: userInfo.nickname || "",
+            });
+            return;
+          }
+
+          // Come ultima risorsa, usa la chiave pubblica abbreviata
+          setUserInfo({
+            displayName: `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
+            username: "",
+            nickname: "",
+          });
+        } catch (error) {
+          console.warn("Errore nel recupero info utente:", error);
+          setUserInfo({
+            displayName: `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
+            username: "",
+            nickname: "",
+          });
+        }
       };
 
       loadUserInfo();
 
-      // Sottoscrizione diretta al nodo dell'utente
-      const unsub = gun
+      // Sottoscrizione ai cambiamenti dell'alias
+      const unsubAlias = gun.get(`~${friend.pub}`).on((data) => {
+        if (data?.alias) {
+          const username = data.alias.split(".")[0];
+          setUserInfo({
+            displayName: `@${username}`,
+            username: username,
+            nickname: "",
+          });
+        }
+      });
+
+      // Sottoscrizione ai cambiamenti del nickname
+      const unsubNickname = gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("nicknames")
+        .get(friend.pub)
+        .on((nickname) => {
+          if (nickname) {
+            setUserInfo({
+              displayName: nickname,
+              username: "",
+              nickname: nickname,
+            });
+          }
+        });
+
+      // Sottoscrizione ai cambiamenti delle info utente
+      const unsubUser = gun
         .get(DAPP_NAME)
         .get("userList")
         .get("users")
         .get(friend.pub)
         .on((data) => {
-          if (data) {
+          if (data?.username) {
             setUserInfo({
-              displayName: data.nickname || data.username || friend.alias,
-              username: data.username || "",
+              displayName: `@${data.username}`,
+              username: data.username,
               nickname: data.nickname || "",
             });
           }
         });
 
       return () => {
-        if (typeof unsub === "function") unsub();
+        if (typeof unsubAlias === "function") unsubAlias();
+        if (typeof unsubNickname === "function") unsubNickname();
+        if (typeof unsubUser === "function") unsubUser();
       };
-    }, [friend.pub, friend.alias]);
+    }, [friend.pub]);
 
     return (
-      <div
-        className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
-          isSelected ? "bg-blue-50" : ""
-        } ${isBlocked ? "opacity-50" : ""}`}
-      >
+      <>
         <div
-          className="flex-1 flex items-center"
-          onClick={() => onSelect(friend)}
+          className={`relative flex items-center p-3 hover:bg-gray-50 cursor-pointer ${
+            isSelected ? "bg-blue-50" : ""
+          } ${isBlocked ? "opacity-50" : ""}`}
         >
-          <div className="flex-shrink-0">
-            <img
-              className="h-10 w-10 rounded-full"
-              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
-              alt=""
-            />
-          </div>
-          <div className="ml-3 flex-1">
-            <p className="text-sm font-medium text-gray-900">
-              {userInfo.displayName}
-            </p>
-            {userInfo.username && (
-              <p className="text-xs text-gray-500">@{userInfo.username}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Menu contestuale */}
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
-          <button
-            className="p-2 hover:bg-gray-100 rounded-full"
-            onClick={() => onMenuToggle(friend.pub)}
-          >
-            <svg
-              className="w-5 h-5 text-gray-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex-1 flex items-center">
+            <div
+              className="flex-shrink-0 cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowUserInfo(true);
+              }}
+              title="Visualizza informazioni contatto"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+              <img
+                className="h-10 w-10 rounded-full hover:opacity-80 transition-opacity"
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
+                alt=""
               />
-            </svg>
-          </button>
+            </div>
+            <div className="ml-3 flex-1" onClick={() => onSelect(friend)}>
+              <p className="text-sm font-medium text-gray-900">
+                {userInfo.displayName}
+              </p>
+              {userInfo.username && (
+                <p className="text-xs text-gray-500">@{userInfo.username}</p>
+              )}
+            </div>
+          </div>
 
-          {isActiveMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
-              <div className="py-1">
-                <button
-                  onClick={() => {
-                    onRemove(friend);
-                    onMenuToggle(null);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                >
-                  Rimuovi amico
-                </button>
-                {friend.isBlocked ? (
+          {/* Menu contestuale */}
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="p-2 hover:bg-gray-100 rounded-full"
+              onClick={() => onMenuToggle(friend.pub)}
+            >
+              <svg
+                className="w-5 h-5 text-gray-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+
+            {isActiveMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
+                {/* Overlay trasparente per gestire il click fuori */}
+                <div
+                  className="fixed inset-0"
+                  onClick={() => onMenuToggle(null)}
+                />
+                {/* Contenuto del menu con z-index più alto */}
+                <div className="relative z-50 bg-white rounded-md">
                   <button
                     onClick={() => {
-                      onUnblock(friend);
-                      onMenuToggle(null);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
-                  >
-                    Sblocca utente
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      onBlock(friend);
+                      onRemove(friend);
                       onMenuToggle(null);
                     }}
                     className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
-                    Blocca utente
+                    Rimuovi amico
                   </button>
-                )}
+                  {friend.isBlocked ? (
+                    <button
+                      onClick={() => {
+                        onUnblock(friend);
+                        onMenuToggle(null);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                    >
+                      Sblocca utente
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        onBlock(friend);
+                        onMenuToggle(null);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      Blocca utente
+                    </button>
+                  )}
+                </div>
               </div>
+            )}
+          </div>
+          {/* Indicatore di blocco con pulsante di sblocco */}
+          {friend.isBlocked && (
+            <div className="absolute top-0 right-0 m-2 flex items-center space-x-2">
+              <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
+                Bloccato
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnblock(friend);
+                }}
+                className="text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full hover:bg-blue-200"
+              >
+                Sblocca
+              </button>
             </div>
           )}
         </div>
 
-        {/* Indicatore di blocco */}
-        {isBlocked && (
-          <div className="absolute top-0 right-0 m-2">
-            <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
-              Bloccato
-            </span>
-          </div>
-        )}
-      </div>
+        <UserInfoModal
+          isOpen={showUserInfo}
+          onClose={() => setShowUserInfo(false)}
+          userPub={friend.pub}
+        />
+      </>
     );
   }
 );

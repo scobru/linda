@@ -16,6 +16,7 @@ import { walletService } from "linda-protocol";
 import TransactionHistory from "../components/Homepage/TransactionHistory";
 import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
 import TransactionModal from "../components/Homepage/TransactionModal";
+import Header from "../components/Header";
 
 const { chat } = messaging; // Destruttura il servizio chat
 
@@ -39,6 +40,7 @@ export default function Homepage() {
   const [activeView, setActiveView] = React.useState("chats");
   const [isGlobalWalletModalOpen, setIsGlobalWalletModalOpen] = useState(false);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -77,45 +79,37 @@ export default function Homepage() {
     async (user) => {
       try {
         setLoading(true);
-        setChatInitialized(false);
-        chatInitializedRef.current = false;
-
-        console.log("Selecting user:", user);
-
-        // Reset dello stato corrente
-        setCurrentChatData(null);
-        setSelected(null);
+        console.log("Selezionando utente:", user);
 
         // Prepara i dati della chat in base al tipo
         let chatData;
-        if (user.type === "channel" || user.type === "group") {
+        if (user.type === "channel" || user.type === "board") {
           chatData = {
+            id: user.id,
             roomId: user.id,
             type: user.type,
             name: user.name,
-            isGroup: true,
-            members: user.members,
             creator: user.creator,
+            members: user.members || [],
           };
         } else {
-          // Per le chat private, usa sempre createChat per ottenere/creare la chat
+          // Per le chat private
           chatData = await new Promise((resolve, reject) => {
             chat.createChat(user.pub, (response) => {
-              console.log("Create chat response:", response);
               if (response.success && response.chat) {
                 resolve(response.chat);
               } else {
                 reject(
-                  new Error(response.errMessage || "Failed to create chat")
+                  new Error(
+                    response.errMessage || "Errore nella creazione della chat"
+                  )
                 );
               }
             });
           });
         }
 
-        console.log("Chat data prepared:", chatData);
-
-        // Imposta l'utente/gruppo selezionato con i dati aggiornati
+        // Prepara i dati selezionati
         const selectedData = {
           ...user,
           roomId: chatData.roomId || chatData.id,
@@ -123,28 +117,28 @@ export default function Homepage() {
           chat: chatData,
         };
 
-        console.log("Setting selected data:", selectedData);
-
+        // Imposta i dati
         setSelected(selectedData);
         selectedRef.current = selectedData;
-
-        // Imposta i dati della chat
         setCurrentChatData(chatData);
         setChatInitialized(true);
         chatInitializedRef.current = true;
 
-        // Salva la selezione nel localStorage
+        // Salva nel localStorage
         localStorage.setItem("selectedUser", JSON.stringify(selectedData));
 
-        // Se siamo in modalità mobile, mostra la chat
+        // Gestione vista mobile
         if (isMobileView) {
           setShowMobileChat(true);
         }
       } catch (error) {
-        console.error("Errore selezione:", error);
-        toast.error("Errore nella selezione");
+        console.error("Errore nella selezione:", error);
+        toast.error("Errore nella selezione della chat");
         setSelected(null);
         selectedRef.current = null;
+        setCurrentChatData(null);
+        setChatInitialized(false);
+        chatInitializedRef.current = false;
         localStorage.removeItem("selectedUser");
       } finally {
         setLoading(false);
@@ -159,19 +153,15 @@ export default function Homepage() {
     if (savedSelection && !selectedRef.current) {
       try {
         const parsedSelection = JSON.parse(savedSelection);
-        setSelected(parsedSelection);
-        selectedRef.current = parsedSelection;
-        if (parsedSelection.chat && parsedSelection.roomId) {
-          setCurrentChatData(parsedSelection.chat);
-          setChatInitialized(true);
-          chatInitializedRef.current = true;
+        if (parsedSelection && (parsedSelection.roomId || parsedSelection.id)) {
+          handleSelect(parsedSelection);
         }
       } catch (error) {
-        console.error("Error parsing saved selection:", error);
+        console.error("Errore nel ripristino della selezione:", error);
         localStorage.removeItem("selectedUser");
       }
     }
-  }, [setSelected]);
+  }, [handleSelect]);
 
   // Effetto per gestire il cleanup
   useEffect(() => {
@@ -583,96 +573,69 @@ export default function Homepage() {
   }, [user?.is]);
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <div className="w-full border-b border-gray-100 bg-white">
-        <div className="w-full px-4">
-          <div className="flex justify-between items-center">
-            {/* Logo e profilo allineati a sinistra */}
-            <div className="flex items-center space-x-8">
-              <Profile
-                onProfileUpdate={(updatedData) => {
-                  // Aggiorna i dati dell'utente nel nodo pubblico
-                  gun
-                    .get(DAPP_NAME)
-                    .get("userList")
-                    .get("users")
-                    .set({
-                      pub: user.is.pub,
-                      nickname: updatedData.nickname,
-                      avatarSeed: updatedData.avatarSeed,
-                      timestamp: Date.now(),
-                      lastSeen: Date.now(),
-                      username: user.is.alias,
-                      authType: localStorage.getItem("walletAuth")
-                        ? "wallet"
-                        : "gun",
-                    });
-                }}
+    <div className="flex flex-col h-screen max-h-screen">
+      <Header
+        onProfileUpdate={(updatedData) => {
+          gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
+            .set({
+              pub: user.is.pub,
+              nickname: updatedData.nickname,
+              avatarSeed: updatedData.avatarSeed,
+              timestamp: Date.now(),
+              lastSeen: Date.now(),
+              username: user.is.alias,
+              authType: localStorage.getItem("walletAuth") ? "wallet" : "gun",
+            });
+        }}
+        onAddClick={() => setIsShown(true)}
+        onWalletClick={() => setIsGlobalWalletModalOpen(true)}
+        onTransactionClick={() => setIsTransactionModalOpen(true)}
+        onProfileClick={() => setIsEditingProfile(true)}
+        activeView={activeView}
+      />
+
+      {/* Container principale */}
+      <div className="flex flex-1 min-h-0 bg-gray-50">
+        {/* Sidebar */}
+        <div
+          className={`${
+            showMobileChat ? "hidden" : "w-full"
+          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-white border-r`}
+        >
+          {/* Barra di ricerca */}
+          <div className="flex-shrink-0 p-2 border-b border-gray-100">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca una chat..."
+                className="w-full pl-8 pr-3 py-2 bg-gray-100 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
               />
-            </div>
-            <div className="flex items-center space-x-2">
-              {/* Pulsante Wallet */}
-              <button
-                onClick={() => setIsGlobalWalletModalOpen(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title="Apri Wallet"
+              <svg
+                className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </button>
-              {/* Pulsante Transazioni */}
-              <button
-                onClick={() => setIsTransactionModalOpen(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title="Visualizza Transazioni"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                  />
-                </svg>
-              </button>
-              <AppStatus />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Container principale per la chat e la sidebar */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar con TransactionHistory */}
-        <div
-          className={`w-full md:w-[380px] flex flex-col border-r border-gray-200 bg-white ${
-            showMobileChat ? "hidden md:flex" : "flex"
-          }`}
-        >
           {/* Tab di navigazione */}
-          <div className="flex border-b">
+          <div className="flex flex-shrink-0 border-b border-gray-100">
             <button
               onClick={() => setActiveView("chats")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
-                  ? "text-blue-500 border-b-2 border-blue-500"
+                  ? "text-[#2B6BED] border-b-2 border-[#2B6BED]"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
@@ -682,7 +645,7 @@ export default function Homepage() {
               onClick={() => setActiveView("channels")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
-                  ? "text-blue-500 border-b-2 border-blue-500"
+                  ? "text-[#2B6BED] border-b-2 border-[#2B6BED]"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
@@ -690,43 +653,26 @@ export default function Homepage() {
             </button>
           </div>
 
-          {/* Barra con pulsante aggiungi */}
-          <div className="p-4 border-b border-gray-100">
-            <div className="relative flex justify-end">
-              <button
-                onClick={() => setIsShown(true)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title={activeView === "chats" ? "Add friend" : "Create group"}
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Lista chat, canali o transazioni in base alla vista attiva */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Lista chat */}
+          <div className="flex-1 overflow-y-auto min-h-0">
             {activeView === "chats" ? (
               <Friends
-                onSelect={handleSelect}
+                onSelect={(user) => {
+                  handleSelect(user);
+                  setShowMobileChat(true);
+                }}
                 pendingRequests={pendingRequests}
                 loading={loading}
                 selectedUser={selectedRef.current}
                 setPendingRequests={setPendingRequests}
               />
             ) : activeView === "channels" ? (
-              <Channels onSelect={handleSelect} />
+              <Channels
+                onSelect={(channel) => {
+                  handleSelect(channel);
+                  setShowMobileChat(true);
+                }}
+              />
             ) : (
               <TransactionHistory />
             )}
@@ -736,21 +682,19 @@ export default function Homepage() {
         {/* Area chat */}
         <div
           className={`${
-            showMobileChat ? "flex" : "hidden md:flex"
-          } flex-1 flex-col bg-gray-50`}
+            !showMobileChat ? "hidden" : "w-full"
+          } md:flex flex-1 flex-col min-h-0 bg-[#F6F6F6]`}
         >
-          {console.log("SELECTED", selected)}
-
           {selected ? (
             <Messages
               key={selected.roomId || selected.id}
               chatData={selected}
-              isMobileView={showMobileChat}
+              isMobileView={window.innerWidth < 768}
               onBack={() => setShowMobileChat(false)}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-gray-500">
+              <p className="text-gray-500 text-sm">
                 {activeView === "chats"
                   ? "Seleziona un amico per chattare"
                   : "Seleziona una bacheca o un canale"}
@@ -760,18 +704,18 @@ export default function Homepage() {
         </div>
       </div>
 
-      {/* Modal per aggiungere amici */}
+      {/* Modali */}
       {isShown && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-[320px]">
             <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-medium">Aggiungi amico</h3>
+              <h3 className="text-base font-medium">Aggiungi amico</h3>
               <button
                 onClick={() => setIsShown(false)}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
                 <svg
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -791,14 +735,50 @@ export default function Homepage() {
           </div>
         </div>
       )}
-      <GlobalWalletModal
-        isOpen={isGlobalWalletModalOpen}
-        onClose={() => setIsGlobalWalletModalOpen(false)}
-      />
-      <TransactionModal
-        isOpen={isTransactionModalOpen}
-        onClose={() => setIsTransactionModalOpen(false)}
-      />
+
+      {/* Altri modali con stessi aggiustamenti */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-[320px] max-h-[80vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white p-4 border-b flex justify-between items-center">
+              <h3 className="text-base font-medium">Modifica Profilo</h3>
+              <button
+                onClick={() => setIsEditingProfile(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <Profile onClose={() => setIsEditingProfile(false)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet e Transaction modals */}
+      <div className="z-50">
+        <GlobalWalletModal
+          isOpen={isGlobalWalletModalOpen}
+          onClose={() => setIsGlobalWalletModalOpen(false)}
+        />
+        <TransactionModal
+          isOpen={isTransactionModalOpen}
+          onClose={() => setIsTransactionModalOpen(false)}
+        />
+      </div>
     </div>
   );
 }

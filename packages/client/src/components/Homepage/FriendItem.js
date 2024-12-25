@@ -61,41 +61,50 @@ const FriendItem = ({
 
         {/* Menu dropdown */}
         {isActiveMenu && (
-          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-            <div className="py-1">
-              {friend.isBlocked ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onUnblock(friend);
-                    onMenuToggle(null);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  Sblocca
-                </button>
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBlock(friend);
-                    onMenuToggle(null);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  Blocca
-                </button>
-              )}
-              <button
+          <div className="absolute right-0 -mt-2 w-48 bg-white rounded-md shadow-lg z-50">
+            <div className="py-1 mt-4">
+              <div
+                className="fixed inset-0 bg-transparent"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onRemove(friend);
                   onMenuToggle(null);
                 }}
-                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-              >
-                Rimuovi amico
-              </button>
+              />
+              <div className="relative z-50">
+                {friend.isBlocked ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUnblock(friend);
+                      onMenuToggle(null);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Sblocca
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBlock(friend);
+                      onMenuToggle(null);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Blocca
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(friend);
+                    onMenuToggle(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                >
+                  Rimuovi amico
+                </button>
+              </div>
             </div>
           </div>
         )}

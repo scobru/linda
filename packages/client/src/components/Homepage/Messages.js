@@ -15,6 +15,7 @@ import { createMessagesCertificate } from "linda-protocol";
 import { walletService } from "linda-protocol";
 import { formatEther } from "ethers";
 import { ethers } from "ethers";
+import WalletModal from "./WalletModal";
 
 const { userBlocking } = blocking;
 const { channels } = messaging;
@@ -251,18 +252,59 @@ const createMessageTracking = () => ({
 
 // Add this function to get the username
 const getUserUsername = async (userPub) => {
-  return new Promise((resolve) => {
-    gun
-      .get(DAPP_NAME)
-      .get("userList")
-      .get("nicknames")
-      .get(userPub)
-      .once((nickname) => {
-        resolve(nickname);
+  try {
+    // Prima cerca nelle informazioni dell'utente
+    const userInfo = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
+        .get(userPub)
+        .once((userData) => {
+          resolve(userData);
+        });
+    });
+
+    if (userInfo?.nickname) return userInfo.nickname;
+    if (userInfo?.username) return userInfo.username;
+
+    // Se non troviamo info nell'userList, cerca nell'account Gun
+    const userData = await new Promise((resolve) => {
+      gun.get(`~${userPub}`).once((data) => {
+        resolve(data);
       });
-    // Timeout after 2 seconds, use alias as fallback
-    setTimeout(() => resolve(null), 2000);
-  });
+    });
+
+    if (userData?.alias) {
+      return userData.alias.split(".")[0];
+    }
+
+    // Se non troviamo nulla, cerca nell'elenco amici
+    const friendData = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("friendships")
+        .map()
+        .once((friendship) => {
+          if (
+            friendship &&
+            (friendship.user1 === userPub || friendship.user2 === userPub)
+          ) {
+            resolve(friendship);
+          }
+        });
+    });
+
+    if (friendData?.alias) {
+      return friendData.alias;
+    }
+
+    // Se non troviamo nulla, usa la chiave pubblica abbreviata
+    return `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+  } catch (error) {
+    console.warn("Errore nel recupero username:", error);
+    return `${userPub.slice(0, 6)}...${userPub.slice(-4)}`;
+  }
 };
 
 // Modify MessageItem component to better handle layout and truncated text
@@ -283,13 +325,30 @@ const MessageItem = ({
     selected?.type === "board" || selected?.type === "channel" || showSender;
 
   React.useEffect(() => {
-    if (shouldShowSender && !isOwnMessage) {
-      getUserUsername(message.sender).then((username) => {
-        if (username) {
-          setSenderName(username);
-        }
-      });
-    }
+    const loadSenderName = async () => {
+      if (shouldShowSender && !isOwnMessage) {
+        const username = await getUserUsername(message.sender);
+        setSenderName(username);
+
+        // Sottoscrizione agli aggiornamenti del nome
+        const unsub = gun
+          .get(DAPP_NAME)
+          .get("userList")
+          .get("users")
+          .get(message.sender)
+          .on((data) => {
+            if (data) {
+              setSenderName(data.nickname || data.username || username);
+            }
+          });
+
+        return () => {
+          if (typeof unsub === "function") unsub();
+        };
+      }
+    };
+
+    loadSenderName();
   }, [message.sender, shouldShowSender, isOwnMessage]);
 
   return (
@@ -304,8 +363,8 @@ const MessageItem = ({
         isOwnMessage ? "items-end" : "items-start"
       } mb-4 max-w-[85%] ${isOwnMessage ? "ml-auto" : "mr-auto"}`}
     >
-      {/* Message header with sender and timestamp */}
-      {shouldShowSender && (
+      {/* Header del messaggio con mittente e timestamp */}
+      {(shouldShowSender || selected?.type === "board") && (
         <div className="flex items-center mb-1">
           <div className="w-8 h-8 rounded-full flex-shrink-0">
             <img
@@ -316,7 +375,7 @@ const MessageItem = ({
           </div>
           <div className="ml-2 flex flex-col">
             <span className="text-sm text-gray-600 font-medium break-words">
-              {isOwnMessage ? "You" : senderName}
+              {isOwnMessage ? "Tu" : senderName}
             </span>
             <span className="text-xs text-gray-400">
               {new Date(message.timestamp).toLocaleTimeString([], {
@@ -389,467 +448,14 @@ const handleError = (error) => {
   setLoading(false);
 };
 
-// Modify the WalletModal component
-const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
-  const [amount, setAmount] = useState("");
-  const [customAddress, setCustomAddress] = useState("");
-  const [sendType, setSendType] = useState("contact");
-  const [isLoading, setIsLoading] = useState(false);
-  const [myWalletInfo, setMyWalletInfo] = useState(null);
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
-  const [recipientWalletInfo, setRecipientWalletInfo] = useState(null);
-  const [balance, setBalance] = useState(null);
-  const [selectedChain, setSelectedChain] = useState(null);
-  const [availableChains, setAvailableChains] = useState({});
-  const [isStealthMode, setIsStealthMode] = useState(false);
-
-  // Load available chains and wallet info
-  React.useEffect(() => {
-    const loadChainInfo = async () => {
-      try {
-        const chains = walletService.getSupportedChains();
-        setAvailableChains(chains);
-        const currentChain = walletService.getCurrentChain();
-        setSelectedChain(currentChain);
-      } catch (error) {
-        console.error("Error loading chain info:", error);
-        toast.error("Error loading chain information");
-      }
-    };
-
-    if (isOpen) {
-      loadChainInfo();
-    }
-  }, [isOpen]);
-
-  // Load wallet info when chain changes
-  React.useEffect(() => {
-    const loadWalletInfo = async () => {
-      try {
-        if (!selectedChain) return;
-
-        // Load the wallet for current chain
-        const wallet = await walletService.getCurrentWallet(user.is.pub);
-        setMyWalletInfo(wallet);
-
-        // Verify that the address is valid before loading balance
-        if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
-          try {
-            const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
-            const balance = await provider.getBalance(
-              wallet.internalWalletAddress
-            );
-            setBalance(formatEther(balance));
-          } catch (error) {
-            console.error("Error loading balance:", error);
-            setBalance("0.0");
-          }
-        } else {
-          console.log("Wallet without valid address:", wallet);
-          setBalance("0.0");
-        }
-
-        // Load recipient info if available
-        if (selectedUser?.pub) {
-          try {
-            const recipientAddress = await walletService.getUserWalletAddress(
-              selectedUser.pub
-            );
-            if (recipientAddress) {
-              setRecipientWalletInfo({
-                address: recipientAddress,
-                type: "derived",
-              });
-            }
-          } catch (error) {
-            console.error("Error loading recipient info:", error);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading wallet info:", error);
-        toast.error("Error loading wallet information");
-      }
-    };
-
-    if (isOpen && selectedChain && user.is?.pub) {
-      loadWalletInfo();
-    }
-  }, [isOpen, selectedChain, selectedUser?.pub, user.is?.pub]);
-
-  // Cleanup function in WalletModal
-  React.useEffect(() => {
-    return () => {
-      // Clean only the component's local state
-      setMyWalletInfo(null);
-      setBalance(null);
-      setSelectedChain(null);
-    };
-  }, []);
-
-  // Modify handleChainChange to update only the current wallet
-  const handleChainChange = async (chainKey) => {
-    try {
-      setIsLoading(true);
-      await walletService.setChain(chainKey);
-      const newChain = walletService.getCurrentChain();
-      setSelectedChain(newChain);
-
-      // Reload wallet info
-      const wallet = await walletService.getCurrentWallet(user.is.pub);
-      setMyWalletInfo(wallet);
-
-      // Verify that the address is valid before updating balance
-      if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
-        try {
-          const provider = new ethers.JsonRpcProvider(newChain.rpcUrl);
-          const balance = await provider.getBalance(
-            wallet.internalWalletAddress
-          );
-          setBalance(formatEther(balance));
-        } catch (error) {
-          console.error("Error loading balance:", error);
-          setBalance("0.0");
-        }
-      } else {
-        console.log("Wallet without valid address:", wallet);
-        setBalance("0.0");
-      }
-
-      toast.success(`Switched to ${newChain.name}`);
-    } catch (error) {
-      console.error("Error changing chain:", error);
-      toast.error("Error switching chain");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCopyAddress = () => {
-    if (myWalletInfo?.address) {
-      navigator.clipboard.writeText(myWalletInfo.address);
-      toast.success("Address copied to clipboard!");
-    }
-  };
-
-  const handleCopyPrivateKey = () => {
-    if (myWalletInfo?.privateKey) {
-      navigator.clipboard.writeText(myWalletInfo.privateKey);
-      toast.success("Private key copied to clipboard!");
-    }
-  };
-
-  const handleSend = async () => {
-    try {
-      setIsLoading(true);
-
-      if (!selectedChain) {
-        throw new Error("Please select a chain first");
-      }
-
-      if (sendType === "contact") {
-        await onSend(selectedUser.pub, amount, isStealthMode);
-      } else {
-        await walletService.sendTransaction(customAddress, amount);
-      }
-
-      toast.success("Transaction sent successfully!");
-      onClose();
-      setAmount("");
-      setCustomAddress("");
-      setIsStealthMode(false);
-    } catch (error) {
-      console.error("Error sending transaction:", error);
-      toast.error(error.message || "Error during transaction");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-96 max-w-full">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium">Wallet</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* Chain Selection */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Select Chain
-          </label>
-          <select
-            value={selectedChain?.name || ""}
-            onChange={(e) => handleChainChange(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            disabled={isLoading}
-          >
-            {Object.keys(availableChains).map((chainKey) => (
-              <option key={chainKey} value={chainKey}>
-                {availableChains[chainKey].name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* My wallet */}
-        {myWalletInfo ? (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">
-              Your Wallet
-            </h4>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Address:</span>
-                <div className="flex items-center">
-                  <span className="text-xs font-mono mr-2">
-                    {myWalletInfo.internalWalletAddress
-                      ? `${myWalletInfo.internalWalletAddress.slice(
-                          0,
-                          6
-                        )}...${myWalletInfo.internalWalletAddress.slice(-4)}`
-                      : "Loading..."}
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (myWalletInfo.internalWalletAddress) {
-                        navigator.clipboard.writeText(
-                          myWalletInfo.internalWalletAddress
-                        );
-                        toast.success("Address copied!");
-                      }
-                    }}
-                    className="p-1 hover:bg-gray-200 rounded"
-                    disabled={!myWalletInfo.internalWalletAddress}
-                  >
-                    <svg
-                      className="w-4 h-4 text-gray-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Balance:</span>
-                <span className="text-xs font-medium">
-                  {balance
-                    ? `${Number(balance).toFixed(8)} ${
-                        selectedChain?.nativeCurrency?.symbol || "MATIC"
-                      }`
-                    : "Loading..."}
-                </span>
-              </div>
-
-              {myWalletInfo.internalWalletPk && (
-                <div className="mt-2">
-                  <button
-                    onClick={() => setShowPrivateKey(!showPrivateKey)}
-                    className="text-xs text-blue-500 hover:text-blue-600"
-                  >
-                    {showPrivateKey ? "Hide" : "Show"} private key
-                  </button>
-                  {showPrivateKey && (
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-xs font-mono truncate max-w-[180px]">
-                        {myWalletInfo.internalWalletPk}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            myWalletInfo.internalWalletPk
-                          );
-                          toast.success("Private key copied!");
-                        }}
-                        className="p-1 hover:bg-gray-200 rounded"
-                      >
-                        <svg
-                          className="w-4 h-4 text-gray-500"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-center">
-            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-          </div>
-        )}
-
-        {/* Send section */}
-        <div className="mt-6">
-          <h4 className="text-lg font-medium mb-4">
-            Send {selectedChain?.symbol}
-          </h4>
-
-          <div className="space-y-4">
-            {/* Send type selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Send to
-              </label>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setSendType("contact")}
-                  className={`flex-1 py-2 px-4 rounded-lg ${
-                    sendType === "contact"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  Contact
-                </button>
-                <button
-                  onClick={() => setSendType("address")}
-                  className={`flex-1 py-2 px-4 rounded-lg ${
-                    sendType === "address"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  Address
-                </button>
-              </div>
-            </div>
-
-            {/* Recipient info */}
-            {sendType === "contact" ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Recipient
-                </label>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <div className="font-medium">{selectedUser?.username}</div>
-                  {recipientWalletInfo?.address && (
-                    <div className="text-sm text-gray-500 truncate">
-                      {recipientWalletInfo.address}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Recipient Address
-                </label>
-                <input
-                  type="text"
-                  value={customAddress}
-                  onChange={(e) => setCustomAddress(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter wallet address..."
-                />
-              </div>
-            )}
-
-            {/* Amount */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Amount
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg pr-16"
-                  placeholder="0.0"
-                />
-                <span className="absolute right-3 top-2 text-gray-500">
-                  {selectedChain?.symbol}
-                </span>
-              </div>
-            </div>
-
-            {/* Stealth mode toggle */}
-            {sendType === "contact" && (
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={isStealthMode}
-                  onChange={(e) => setIsStealthMode(e.target.checked)}
-                  className="mr-2"
-                />
-                <label className="text-sm text-gray-700">Stealth mode</label>
-              </div>
-            )}
-
-            {/* Send button */}
-            <button
-              onClick={handleSend}
-              disabled={
-                isLoading ||
-                !amount ||
-                (sendType === "address" && !customAddress) ||
-                (sendType === "contact" && !recipientWalletInfo?.address)
-              }
-              className={`w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
-                ${
-                  isLoading ||
-                  !amount ||
-                  (sendType === "address" && !customAddress) ||
-                  (sendType === "contact" && !recipientWalletInfo?.address)
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                }`}
-            >
-              {isLoading ? "Sending..." : "Send"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default function Messages({ chatData, isMobileView, onBack }) {
+export default function Messages({ chatData, isMobileView = false, onBack }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
   const [newMessage, setNewMessage] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const [currentIsMobileView, setCurrentIsMobileView] =
+    React.useState(isMobileView);
   const messagesEndRef = React.useRef(null);
   const messageSubscriptionRef = React.useRef(null);
   const toastIdRef = React.useRef(null);
@@ -1062,106 +668,101 @@ export default function Messages({ chatData, isMobileView, onBack }) {
 
   // Modifica l'effetto setupChat
   useEffect(() => {
-    if (!selected?.roomId && !selected?.id) return;
+    if (!selected) return;
 
-    setIsSubscribed(true);
+    // Determina se la selezione è valida
+    const isValidSelection =
+      selected.type === "friend"
+        ? selected.roomId && selected.pub
+        : selected.id;
+    if (!isValidSelection) {
+      console.log("Selezione non valida:", selected);
+      return;
+    }
+
     setLoading(true);
     setIsInitializing(true);
-    setMessages([]); // Immediate reset of messages
+    setMessages([]);
+    setError(null);
 
     const setupChat = async () => {
       try {
-        // Check block status
+        // Verifica lo stato di blocco solo per le chat private
         if (selected.type === "friend") {
           const blockStatus = await userBlocking.getBlockStatus(selected.pub);
           if (blockStatus.blocked || blockStatus.blockedBy) {
             setCanWrite(false);
-            if (blockStatus.blocked) {
-              setError("You have blocked this user");
-            } else {
-              setError("This user has blocked you");
-            }
+            setError(
+              blockStatus.blocked
+                ? "Hai bloccato questo utente"
+                : "Questo utente ti ha bloccato"
+            );
             setLoading(false);
             setIsInitializing(false);
             return;
           }
         }
 
-        // Clean previous subscriptions
-        if (messageSubscriptionRef.current) {
-          if (typeof messageSubscriptionRef.current === "function") {
-            messageSubscriptionRef.current();
-          } else if (messageSubscriptionRef.current.unsubscribe) {
-            messageSubscriptionRef.current.unsubscribe();
-          }
-          messageSubscriptionRef.current = null;
-        }
+        // Determina il percorso e l'ID
+        const chatConfig = {
+          friend: { path: "chats", id: selected.roomId },
+          channel: { path: "channels", id: selected.id },
+          board: { path: "boards", id: selected.id },
+        };
 
-        // Determine path
-        let path =
-          selected.type === "friend"
-            ? "chats"
-            : selected.type === "channel"
-            ? "channels"
-            : "boards";
-        let id = selected.type === "friend" ? selected.roomId : selected.id;
+        const { path, id } = chatConfig[selected.type];
 
-        // Load initial messages using configurable limit
+        // Carica i messaggi
         const existingMessages = await messaging.chat.messageList.loadMessages(
           path,
           id,
-          null, // Use default limit configured in messageList
+          null,
           Date.now()
         );
 
-        if (!isSubscribed) return;
-
-        // Process messages
-        let processedMessages =
-          selected.type === "friend"
-            ? await Promise.all(
-                existingMessages.map(async (msg) => {
-                  try {
-                    if (
-                      typeof msg.content !== "string" ||
-                      !msg.content.startsWith("SEA{")
-                    )
-                      return msg;
-                    return await messaging.chat.messageList.decryptMessage(
-                      msg,
-                      selected.pub
-                    );
-                  } catch (error) {
-                    console.warn("Error decrypting message:", error);
-                    return {
-                      ...msg,
-                      content: "[Decryption key not found]",
-                    };
-                  }
-                })
-              )
-            : existingMessages;
-
-        // Update messages only if we're still subscribed
-        if (isSubscribed) {
-          if (processedMessages.length > 0) {
-            setMessages(
-              processedMessages.sort((a, b) => a.timestamp - b.timestamp)
-            );
-            setOldestMessageTimestamp(
-              Math.min(...processedMessages.map((m) => m.timestamp))
-            );
-          }
-          setLoading(false);
-          setIsInitializing(false);
+        // Processa i messaggi
+        let processedMessages = [];
+        if (selected.type === "friend") {
+          processedMessages = await Promise.all(
+            existingMessages
+              .filter((msg) => msg && msg.content)
+              .map(async (msg) => {
+                try {
+                  if (!msg.content.startsWith("SEA{")) return msg;
+                  return await messaging.chat.messageList.decryptMessage(
+                    msg,
+                    selected.pub
+                  );
+                } catch (error) {
+                  console.warn("Errore decrittazione:", error);
+                  return { ...msg, content: "[Errore decrittazione]" };
+                }
+              })
+          );
+        } else {
+          processedMessages = existingMessages.filter(
+            (msg) => msg && msg.content
+          );
         }
 
-        // Subscribe to new messages
+        // Aggiorna lo stato
+        if (processedMessages.length > 0) {
+          setMessages(
+            processedMessages.sort((a, b) => a.timestamp - b.timestamp)
+          );
+          setOldestMessageTimestamp(
+            Math.min(...processedMessages.map((m) => m.timestamp))
+          );
+        }
+        setLoading(false);
+        setIsInitializing(false);
+
+        // Sottoscrizione ai nuovi messaggi
         const messageHandler = messaging.chat.messageList.subscribeToMessages(
           path,
           id,
           async (msg) => {
-            if (!isSubscribed) return;
+            if (!msg || !msg.content) return;
             try {
               let processedMsg = msg;
               if (
@@ -1180,35 +781,28 @@ export default function Messages({ chatData, isMobileView, onBack }) {
                 );
               });
             } catch (error) {
-              console.warn("Error processing new message:", error);
+              console.warn("Errore processamento messaggio:", error);
             }
           }
         );
 
-        messageSubscriptionRef.current = messageHandler;
+        return () => {
+          if (typeof messageHandler === "function") {
+            messageHandler();
+          }
+        };
       } catch (error) {
-        console.error("Error setting up chat:", error);
-        if (isSubscribed) {
-          setError("Error loading chat");
-          setLoading(false);
-          setIsInitializing(false);
-        }
+        console.error("Errore setup chat:", error);
+        setError("Errore nel caricamento della chat");
+        setLoading(false);
+        setIsInitializing(false);
       }
     };
 
-    setupChat();
-
+    const cleanup = setupChat();
     return () => {
-      setIsSubscribed(false);
-      if (messageSubscriptionRef.current) {
-        if (typeof messageSubscriptionRef.current === "function") {
-          try {
-            messageSubscriptionRef.current();
-          } catch (error) {
-            console.warn("Error during cleanup:", error);
-          }
-        }
-        messageSubscriptionRef.current = null;
+      if (cleanup && typeof cleanup === "function") {
+        cleanup();
       }
     };
   }, [selected?.roomId, selected?.id, selected?.type, selected?.pub]);
@@ -1528,7 +1122,7 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         `Transazione ${isStealthMode ? "stealth " : ""}completata con successo!`
       );
     } catch (error) {
-      console.error("Error sending tip:", error);
+      console.error("Errore invio tip:", error);
       toast.error(error.message || "Errore nell'invio");
     }
   };
@@ -1692,27 +1286,39 @@ export default function Messages({ chatData, isMobileView, onBack }) {
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
 
+  // Aggiungi un effetto per gestire il resize della finestra
+  React.useEffect(() => {
+    const handleResize = () => {
+      setCurrentIsMobileView(window.innerWidth < 768);
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize(); // Chiamata iniziale
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   if (!selected?.pub) {
     return (
-      <div className="hidden md:flex items-center justify-center h-full w-full bg-gray-50">
+      <div className="flex items-center justify-center h-full">
         <p className="text-gray-500">Seleziona un amico per chattare</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-white md:bg-gray-50">
-      {/* Header della chat con pulsante indietro per mobile */}
-      <div className="sticky top-0 flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-white">
+    <div className="flex flex-col h-full w-full max-w-full">
+      {/* Header della chat con pulsante back per mobile */}
+      <div className="flex items-center justify-between px-3 py-2 border-b bg-white">
         <div className="flex items-center">
-          {isMobileView && (
+          {currentIsMobileView && (
             <button
               onClick={onBack}
-              className="mr-2 p-1 hover:bg-gray-100 rounded-full"
-              aria-label="Torna alla lista chat"
+              className="mr-2 p-1.5 hover:bg-gray-100 rounded-full md:hidden"
+              aria-label="Torna indietro"
             >
               <svg
-                className="w-6 h-6 text-gray-500"
+                className="w-5 h-5 text-gray-500"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1726,7 +1332,7 @@ export default function Messages({ chatData, isMobileView, onBack }) {
               </svg>
             </button>
           )}
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
             {selected.type === "channel" ? (
               "📢"
             ) : selected.type === "board" ? (
@@ -1741,33 +1347,26 @@ export default function Messages({ chatData, isMobileView, onBack }) {
               />
             )}
           </div>
-          <div className="ml-2 sm:ml-3">
-            <p className="text-xs sm:text-sm font-medium text-gray-900 truncate max-w-[150px] sm:max-w-[200px]">
+          <div className="ml-2">
+            <p className="text-sm font-medium text-gray-900 truncate max-w-[150px]">
               {chatUserInfo.displayName}
             </p>
             {chatUserInfo.username && (
-              <p className="text-xs text-gray-500 truncate max-w-[150px] sm:max-w-[200px]">
+              <p className="text-xs text-gray-500 truncate max-w-[150px]">
                 @{chatUserInfo.username}
               </p>
             )}
-            <p className="text-xs text-gray-500">
-              {selected.type === "channel"
-                ? "Canale"
-                : selected.type === "board"
-                ? "Bacheca"
-                : selected.pub.slice(0, 8) + "..."}
-            </p>
           </div>
         </div>
-        <div className="flex items-center space-x-1 sm:space-x-2">
+        <div className="flex items-center space-x-2">
           {selected.type === "friend" && (
             <button
               onClick={handleDeleteAllMessages}
-              className="p-1 sm:p-2 hover:bg-red-100 rounded-full text-red-500"
+              className="p-1.5 hover:bg-red-100 rounded-full text-red-500"
               title="Elimina tutti i messaggi"
             >
               <svg
-                className="w-4 h-4 sm:w-5 sm:h-5"
+                className="w-4 h-4"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1783,11 +1382,11 @@ export default function Messages({ chatData, isMobileView, onBack }) {
           )}
           <button
             onClick={() => setIsWalletModalOpen(true)}
-            className="p-1 sm:p-2 hover:bg-gray-100 rounded-full"
+            className="p-1.5 hover:bg-gray-100 rounded-full"
             title="Apri wallet"
           >
             <svg
-              className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500"
+              className="w-4 h-4 text-gray-500"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1803,97 +1402,111 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         </div>
       </div>
 
-      {/* Area messaggi - responsive */}
+      {/* Area messaggi */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50"
+        className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
         onScroll={handleScroll}
       >
-        {/* Stato di caricamento iniziale */}
-        {(isInitializing || loading) && (
-          <div className="flex flex-col items-center justify-center h-full space-y-2">
-            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-            <p className="text-gray-500">Caricamento chat...</p>
-          </div>
-        )}
-
-        {/* Stato di errore */}
-        {!isInitializing && !loading && error && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-red-500">{error}</p>
-          </div>
-        )}
-
-        {/* Stato nessun messaggio */}
-        {!isInitializing && !loading && !error && messages.length === 0 && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-500">Nessun messaggio</p>
-          </div>
-        )}
-
-        {/* Loader per caricamento messaggi aggiuntivi */}
-        {isLoadingMore && (
-          <div className="text-center py-2">
-            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
-          </div>
-        )}
-
-        {/* Lista messaggi - mostra solo se non siamo in stato di caricamento iniziale */}
-        {!isInitializing && !loading && !error && messages.length > 0 && (
-          <>
-            {messages
-              .filter((message) => message && message.content)
-              .map((message) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  isOwnMessage={message.sender === user.is.pub}
-                  showSender={true}
-                  user={user}
-                  messageObserver={messageObserver}
-                  handleDeleteMessage={handleDeleteMessage}
-                  selected={selected}
-                />
-              ))}
-          </>
-        )}
-
-        <div ref={messagesEndRef} style={{ height: 1 }} />
-      </div>
-
-      {/* Input area - responsive */}
-      <div className="sticky bottom-0 w-full bg-white border-t">
-        {canWrite ? (
-          <div className="p-2 sm:p-4">
-            <div className="flex items-center space-x-2">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) =>
-                  e.key === "Enter" && !e.shiftKey && sendMessage()
-                }
-                placeholder="Scrivi un messaggio..."
-                className="flex-1 rounded-full px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!newMessage.trim()}
-                className={`p-1.5 sm:p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors flex-shrink-0 ${
-                  !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-              >
-                <AiOutlineSend className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
-            </div>
+        {/* Stato di errore e pulsante sblocca */}
+        {error === "blocked" ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <p className="text-red-500 text-lg mb-4">
+              Hai bloccato questo utente
+            </p>
+            <button
+              onClick={handleUnblock}
+              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium shadow-md"
+            >
+              Sblocca utente
+            </button>
           </div>
         ) : (
-          <div className="p-2 sm:p-4 text-center text-xs sm:text-sm text-gray-500">
-            Non hai i permessi per scrivere qui
-          </div>
+          <>
+            {/* Resto del contenuto dei messaggi */}
+            {(isInitializing || loading) && (
+              <div className="flex flex-col items-center justify-center h-full space-y-2">
+                <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                <p className="text-gray-500">Caricamento chat...</p>
+              </div>
+            )}
+
+            {/* Stato di errore */}
+            {!isInitializing && !loading && error && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-red-500">{error}</p>
+              </div>
+            )}
+
+            {/* Stato nessun messaggio */}
+            {!isInitializing && !loading && !error && messages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">Nessun messaggio</p>
+              </div>
+            )}
+
+            {/* Loader per caricamento messaggi aggiuntivi */}
+            {isLoadingMore && (
+              <div className="text-center py-2">
+                <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
+              </div>
+            )}
+
+            {/* Lista messaggi - mostra solo se non siamo in stato di caricamento iniziale */}
+            {!isInitializing && !loading && !error && messages.length > 0 && (
+              <>
+                {messages
+                  .filter((message) => message && message.content)
+                  .map((message) => (
+                    <MessageItem
+                      key={message.id}
+                      message={message}
+                      isOwnMessage={message.sender === user.is.pub}
+                      showSender={true}
+                      user={user}
+                      messageObserver={messageObserver}
+                      handleDeleteMessage={handleDeleteMessage}
+                      selected={selected}
+                    />
+                  ))}
+              </>
+            )}
+
+            <div ref={messagesEndRef} style={{ height: 1 }} />
+          </>
         )}
       </div>
 
+      {/* Input area */}
+      {canWrite ? (
+        <div className="border-t p-2 bg-white">
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={(e) =>
+                e.key === "Enter" && !e.shiftKey && sendMessage()
+              }
+              placeholder="Scrivi un messaggio..."
+              className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!newMessage.trim()}
+              className={`p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors flex-shrink-0 ${
+                !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              <AiOutlineSend className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t p-2 bg-white text-center text-sm text-gray-500">
+          Non hai i permessi per scrivere qui
+        </div>
+      )}
       <Toaster />
       <WalletModal
         isOpen={isWalletModalOpen}
@@ -1901,6 +1514,17 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         onSend={handleSendTip}
         selectedUser={selected}
       />
+      {error === "blocked" && (
+        <div className="flex flex-col items-center justify-center h-full">
+          <p className="text-red-500 mb-4">Hai bloccato questo utente</p>
+          <button
+            onClick={handleUnblock}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+          >
+            Sblocca utente
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import {
 } from '../security/index.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 
-const LOGIN_TIMEOUT = 10000; // 10 secondi
+const LOGIN_TIMEOUT = 5000; // Ridotto da 10 a 5 secondi
 
 export const registerWithMetaMask = async (address) => {
   let userDataCache = null;
@@ -228,7 +228,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             const exists = await new Promise((resolve) => {
               const timeoutId = setTimeout(() => {
                 resolve({ exists: false });
-              }, 5000);
+              }, 500);
 
               gun.get(`~@${credentials.username}`).once((data) => {
                 clearTimeout(timeoutId);
@@ -236,19 +236,16 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
 
                 // Se abbiamo una risposta non nulla, controlliamo se è un alias valido
                 if (data) {
-                  const keys = Object.keys(data);
-                  // Cerca una chiave che inizia con ~ (indica un alias)
-                  const aliasKey = keys.find((k) => k.startsWith('~'));
-                  if (aliasKey) {
-                    console.log('Username già esistente (alias trovato)');
-                    callback({
-                      success: false,
-                      status: 'username-esistente',
-                      errMessage: 'Username già in uso',
-                    });
-                    resolve({ exists: true, type: 'alias' });
-                    return;
-                  }
+                  console.log('Username già esistente');
+                  callback({
+                    success: false,
+                    status: 'username-esistente',
+                    errMessage: 'Username già in uso',
+                    redirect: true,
+                    username: credentials.username,
+                  });
+                  resolve({ exists: true, redirect: true });
+                  return;
                 }
 
                 // Se non abbiamo trovato un alias, verifichiamo nella collezione users
@@ -266,18 +263,18 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                         success: false,
                         status: 'username-esistente',
                         errMessage: 'Username già in uso',
+                        redirect: true,
+                        username: credentials.username,
                       });
-                      resolve({ exists: true, type: 'user' });
+                      resolve({ exists: true, redirect: true });
+                      return;
                     }
                   });
 
-                // Se dopo 3 secondi non abbiamo trovato nulla, l'username è disponibile
+                // Riduciamo il timeout per la verifica
                 setTimeout(() => {
-                  console.log(
-                    'Nessun username esistente trovato dopo la verifica completa'
-                  );
                   resolve({ exists: false });
-                }, 3000);
+                }, 500); // Ridotto ulteriormente a 500ms
               });
             });
 
@@ -377,7 +374,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             const createResult = await new Promise((resolve, reject) => {
               const createTimeoutId = setTimeout(() => {
                 reject(new Error('Timeout creazione utente'));
-              }, 30000); // Aumentato a 30 secondi
+              }, 15000); // Ridotto da 30000 a 15000ms
 
               // Verifica se l'utente esiste già
               gun.get(`~@${credentials.username}`).once((data) => {
@@ -437,7 +434,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             }
 
             // Attendi che l'utente sia effettivamente creato
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, 2000)); // Ridotto da 5000 a 2000ms
 
             return createResult;
           } catch (error) {
@@ -499,8 +496,9 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             // Verifica che l'utente sia autenticato
             console.log('Verifica autenticazione in corso...');
             let attempts = 0;
-            while (attempts < 50 && !user.is?.pub) {
-              await new Promise((r) => setTimeout(r, 200));
+            while (attempts < 25 && !user.is?.pub) {
+              // Ridotto da 50 a 25 tentativi
+              await new Promise((r) => setTimeout(r, 100)); // Ridotto da 200 a 100ms
               attempts++;
             }
 
@@ -632,7 +630,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                   const result = await new Promise((resolve, reject) => {
                     const timeoutId = setTimeout(() => {
                       reject(new Error(`Timeout salvataggio ${description}`));
-                    }, 30000);
+                    }, 15000); // Ridotto da 30000 a 15000ms
 
                     path.put(data, (ack) => {
                       clearTimeout(timeoutId);
@@ -690,7 +688,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
                   if (j === maxRetries - 1) throw error;
 
                   // Attendi più a lungo tra i tentativi
-                  await new Promise((r) => setTimeout(r, 5000));
+                  await new Promise((r) => setTimeout(r, 2000));
 
                   // Riprova autenticazione se necessario
                   if (!user.is?.pub) {
@@ -708,7 +706,13 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
               userDataToSave,
               'dati utente'
             );
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, 2000));
+
+            await saveSingleData(
+              gun.get(DAPP_NAME).get('addresses').get(userDataToSave.address),
+              userDataToSave,
+              'address utente'
+            );
 
             updateStatus('salvataggio', 'Profilo (66%)');
             await saveSingleData(
@@ -716,7 +720,7 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
               userDataToSave,
               'profilo'
             );
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, 2000));
 
             updateStatus('salvataggio', 'Indirizzo (100%)');
             const addressToUse = (

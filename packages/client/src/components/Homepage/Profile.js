@@ -332,28 +332,25 @@ export default function Profile() {
             resolve(null);
             return;
           }
-          // Usa il pub dell'utente per recuperare i dati dell'indirizzo
+          // Prima prova con l'indirizzo interno
           gun
             .get(DAPP_NAME)
-            .get("users")
-            .get(currentPub)
-            .once((userData) => {
-              if (!userData) {
-                resolve(null);
-                return;
+            .get("addresses")
+            .get(parsedLocalData.internalWalletAddress.toLowerCase())
+            .once((data) => {
+              if (data) {
+                resolve(data);
+              } else {
+                // Se non trova nulla, prova con l'indirizzo esterno
+                gun
+                  .get(DAPP_NAME)
+                  .get("addresses")
+                  .get(
+                    parsedLocalData.externalWalletAddress?.toLowerCase() ||
+                      parsedLocalData.internalWalletAddress.toLowerCase()
+                  )
+                  .once((addressData) => resolve(addressData));
               }
-              // Usa l'indirizzo trovato nei dati utente
-              const address =
-                userData.internalWalletAddress || userData.address;
-              if (!address) {
-                resolve(null);
-                return;
-              }
-              gun
-                .get(DAPP_NAME)
-                .get("addresses")
-                .get(address.toLowerCase())
-                .once((addressData) => resolve(addressData));
             });
         }),
       ]);

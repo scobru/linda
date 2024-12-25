@@ -144,7 +144,26 @@ export default function Register() {
                 response.errMessage?.includes("già in uso") ||
                 response.error?.message?.includes("già in uso")
               ) {
-                return handleUsernameExists();
+                setIsLoading(false);
+                toast.dismiss(toastId);
+
+                // Mostra il toast di reindirizzamento
+                toast.success(
+                  <div className="flex flex-col gap-2">
+                    <div className="font-medium">Username già registrato</div>
+                    <div className="text-sm text-gray-500">
+                      Reindirizzamento al login...
+                    </div>
+                  </div>,
+                  { duration: 1500 }
+                );
+
+                // Reindirizza immediatamente al login con l'username pre-compilato
+                navigate("/signin", {
+                  replace: true,
+                  state: { username: response.username || username.trim() },
+                });
+                return;
               }
 
               // Procedi con la registrazione
