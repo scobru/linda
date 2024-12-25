@@ -24,8 +24,15 @@ export default function Homepage() {
   const [isShown, setIsShown] = React.useState(false);
   const [isMobileView, setIsMobileView] = React.useState(false);
   const [showMobileChat, setShowMobileChat] = React.useState(false);
-  const { setFriends, setSelected, selected, setConnectionState } =
-    React.useContext(Context);
+  const {
+    setFriends,
+    setSelected,
+    selected,
+    friends,
+    setConnectionState,
+    currentView,
+    setCurrentView,
+  } = React.useContext(Context);
   const [pendingRequests, setPendingRequests] = React.useState([]);
   const processedRequestsRef = React.useRef(new Set());
   const friendsRef = React.useRef(new Set());
@@ -41,6 +48,32 @@ export default function Homepage() {
   const [isGlobalWalletModalOpen, setIsGlobalWalletModalOpen] = useState(false);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [chatsState, setChatsState] = React.useState({
+    friends: [],
+    channels: [],
+  });
+  const [viewStates, setViewStates] = React.useState({
+    chats: {
+      selected: null,
+      list: [],
+    },
+    channels: {
+      selected: null,
+      list: [],
+    },
+  });
+  const [myChannels, setMyChannels] = React.useState([]);
+
+  // Stato separato per chat e canali
+  const [chatState, setChatState] = React.useState({
+    selected: null,
+    lastChat: null,
+  });
+
+  const [channelState, setChannelState] = React.useState({
+    selected: null,
+    lastChannel: null,
+  });
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -74,28 +107,144 @@ export default function Homepage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Gestione selezione utente
+  // Modifica la gestione del cambio tab
+  const handleViewChange = (view) => {
+    console.log("Cambio vista:", {
+      da: activeView,
+      a: view,
+      selectedAttuale: selected,
+      chatState,
+      channelState,
+    });
+
+    // Se stiamo tornando alle chat
+    if (view === "chats") {
+      // Salva lo stato corrente dei canali
+      if (
+        selected &&
+        (selected.type === "channel" || selected.type === "board")
+      ) {
+        console.log("Salvo il canale corrente:", selected);
+        setChannelState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+        // Reset della selezione corrente poiché stiamo passando alle chat
+        setSelected(null);
+      }
+
+      // Forza il caricamento degli amici
+      loadFriends().then((loadedFriends) => {
+        console.log("Amici caricati:", loadedFriends);
+        // Ripristina l'ultima chat selezionata solo se era una chat privata
+        if (chatState.selected && chatState.selected.type === "friend") {
+          console.log("Ripristino l'ultima chat:", chatState.selected);
+          setSelected(chatState.selected);
+        }
+      });
+    }
+
+    // Se stiamo passando a channels
+    if (view === "channels") {
+      // Salva lo stato corrente delle chat
+      if (selected && selected.type === "friend") {
+        console.log("Salvo la chat corrente:", selected);
+        setChatState((prev) => ({
+          ...prev,
+          selected: selected,
+          list: friends, // Preserva la lista degli amici
+        }));
+        // Reset della selezione corrente poiché stiamo passando ai canali
+        setSelected(null);
+      }
+      // Ripristina l'ultimo canale selezionato
+      if (channelState.selected) {
+        console.log("Ripristino l'ultimo canale:", channelState.selected);
+        setSelected(channelState.selected);
+      }
+    }
+
+    // Aggiorna le viste
+    setActiveView(view);
+    if (setCurrentView) {
+      setCurrentView(view);
+    }
+  };
+
+  // Funzione per caricare gli amici
+  const loadFriends = async () => {
+    try {
+      console.log("Caricamento lista amici...");
+      const friendsList = [];
+      await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("friendships")
+          .map()
+          .once((friendship, id) => {
+            if (!friendship) return;
+            if (
+              friendship.user1 === user.is.pub ||
+              friendship.user2 === user.is.pub
+            ) {
+              const friendPub =
+                friendship.user1 === user.is.pub
+                  ? friendship.user2
+                  : friendship.user1;
+              friendsList.push({
+                pub: friendPub,
+                alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+                friendshipId: id,
+                added: friendship.created,
+                type: "friend",
+              });
+            }
+          });
+        setTimeout(resolve, 1000);
+      });
+
+      console.log("Lista amici caricata:", friendsList);
+      setFriends(friendsList);
+      friendsRef.current = new Set(friendsList.map((f) => f.pub));
+      return friendsList;
+    } catch (error) {
+      console.error("Errore caricamento amici:", error);
+      return [];
+    }
+  };
+
+  // Modifica la gestione della selezione
   const handleSelect = React.useCallback(
-    async (user) => {
+    async (item) => {
       try {
         setLoading(true);
-        console.log("Selezionando utente:", user);
+        console.log("Selezionando:", item);
 
-        // Prepara i dati della chat in base al tipo
-        let chatData;
-        if (user.type === "channel" || user.type === "board") {
-          chatData = {
-            id: user.id,
-            roomId: user.id,
-            type: user.type,
-            name: user.name,
-            creator: user.creator,
-            members: user.members || [],
+        // Determina il tipo di selezione
+        const isChannel = item.type === "channel" || item.type === "board";
+
+        // Prepara i dati
+        let finalData;
+        if (isChannel) {
+          finalData = {
+            ...item,
+            id: item.id,
+            roomId: item.id,
+            type: item.type,
+            name: item.name,
+            creator: item.creator,
+            members: item.members || [],
           };
+
+          // Aggiorna lo stato dei canali
+          setChannelState((prev) => ({
+            ...prev,
+            selected: finalData,
+          }));
         } else {
           // Per le chat private
-          chatData = await new Promise((resolve, reject) => {
-            chat.createChat(user.pub, (response) => {
+          const chatData = await new Promise((resolve, reject) => {
+            chat.createChat(item.pub, (response) => {
               if (response.success && response.chat) {
                 resolve(response.chat);
               } else {
@@ -107,44 +256,31 @@ export default function Homepage() {
               }
             });
           });
+
+          finalData = {
+            ...item,
+            roomId: chatData.roomId || chatData.id,
+            chat: chatData,
+          };
+
+          // Aggiorna lo stato delle chat
+          setChatState((prev) => ({
+            ...prev,
+            selected: finalData,
+          }));
         }
 
-        // Prepara i dati selezionati
-        const selectedData = {
-          ...user,
-          roomId: chatData.roomId || chatData.id,
-          type: user.type || "friend",
-          chat: chatData,
-        };
-
-        // Imposta i dati
-        setSelected(selectedData);
-        selectedRef.current = selectedData;
-        setCurrentChatData(chatData);
-        setChatInitialized(true);
-        chatInitializedRef.current = true;
-
-        // Salva nel localStorage
-        localStorage.setItem("selectedUser", JSON.stringify(selectedData));
-
-        // Gestione vista mobile
-        if (isMobileView) {
-          setShowMobileChat(true);
-        }
+        // Aggiorna la selezione globale
+        setSelected(finalData);
+        setShowMobileChat(true);
       } catch (error) {
         console.error("Errore nella selezione:", error);
         toast.error("Errore nella selezione della chat");
-        setSelected(null);
-        selectedRef.current = null;
-        setCurrentChatData(null);
-        setChatInitialized(false);
-        chatInitializedRef.current = false;
-        localStorage.removeItem("selectedUser");
       } finally {
         setLoading(false);
       }
     },
-    [setSelected, isMobileView]
+    [setSelected]
   );
 
   // Effetto per mantenere la selezione
@@ -572,6 +708,109 @@ export default function Homepage() {
     };
   }, [user?.is]);
 
+  // Effetto per caricare le chat
+  React.useEffect(() => {
+    if (!user?.is) return;
+
+    console.log("Caricamento chat iniziato");
+    let mounted = true;
+
+    const loadChats = async () => {
+      try {
+        // Carica la lista amici da Gun
+        const friendsList = [];
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("friendships")
+            .map()
+            .once((friendship, id) => {
+              if (!friendship) return;
+              if (
+                friendship.user1 === user.is.pub ||
+                friendship.user2 === user.is.pub
+              ) {
+                const friendPub =
+                  friendship.user1 === user.is.pub
+                    ? friendship.user2
+                    : friendship.user1;
+                friendsList.push({
+                  pub: friendPub,
+                  alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+                  friendshipId: id,
+                  added: friendship.created,
+                  type: "friend",
+                });
+              }
+            });
+          setTimeout(resolve, 1000);
+        });
+
+        if (mounted) {
+          console.log("Chat caricate:", friendsList);
+          setFriends(friendsList);
+          friendsRef.current = new Set(friendsList.map((f) => f.pub));
+        }
+      } catch (error) {
+        console.error("Errore caricamento chat:", error);
+      }
+    };
+
+    loadChats();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.is]);
+
+  // Modifica l'effetto che monitora lo stato
+  React.useEffect(() => {
+    console.log("Stato attuale:", {
+      activeView,
+      selected: selected?.pub || selected?.id,
+      selectedType: selected?.type,
+      chatState,
+      channelState,
+      friends: friends.length,
+    });
+
+    // Aggiorna lo stato appropriato in base al tipo
+    if (selected) {
+      if (selected.type === "channel" || selected.type === "board") {
+        setChannelState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+      } else {
+        setChatState((prev) => ({
+          ...prev,
+          selected: selected,
+        }));
+      }
+    }
+  }, [activeView, selected, friends]);
+
+  // Modifica l'effetto per il ripristino iniziale
+  React.useEffect(() => {
+    if (activeView === "chats" && !selected) {
+      const savedChat = localStorage.getItem("lastSelectedChat");
+      if (savedChat) {
+        const parsedChat = JSON.parse(savedChat);
+        // Ripristina solo se è una chat privata o un amico
+        if (parsedChat.type === "friend" || !parsedChat.type) {
+          console.log("Ripristino chat iniziale dal localStorage:", parsedChat);
+          setSelected(parsedChat);
+          selectedRef.current = parsedChat;
+        }
+      }
+    }
+
+    // Forza l'aggiornamento della lista amici quando si torna alla tab 'chats'
+    if (activeView === "chats") {
+      console.log("Aggiornamento lista amici");
+      setFriends((prev) => [...prev]); // Forza un aggiornamento della lista
+    }
+  }, [activeView]);
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       <Header
@@ -608,7 +847,10 @@ export default function Homepage() {
           {/* Tab di navigazione */}
           <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
             <button
-              onClick={() => setActiveView("chats")}
+              onClick={() => {
+                console.log("Click su tab Chat");
+                handleViewChange("chats");
+              }}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
                   ? "text-white border-b-2 border-white"
@@ -618,7 +860,10 @@ export default function Homepage() {
               Chat
             </button>
             <button
-              onClick={() => setActiveView("channels")}
+              onClick={() => {
+                console.log("Click su tab Channels");
+                handleViewChange("channels");
+              }}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
                   ? "text-white border-b-2 border-white"
@@ -629,29 +874,31 @@ export default function Homepage() {
             </button>
           </div>
 
-          {/* Lista chat */}
+          {/* Lista chat/canali */}
           <div className="flex-1 overflow-y-auto min-h-0">
-            {activeView === "chats" ? (
+            {activeView === "chats" && (
               <Friends
                 onSelect={(user) => {
+                  console.log("Selezionata chat:", user);
                   handleSelect(user);
                   setShowMobileChat(true);
                 }}
                 pendingRequests={pendingRequests}
                 loading={loading}
-                selectedUser={selectedRef.current}
+                selectedUser={selected}
                 setPendingRequests={setPendingRequests}
               />
-            ) : activeView === "channels" ? (
+            )}
+            {activeView === "channels" && (
               <Channels
                 onSelect={(channel) => {
+                  console.log("Selezionato canale:", channel);
                   handleSelect(channel);
                   setShowMobileChat(true);
                 }}
               />
-            ) : (
-              <TransactionHistory />
             )}
+            {activeView === "transactions" && <TransactionHistory />}
           </div>
         </div>
 
@@ -663,7 +910,7 @@ export default function Homepage() {
         >
           {selected ? (
             <Messages
-              key={selected.roomId || selected.id}
+              key={selected.pub || selected.roomId || selected.id}
               chatData={selected}
               isMobileView={window.innerWidth < 768}
               onBack={() => setShowMobileChat(false)}

@@ -420,24 +420,29 @@ const MessageItem = ({
 
 // Add these message handling functions
 const handleMessages = (data) => {
-  if (!isSubscribed) return;
+  try {
+    console.log("Decrittazione:", data);
+    if (!isSubscribed) return;
 
-  if (data.initial) {
-    const validMessages = (data.initial || []).filter(
-      (msg) => msg && msg.content && msg.sender && msg.timestamp
-    );
+    if (data.initial) {
+      const validMessages = (data.initial || []).filter(
+        (msg) => msg && msg.content && msg.sender && msg.timestamp
+      );
 
-    const processedMessages =
-      selected.type === "friend"
-        ? validMessages.map((msg) =>
-            messageList.decryptMessage(msg, msg.sender)
-          )
-        : validMessages;
+      const processedMessages =
+        selected.type === "friend"
+          ? validMessages.map((msg) =>
+              messageList.decryptMessage(msg, msg.sender)
+            )
+          : validMessages;
 
-    Promise.all(processedMessages).then((decryptedMessages) => {
-      setMessages(decryptedMessages);
-      setLoading(false);
-    });
+      Promise.all(processedMessages).then((decryptedMessages) => {
+        setMessages(decryptedMessages);
+        setLoading(false);
+      });
+    }
+  } catch (error) {
+    console.error("Errore durante la decrittazione:", error);
   }
 };
 
@@ -1028,41 +1033,18 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
 
   // Funzione per ottenere il nome visualizzato
   const getDisplayName = async (pubKey) => {
-    // Se è l'utente corrente
-    if (pubKey === user?.is?.pub) {
-      // Se  un wallet
-      const walletAuth = localStorage.getItem("walletAuth");
-      if (walletAuth) {
-        try {
-          const { address } = JSON.parse(walletAuth);
-          return `${address.slice(0, 6)}...${address.slice(-4)}`;
-        } catch (error) {
-          console.error("Errore nel parsing del wallet auth:", error);
-        }
-      }
-      // Se è un account Gun
-      if (user?.is?.alias) {
-        return user.is.alias.split(".")[0];
-      }
-    }
-
-    // Per altri utenti
     try {
-      const userData = await new Promise((resolve) => {
-        gun.get(`~${pubKey}`).once((data) => {
-          resolve(data);
-        });
-      });
-
-      if (userData?.alias) {
-        return userData.alias.split(".")[0];
+      console.log("Tentativo di recupero alias per:", pubKey);
+      const alias = await gun.get(`~${pubKey}`).get("alias").then();
+      if (!alias) {
+        console.warn("Alias non trovato per:", pubKey);
+        return pubKey.slice(0, 6) + "..." + pubKey.slice(-4);
       }
+      return alias;
     } catch (error) {
-      console.error("Errore nel recupero username:", error);
+      console.error("Errore nel recupero dell'alias per:", pubKey, error);
+      return pubKey.slice(0, 6) + "..." + pubKey.slice(-4);
     }
-
-    // Fallback alla versione abbreviata della chiave pubblica
-    return `${pubKey.slice(0, 6)}...${pubKey.slice(-4)}`;
   };
 
   React.useEffect(() => {

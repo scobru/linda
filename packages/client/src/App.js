@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -8,7 +8,6 @@ import {
 import { DAPP_NAME, user, gun, checkConnection } from "linda-protocol";
 import Context from "./contexts/context";
 import RequireAuth from "./components/RequireAuth";
-import { useEffect } from "react";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { WagmiConfig } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -30,9 +29,19 @@ function App() {
   const [friends, setFriends] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
   const [currentChat, setCurrentChat] = React.useState(null);
-  const [connectionState, setConnectionState] = React.useState("disconnected");
+  const [connectionState, setConnectionState] = React.useState("connecting");
   const [chatLoading, setChatLoading] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
+  const [currentView, setCurrentView] = React.useState("chats");
+  const [chatState, setChatState] = React.useState({
+    selected: null,
+    list: [],
+  });
+  const [channelState, setChannelState] = React.useState({
+    selected: null,
+    list: [],
+  });
+  const selectedRef = useRef(null);
 
   // Gestione della connessione al peer locale
   useEffect(() => {
@@ -230,6 +239,42 @@ function App() {
     };
   }, [pub, selected]);
 
+  // Funzione per gestire la selezione
+  const handleSelection = useCallback((item, type = "chat") => {
+    console.log("Gestione selezione:", { item, type });
+
+    // Aggiorna il riferimento
+    selectedRef.current = item;
+
+    // Aggiorna lo stato appropriato
+    if (type === "chat") {
+      setChatState((prev) => ({
+        ...prev,
+        selected: item,
+      }));
+    } else {
+      setChannelState((prev) => ({
+        ...prev,
+        selected: item,
+      }));
+    }
+
+    // Aggiorna la selezione globale
+    setSelected(item);
+  }, []);
+
+  // Effetto per gestire il cambio di vista
+  useEffect(() => {
+    console.log("Cambio vista:", currentView);
+
+    // Ripristina la selezione appropriata
+    if (currentView === "chats" && chatState.selected) {
+      setSelected(chatState.selected);
+    } else if (currentView === "channels" && channelState.selected) {
+      setSelected(channelState.selected);
+    }
+  }, [currentView, chatState.selected, channelState.selected]);
+
   return (
     <WagmiConfig config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
@@ -243,7 +288,7 @@ function App() {
               friends,
               setFriends,
               selected,
-              setSelected: handleChatSelection,
+              setSelected: handleSelection,
               currentChat,
               setCurrentChat,
               connectionState,
@@ -251,6 +296,12 @@ function App() {
               chatLoading,
               messages,
               setMessages,
+              currentView,
+              setCurrentView,
+              chatState,
+              setChatState,
+              channelState,
+              setChannelState,
             }}
           >
             <Router>
