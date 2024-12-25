@@ -171,7 +171,11 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
             disabled={isLoading}
           >
             {Object.keys(availableChains).map((chainKey) => (
-              <option key={chainKey} value={chainKey} className="bg-[#2D325A] text-white">
+              <option
+                key={chainKey}
+                value={chainKey}
+                className="bg-[#2D325A] text-white"
+              >
                 {availableChains[chainKey].name}
               </option>
             ))}

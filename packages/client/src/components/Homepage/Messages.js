@@ -307,6 +307,47 @@ const getUserUsername = async (userPub) => {
   }
 };
 
+// Modifico la funzione getUserAvatar per gestire meglio le chat private
+const getUserAvatar = async (userPub) => {
+  try {
+    console.log("Recupero avatar per:", userPub);
+
+    // Prima prova nel percorso userList/users
+    const avatarData = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
+        .get(userPub)
+        .get("avatar")
+        .once((data) => {
+          console.log("Avatar ricevuto da userList:", data);
+          resolve(data);
+        });
+    });
+
+    if (avatarData) return avatarData;
+
+    // Se non trova nulla, prova nel percorso users
+    const avatarData2 = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("users")
+        .get(userPub)
+        .get("avatar")
+        .once((data) => {
+          console.log("Avatar ricevuto da users:", data);
+          resolve(data);
+        });
+    });
+
+    return avatarData2;
+  } catch (error) {
+    console.warn("Errore nel recupero avatar:", error);
+    return null;
+  }
+};
+
 // Modify MessageItem component to better handle layout and truncated text
 const MessageItem = ({
   message,
@@ -318,38 +359,91 @@ const MessageItem = ({
   selected,
 }) => {
   const [senderName, setSenderName] = React.useState("");
-  const { selected: selectedContext } = React.useContext(Context);
-  const isCreator = selectedContext?.creator === user.is.pub;
+  const [senderAvatar, setSenderAvatar] = React.useState("");
+  const shouldShowSender = showSender && message.sender !== user.is.pub;
+  const isCreator = selected?.creator === user.is.pub;
 
-  const shouldShowSender =
-    selected?.type === "board" || selected?.type === "channel" || showSender;
+  useEffect(() => {
+    const loadSenderInfo = async () => {
+      try {
+        // Se è un messaggio dell'utente corrente
+        if (isOwnMessage) {
+          setSenderName("Tu");
+          const myAvatar = await getUserAvatar(user.is.pub);
+          console.log("Avatar utente corrente caricato:", myAvatar);
+          setSenderAvatar(myAvatar);
 
-  React.useEffect(() => {
-    const loadSenderName = async () => {
-      if (shouldShowSender && !isOwnMessage) {
-        const username = await getUserUsername(message.sender);
-        setSenderName(username);
+          // Sottoscrizione agli aggiornamenti del proprio avatar
+          const unsubMe1 = gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
+            .get(user.is.pub)
+            .get("avatar")
+            .on((data) => {
+              console.log("Aggiornamento proprio avatar da userList:", data);
+              if (data) setSenderAvatar(data);
+            });
 
-        // Sottoscrizione agli aggiornamenti del nome
-        const unsub = gun
-          .get(DAPP_NAME)
-          .get("userList")
-          .get("users")
-          .get(message.sender)
-          .on((data) => {
-            if (data) {
-              setSenderName(data.nickname || data.username || username);
-            }
-          });
+          const unsubMe2 = gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(user.is.pub)
+            .get("avatar")
+            .on((data) => {
+              console.log("Aggiornamento proprio avatar da users:", data);
+              if (data) setSenderAvatar(data);
+            });
 
-        return () => {
-          if (typeof unsub === "function") unsub();
-        };
+          return () => {
+            if (typeof unsubMe1 === "function") unsubMe1();
+            if (typeof unsubMe2 === "function") unsubMe2();
+          };
+        } else {
+          // Per gli altri utenti, usa il codice esistente
+          console.log("Caricamento info mittente per:", message.sender);
+          const username = await getUserUsername(message.sender);
+          setSenderName(username);
+
+          const avatar = await getUserAvatar(message.sender);
+          console.log("Avatar caricato per", message.sender, ":", avatar);
+          setSenderAvatar(avatar);
+
+          const unsub1 = gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
+            .get(message.sender)
+            .get("avatar")
+            .on((data) => {
+              console.log("Aggiornamento avatar ricevuto da userList:", data);
+              if (data) setSenderAvatar(data);
+            });
+
+          const unsub2 = gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(message.sender)
+            .get("avatar")
+            .on((data) => {
+              console.log("Aggiornamento avatar ricevuto da users:", data);
+              if (data) setSenderAvatar(data);
+            });
+
+          return () => {
+            if (typeof unsub1 === "function") unsub1();
+            if (typeof unsub2 === "function") unsub2();
+          };
+        }
+      } catch (error) {
+        console.warn("Errore nel caricamento info mittente:", error);
+        setSenderName(
+          message.sender.slice(0, 6) + "..." + message.sender.slice(-4)
+        );
       }
     };
-
-    loadSenderName();
-  }, [message.sender, shouldShowSender, isOwnMessage]);
+    loadSenderInfo();
+  }, [message.sender, isOwnMessage, user.is.pub]);
 
   return (
     <div
@@ -361,31 +455,37 @@ const MessageItem = ({
       }}
       className={`flex flex-col ${
         isOwnMessage ? "items-end" : "items-start"
-      } mb-4 max-w-[85%] ${isOwnMessage ? "ml-auto" : "mr-auto"}`}
+      } space-y-1`}
     >
       {/* Header del messaggio con mittente e timestamp */}
-      {(shouldShowSender || selected?.type === "board") && (
-        <div className="flex items-center mb-1">
-          <div className="w-8 h-8 rounded-full flex-shrink-0">
+      <div className="flex items-center mb-1">
+        <div className="w-8 h-8 rounded-full flex-shrink-0">
+          {senderAvatar ? (
+            <img
+              className="w-full h-full rounded-full object-cover"
+              src={senderAvatar}
+              alt="Avatar"
+            />
+          ) : (
             <img
               className="w-full h-full rounded-full"
               src={`https://api.dicebear.com/7.x/bottts/svg?seed=${senderName}&backgroundColor=b6e3f4`}
-              alt=""
+              alt="Avatar predefinito"
             />
-          </div>
-          <div className="ml-2 flex flex-col">
-            <span className="text-sm text-white font-medium break-words">
-              {isOwnMessage ? "Tu" : senderName}
-            </span>
-            <span className="text-xs text-gray-300">
-              {new Date(message.timestamp).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
+          )}
         </div>
-      )}
+        <div className="ml-2 flex flex-col">
+          <span className="text-sm text-white font-medium break-words">
+            {isOwnMessage ? "Tu" : senderName}
+          </span>
+          <span className="text-xs text-gray-300">
+            {new Date(message.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+      </div>
 
       {/* Message content */}
       <div className="flex items-end w-full">
@@ -461,6 +561,7 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   const [error, setError] = React.useState(null);
   const [currentIsMobileView, setCurrentIsMobileView] =
     React.useState(isMobileView);
+  const [chatUserAvatar, setChatUserAvatar] = React.useState(""); // Aggiungo lo stato per l'avatar
   const messagesEndRef = React.useRef(null);
   const messageSubscriptionRef = React.useRef(null);
   const toastIdRef = React.useRef(null);
@@ -1236,35 +1337,67 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   React.useEffect(() => {
     if (selected?.pub && selected?.type === "friend") {
       const loadUserInfo = async () => {
+        console.log("Caricamento info utente per:", selected.pub);
         const info = await userUtils.getUserInfo(selected.pub);
         setChatUserInfo(info);
+
+        // Carica l'avatar
+        const avatar = await getUserAvatar(selected.pub);
+        console.log("Avatar chat caricato:", avatar);
+        setChatUserAvatar(avatar);
       };
       loadUserInfo();
 
-      // Sottoscrizione diretta al nodo dell'utente
-      const unsub = gun
+      // Sottoscrizione diretta al nodo dell'utente in entrambi i percorsi
+      const unsub1 = gun
         .get(DAPP_NAME)
         .get("userList")
         .get("users")
         .get(selected.pub)
         .on((data) => {
+          console.log("Aggiornamento dati utente ricevuto da userList:", data);
           if (data) {
             setChatUserInfo({
               displayName: data.nickname || data.username || selected.alias,
               username: data.username || "",
               nickname: data.nickname || "",
             });
+            if (data.avatar) {
+              console.log("Nuovo avatar ricevuto da userList:", data.avatar);
+              setChatUserAvatar(data.avatar);
+            }
+          }
+        });
+
+      const unsub2 = gun
+        .get(DAPP_NAME)
+        .get("users")
+        .get(selected.pub)
+        .on((data) => {
+          console.log("Aggiornamento dati utente ricevuto da users:", data);
+          if (data) {
+            setChatUserInfo({
+              displayName: data.nickname || data.username || selected.alias,
+              username: data.username || "",
+              nickname: data.nickname || "",
+            });
+            if (data.avatar) {
+              console.log("Nuovo avatar ricevuto da users:", data.avatar);
+              setChatUserAvatar(data.avatar);
+            }
           }
         });
 
       return () => {
-        if (typeof unsub === "function") unsub();
+        if (typeof unsub1 === "function") unsub1();
+        if (typeof unsub2 === "function") unsub2();
       };
     } else if (selected?.name) {
       setChatUserInfo({
         displayName: selected.name,
         type: selected.type,
       });
+      setChatUserAvatar(""); // Reset avatar per canali/board
     }
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
 
@@ -1315,11 +1448,19 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
             </button>
           )}
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-            <img
-              className="w-full h-full rounded-full"
-              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${chatUserInfo.displayName}&backgroundColor=b6e3f4`}
-              alt=""
-            />
+            {chatUserAvatar ? (
+              <img
+                className="w-full h-full rounded-full object-cover"
+                src={chatUserAvatar}
+                alt="Avatar"
+              />
+            ) : (
+              <img
+                className="w-full h-full rounded-full"
+                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${chatUserInfo.displayName}&backgroundColor=b6e3f4`}
+                alt="Avatar predefinito"
+              />
+            )}
           </div>
           <div className="ml-3">
             <p className="text-white font-medium">{chatUserInfo.displayName}</p>
@@ -1359,24 +1500,29 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
               />
             </svg>
           </button>
-          <button
-            onClick={() => setIsWalletModalOpen(true)}
-            className="text-white hover:bg-[#4A4F76] p-2 rounded-full"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </button>
+          {/* Mostra il pulsante del wallet solo nelle chat private */}
+          {chatData &&
+            chatData.type !== "channel" &&
+            chatData.type !== "board" && (
+              <button
+                onClick={() => setIsWalletModalOpen(true)}
+                className="text-white hover:bg-[#4A4F76] p-2 rounded-full"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
+            )}
         </div>
       </div>
 
