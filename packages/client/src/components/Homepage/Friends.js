@@ -187,11 +187,11 @@ const FriendItem = React.memo(
               />
             </div>
             <div className="ml-3 flex-1" onClick={() => onSelect(friend)}>
-              <p className="text-sm font-medium text-gray-900">
+              <p className="text-sm font-medium text-white">
                 {userInfo.displayName}
               </p>
               {userInfo.username && (
-                <p className="text-xs text-gray-500">@{userInfo.username}</p>
+                <p className="text-xs text-gray-300">@{userInfo.username}</p>
               )}
             </div>
           </div>
@@ -299,6 +299,7 @@ export default function Friends({ onSelect, loading, selectedUser }) {
   const [isLoading, setIsLoading] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [filteredFriends, setFilteredFriends] = React.useState([]);
+  const [activeTab, setActiveTab] = React.useState("chat");
 
   // Funzione per gestire la rimozione delle richieste processate
   const handleRequestProcessed = (fromPub) => {
@@ -606,61 +607,69 @@ export default function Friends({ onSelect, loading, selectedUser }) {
   }, [searchQuery, friends]);
 
   return (
-    <div className="flex flex-col space-y-4">
-      {/* Box di ricerca */}
-      <div className="px-4">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Cerca una chat..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="flex flex-col h-full bg-[#373B5C]">
+      {/* Barra di ricerca */}
+      <div className="p-3 border-b border-[#4A4F76]">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Cerca una chat..."
+            className="w-full bg-[#2D325A] text-white placeholder-gray-400 rounded-full py-2 px-4 pl-10 focus:outline-none"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <svg
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
       </div>
 
-      {/* Richieste in sospeso */}
-      {pendingRequests?.length > 0 && (
-        <div className="p-4 bg-yellow-50 rounded-lg">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">
-            Richieste di amicizia ({pendingRequests.length})
-          </h3>
-          <div className="space-y-2">
+      {/* Lista amici */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Richieste di amicizia in sospeso */}
+        {pendingRequests.length > 0 && (
+          <div className="p-3 border-b border-[#4A4F76]">
+            <h3 className="text-sm font-medium text-gray-300 mb-2">
+              Richieste di amicizia
+            </h3>
             {pendingRequests.map((request) => (
               <FriendRequest
-                key={request.pub || request.from}
+                key={request.from}
                 request={request}
-                onRequestProcessed={handleRequestProcessed}
+                onAccept={handleAcceptRequest}
+                onReject={handleRejectRequest}
               />
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Lista amici filtrata */}
-      <div className="divide-y divide-gray-200">
-        {filteredFriends.map((friend) => (
-          <FriendItem
-            key={friend.pub}
-            friend={friend}
-            isSelected={selectedUser?.pub === friend.pub}
-            onSelect={onSelect}
-            onRemove={handleRemoveFriend}
-            onBlock={handleBlock}
-            onUnblock={handleUnblock}
-            isActiveMenu={activeMenu === friend.pub}
-            onMenuToggle={handleMenuToggle}
-          />
-        ))}
+        {/* Lista amici */}
+        <div className="divide-y divide-[#4A4F76]">
+          {(searchQuery ? filteredFriends : friends).map((friend) => (
+            <FriendItem
+              key={friend.pub}
+              friend={friend}
+              isSelected={selectedUser?.pub === friend.pub}
+              onSelect={onSelect}
+              onRemove={handleRemoveFriend}
+              onBlock={handleBlock}
+              onUnblock={handleUnblock}
+              isActiveMenu={activeMenu === friend.pub}
+              onMenuToggle={handleMenuToggle}
+            />
+          ))}
+        </div>
       </div>
-
-      {/* Stato vuoto modificato per mostrare messaggi diversi in base alla ricerca */}
-      {!loading && filteredFriends.length === 0 && (
-        <div className="text-center text-gray-500 py-4">
-          {searchQuery.trim()
-            ? "Nessun risultato trovato"
-            : "Nessun amico trovato"}
-        </div>
-      )}
     </div>
   );
 }

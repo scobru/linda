@@ -598,20 +598,20 @@ export default function Homepage() {
       />
 
       {/* Container principale */}
-      <div className="flex flex-1 min-h-0 bg-gray-50">
+      <div className="flex flex-1 min-h-0 bg-[#373B5C]">
         {/* Sidebar */}
         <div
           className={`${
             showMobileChat ? "hidden" : "w-full"
-          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-white border-r`}
+          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
         >
           {/* Barra di ricerca */}
-          <div className="flex-shrink-0 p-2 border-b border-gray-100">
+          <div className="flex-shrink-0 p-2 border-b border-[#4A4F76]">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Cerca una chat..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-100 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
+                className="w-full pl-8 pr-3 py-2 bg-[#2D325A] text-white placeholder-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
               />
               <svg
                 className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
@@ -630,13 +630,13 @@ export default function Homepage() {
           </div>
 
           {/* Tab di navigazione */}
-          <div className="flex flex-shrink-0 border-b border-gray-100">
+          <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
             <button
               onClick={() => setActiveView("chats")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "chats"
-                  ? "text-[#2B6BED] border-b-2 border-[#2B6BED]"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-white border-b-2 border-white"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
               Chat
@@ -645,8 +645,8 @@ export default function Homepage() {
               onClick={() => setActiveView("channels")}
               className={`flex-1 py-3 text-sm font-medium ${
                 activeView === "channels"
-                  ? "text-[#2B6BED] border-b-2 border-[#2B6BED]"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-white border-b-2 border-white"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
               Boards and Channels

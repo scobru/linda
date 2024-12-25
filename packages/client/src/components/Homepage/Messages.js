@@ -1307,18 +1307,18 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-full">
+    <div className="flex flex-col h-full w-full max-w-full bg-[#424874]">
       {/* Header della chat con pulsante back per mobile */}
-      <div className="flex items-center justify-between px-3 py-2 border-b bg-white">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76]">
         <div className="flex items-center">
           {currentIsMobileView && (
             <button
               onClick={onBack}
-              className="mr-2 p-1.5 hover:bg-gray-100 rounded-full md:hidden"
+              className="mr-2 p-1.5 hover:bg-[#4A4F76] rounded-full md:hidden"
               aria-label="Torna indietro"
             >
               <svg
-                className="w-5 h-5 text-gray-500"
+                className="w-5 h-5 text-white"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1332,61 +1332,57 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
               </svg>
             </button>
           )}
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-            {selected.type === "channel" ? (
-              "📢"
-            ) : selected.type === "board" ? (
-              "📋"
-            ) : (
-              <img
-                className="w-full h-full rounded-full"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${
-                  selected.avatarSeed || displayName
-                }&backgroundColor=b6e3f4`}
-                alt=""
-              />
-            )}
+          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+            <img
+              className="w-full h-full rounded-full"
+              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${chatUserInfo.displayName}&backgroundColor=b6e3f4`}
+              alt=""
+            />
           </div>
-          <div className="ml-2">
-            <p className="text-sm font-medium text-gray-900 truncate max-w-[150px]">
-              {chatUserInfo.displayName}
-            </p>
+          <div className="ml-3">
+            <p className="text-white font-medium">{chatUserInfo.displayName}</p>
             {chatUserInfo.username && (
-              <p className="text-xs text-gray-500 truncate max-w-[150px]">
-                @{chatUserInfo.username}
-              </p>
+              <p className="text-gray-300 text-sm">@{chatUserInfo.username}</p>
             )}
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          {selected.type === "friend" && (
-            <button
-              onClick={handleDeleteAllMessages}
-              className="p-1.5 hover:bg-red-100 rounded-full text-red-500"
-              title="Elimina tutti i messaggi"
+        <div className="flex items-center space-x-3">
+          <button className="text-white hover:bg-[#4A4F76] p-2 rounded-full">
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </button>
-          )}
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+              />
+            </svg>
+          </button>
+          <button className="text-white hover:bg-[#4A4F76] p-2 rounded-full">
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+          </button>
           <button
             onClick={() => setIsWalletModalOpen(true)}
-            className="p-1.5 hover:bg-gray-100 rounded-full"
-            title="Apri wallet"
+            className="text-white hover:bg-[#4A4F76] p-2 rounded-full"
           >
             <svg
-              className="w-4 h-4 text-gray-500"
+              className="w-5 h-5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1405,82 +1401,28 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       {/* Area messaggi */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
+        className="flex-1 overflow-y-auto p-4 space-y-3"
         onScroll={handleScroll}
       >
-        {/* Stato di errore e pulsante sblocca */}
-        {error === "blocked" ? (
-          <div className="flex flex-col items-center justify-center h-full">
-            <p className="text-red-500 text-lg mb-4">
-              Hai bloccato questo utente
-            </p>
-            <button
-              onClick={handleUnblock}
-              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium shadow-md"
-            >
-              Sblocca utente
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Resto del contenuto dei messaggi */}
-            {(isInitializing || loading) && (
-              <div className="flex flex-col items-center justify-center h-full space-y-2">
-                <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-                <p className="text-gray-500">Caricamento chat...</p>
-              </div>
-            )}
-
-            {/* Stato di errore */}
-            {!isInitializing && !loading && error && (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-red-500">{error}</p>
-              </div>
-            )}
-
-            {/* Stato nessun messaggio */}
-            {!isInitializing && !loading && !error && messages.length === 0 && (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">Nessun messaggio</p>
-              </div>
-            )}
-
-            {/* Loader per caricamento messaggi aggiuntivi */}
-            {isLoadingMore && (
-              <div className="text-center py-2">
-                <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
-              </div>
-            )}
-
-            {/* Lista messaggi - mostra solo se non siamo in stato di caricamento iniziale */}
-            {!isInitializing && !loading && !error && messages.length > 0 && (
-              <>
-                {messages
-                  .filter((message) => message && message.content)
-                  .map((message) => (
-                    <MessageItem
-                      key={message.id}
-                      message={message}
-                      isOwnMessage={message.sender === user.is.pub}
-                      showSender={true}
-                      user={user}
-                      messageObserver={messageObserver}
-                      handleDeleteMessage={handleDeleteMessage}
-                      selected={selected}
-                    />
-                  ))}
-              </>
-            )}
-
-            <div ref={messagesEndRef} style={{ height: 1 }} />
-          </>
-        )}
+        {messages.map((message) => (
+          <MessageItem
+            key={message.id}
+            message={message}
+            isOwnMessage={message.sender === user.is.pub}
+            showSender={true}
+            user={user}
+            messageObserver={messageObserver}
+            handleDeleteMessage={handleDeleteMessage}
+            selected={selected}
+          />
+        ))}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input area */}
       {canWrite ? (
-        <div className="border-t p-2 bg-white">
-          <div className="flex items-center space-x-2">
+        <div className="p-3 bg-[#373B5C] border-t border-[#4A4F76]">
+          <div className="flex items-center space-x-2 bg-[#2D325A] rounded-full px-4 py-2">
             <input
               type="text"
               value={newMessage}
@@ -1489,21 +1431,23 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
                 e.key === "Enter" && !e.shiftKey && sendMessage()
               }
               placeholder="Scrivi un messaggio..."
-              className="flex-1 rounded-full px-4 py-2 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
             />
             <button
               onClick={sendMessage}
               disabled={!newMessage.trim()}
-              className={`p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors flex-shrink-0 ${
-                !newMessage.trim() ? "opacity-50 cursor-not-allowed" : ""
+              className={`p-2 rounded-full text-white ${
+                !newMessage.trim()
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:bg-[#4A4F76]"
               }`}
             >
-              <AiOutlineSend className="w-4 h-4" />
+              <AiOutlineSend className="w-5 h-5" />
             </button>
           </div>
         </div>
       ) : (
-        <div className="border-t p-2 bg-white text-center text-sm text-gray-500">
+        <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
           Non hai i permessi per scrivere qui
         </div>
       )}
