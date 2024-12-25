@@ -49,6 +49,10 @@ export default function Profile() {
   const [newNickname, setNewNickname] = React.useState("");
   const [avatarSeed, setAvatarSeed] = React.useState("");
   const [walletAddress, setWalletAddress] = useState("");
+  const [profileInfo, setProfileInfo] = useState({
+    localStorage: null,
+    gunData: null,
+  });
 
   React.useEffect(() => {
     const loadUserData = async () => {
@@ -292,13 +296,131 @@ export default function Profile() {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
+  const loadProfileInfo = async () => {
+    try {
+      const currentPub = user.is?.pub;
+      if (!currentPub) return;
+
+      // Carica dati dal localStorage
+      const walletKey = `gunWallet_${currentPub}`;
+      const localStorageData = localStorage.getItem(walletKey);
+      const parsedLocalData = localStorageData
+        ? JSON.parse(localStorageData)
+        : null;
+
+      // Carica dati pubblici da Gun (dai percorsi corretti)
+      const gunData = await Promise.all([
+        // Dati dal nodo users
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(currentPub)
+            .once((data) => resolve(data));
+        }),
+        // Dati dal profilo utente (userList)
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("userList")
+            .get("users")
+            .get(currentPub)
+            .once((data) => resolve(data));
+        }),
+        // Dati dall'indirizzo (usando l'indirizzo interno del wallet)
+        new Promise((resolve) => {
+          if (!parsedLocalData?.internalWalletAddress) {
+            resolve(null);
+            return;
+          }
+          gun
+            .get(DAPP_NAME)
+            .get("addresses")
+            .get(parsedLocalData.internalWalletAddress.toLowerCase())
+            .once((data) => resolve(data));
+        }),
+      ]);
+
+      setProfileInfo({
+        localStorage: {
+          ...parsedLocalData,
+          // Nascondi informazioni sensibili
+          internalWalletPk: parsedLocalData?.internalWalletPk ? "***" : null,
+          credentials: parsedLocalData?.credentials
+            ? {
+                username: parsedLocalData.credentials.username,
+                password: "***",
+              }
+            : null,
+          pair: parsedLocalData?.pair ? "***" : null,
+          v_Pair: parsedLocalData?.v_Pair ? "***" : null,
+          s_Pair: parsedLocalData?.s_Pair ? "***" : null,
+        },
+        gunData: {
+          users: gunData[0],
+          profiles: gunData[1],
+          addresses: gunData[2],
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Errore nel caricamento delle informazioni del profilo:",
+        error
+      );
+      toast.error("Errore nel caricamento delle informazioni del profilo");
+    }
+  };
+
+  useEffect(() => {
+    if (user.is?.pub) {
+      loadProfileInfo();
+    }
+  }, [user.is?.pub]);
+
+  const styles = {
+    profileInfoSection: {
+      marginTop: "2rem",
+      padding: "1rem",
+      backgroundColor: "#f5f5f5",
+      borderRadius: "8px",
+      boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    },
+    sectionTitle: {
+      color: "#333",
+      marginBottom: "1rem",
+      fontSize: "1.5rem",
+    },
+    dataContainer: {
+      marginBottom: "1.5rem",
+      padding: "1rem",
+      backgroundColor: "white",
+      borderRadius: "6px",
+      border: "1px solid #ddd",
+    },
+    dataTitle: {
+      color: "#666",
+      marginBottom: "0.5rem",
+      fontSize: "1.2rem",
+    },
+    pre: {
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      backgroundColor: "#f8f9fa",
+      padding: "1rem",
+      borderRadius: "4px",
+      fontSize: "0.9rem",
+      maxHeight: "300px",
+      overflowY: "auto",
+    },
+  };
+
   return (
     <>
       <Header />
       <div className="flex items-center space-x-4 mt-2">
         {isEditingProfile ? (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-96">
+            <div className="bg-white rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-medium mb-4">Modifica Profilo</h3>
 
               <div className="space-y-4">
@@ -333,6 +455,77 @@ export default function Profile() {
                   <p className="mt-1 text-xs text-gray-500">
                     Il nickname può essere modificato in qualsiasi momento
                   </p>
+                </div>
+
+                {/* Sezione Informazioni Profilo */}
+                <div className="mt-6">
+                  <h4 className="text-md font-medium text-gray-700 mb-4">
+                    Informazioni Profilo
+                  </h4>
+
+                  {/* Dati dal localStorage */}
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                      Dati Locali (localStorage)
+                    </h5>
+                    {profileInfo.localStorage ? (
+                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                        {JSON.stringify(profileInfo.localStorage, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        Nessun dato locale disponibile
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Dati da Gun - Users */}
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                      Dati Pubblici (Gun - Users)
+                    </h5>
+                    {profileInfo.gunData?.users ? (
+                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                        {JSON.stringify(profileInfo.gunData.users, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        Nessun dato utente disponibile
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Dati da Gun - Profiles */}
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                      Dati Pubblici (Gun - Profiles)
+                    </h5>
+                    {profileInfo.gunData?.profiles ? (
+                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                        {JSON.stringify(profileInfo.gunData.profiles, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        Nessun dato profilo disponibile
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Dati da Gun - Addresses */}
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                      Dati Pubblici (Gun - Addresses)
+                    </h5>
+                    {profileInfo.gunData?.addresses ? (
+                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                        {JSON.stringify(profileInfo.gunData.addresses, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        Nessun dato indirizzo disponibile
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-2 mt-4">
