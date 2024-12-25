@@ -24,6 +24,8 @@ const app = express();
 const port = 8765;
 
 // Configurazione Gun per il relay
+const RADATA_PATH = path.join(process.cwd(), "radata");
+
 const GUN_CONFIG = {
   web: app,
   multicast: false,
@@ -31,7 +33,7 @@ const GUN_CONFIG = {
   port: port,
   peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
   radisk: true,
-  file: "./radata",
+  file: RADATA_PATH,
   axe: true,
   super: true,
 };
@@ -639,23 +641,81 @@ async function syncGlobalMetrics() {
   }
 }
 
-// Funzione di inizializzazione del server
+async function verifyDataIntegrity() {
+  try {
+    if (!fs.existsSync(RADATA_PATH)) {
+      console.warn("Radata directory not found, creating...");
+      fs.mkdirSync(RADATA_PATH, { recursive: true });
+      return;
+    }
+
+    const files = fs.readdirSync(RADATA_PATH);
+    console.log(`Found ${files.length} files in radata directory`);
+
+    // Verifica che i file non siano corrotti
+    for (const file of files) {
+      const filePath = path.join(RADATA_PATH, file);
+      try {
+        const stats = fs.statSync(filePath);
+        console.log(`File ${file}: ${formatBytes(stats.size)}`);
+      } catch (error) {
+        console.error(`Error reading file ${file}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error("Error verifying data integrity:", error);
+  }
+}
+
+function ensureDirectoryPermissions() {
+  try {
+    if (!fs.existsSync(RADATA_PATH)) {
+      fs.mkdirSync(RADATA_PATH, { recursive: true, mode: 0o755 });
+    } else {
+      fs.chmodSync(RADATA_PATH, 0o755);
+    }
+    console.log("Directory permissions verified");
+  } catch (error) {
+    console.error("Error setting directory permissions:", error);
+  }
+}
+
+// Modifica initializeServer per includere la verifica
 async function initializeServer() {
   try {
-    // Crea il server HTTP
+    ensureDirectoryPermissions();
+    await verifyDataIntegrity();
     const server = http.createServer(app);
 
-    // Inizializza Gun con il server HTTP
+    // Aggiungi questa funzione per gestire la chiusura pulita
+    const handleShutdown = async () => {
+      console.log("Server shutdown initiated...");
+
+      // Attendi che Gun salvi i dati
+      if (gun) {
+        await new Promise((resolve) => {
+          gun.on("out", { put: null, "#": "cleanup" });
+          setTimeout(resolve, 2000); // Attendi 2 secondi per il salvataggio
+        });
+      }
+
+      process.exit(0);
+    };
+
+    // Gestisci la chiusura pulita
+    process.on("SIGTERM", handleShutdown);
+    process.on("SIGINT", handleShutdown);
+
     gun = Gun({
       ...GUN_CONFIG,
       web: server,
+      localStorage: false, // Disabilita localStorage
+      radisk: true, // Abilita esplicitamente radisk
     });
 
-    // Abilita il debug per Gun
-    gun.on("out", (msg) => {
-      if (msg.err) {
-        console.error("Gun error:", msg.err);
-      }
+    // Aggiungi logging per debug
+    gun.on("put", function (msg) {
+      console.log("Data being saved:", msg.put);
     });
 
     // Avvia il server HTTP

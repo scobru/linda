@@ -374,8 +374,11 @@ export const loginUser = async (credentials) => {
       }, LOGIN_TIMEOUT);
 
       // Tenta l'autenticazione
+      console.log('Tentativo login con credenziali:', credentials);
       user.auth(credentials.username, credentials.password, async (ack) => {
         clearTimeout(timeoutId);
+
+        console.log('Risultato autenticazione:', ack);
 
         if (ack.err) {
           resolve({
@@ -401,6 +404,8 @@ export const loginUser = async (credentials) => {
           });
           return;
         }
+
+        console.log('Autenticazione avvenuta con successo');
 
         // Recupera i dati dell'utente con retry
         const getUserData = async (retries = 3) => {
