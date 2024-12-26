@@ -41,10 +41,10 @@ export default function Homepage() {
 
   // Stati locali
   const [loading, setLoading] = useState(false);
-  const [isMobileView, setIsMobileView] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [activeView, setActiveView] = useState("chats");
   const [chatRoomId, setChatRoomId] = useState(null);
+  const [isMobileView, setIsMobileView] = useState(window.innerWidth <= 768);
 
   // Integrazione useChat
   const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
@@ -217,6 +217,20 @@ export default function Homepage() {
     }
   }, [oldSelected, appState.user.is.pub]);
 
+  // Effetto per gestire il resize della finestra
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobileView(mobile);
+      if (!mobile) {
+        setShowMobileChat(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // Gestione selezione canale/chat
   const handleSelect = useCallback(
     (selected) => {
@@ -253,6 +267,11 @@ export default function Homepage() {
     [setOldSelected, updateAppState, isMobileView]
   );
 
+  // Gestione ritorno alla lista in vista mobile
+  const handleBackToList = useCallback(() => {
+    setShowMobileChat(false);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       <Header />
@@ -262,8 +281,8 @@ export default function Homepage() {
         {/* Sidebar */}
         <div
           className={`${
-            isMobileView && showMobileChat ? "hidden" : "w-full"
-          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
+            isMobileView && showMobileChat ? "hidden" : "flex"
+          } w-full md:w-[320px] lg:w-[380px] flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
         >
           {/* Tab di navigazione */}
           <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
@@ -309,8 +328,8 @@ export default function Homepage() {
         {/* Area chat */}
         <div
           className={`${
-            isMobileView && !showMobileChat ? "hidden" : "w-full"
-          } md:flex flex-1 flex-col min-h-0 bg-[#424874]`}
+            isMobileView && !showMobileChat ? "hidden" : "flex"
+          } flex-1 flex-col min-h-0 bg-[#424874]`}
         >
           {oldSelected ? (
             <Messages
@@ -320,7 +339,7 @@ export default function Homepage() {
               loading={chatLoading}
               onSendMessage={sendMessage}
               isMobileView={isMobileView}
-              onBack={() => setShowMobileChat(false)}
+              onBack={handleBackToList}
             />
           ) : (
             <div className="flex items-center justify-center h-full">

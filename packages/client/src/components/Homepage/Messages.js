@@ -73,7 +73,7 @@ const InputArea = ({
           onChange={(e) => setNewMessage(e.target.value)}
           onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
           placeholder="Scrivi un messaggio..."
-          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none border-none"
           disabled={isRecording}
         />
         {!isRecording ? (
@@ -285,10 +285,10 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76]">
         <div className="flex items-center">
-          {currentIsMobileView && (
+          {isMobileView && (
             <button
               onClick={onBack}
-              className="mr-2 p-1.5 hover:bg-[#4A4F76] rounded-full md:hidden"
+              className="mr-2 p-1.5 hover:bg-[#4A4F76] rounded-full"
               aria-label="Torna indietro"
             >
               <svg
