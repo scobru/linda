@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import Context from "../contexts/context";
 import {
   messaging,
@@ -287,7 +287,7 @@ export default function Homepage() {
   };
 
   // Modifica la gestione della selezione
-  const handleSelect = React.useCallback(
+  const handleSelect = useCallback(
     async (item) => {
       try {
         setLoading(true);
@@ -332,8 +332,11 @@ export default function Homepage() {
 
           finalData = {
             ...item,
+            ...chatData,
+            type: "friend",
             roomId: chatData.roomId || chatData.id,
-            chat: chatData,
+            user1: user.is.pub,
+            user2: item.pub,
           };
 
           // Aggiorna lo stato delle chat
@@ -345,7 +348,11 @@ export default function Homepage() {
 
         // Aggiorna la selezione globale
         setSelected(finalData);
+        setCurrentChatData(finalData);
         setShowMobileChat(true);
+
+        // Salva la selezione nel localStorage
+        localStorage.setItem("selectedUser", JSON.stringify(finalData));
       } catch (error) {
         console.error("Errore nella selezione:", error);
         toast.error("Errore nella selezione della chat");
