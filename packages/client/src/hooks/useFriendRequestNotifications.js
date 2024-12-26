@@ -1,237 +1,127 @@
-import { useState, useEffect } from "react";
+import React, { useRef, useCallback, useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
-import { notifications, gun, DAPP_NAME, user } from "linda-protocol";
+import {
+  gun,
+  user,
+  DAPP_NAME,
+  notifications,
+  friendsService,
+} from "linda-protocol";
+import debounce from "lodash/debounce";
 
 const { friendRequestNotifications } = notifications;
 
 export const useFriendRequestNotifications = () => {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const processedRequestsRef = useRef(new Set());
+  const subscriptionRef = useRef(null);
+  const initialLoadDoneRef = useRef(false);
+  const lastProcessedTimestampRef = useRef({});
 
-  // Funzione per unificare le richieste e gestire i duplicati
-  const addRequest = (request, id, type) => {
-    console.log("Processamento richiesta:", { request, id, type });
+  const cleanupSubscription = useCallback(() => {
+    if (subscriptionRef.current) {
+      subscriptionRef.current();
+      subscriptionRef.current = null;
+    }
+  }, []);
 
-    // Se la richiesta è stata rifiutata, rimuovila
-    if (request && request.status === "rejected") {
-      console.log("Richiesta rifiutata, rimuovo:", id);
+  const handleRequest = useCallback((request, id, type = "public") => {
+    // Ignora richieste senza ID
+    if (!id) return;
+
+    // Estrai il timestamp dall'id
+    const timestamp = parseInt(id.split("_").pop());
+
+    // Se abbiamo già processato una richiesta più recente per questo tipo, ignora
+    if (lastProcessedTimestampRef.current[type] >= timestamp) return;
+
+    // Se la richiesta è già stata processata, ignora
+    if (processedRequestsRef.current.has(id)) return;
+
+    // Aggiorna l'ultimo timestamp processato per questo tipo
+    lastProcessedTimestampRef.current[type] = timestamp;
+
+    // Se la richiesta è null o ha uno status, rimuovila silenziosamente
+    if (!request || request.status) {
       setPendingRequests((prev) => prev.filter((r) => r.id !== id));
+      processedRequestsRef.current.add(id);
       return;
     }
 
+    // Verifica che la richiesta sia destinata all'utente corrente
+    if (type === "public" && request.to !== user.is.pub) return;
+
+    // Aggiungi la richiesta solo se non è già presente
     setPendingRequests((prev) => {
-      // Cerca una richiesta esistente con lo stesso from o id
-      const existingRequest = prev.find(
-        (r) =>
-          r.id === id ||
-          (r.from === request.from && request.from) ||
-          (r.data?.senderInfo?.pub === request.from && request.from)
-      );
+      const exists = prev.some((r) => r.id === id);
+      if (exists) return prev;
 
-      if (existingRequest) {
-        // Se lo stato è cambiato a rejected, rimuovi la richiesta
-        if (request.status === "rejected") {
-          console.log("Stato cambiato a rejected, rimuovo:", id);
-          return prev.filter((r) => r.id !== existingRequest.id);
-        }
-
-        // Aggiorna la richiesta esistente con eventuali nuove informazioni
-        return prev.map((r) => {
-          if (r.id === existingRequest.id) {
-            return {
-              ...r,
-              ...request,
-              alias: request.alias || request.senderInfo?.alias || r.alias,
-              displayName:
-                request.displayName ||
-                request.senderInfo?.displayName ||
-                r.displayName,
-              type: r.type || type,
-              status: request.status || r.status,
-            };
-          }
-          return r;
-        });
+      // Mostra notifica solo per nuove richieste e dopo il caricamento iniziale
+      if (initialLoadDoneRef.current) {
+        toast.success(`Nuova richiesta di amicizia da ${request.from}`);
       }
 
-      // Non aggiungere richieste rifiutate
-      if (request.status === "rejected") {
-        console.log("Nuova richiesta già rifiutata, ignoro:", id);
-        return prev;
-      }
-
-      // Aggiungi la nuova richiesta
-      return [
-        ...prev,
-        {
-          ...request,
-          id,
-          type,
-          status: request.status || "pending",
-          alias:
-            request.alias || request.senderInfo?.alias || "Utente sconosciuto",
-        },
-      ];
+      return [...prev, { ...request, id, type }];
     });
-  };
 
-  useEffect(() => {
-    console.log("Avvio osservazione richieste di amicizia");
-    let subscriptions = [];
-
-    const startObserving = async () => {
-      try {
-        setLoading(true);
-        console.log("Utente corrente:", user.is?.pub);
-
-        if (!user?.is) {
-          console.error("Utente non autenticato");
-          toast.error("Errore: utente non autenticato");
-          setLoading(false);
-          return;
-        }
-
-        // 1. Osserva le richieste private
-        const privateRequestsSub = gun
-          .get(DAPP_NAME)
-          .get("friend_requests")
-          .get(user.is.pub)
-          .map()
-          .on((request, id) => {
-            console.log("Richiesta privata ricevuta:", {
-              request,
-              id,
-              status: request?.status,
-            });
-
-            // Se la richiesta è null, è stata rimossa
-            if (!request) {
-              console.log("Richiesta rimossa:", id);
-              setPendingRequests((prev) => prev.filter((r) => r.id !== id));
-              return;
-            }
-
-            // Osserva anche i cambiamenti di stato
-            if (request.from) {
-              gun
-                .get(DAPP_NAME)
-                .get("friend_requests")
-                .get(user.is.pub)
-                .get(id)
-                .get("status")
-                .on((status) => {
-                  console.log("Stato richiesta aggiornato:", { id, status });
-                  if (status === "rejected") {
-                    setPendingRequests((prev) =>
-                      prev.filter((r) => r.id !== id)
-                    );
-                  }
-                });
-              addRequest(request, id, "private");
-            }
-          });
-        subscriptions.push(privateRequestsSub);
-
-        // 2. Osserva le richieste pubbliche
-        const publicRequestsSub = gun
-          .get(DAPP_NAME)
-          .get("all_friend_requests")
-          .map()
-          .on((request, id) => {
-            console.log("Richiesta pubblica ricevuta:", {
-              request,
-              id,
-              status: request?.status,
-            });
-
-            // Se la richiesta è null, è stata rimossa
-            if (!request) {
-              console.log("Richiesta rimossa:", id);
-              setPendingRequests((prev) => prev.filter((r) => r.id !== id));
-              return;
-            }
-
-            if (request && request.to === user.is.pub) {
-              // Osserva anche i cambiamenti di stato
-              gun
-                .get(DAPP_NAME)
-                .get("all_friend_requests")
-                .get(id)
-                .get("status")
-                .on((status) => {
-                  console.log("Stato richiesta pubblica aggiornato:", {
-                    id,
-                    status,
-                  });
-                  if (status === "rejected") {
-                    setPendingRequests((prev) =>
-                      prev.filter((r) => r.id !== id)
-                    );
-                  }
-                });
-              addRequest(request, id, "public");
-            }
-          });
-        subscriptions.push(publicRequestsSub);
-
-        // 3. Osserva le notifiche dirette
-        const notificationsSub = gun
-          .user()
-          .get("notifications")
-          .map()
-          .on((notification, id) => {
-            console.log("Notifica diretta ricevuta:", {
-              notification,
-              id,
-              status: notification?.status,
-            });
-
-            // Se la notifica è null, è stata rimossa
-            if (!notification) {
-              console.log("Notifica rimossa:", id);
-              setPendingRequests((prev) => prev.filter((r) => r.id !== id));
-              return;
-            }
-
-            if (notification && notification.type === "friendRequest") {
-              // Osserva anche i cambiamenti di stato
-              gun
-                .user()
-                .get("notifications")
-                .get(id)
-                .get("status")
-                .on((status) => {
-                  console.log("Stato notifica aggiornato:", { id, status });
-                  if (status === "rejected") {
-                    setPendingRequests((prev) =>
-                      prev.filter((r) => r.id !== id)
-                    );
-                  }
-                });
-              addRequest(notification, id, "notification");
-            }
-          });
-        subscriptions.push(notificationsSub);
-
-        setLoading(false);
-      } catch (error) {
-        console.error("Errore nell'avvio dell'osservazione:", error);
-        toast.error("Errore nel caricamento delle richieste di amicizia");
-        setLoading(false);
-      }
-    };
-
-    startObserving();
-
-    return () => {
-      console.log("Pulizia sottoscrizioni richieste");
-      subscriptions.forEach((sub) => {
-        if (typeof sub === "function") sub();
-      });
-    };
+    processedRequestsRef.current.add(id);
   }, []);
 
-  const markAsRead = async (requestId, type) => {
+  useEffect(() => {
+    if (!user?.is?.pub) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    processedRequestsRef.current.clear();
+    lastProcessedTimestampRef.current = {};
+    initialLoadDoneRef.current = false;
+    cleanupSubscription();
+
+    // Sottoscrizione per le richieste pubbliche
+    const publicPath = gun.get(DAPP_NAME).get("all_friend_requests");
+
+    // Sottoscrizione per le richieste private
+    const privatePath = gun
+      .get(`~${user.is.pub}`)
+      .get(DAPP_NAME)
+      .get("friend_requests");
+
+    // Carica le richieste esistenti e sottoscrivi ai cambiamenti
+    const publicSub = publicPath.map().once((request, id) => {
+      if (request && request.to === user.is.pub) {
+        handleRequest(request, id, "public");
+      }
+    });
+
+    const privateSub = privatePath.map().once((request, id) => {
+      handleRequest(request, id, "private");
+    });
+
+    // Imposta il flag di caricamento completato dopo un breve delay
+    setTimeout(() => {
+      initialLoadDoneRef.current = true;
+      setLoading(false);
+    }, 500);
+
+    subscriptionRef.current = () => {
+      if (typeof publicSub === "function") publicSub();
+      if (typeof privateSub === "function") privateSub();
+    };
+
+    return () => {
+      cleanupSubscription();
+    };
+  }, [user?.is?.pub, handleRequest, cleanupSubscription]);
+
+  const removeRequest = useCallback((requestId) => {
+    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    processedRequestsRef.current.add(requestId);
+  }, []);
+
+  const markAsRead = useCallback(async (requestId, type) => {
     try {
       await friendRequestNotifications.markAsRead(requestId, type);
       setPendingRequests((prev) =>
@@ -244,16 +134,12 @@ export const useFriendRequestNotifications = () => {
       console.error("Errore nel marcare la richiesta come letta:", error);
       return false;
     }
-  };
-
-  const removeRequest = (requestId) => {
-    setPendingRequests((prev) => prev.filter((req) => req.id !== requestId));
-  };
+  }, []);
 
   return {
     pendingRequests,
     loading,
-    markAsRead,
     removeRequest,
+    markAsRead,
   };
 };

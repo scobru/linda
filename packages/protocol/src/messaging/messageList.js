@@ -367,6 +367,68 @@ const messageList = {
       }
     });
   },
+
+  /**
+   * Cancella tutti i messaggi di una chat
+   * @param {string} chatId - ID della chat
+   * @returns {Promise<boolean>} True se l'operazione è riuscita
+   */
+  clearChatMessages: async (chatId) => {
+    try {
+      console.log('Cancellazione messaggi della chat:', chatId);
+
+      // Ottieni tutti i messaggi della chat
+      const messages = await new Promise((resolve) => {
+        const msgs = [];
+        gun
+          .get(DAPP_NAME)
+          .get('chats')
+          .get(chatId)
+          .get('messages')
+          .map()
+          .once((msg, id) => {
+            if (msg) {
+              msgs.push({ ...msg, id });
+            }
+          });
+
+        setTimeout(() => resolve(msgs), 500);
+      });
+
+      console.log('Messaggi da cancellare:', messages.length);
+
+      // Cancella ogni messaggio
+      await Promise.all(
+        messages.map(
+          (msg) =>
+            new Promise((resolve) => {
+              gun
+                .get(DAPP_NAME)
+                .get('chats')
+                .get(chatId)
+                .get('messages')
+                .get(msg.id)
+                .put(null, (ack) => resolve(!ack.err));
+            })
+        )
+      );
+
+      // Cancella lastMessage
+      await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('chats')
+          .get(chatId)
+          .get('lastMessage')
+          .put(null, (ack) => resolve(!ack.err));
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Errore cancellazione messaggi:', error);
+      return false;
+    }
+  },
 };
 
 export default messageList;
