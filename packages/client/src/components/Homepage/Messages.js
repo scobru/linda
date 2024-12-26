@@ -5,136 +5,277 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
+import { Observable } from "rxjs";
 import Context from "../../contexts/context";
-import toast, { Toaster } from "react-hot-toast";
+import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
 import { messaging, blocking } from "linda-protocol";
 import { gun, user, notifications, DAPP_NAME } from "linda-protocol";
 import { userUtils } from "linda-protocol";
 import { createMessagesCertificate } from "linda-protocol";
 import { walletService } from "linda-protocol";
-import { formatEther } from "ethers";
-import { ethers } from "ethers";
+import { formatEther, parseEther } from "ethers";
 import WalletModal from "./WalletModal";
+import { useIntersectionObserver } from "../../hooks/useIntersectionObserver";
+import { useSendReceipt } from "../../hooks/useSendReceipt";
+import { useMessageReceipts } from "../../hooks/useMessageReceipts";
 
 const { userBlocking } = blocking;
-const { channels, chat, sendVoiceMessage } = messaging;
+const { channels } = messaging;
+const { chat } = messaging;
 
-// Custom hook for the intersection observer
-const useIntersectionObserver = (callback, deps = []) => {
-  const observer = React.useRef(null);
+// Custom hook per gestire lo stato dei messaggi
+const useMessages = (selected, chatData) => {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(
+    Date.now()
+  );
 
-  React.useEffect(() => {
-    observer.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            callback(entry.target.dataset.messageId);
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    return () => {
-      if (observer.current) {
-        observer.current.disconnect();
-      }
-    };
-  }, deps);
-
-  return observer.current;
-};
-
-// Custom hook for message receipts
-const useMessageReceipts = (messageId, roomId) => {
-  const [status, setStatus] = React.useState({ delivered: false, read: false });
-
-  React.useEffect(() => {
-    if (!messageId || !roomId) return;
-
-    // const unsub = gun.get(`chats/${roomId}/receipts`)
-    //   .get(messageId)
-    //   .on((receipt) => {
-    //     if (receipt) {
-    //       setStatus({
-    //         delivered: receipt.type === 'delivery' || receipt.type === 'read',
-    //         read: receipt.type === 'read'
-    //       });
-    //     }
-    //   });
-
-    console.log(notifications.messageNotifications);
-
-    const unsub = notifications.messageNotifications
-      .observeReadReceipts(messageId, roomId)
-      .subscribe((receipt) => {
-        setStatus({
-          delivered: receipt.type === "delivery" || receipt.type === "read",
-          read: receipt.type === "read",
-        });
-      });
-
-    // Initial state check
-    gun
-      .get(`chats/${roomId}/receipts`)
-      .get(messageId)
-      .once((receipt) => {
-        if (receipt) {
-          setStatus({
-            delivered: receipt.type === "delivery" || receipt.type === "read",
-            read: receipt.type === "read",
-          });
-        }
-      });
-
-    return () => {
-      if (typeof unsub === "function") {
-        try {
-          unsub();
-        } catch (error) {
-          console.warn("Error unsubscribing from receipts:", error);
-        }
-      }
-    };
-  }, [messageId, roomId]);
-
-  return {
-    status,
-    setStatus,
-    initMessageTracking: async () => {
-      if (!user.is) return;
-      await gun.get(`chats/${roomId}/receipts`).get(messageId).put({
-        type: "sent",
-        timestamp: Date.now(),
-        by: user.is.pub,
-      });
-    },
-  };
-};
-
-// Custom hook for sending receipts
-const useSendReceipt = () => {
-  const sendReceipt = React.useCallback(async (messageId, roomId, type) => {
-    if (!user.is || !messageId || !roomId) return;
+  const loadMessages = useCallback(async () => {
+    if (!selected?.roomId && !selected?.id) return;
 
     try {
-      await gun.get(`chats/${roomId}/receipts`).get(messageId).put({
-        type,
-        timestamp: Date.now(),
-        by: user.is.pub,
+      setLoading(true);
+      console.log("Caricamento messaggi per:", selected);
+
+      const path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      const id = selected.type === "friend" ? selected.roomId : selected.id;
+
+      // Carica i messaggi esistenti
+      const existingMessages = await messaging.chat.messageList.loadMessages(
+        path,
+        id,
+        null,
+        Date.now()
+      );
+
+      console.log("Messaggi esistenti:", existingMessages);
+
+      // Processa i messaggi esistenti
+      const processedMessages = await Promise.all(
+        existingMessages
+          .filter((msg) => msg && msg.content)
+          .map(async (msg) => {
+            if (selected.type === "friend" && msg.content.startsWith("SEA{")) {
+              try {
+                const decrypted =
+                  await messaging.chat.messageList.decryptMessage(
+                    msg,
+                    selected.pub
+                  );
+                return { ...msg, content: decrypted.content };
+              } catch (error) {
+                console.warn("Errore decrittazione:", error);
+                return { ...msg, content: "[Errore decrittazione]" };
+              }
+            }
+            return msg;
+          })
+      );
+
+      setMessages(processedMessages.sort((a, b) => a.timestamp - b.timestamp));
+
+      // Sottoscrizione ai nuovi messaggi
+      const unsubMessages = gun
+        .get(DAPP_NAME)
+        .get(path)
+        .get(id)
+        .get("messages")
+        .map()
+        .on(async (data, key) => {
+          if (!data) return;
+
+          try {
+            let processedMessage = { ...data, id: key };
+
+            // Decrittazione per le chat private
+            if (
+              selected.type === "friend" &&
+              data.content?.startsWith("SEA{")
+            ) {
+              const decrypted = await messaging.chat.messageList.decryptMessage(
+                data,
+                selected.pub
+              );
+              processedMessage.content = decrypted.content;
+            }
+
+            setMessages((prev) => {
+              const exists = prev.some((m) => m.id === key);
+              if (exists) {
+                return prev.map((m) => (m.id === key ? processedMessage : m));
+              }
+              return [...prev, processedMessage].sort(
+                (a, b) => a.timestamp - b.timestamp
+              );
+            });
+          } catch (error) {
+            console.error("Errore processamento messaggio:", error);
+          }
+        });
+
+      return () => {
+        if (typeof unsubMessages === "function") {
+          unsubMessages();
+        }
+      };
+    } catch (error) {
+      console.error("Errore caricamento messaggi:", error);
+      setError("Errore nel caricamento dei messaggi");
+    } finally {
+      setLoading(false);
+    }
+  }, [selected?.roomId, selected?.id, selected?.type, selected?.pub]);
+
+  const loadMoreMessages = useCallback(async () => {
+    if (isLoadingMore || !hasMoreMessages) return;
+
+    try {
+      setIsLoadingMore(true);
+      const path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      const id = selected.type === "friend" ? selected.roomId : selected.id;
+
+      const olderMessages = await messaging.chat.messageList.loadMessages(
+        path,
+        id,
+        20,
+        oldestMessageTimestamp
+      );
+
+      if (olderMessages.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      const processedMessages = await Promise.all(
+        olderMessages.map(async (msg) => {
+          if (selected.type === "friend" && msg.content.startsWith("SEA{")) {
+            try {
+              return await messaging.chat.messageList.decryptMessage(
+                msg,
+                selected.pub
+              );
+            } catch (error) {
+              return { ...msg, content: "[Errore decrittazione]" };
+            }
+          }
+          return msg;
+        })
+      );
+
+      const newOldestTimestamp = Math.min(
+        ...processedMessages.map((msg) => msg.timestamp)
+      );
+      setOldestMessageTimestamp(newOldestTimestamp);
+
+      setMessages((prev) => {
+        const allMessages = [...prev, ...processedMessages];
+        return allMessages.sort((a, b) => a.timestamp - b.timestamp);
       });
     } catch (error) {
-      console.warn(`Error sending ${type} receipt:`, error);
+      console.error("Errore caricamento messaggi precedenti:", error);
+    } finally {
+      setIsLoadingMore(false);
     }
-  }, []);
+  }, [isLoadingMore, hasMoreMessages, oldestMessageTimestamp, selected]);
 
   return {
-    sendDeliveryReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, "delivery"),
-    sendReadReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, "read"),
+    messages,
+    setMessages,
+    loading,
+    error,
+    isLoadingMore,
+    hasMoreMessages,
+    loadMessages,
+    loadMoreMessages,
   };
+};
+
+// Custom hook per gestire lo stato dell'utente della chat
+const useChatUser = (selected, chatData) => {
+  const [chatUserInfo, setChatUserInfo] = useState({
+    displayName: selected?.name || "Loading...",
+    username: "",
+    nickname: "",
+  });
+  const [chatUserAvatar, setChatUserAvatar] = useState("");
+
+  useEffect(() => {
+    if (!selected?.pub || selected?.type !== "friend") return;
+
+    const loadUserInfo = async () => {
+      try {
+        const info = await userUtils.getUserInfo(selected.pub);
+        setChatUserInfo({
+          displayName: info.nickname || info.username || selected.alias,
+          username: info.username || "",
+          nickname: info.nickname || "",
+        });
+
+        const avatar = await getUserAvatar(selected.pub);
+        setChatUserAvatar(avatar);
+      } catch (error) {
+        console.error("Errore caricamento info utente:", error);
+      }
+    };
+
+    loadUserInfo();
+
+    // Sottoscrizioni al profilo utente
+    const unsubUserList = gun
+      .get(DAPP_NAME)
+      .get("userList")
+      .get("users")
+      .get(selected.pub)
+      .on((data) => {
+        if (data) {
+          setChatUserInfo((prev) => ({
+            ...prev,
+            displayName: data.nickname || data.username || selected.alias,
+            username: data.username || prev.username,
+            nickname: data.nickname || prev.nickname,
+          }));
+          if (data.avatar) setChatUserAvatar(data.avatar);
+        }
+      });
+
+    const unsubUsers = gun
+      .get(DAPP_NAME)
+      .get("users")
+      .get(selected.pub)
+      .on((data) => {
+        if (data) {
+          setChatUserInfo((prev) => ({
+            ...prev,
+            displayName: data.nickname || data.username || selected.alias,
+            username: data.username || prev.username,
+            nickname: data.nickname || prev.nickname,
+          }));
+          if (data.avatar) setChatUserAvatar(data.avatar);
+        }
+      });
+
+    return () => {
+      if (typeof unsubUserList === "function") unsubUserList();
+      if (typeof unsubUsers === "function") unsubUsers();
+    };
+  }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
+
+  return { chatUserInfo, chatUserAvatar };
 };
 
 // Single MessageStatus component combining both functionalities
@@ -439,10 +580,10 @@ const MessageItem = ({
           } max-w-full`}
         >
           {message.type === "voice" ? (
-            <audio controls className="max-w-[200px]">
-              <source src={message.content} type="audio/webm;codecs=opus" />
-              Il tuo browser non supporta l'elemento audio.
-            </audio>
+            <VoiceMessage
+              content={message.content}
+              isOwnMessage={isOwnMessage}
+            />
           ) : (
             <span className="whitespace-pre-wrap">
               {typeof message.content === "string"
@@ -475,52 +616,20 @@ const handleMessages = (data) => {
 
     if (data.initial) {
       const validMessages = (data.initial || []).filter(
-        (msg) =>
-          msg &&
-          (msg.content || msg.type === "voice") &&
-          msg.sender &&
-          msg.timestamp
+        (msg) => msg && msg.content && msg.sender && msg.timestamp
       );
 
-      // Non decrittare i messaggi vocali
-      const processedMessages = validMessages.map((msg) => {
-        if (msg.type === "voice") {
-          console.log("Messaggio vocale trovato:", msg);
-          return msg;
-        }
-        return selected.type === "friend"
-          ? messageList.decryptMessage(msg, msg.sender)
-          : msg;
-      });
+      const processedMessages =
+        selected.type === "friend"
+          ? validMessages.map((msg) =>
+              messageList.decryptMessage(msg, msg.sender)
+            )
+          : validMessages;
 
       Promise.all(processedMessages).then((decryptedMessages) => {
-        console.log("Messaggi processati:", decryptedMessages);
         setMessages(decryptedMessages);
         setLoading(false);
       });
-    } else if (data.new) {
-      const newMsg = data.new;
-      if (
-        newMsg &&
-        (newMsg.content || newMsg.type === "voice") &&
-        newMsg.sender &&
-        newMsg.timestamp
-      ) {
-        if (newMsg.type === "voice") {
-          console.log("Nuovo messaggio vocale ricevuto:", newMsg);
-          setMessages((prevMessages) => [...prevMessages, newMsg]);
-        } else {
-          const processedMessage =
-            selected.type === "friend"
-              ? messageList.decryptMessage(newMsg, newMsg.sender)
-              : Promise.resolve(newMsg);
-
-          processedMessage.then((decryptedMsg) => {
-            console.log("Nuovo messaggio decrittato:", decryptedMsg);
-            setMessages((prevMessages) => [...prevMessages, decryptedMsg]);
-          });
-        }
-      }
     }
   } catch (error) {
     console.error("Errore durante la decrittazione:", error);
@@ -534,543 +643,172 @@ const handleError = (error) => {
   setLoading(false);
 };
 
-// Funzione per verificare i permessi del microfono
-const checkMicrophonePermission = async () => {
-  try {
-    const result = await navigator.permissions.query({ name: "microphone" });
-    if (result.state === "denied") {
-      toast.error(
-        "Permesso microfono negato. Controlla le impostazioni del browser."
-      );
-      return false;
-    }
-    return true;
-  } catch (error) {
-    console.error("Errore nel controllo dei permessi:", error);
-    return false;
-  }
-};
-
-export default function Messages({ chatData, isMobileView, onBack }) {
-  const { selected, setCurrentChat, setSelected } = React.useContext(Context);
-  const [messages, setMessages] = React.useState([]);
-  const [newMessage, setNewMessage] = React.useState("");
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
-  const [currentIsMobileView, setCurrentIsMobileView] =
-    React.useState(isMobileView);
-  const [chatUserAvatar, setChatUserAvatar] = React.useState(""); // Aggiungo lo stato per l'avatar
-  const messagesEndRef = React.useRef(null);
-  const messageSubscriptionRef = React.useRef(null);
-  const toastIdRef = React.useRef(null);
-  const [isBlocked, setIsBlocked] = React.useState(false);
-  const [canSendMessages, setCanSendMessages] = React.useState(true);
-  const [showChatMenu, setShowChatMenu] = React.useState(false);
-  const [blockStatus, setBlockStatus] = React.useState({
+// Custom hook per gestire i permessi e lo stato della chat
+const useChatPermissions = (selected, chatData) => {
+  const [canWrite, setCanWrite] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockStatus, setBlockStatus] = useState({
     blockedByMe: false,
     blockedByOther: false,
   });
-  const blockCheckTimeoutRef = React.useRef(null);
-  const lastBlockCheckRef = React.useRef(null);
-  const [isAdmin, setIsAdmin] = React.useState(false);
-  const [canWrite, setCanWrite] = React.useState(true);
-  const [isInitializing, setIsInitializing] = React.useState(true);
-  const [isSubscribing, setIsSubscribing] = React.useState(false);
-  const previousRoomIdRef = React.useRef(null);
-  const isSubscribed = useRef(true);
-  const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
-  const lastMessageRef = React.useRef(null);
-  const [displayName, setDisplayName] = React.useState("");
-  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(null);
-  const messagesContainerRef = useRef(null);
-  const [chatUserInfo, setChatUserInfo] = React.useState({
-    displayName: selected?.name || "Loading...",
-    username: "",
-    nickname: "",
-  });
-  const [isRecording, setIsRecording] = React.useState(false);
-  const [audioStream, setAudioStream] = React.useState(null);
-  const [mediaRecorder, setMediaRecorder] = React.useState(null);
-  const [audioChunks, setAudioChunks] = React.useState([]);
 
-  // Usa useMemo per creare una singola istanza del messageTracking
-  const messageTracking = useMemo(() => createMessageTracking(), []);
-
-  // Effetto per verificare i permessi di scrittura
   useEffect(() => {
     const checkPermissions = async () => {
-      if (!chatData || !user?.is) {
+      if (!selected || !user?.is) {
         setCanWrite(false);
         return;
       }
 
       try {
-        // If it's a private chat
-        if (!chatData.type || chatData.type === "friend") {
-          const messageCert = await gun
+        console.log("Verifica permessi per:", selected);
+
+        // Per le bacheche, tutti possono scrivere
+        if (selected.type === "board") {
+          setCanWrite(true);
+          return;
+        }
+
+        // Per i canali, solo il creatore può scrivere
+        if (selected.type === "channel") {
+          setCanWrite(selected.creator === user.is.pub);
+          return;
+        }
+
+        // Per le chat private
+        if (selected.type === "friend" || selected.type === "chat") {
+          // Verifica lo stato di blocco
+          const blockStatus = await userBlocking.getBlockStatus(selected.pub);
+          setBlockStatus({
+            blockedByMe: blockStatus.blocked,
+            blockedByOther: blockStatus.blockedBy,
+          });
+
+          if (blockStatus.blocked || blockStatus.blockedBy) {
+            setCanWrite(false);
+            setIsBlocked(true);
+            return;
+          }
+
+          // Verifica il certificato
+          const cert = await gun
             .get(DAPP_NAME)
             .get("certificates")
-            .get(
-              chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1
-            )
+            .get(selected.pub)
             .get("messages")
             .then();
 
-          if (!messageCert) {
-            const otherPub =
-              chatData.user1 === user.is.pub ? chatData.user2 : chatData.user1;
-            const cert = await createMessagesCertificate(otherPub);
-            setCanWrite(!!cert);
+          if (!cert) {
+            try {
+              console.log("Creazione certificato per:", selected.pub);
+              const newCert = await createMessagesCertificate(selected.pub);
+              setCanWrite(!!newCert);
+            } catch (error) {
+              console.warn("Errore creazione certificato:", error);
+              setCanWrite(false);
+            }
           } else {
             setCanWrite(true);
           }
         }
-        // If it's a channel or board
-        else if (chatData.type === "channel" || chatData.type === "board") {
-          // If creator, can always write
-          if (chatData.creator === user?.is?.pub) {
-            setCanWrite(true);
-            return;
-          }
-
-          // If channel, only creator can write
-          if (chatData.type === "channel") {
-            setCanWrite(chatData.creator === user.is.pub);
-            return;
-          }
-
-          // If board, all members can write
-          if (chatData.type === "board") {
-            setCanWrite(true);
-          }
-        }
       } catch (error) {
-        console.error("Error checking permissions:", error);
+        console.error("Errore verifica permessi:", error);
         setCanWrite(false);
       }
     };
 
     checkPermissions();
-  }, [chatData, user?.is]);
+  }, [selected, user?.is]);
 
-  // Use useCallback for functions that shouldn't be recreated
-  const handleMessageVisible = useCallback(
-    (messageId) => {
-      if (!selected?.pub || !selected?.roomId) return;
-      const message = messages.find((m) => m.id === messageId);
-      if (message && message.sender !== user.is.pub && !message.read) {
-        messageTracking.updateMessageStatus(messageId, selected.roomId, "read");
-      }
-    },
-    [selected?.pub, selected?.roomId, messages]
-  );
+  return {
+    canWrite,
+    isBlocked,
+    blockStatus,
+  };
+};
 
-  // Create the observer for messages
-  const messageObserver = useIntersectionObserver(handleMessageVisible, [
-    selected?.pub,
-    selected?.roomId,
-  ]);
+// Custom hook per gestire l'invio dei messaggi e le ricevute
+const useMessageSending = (selected, setMessages) => {
+  const [newMessage, setNewMessage] = useState("");
+  const messageTracking = useMemo(() => createMessageTracking(), []);
 
-  // Modify the loadMoreMessages function
-  const loadMoreMessages = async () => {
-    if (isLoadingMore || !hasMoreMessages) return;
+  const sendMessage = async () => {
+    if (!selected?.roomId || !newMessage.trim()) return;
+
+    const messageContent = newMessage.trim();
+    setNewMessage("");
 
     try {
-      setIsLoadingMore(true);
-
-      let path;
-      let id;
+      const messageId = `msg_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      let messageData;
 
       if (selected.type === "friend") {
-        path = "chats";
-        id = selected.roomId;
-      } else if (selected.type === "channel") {
-        path = "channels";
-        id = selected.id;
-      } else if (selected.type === "board") {
-        path = "boards";
-        id = selected.id;
-      }
+        // Cripta il messaggio per le chat private
+        const encryptedContent =
+          await messaging.chat.messageList.encryptMessage(
+            messageContent,
+            selected.pub
+          );
 
-      // Use configurable limit from messageList
-      const olderMessages = await messaging.chat.messageList.loadMessages(
-        path,
-        id,
-        null, // Use default limit configured in messageList
-        oldestMessageTimestamp
-      );
+        if (!encryptedContent) {
+          throw new Error("Errore durante la crittografia del messaggio");
+        }
 
-      if (olderMessages.length === 0) {
-        setHasMoreMessages(false);
-        return;
-      }
+        messageData = {
+          id: messageId,
+          content: encryptedContent,
+          sender: user.is.pub,
+          timestamp: Date.now(),
+          type: "encrypted",
+        };
 
-      // Process messages as before
-      let processedMessages = [];
-      if (selected.type === "friend") {
-        processedMessages = await Promise.all(
-          olderMessages.map(async (msg) => {
-            try {
-              if (
-                typeof msg.content !== "string" ||
-                !msg.content.startsWith("SEA{")
-              )
-                return msg;
-              return await messaging.chat.messageList.decryptMessage(
-                msg,
-                selected.pub
-              );
-            } catch (error) {
-              console.warn("Error decrypting message:", error);
-              return {
-                ...msg,
-                content: "[Decryption key not found]",
-              };
-            }
-          })
-        );
+        // Salva il messaggio criptato
+        await gun
+          .get(DAPP_NAME)
+          .get("chats")
+          .get(selected.roomId)
+          .get("messages")
+          .get(messageId)
+          .put(messageData);
+
+        // Inizializza il tracking
+        await messageTracking.initMessageTracking(messageId, selected.roomId);
       } else {
-        processedMessages = olderMessages;
+        messageData = {
+          id: messageId,
+          content: messageContent,
+          sender: user.is.pub,
+          senderAlias: user.is.alias || "Unknown",
+          timestamp: Date.now(),
+          type: "plain",
+        };
+
+        const path = selected.type === "channel" ? "channels" : "boards";
+        await gun
+          .get(DAPP_NAME)
+          .get(path)
+          .get(selected.id)
+          .get("messages")
+          .get(messageId)
+          .put(messageData);
       }
 
-      // Update oldest message timestamp
-      const newOldestTimestamp = Math.min(
-        ...processedMessages.map((msg) => msg.timestamp)
-      );
-      setOldestMessageTimestamp(newOldestTimestamp);
-
-      // Add new messages maintaining order
-      setMessages((prevMessages) => {
-        const allMessages = [...prevMessages, ...processedMessages];
-        return allMessages.sort((a, b) => a.timestamp - b.timestamp);
-      });
+      // Aggiorna lo stato locale
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageData,
+          content: messageContent, // Usa il contenuto non criptato per la visualizzazione locale
+        },
+      ]);
     } catch (error) {
-      console.error("Error loading more messages:", error);
-    } finally {
-      setIsLoadingMore(false);
+      console.error("Errore invio messaggio:", error);
+      toast.error(error.message || "Errore nell'invio del messaggio");
+      setNewMessage(messageContent);
     }
   };
 
-  // Gestione dello scroll
-  const handleScroll = useCallback(
-    (e) => {
-      const container = e.target;
-      const { scrollTop, scrollHeight, clientHeight } = container;
-
-      // Controlla se siamo vicini al top per caricare più messaggi
-      if (scrollTop <= 100) {
-        loadMoreMessages();
-      }
-
-      // Controlla se siamo vicini al bottom per l'auto-scroll
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setShouldScrollToBottom(isNearBottom);
-    },
-    [loadMoreMessages]
-  );
-
-  // Modifica l'effetto setupChat
-  useEffect(() => {
-    if (!selected) return;
-
-    // Determina se la selezione è valida
-    const isValidSelection =
-      selected.type === "friend"
-        ? selected.roomId && selected.pub
-        : selected.id;
-    if (!isValidSelection) {
-      console.log("Selezione non valida:", selected);
-      return;
-    }
-
-    setLoading(true);
-    setIsInitializing(true);
-    setMessages([]);
-    setError(null);
-
-    const setupChat = async () => {
-      try {
-        // Verifica lo stato di blocco solo per le chat private
-        if (selected.type === "friend") {
-          const blockStatus = await userBlocking.getBlockStatus(selected.pub);
-          if (blockStatus.blocked || blockStatus.blockedBy) {
-            setCanWrite(false);
-            setError(
-              blockStatus.blocked
-                ? "Hai bloccato questo utente"
-                : "Questo utente ti ha bloccato"
-            );
-            setLoading(false);
-            setIsInitializing(false);
-            return;
-          }
-        }
-
-        // Determina il percorso e l'ID
-        const chatConfig = {
-          friend: { path: "chats", id: selected.roomId },
-          channel: { path: "channels", id: selected.id },
-          board: { path: "boards", id: selected.id },
-        };
-
-        const { path, id } = chatConfig[selected.type];
-
-        // Carica i messaggi
-        const existingMessages = await messaging.chat.messageList.loadMessages(
-          path,
-          id,
-          null,
-          Date.now()
-        );
-
-        // Processa i messaggi
-        let processedMessages = [];
-        if (selected.type === "friend") {
-          processedMessages = await Promise.all(
-            existingMessages
-              .filter((msg) => msg && msg.content)
-              .map(async (msg) => {
-                try {
-                  if (!msg.content.startsWith("SEA{")) return msg;
-                  return await messaging.chat.messageList.decryptMessage(
-                    msg,
-                    selected.pub
-                  );
-                } catch (error) {
-                  console.warn("Errore decrittazione:", error);
-                  return { ...msg, content: "[Errore decrittazione]" };
-                }
-              })
-          );
-        } else {
-          processedMessages = existingMessages.filter(
-            (msg) => msg && msg.content
-          );
-        }
-
-        // Aggiorna lo stato
-        if (processedMessages.length > 0) {
-          setMessages(
-            processedMessages.sort((a, b) => a.timestamp - b.timestamp)
-          );
-          setOldestMessageTimestamp(
-            Math.min(...processedMessages.map((m) => m.timestamp))
-          );
-        }
-        setLoading(false);
-        setIsInitializing(false);
-
-        // Sottoscrizione ai nuovi messaggi
-        const messageHandler = messaging.chat.messageList.subscribeToMessages(
-          path,
-          id,
-          async (msg) => {
-            if (!msg || !msg.content) return;
-            try {
-              let processedMsg = msg;
-              if (
-                selected.type === "friend" &&
-                msg.content.startsWith("SEA{")
-              ) {
-                processedMsg = await messaging.chat.messageList.decryptMessage(
-                  msg,
-                  selected.pub
-                );
-              }
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === processedMsg.id)) return prev;
-                return [...prev, processedMsg].sort(
-                  (a, b) => a.timestamp - b.timestamp
-                );
-              });
-            } catch (error) {
-              console.warn("Errore processamento messaggio:", error);
-            }
-          }
-        );
-
-        return () => {
-          if (typeof messageHandler === "function") {
-            messageHandler();
-          }
-        };
-      } catch (error) {
-        console.error("Errore setup chat:", error);
-        setError("Errore nel caricamento della chat");
-        setLoading(false);
-        setIsInitializing(false);
-      }
-    };
-
-    const cleanup = setupChat();
-    return () => {
-      if (cleanup && typeof cleanup === "function") {
-        cleanup();
-      }
-    };
-  }, [selected?.roomId, selected?.id, selected?.type, selected?.pub]);
-
-  // Usa useEffect con controllo di montaggio per le sottoscrizioni al profilo
-  useEffect(() => {
-    if (!chatData) return;
-
-    let mounted = true;
-    const otherPub =
-      chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
-
-    const unsub = gun
-      .get(DAPP_NAME)
-      .get("userList")
-      .get("nicknames")
-      .get(otherPub)
-      .on((nickname) => {
-        if (!mounted) return;
-        if (nickname) {
-          setDisplayName(nickname);
-        } else {
-          setDisplayName(`${otherPub.slice(0, 6)}...${otherPub.slice(-4)}`);
-        }
-      });
-
-    return () => {
-      mounted = false;
-      if (typeof unsub === "function") unsub();
-    };
-  }, [chatData]);
-
-  // Aggiungi un effetto separato per mantenere la chat corrente
-  useEffect(() => {
-    if (chatData) {
-      console.log("Current chat updated:", chatData);
-    }
-  }, [chatData]);
-
-  // Aggiungi un effetto per resettare la chat quando l'amico viene rimosso
-  useEffect(() => {
-    if (!selected?.pub) return;
-
-    const unsubFriendRemoval = gun
-      .get("friendships")
-      .map()
-      .on(() => {
-        // Verifica se l'amicizia esiste ancora
-        let friendshipExists = false;
-        gun
-          .get("friendships")
-          .map()
-          .once((data) => {
-            if (
-              data &&
-              ((data.user1 === selected.pub && data.user2 === user.is.pub) ||
-                (data.user2 === selected.pub && data.user1 === user.is.pub))
-            ) {
-              friendshipExists = true;
-            }
-          });
-
-        // Se l'amicizia non esiste più, resetta la vista
-        if (!friendshipExists) {
-          setCurrentChat(null);
-          setMessages([]);
-          setError(null);
-        }
-      });
-
-    return () => {
-      if (typeof unsubFriendRemoval === "function") unsubFriendRemoval();
-    };
-  }, [selected?.pub, setCurrentChat]);
-
-  // Modifica l'effetto che monitora le ricevute
-  useEffect(() => {
-    if (!selected?.roomId) return;
-    const subscriptions = new Map(); // Usa una Map per tenere traccia delle sottoscrizioni
-
-    // Funzione per sottoscriversi a un singolo messaggio
-    const subscribeToMessage = (message) => {
-      if (message.sender !== user.is.pub || subscriptions.has(message.id))
-        return;
-
-      const unsubscribe = chat.messageList.subscribeToReceipts(
-        selected.roomId,
-        message.id,
-        (receipt) => {
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === receipt.messageId) {
-                return {
-                  ...msg,
-                  delivered: receipt.type === "delivery" || msg.delivered,
-                  read: receipt.type === "read" || msg.read,
-                };
-              }
-              return msg;
-            })
-          );
-        }
-      );
-
-      if (typeof unsubscribe === "function") {
-        subscriptions.set(message.id, unsubscribe);
-      }
-    };
-
-    // Sottoscrivi ai messaggi esistenti
-    messages.forEach(subscribeToMessage);
-
-    return () => {
-      // Pulisci tutte le sottoscrizioni
-      subscriptions.forEach((unsubscribe) => {
-        if (typeof unsubscribe === "function") {
-          unsubscribe();
-        }
-      });
-      subscriptions.clear();
-    };
-  }, [selected?.roomId]); // Rimuovi messages dalle dipendenze
-
-  // Aggiungi un effetto separato per gestire i nuovi messaggi
-  useEffect(() => {
-    if (!selected?.roomId || !messages.length) return;
-
-    // Trova l'ultimo messaggio
-    const lastMessage = messages[messages.length - 1];
-
-    // Se è un nostro messaggio, sottoscrivi alle sue ricevute
-    if (lastMessage && lastMessage.sender === user.is.pub) {
-      const unsubscribe = chat.messageList.subscribeToReceipts(
-        selected.roomId,
-        lastMessage.id,
-        (receipt) => {
-          if (!receipt) return;
-
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === receipt.messageId) {
-                return {
-                  ...msg,
-                  delivered: receipt.type === "delivery" || msg.delivered,
-                  read: receipt.type === "read" || msg.read,
-                };
-              }
-              return msg;
-            })
-          );
-        }
-      );
-
-      return () => {
-        if (typeof unsubscribe === "function") {
-          unsubscribe();
-        }
-      };
-    }
-  }, [selected?.roomId, messages.length]); // Usa messages.length invece di messages
-
-  // Modifica la funzione handleDeleteMessage
   const handleDeleteMessage = async (messageId) => {
     if (
       !selected?.roomId ||
@@ -1081,35 +819,86 @@ export default function Messages({ chatData, isMobileView, onBack }) {
     }
 
     try {
-      let path, id;
-      if (selected.type === "friend") {
-        path = "chats";
-        id = selected.roomId;
-      } else if (selected.type === "channel") {
-        path = "channels";
-        id = selected.id;
-      } else if (selected.type === "board") {
-        path = "boards";
-        id = selected.id;
-      }
+      const path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      const id = selected.type === "friend" ? selected.roomId : selected.id;
 
       await chat.messageList.deleteMessage(path, id, messageId);
       setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
-      toast.success("Message deleted");
+      toast.success("Messaggio eliminato");
     } catch (error) {
-      console.error("Error deleting message:", error);
-      toast.error("Error deleting message");
+      console.error("Errore eliminazione messaggio:", error);
+      toast.error("Errore durante l'eliminazione del messaggio");
     }
   };
 
-  // Aggiungi questa funzione per gestire lo scroll
-  const scrollToBottom = (behavior = "smooth") => {
-    if (messagesEndRef.current && shouldScrollToBottom) {
-      messagesEndRef.current.scrollIntoView({ behavior });
+  const handleDeleteAllMessages = async () => {
+    if (!selected?.roomId) return;
+
+    try {
+      const isConfirmed = window.confirm(
+        "Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata."
+      );
+
+      if (!isConfirmed) return;
+
+      const path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      const id = selected.type === "friend" ? selected.roomId : selected.id;
+
+      await messaging.chat.messageList.deleteAllMessages(path, id);
+      setMessages([]);
+      toast.success("Tutti i messaggi sono stati eliminati");
+    } catch (error) {
+      console.error("Errore eliminazione messaggi:", error);
+      toast.error("Errore durante l'eliminazione dei messaggi");
     }
   };
 
-  // Aggiungi questo effetto per gestire lo scroll automatico
+  return {
+    newMessage,
+    setNewMessage,
+    sendMessage,
+    handleDeleteMessage,
+    handleDeleteAllMessages,
+    messageTracking,
+  };
+};
+
+// Custom hook per gestire lo scroll e la visualizzazione dei messaggi
+const useMessageViewing = (messages) => {
+  const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
+  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const lastMessageRef = useRef(null);
+
+  const scrollToBottom = useCallback(
+    (behavior = "smooth") => {
+      if (messagesEndRef.current && shouldScrollToBottom) {
+        messagesEndRef.current.scrollIntoView({ behavior });
+      }
+    },
+    [shouldScrollToBottom]
+  );
+
+  const handleScroll = useCallback((e) => {
+    const container = e.target;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+
+    // Controlla se siamo vicini al bottom per l'auto-scroll
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShouldScrollToBottom(isNearBottom);
+  }, []);
+
+  // Effetto per gestire lo scroll automatico
   useEffect(() => {
     if (messages.length > 0) {
       // Salva l'ultimo messaggio come riferimento
@@ -1122,125 +911,84 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         scrollToBottom();
       }
     }
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  // Aggiungi questo effetto per resettare lo scroll quando cambia la chat
+  // Effetto per gestire il resize della finestra
   useEffect(() => {
-    setShouldScrollToBottom(true);
-    if (messagesEndRef.current) {
-      scrollToBottom("auto");
-    }
-  }, [selected?.roomId]);
-
-  // Funzione per ottenere il nome visualizzato
-  const getDisplayName = async (pubKey) => {
-    try {
-      console.log("Tentativo di recupero alias per:", pubKey);
-      const alias = await gun.get(`~${pubKey}`).get("alias").then();
-      if (!alias) {
-        console.warn("Alias non trovato per:", pubKey);
-        return pubKey.slice(0, 6) + "..." + pubKey.slice(-4);
+    const handleResize = () => {
+      if (shouldScrollToBottom) {
+        scrollToBottom("auto");
       }
-      return alias;
-    } catch (error) {
-      console.error("Errore nel recupero dell'alias per:", pubKey, error);
-      return pubKey.slice(0, 6) + "..." + pubKey.slice(-4);
-    }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [shouldScrollToBottom, scrollToBottom]);
+
+  return {
+    messagesEndRef,
+    messagesContainerRef,
+    handleScroll,
+    scrollToBottom,
   };
+};
 
-  React.useEffect(() => {
-    if (chatData) {
-      const otherPub =
-        chatData.user1 === user?.is?.pub ? chatData.user2 : chatData.user1;
+// Custom hook per gestire la vista mobile
+const useMobileView = (isMobileView) => {
+  const [currentIsMobileView, setCurrentIsMobileView] = useState(isMobileView);
 
-      // Sottoscrizione al nickname dell'altro utente
-      const unsub = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("nicknames")
-        .get(otherPub)
-        .on((nickname) => {
-          if (nickname) {
-            setDisplayName(nickname);
-          } else {
-            // Fallback all'indirizzo abbreviato
-            setDisplayName(`${otherPub.slice(0, 6)}...${otherPub.slice(-4)}`);
-          }
-        });
+  useEffect(() => {
+    const handleResize = () => {
+      setCurrentIsMobileView(window.innerWidth < 768);
+    };
 
-      return () => {
-        if (typeof unsub === "function") unsub();
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return { currentIsMobileView };
+};
+
+// Funzione per gestire i messaggi vocali
+const handleVoiceMessage = async (audioBlob) => {
+  if (!selected?.roomId || !canWrite) return;
+
+  try {
+    // Converti il blob in base64
+    const reader = new FileReader();
+    reader.readAsDataURL(audioBlob);
+    reader.onloadend = async () => {
+      const base64Audio = reader.result;
+      const messageId = `msg_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+
+      let messageData = {
+        id: messageId,
+        content: base64Audio,
+        type: "voice",
+        sender: user.is.pub,
+        timestamp: Date.now(),
       };
-    }
-  }, [chatData]);
 
-  React.useEffect(() => {
-    if (selected?.pub) {
-      // Sottoscrizione agli aggiornamenti del profilo utente
-      const unsubUserProfile = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("users")
-        .map()
-        .on((userData) => {
-          if (userData?.pub === selected.pub) {
-            setDisplayName(
-              userData.nickname || userData.username || selected.alias
-            );
-          }
-        });
-
-      return () => {
-        if (typeof unsubUserProfile === "function") {
-          unsubUserProfile();
-        }
-      };
-    }
-  }, [selected?.pub]);
-
-  const handleSendTip = async (recipientPub, amount, isStealthMode = false) => {
-    try {
-      await walletService.sendTip(recipientPub, amount, isStealthMode);
-      toast.success(
-        `Transazione ${isStealthMode ? "stealth " : ""}completata con successo!`
-      );
-    } catch (error) {
-      console.error("Errore invio tip:", error);
-      toast.error(error.message || "Errore nell'invio");
-    }
-  };
-
-  // Aggiungi la funzione sendMessage
-  const sendMessage = async () => {
-    if (!canWrite || !selected?.roomId || !newMessage.trim()) return;
-
-    const messageContent = newMessage.trim();
-    setNewMessage("");
-
-    try {
       if (selected.type === "friend") {
-        // Prima cripta il messaggio
+        // Cripta il messaggio vocale per le chat private
         const encryptedContent =
           await messaging.chat.messageList.encryptMessage(
-            messageContent,
+            base64Audio,
             selected.pub
           );
 
         if (!encryptedContent) {
-          throw new Error("Errore durante la crittografia del messaggio");
+          throw new Error(
+            "Errore durante la crittografia del messaggio vocale"
+          );
         }
 
-        const messageId = `msg_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-        const messageData = {
-          id: messageId,
-          content: encryptedContent,
-          sender: user.is.pub,
-          timestamp: Date.now(),
-        };
+        messageData.content = encryptedContent;
 
-        // Salva il messaggio criptato
         await gun
           .get(DAPP_NAME)
           .get("chats")
@@ -1249,19 +997,8 @@ export default function Messages({ chatData, isMobileView, onBack }) {
           .get(messageId)
           .put(messageData);
       } else {
-        // Per canali e bacheche il messaggio non viene criptato
-        const messageId = `msg_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-        const messageData = {
-          id: messageId,
-          content: messageContent,
-          sender: user.is.pub,
-          senderAlias: user.is.alias || "Unknown",
-          timestamp: Date.now(),
-        };
-
-        let path = selected.type === "channel" ? "channels" : "boards";
+        // Per canali e bacheche
+        const path = selected.type === "channel" ? "channels" : "boards";
         await gun
           .get(DAPP_NAME)
           .get(path)
@@ -1270,317 +1007,355 @@ export default function Messages({ chatData, isMobileView, onBack }) {
           .get(messageId)
           .put(messageData);
       }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      toast.error(error.message || "Errore nell'invio del messaggio");
-      setNewMessage(messageContent);
-    }
-  };
 
-  // Aggiungi questa funzione nel componente Messages
-  const handleDeleteAllMessages = async () => {
-    if (!selected?.roomId) return;
+      toast.success("Messaggio vocale inviato");
+    };
+  } catch (error) {
+    console.error("Errore invio messaggio vocale:", error);
+    toast.error("Errore nell'invio del messaggio vocale");
+  }
+};
 
-    try {
-      const isConfirmed = window.confirm(
-        "Sei sicuro di voler eliminare tutti i messaggi? Questa azione non può essere annullata."
-      );
+// Componente per il messaggio vocale
+const VoiceMessage = ({ content, isOwnMessage }) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-      if (!isConfirmed) return;
+  useEffect(() => {
+    if (!audioRef.current) return;
 
-      setLoading(true);
+    const audio = audioRef.current;
 
-      let path =
-        selected.type === "friend"
-          ? "chats"
-          : selected.type === "channel"
-          ? "channels"
-          : "boards";
-      let id = selected.type === "friend" ? selected.roomId : selected.id;
-
-      await messaging.chat.messageList.deleteAllMessages(path, id);
-
-      setMessages([]);
-      toast.success("Tutti i messaggi sono stati eliminati");
-    } catch (error) {
-      console.error("Error deleting all messages:", error);
-      toast.error("Errore durante l'eliminazione dei messaggi");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Aggiungi questa funzione per gestire lo sblocco
-  const handleUnblock = async () => {
-    try {
-      // Sblocca l'utente
-      await userBlocking.unblockUser(selected.pub);
-
-      // Sblocca anche la chat
-      const chatId = [user.is.pub, selected.pub].sort().join("_");
-      await chat.unblockChat(chatId);
-
-      // Resetta gli stati
-      setError(null);
-      setCanWrite(true);
-
-      // Ricarica la chat
-      setupChat();
-
-      toast.success(`${selected.alias} è stato sbloccato`);
-    } catch (error) {
-      console.error("Error unblocking user:", error);
-      toast.error("Errore durante lo sblocco dell'utente");
-    }
-  };
-
-  React.useEffect(() => {
-    if (selected?.pub && selected?.type === "friend") {
-      const loadUserInfo = async () => {
-        console.log("Caricamento info utente per:", selected.pub);
-        const info = await userUtils.getUserInfo(selected.pub);
-        setChatUserInfo(info);
-
-        // Carica l'avatar
-        const avatar = await getUserAvatar(selected.pub);
-        console.log("Avatar chat caricato:", avatar);
-        setChatUserAvatar(avatar);
-      };
-      loadUserInfo();
-
-      // Sottoscrizione diretta al nodo dell'utente in entrambi i percorsi
-      const unsub1 = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("users")
-        .get(selected.pub)
-        .on((data) => {
-          console.log("Aggiornamento dati utente ricevuto da userList:", data);
-          if (data) {
-            setChatUserInfo({
-              displayName: data.nickname || data.username || selected.alias,
-              username: data.username || "",
-              nickname: data.nickname || "",
-            });
-            if (data.avatar) {
-              console.log("Nuovo avatar ricevuto da userList:", data.avatar);
-              setChatUserAvatar(data.avatar);
-            }
-          }
-        });
-
-      const unsub2 = gun
-        .get(DAPP_NAME)
-        .get("users")
-        .get(selected.pub)
-        .on((data) => {
-          console.log("Aggiornamento dati utente ricevuto da users:", data);
-          if (data) {
-            setChatUserInfo({
-              displayName: data.nickname || data.username || selected.alias,
-              username: data.username || "",
-              nickname: data.nickname || "",
-            });
-            if (data.avatar) {
-              console.log("Nuovo avatar ricevuto da users:", data.avatar);
-              setChatUserAvatar(data.avatar);
-            }
-          }
-        });
-
-      return () => {
-        if (typeof unsub1 === "function") unsub1();
-        if (typeof unsub2 === "function") unsub2();
-      };
-    } else if (selected?.name) {
-      setChatUserInfo({
-        displayName: selected.name,
-        type: selected.type,
-      });
-      setChatUserAvatar(""); // Reset avatar per canali/board
-    }
-  }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
-
-  // Aggiungi un effetto per gestire il resize della finestra
-  React.useEffect(() => {
-    const handleResize = () => {
-      setCurrentIsMobileView(window.innerWidth < 768);
+    const handleLoadedMetadata = () => {
+      if (audio) {
+        setDuration(audio.duration);
+        setIsLoaded(true);
+      }
     };
 
-    window.addEventListener("resize", handleResize);
-    handleResize(); // Chiamata iniziale
+    const handleTimeUpdate = () => {
+      if (audio) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
 
-    return () => window.removeEventListener("resize", handleResize);
+    const handleEnded = () => {
+      setIsPlaying(false);
+    };
+
+    // Aggiungi gli event listener
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("ended", handleEnded);
+
+    // Cleanup
+    return () => {
+      if (audio) {
+        audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        audio.removeEventListener("timeupdate", handleTimeUpdate);
+        audio.removeEventListener("ended", handleEnded);
+      }
+    };
   }, []);
 
-  // Modifica la funzione startRecording
+  const togglePlay = () => {
+    if (!audioRef.current || !isLoaded) return;
+
+    if (audioRef.current.paused) {
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((error) => {
+          console.error("Errore riproduzione audio:", error);
+          setIsPlaying(false);
+        });
+    } else {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const formatTime = (time) => {
+    if (!isFinite(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div
+      className={`flex items-center space-x-2 ${
+        isOwnMessage ? "justify-end" : "justify-start"
+      }`}
+    >
+      <audio ref={audioRef} src={content} preload="metadata" />
+      <button
+        onClick={togglePlay}
+        disabled={!isLoaded}
+        className={`p-2 rounded-full ${
+          isLoaded ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-400"
+        } text-white`}
+      >
+        {isPlaying ? (
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              fillRule="evenodd"
+              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+        ) : (
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+              clipRule="evenodd"
+            />
+          </svg>
+        )}
+      </button>
+      <div className="flex flex-col">
+        <div className="text-xs text-gray-400">
+          {formatTime(currentTime)} / {formatTime(duration)}
+        </div>
+        <div className="w-32 h-1 bg-gray-200 rounded">
+          <div
+            className="h-full bg-blue-500 rounded"
+            style={{
+              width: `${isLoaded ? (currentTime / duration) * 100 : 0}%`,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Modifica l'area di input per includere il pulsante di registrazione
+const InputArea = ({
+  canWrite,
+  newMessage,
+  setNewMessage,
+  sendMessage,
+  handleVoiceMessage,
+}) => {
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+
   const startRecording = async () => {
     try {
-      const hasPermission = await checkMicrophonePermission();
-      if (!hasPermission) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      chunksRef.current = [];
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100,
-        },
-      });
-
-      setAudioStream(stream);
-      const recorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
-      setMediaRecorder(recorder);
-
-      const chunks = [];
-      recorder.ondataavailable = (e) => {
+      mediaRecorderRef.current.ondataavailable = (e) => {
         if (e.data.size > 0) {
-          chunks.push(e.data);
+          chunksRef.current.push(e.data);
         }
       };
 
-      recorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: "audio/webm;codecs=opus" });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = async () => {
-          const base64Audio = reader.result;
-          const messageId = `msg_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-
-          const voiceMessage = {
-            id: messageId,
-            sender: user.is.pub,
-            recipient: selected.pub,
-            type: "voice",
-            content: base64Audio,
-            timestamp: Date.now(),
-            status: "pending",
-            version: "2.0",
-          };
-
-          try {
-            // Salva il messaggio usando il sistema di messaggistica
-            gun
-              .get(DAPP_NAME)
-              .get("chats")
-              .get(selected.roomId || selected.id)
-              .get("messages")
-              .get(messageId)
-              .put(voiceMessage, (ack) => {
-                if (ack.err) {
-                  console.error(
-                    "Errore nel salvataggio del messaggio vocale:",
-                    ack.err
-                  );
-                  toast("❌ Errore nell'invio del messaggio vocale");
-                  return;
-                }
-
-                // Aggiorna l'ultimo messaggio della chat
-                gun
-                  .get(DAPP_NAME)
-                  .get("chats")
-                  .get(selected.roomId || selected.id)
-                  .get("lastMessage")
-                  .put({
-                    content: "[Messaggio vocale]",
-                    sender: user.is.pub,
-                    timestamp: Date.now(),
-                    type: "voice",
-                    version: "2.0",
-                  });
-
-                // Aggiorna la lista dei messaggi localmente
-                setMessages((prevMessages) => [...prevMessages, voiceMessage]);
-                toast("🎙️ Messaggio vocale inviato con successo");
-              });
-          } catch (error) {
-            console.error("Errore nell'invio del messaggio vocale:", error);
-            toast("❌ Errore nell'invio del messaggio vocale");
-          }
-        };
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+        handleVoiceMessage(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
       };
 
-      recorder.start();
+      mediaRecorderRef.current.start();
       setIsRecording(true);
-      toast("🎤 Registrazione in corso...");
     } catch (error) {
-      console.error("Errore nell'accesso al microfono:", error);
-      if (error.name === "NotAllowedError") {
-        toast(
-          "❌ Accesso al microfono negato. Controlla le impostazioni del browser."
-        );
-      } else if (error.name === "NotFoundError") {
-        toast("❌ Nessun microfono trovato. Collega un microfono e riprova.");
-      } else {
-        toast("❌ Errore nell'accesso al microfono: " + error.message);
-      }
+      console.error("Errore accesso microfono:", error);
+      toast.error("Errore accesso al microfono");
     }
   };
 
-  // Funzione per fermare la registrazione
   const stopRecording = () => {
-    if (mediaRecorder && isRecording) {
-      mediaRecorder.stop();
-      audioStream.getTracks().forEach((track) => track.stop());
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
       setIsRecording(false);
-      setAudioStream(null);
-      setMediaRecorder(null);
-      setAudioChunks([]);
-      toast("✅ Registrazione completata");
     }
   };
 
-  // Aggiungi questo effetto dopo gli altri useEffect
+  return (
+    <div className="p-3 bg-[#373B5C] border-t border-[#4A4F76]">
+      <div className="flex items-center space-x-2 bg-[#2D325A] rounded-full px-4 py-2">
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          placeholder="Scrivi un messaggio..."
+          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+          disabled={isRecording}
+        />
+        {!isRecording ? (
+          <>
+            <button
+              onClick={startRecording}
+              className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={sendMessage}
+              disabled={!newMessage.trim()}
+              className={`p-2 rounded-full text-white ${
+                !newMessage.trim()
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:bg-[#4A4F76]"
+              }`}
+            >
+              <AiOutlineSend className="w-5 h-5" />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={stopRecording}
+            className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76] animate-pulse"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1zm4 0a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default function Messages({ chatData, isMobileView = false, onBack }) {
+  const { selected, setCurrentChat } = React.useContext(Context);
+
+  // Utilizzo dei custom hooks
+  const {
+    messages,
+    setMessages,
+    loading,
+    error,
+    isLoadingMore,
+    hasMoreMessages,
+    loadMessages,
+    loadMoreMessages,
+  } = useMessages(selected, chatData);
+
+  const { chatUserInfo, chatUserAvatar } = useChatUser(selected, chatData);
+
+  const { canWrite, isBlocked, blockStatus, handleUnblock } =
+    useChatPermissions(selected, chatData);
+
+  const {
+    newMessage,
+    setNewMessage,
+    sendMessage,
+    handleDeleteMessage,
+    handleDeleteAllMessages,
+    messageTracking,
+  } = useMessageSending(selected, setMessages);
+
+  const { messagesEndRef, messagesContainerRef, handleScroll, scrollToBottom } =
+    useMessageViewing(messages);
+
+  const { currentIsMobileView } = useMobileView(isMobileView);
+
+  // Gestione dell'intersection observer per i messaggi
+  const handleMessageVisible = useCallback(
+    (messageId) => {
+      if (!selected?.pub || !selected?.roomId) return;
+      const message = messages.find((m) => m.id === messageId);
+      if (message && message.sender !== user.is.pub && !message.read) {
+        messageTracking.updateMessageStatus(messageId, selected.roomId, "read");
+      }
+    },
+    [selected?.pub, selected?.roomId, messages, messageTracking]
+  );
+
+  const messageObserver = useIntersectionObserver(handleMessageVisible, [
+    selected?.pub,
+    selected?.roomId,
+  ]);
+
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // Effetto per caricare i messaggi quando cambia la chat
   useEffect(() => {
-    if (!selected?.type || selected.type !== "friend" || !selected.pub) {
+    if (selected?.roomId || selected?.id) {
+      loadMessages();
+    }
+  }, [selected?.roomId, selected?.id, loadMessages]);
+
+  // Handler per l'invio di mance
+  const handleSendTip = async (amount, isStealthMode = false) => {
+    if (!selected?.pub) {
+      toast.error("Destinatario non valido");
       return;
     }
 
-    console.log("Avvio monitoraggio stato di blocco per:", selected.pub);
-    const subscription = userBlocking.observeBlockStatus().subscribe({
-      next: async ({ targetPub, isBlocked, blockedBy }) => {
-        if (targetPub !== selected.pub) return;
+    try {
+      setIsWalletModalOpen(false);
+      const toastId = toast.loading("Invio della transazione in corso...");
 
-        console.log("Aggiornamento stato di blocco:", { isBlocked, blockedBy });
+      const amountInWei = parseEther(amount.toString());
+      const tx = await walletService.sendTip(
+        selected.pub,
+        amountInWei,
+        isStealthMode
+      );
+      await tx.wait();
 
-        if (isBlocked || blockedBy) {
-          setCanWrite(false);
-          setError(
-            isBlocked
-              ? "Hai bloccato questo utente"
-              : "Questo utente ti ha bloccato"
-          );
-        } else {
-          setCanWrite(true);
-          setError(null);
-        }
-      },
-      error: (error) => {
-        console.error("Errore nel monitoraggio stato di blocco:", error);
-      },
-    });
+      toast.success(
+        `Transazione ${
+          isStealthMode ? "stealth " : ""
+        }completata con successo!`,
+        { id: toastId }
+      );
 
-    // Verifica lo stato iniziale
-    userBlocking.getBlockStatus(selected.pub).then((status) => {
-      if (status.blocked || status.blockedBy) {
-        setCanWrite(false);
-        setError(
-          status.blocked
-            ? "Hai bloccato questo utente"
-            : "Questo utente ti ha bloccato"
-        );
-      }
-    });
+      // Invia messaggio di sistema
+      const messageId = `tip_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const messageData = {
+        id: messageId,
+        content: `Ha inviato una mancia di ${amount} ETH${
+          isStealthMode ? " (modalità stealth)" : ""
+        }`,
+        sender: user.is.pub,
+        timestamp: Date.now(),
+        type: "system",
+      };
 
-    return () => {
-      console.log("Cleanup monitoraggio stato di blocco");
-      subscription.unsubscribe();
-    };
-  }, [selected?.pub, selected?.type]);
+      await gun
+        .get(DAPP_NAME)
+        .get("chats")
+        .get(selected.roomId)
+        .get("messages")
+        .get(messageId)
+        .put(messageData);
+
+      setMessages((prev) => [...prev, messageData]);
+    } catch (error) {
+      console.error("Errore invio mancia:", error);
+      toast.error(error.message || "Errore durante l'invio della mancia");
+    }
+  };
 
   if (!selected?.pub) {
     return (
@@ -1592,7 +1367,7 @@ export default function Messages({ chatData, isMobileView, onBack }) {
 
   return (
     <div className="flex flex-col h-full w-full max-w-full bg-[#424874]">
-      {/* Header della chat con pulsante back per mobile */}
+      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76]">
         <div className="flex items-center">
           {currentIsMobileView && (
@@ -1639,37 +1414,6 @@ export default function Messages({ chatData, isMobileView, onBack }) {
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          <button className="text-white hover:bg-[#4A4F76] p-2 rounded-full">
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            </svg>
-          </button>
-          <button className="text-white hover:bg-[#4A4F76] p-2 rounded-full">
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-              />
-            </svg>
-          </button>
-          {/* Mostra il pulsante del wallet solo nelle chat private */}
           {chatData &&
             chatData.type !== "channel" &&
             chatData.type !== "board" && (
@@ -1701,6 +1445,16 @@ export default function Messages({ chatData, isMobileView, onBack }) {
         className="flex-1 overflow-y-auto p-4 space-y-3"
         onScroll={handleScroll}
       >
+        {loading && (
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+        )}
+        {isLoadingMore && (
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
+          </div>
+        )}
         {messages.map((message) => (
           <MessageItem
             key={message.id}
@@ -1717,80 +1471,30 @@ export default function Messages({ chatData, isMobileView, onBack }) {
       </div>
 
       {/* Input area */}
-      <div className="flex items-center p-4 bg-gray-800">
-        {/* Pulsante registrazione */}
-        <button
-          onClick={isRecording ? stopRecording : startRecording}
-          className={`p-2 rounded-full mr-2 ${
-            isRecording
-              ? "bg-red-500 hover:bg-red-600"
-              : "bg-blue-500 hover:bg-blue-600"
-          }`}
-          title={isRecording ? "Ferma registrazione" : "Inizia registrazione"}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6 text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            {isRecording ? (
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            ) : (
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            )}
-          </svg>
-        </button>
+      {canWrite ? (
+        <InputArea
+          canWrite={canWrite}
+          newMessage={newMessage}
+          setNewMessage={setNewMessage}
+          sendMessage={sendMessage}
+          handleVoiceMessage={handleVoiceMessage}
+        />
+      ) : (
+        <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
+          Non hai i permessi per scrivere qui
+        </div>
+      )}
 
-        {canWrite ? (
-          <div className="flex items-center space-x-2 bg-[#2D325A] rounded-full px-4 py-2">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) =>
-                e.key === "Enter" && !e.shiftKey && sendMessage()
-              }
-              placeholder="Scrivi un messaggio..."
-              className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!newMessage.trim()}
-              className={`p-2 rounded-full text-white ${
-                !newMessage.trim()
-                  ? "opacity-50 cursor-not-allowed"
-                  : "hover:bg-[#4A4F76]"
-              }`}
-            >
-              <AiOutlineSend className="w-5 h-5" />
-            </button>
-          </div>
-        ) : (
-          <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
-            Non hai i permessi per scrivere qui
-          </div>
-        )}
-      </div>
       <Toaster />
+
       <WalletModal
         isOpen={isWalletModalOpen}
         onClose={() => setIsWalletModalOpen(false)}
         onSend={handleSendTip}
         selectedUser={selected}
       />
-      {error === "blocked" && (
+
+      {blockStatus.blockedByMe && (
         <div className="flex flex-col items-center justify-center h-full">
           <p className="text-red-500 mb-4">Hai bloccato questo utente</p>
           <button

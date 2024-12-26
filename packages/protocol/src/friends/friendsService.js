@@ -12,12 +12,15 @@ const friendsService = {
   areFriends: async (userPub1, userPub2) => {
     try {
       const friendship = await new Promise((resolve) => {
-        gun.get(`${DAPP_NAME}/friendships`)
+        gun
+          .get(`${DAPP_NAME}/friendships`)
           .map()
           .once((data, key) => {
-            if (data && 
-                ((data.user1 === userPub1 && data.user2 === userPub2) ||
-                 (data.user1 === userPub2 && data.user2 === userPub1))) {
+            if (
+              data &&
+              ((data.user1 === userPub1 && data.user2 === userPub2) ||
+                (data.user1 === userPub2 && data.user2 === userPub1))
+            ) {
               resolve(data);
             }
           });
@@ -43,28 +46,31 @@ const friendsService = {
       if (blockStatus.blocked || blockStatus.blockedBy) {
         return {
           canInteract: false,
-          reason: blockStatus.blocked ? 'user_blocked' : 'blocked_by_user'
+          reason: blockStatus.blocked ? 'user_blocked' : 'blocked_by_user',
         };
       }
 
       // Verifica amicizia
-      const areFriends = await friendsService.areFriends(user.is.pub, targetPub);
+      const areFriends = await friendsService.areFriends(
+        user.is.pub,
+        targetPub
+      );
       if (!areFriends) {
         return {
           canInteract: false,
-          reason: 'not_friends'
+          reason: 'not_friends',
         };
       }
 
       return {
         canInteract: true,
-        reason: null
+        reason: null,
       };
     } catch (error) {
       console.error('Errore nella verifica interazione:', error);
       return {
         canInteract: false,
-        reason: 'error'
+        reason: 'error',
       };
     }
   },
@@ -78,15 +84,17 @@ const friendsService = {
     try {
       const friends = await new Promise((resolve) => {
         const friendsList = [];
-        gun.get(`${DAPP_NAME}/friendships`)
+        gun
+          .get(`${DAPP_NAME}/friendships`)
           .map()
           .once((data) => {
             if (data && (data.user1 === userPub || data.user2 === userPub)) {
-              const friendPub = data.user1 === userPub ? data.user2 : data.user1;
+              const friendPub =
+                data.user1 === userPub ? data.user2 : data.user1;
               friendsList.push({
                 pub: friendPub,
                 timestamp: data.timestamp,
-                status: 'accepted'
+                status: 'accepted',
               });
             }
           });
@@ -100,7 +108,7 @@ const friendsService = {
           return {
             ...friend,
             blocked: blockStatus.blocked,
-            blockedBy: blockStatus.blockedBy
+            blockedBy: blockStatus.blockedBy,
           };
         })
       );
@@ -132,10 +140,10 @@ const friendsService = {
             .map()
             .on((request) => {
               if (!request || !request.to || request.to !== user.is.pub) return;
-              
+
               subscriber.next({
                 type: 'incoming',
-                data: request
+                data: request,
               });
             });
 
@@ -171,21 +179,28 @@ const friendsService = {
             .map()
             .on(async (friendship) => {
               if (!friendship) return;
-              
+
               // Verifica se l'utente è coinvolto nell'amicizia
-              if (friendship.user1 === user.is.pub || friendship.user2 === user.is.pub) {
-                const friendPub = friendship.user1 === user.is.pub ? 
-                  friendship.user2 : friendship.user1;
+              if (
+                friendship.user1 === user.is.pub ||
+                friendship.user2 === user.is.pub
+              ) {
+                const friendPub =
+                  friendship.user1 === user.is.pub
+                    ? friendship.user2
+                    : friendship.user1;
 
                 // Verifica lo stato di blocco
-                const blockStatus = await userBlocking.getBlockStatus(friendPub);
-                
+                const blockStatus = await userBlocking.getBlockStatus(
+                  friendPub
+                );
+
                 subscriber.next({
                   pub: friendPub,
                   timestamp: friendship.timestamp,
                   status: 'accepted',
                   blocked: blockStatus.blocked,
-                  blockedBy: blockStatus.blockedBy
+                  blockedBy: blockStatus.blockedBy,
                 });
               }
             });
@@ -220,12 +235,12 @@ const friendsService = {
         .on((userData, userPub) => {
           if (!userData || !userData.status) return;
 
-          friendsService.areFriends(user.is.pub, userPub).then(isFriend => {
+          friendsService.areFriends(user.is.pub, userPub).then((isFriend) => {
             if (isFriend) {
               subscriber.next({
                 pub: userPub,
                 status: userData.status,
-                lastSeen: userData.lastSeen
+                lastSeen: userData.lastSeen,
               });
             }
           });
@@ -236,7 +251,131 @@ const friendsService = {
         gun.get(`${DAPP_NAME}/users`).map().off(statusHandler);
       };
     });
-  }
+  },
+
+  /**
+   * Migra le amicizie esistenti aggiungendo i dati mancanti
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  migrateExistingFriendships: async () => {
+    try {
+      if (!user?.is) {
+        throw new Error('Utente non autenticato');
+      }
+
+      console.log('Inizio migrazione amicizie esistenti...');
+
+      // Recupera tutte le amicizie esistenti
+      const friendships = await new Promise((resolve) => {
+        const list = [];
+        gun
+          .get(DAPP_NAME)
+          .get('friendships')
+          .map()
+          .once((friendship) => {
+            if (
+              friendship &&
+              (friendship.user1 === user.is.pub ||
+                friendship.user2 === user.is.pub)
+            ) {
+              list.push(friendship);
+            }
+          });
+        setTimeout(() => resolve(list), 2000);
+      });
+
+      console.log('Amicizie trovate:', friendships.length);
+
+      // Per ogni amicizia
+      for (const friendship of friendships) {
+        const friendPub =
+          friendship.user1 === user.is.pub
+            ? friendship.user2
+            : friendship.user1;
+
+        // Recupera i dati dell'amico
+        const friendData = await new Promise((resolve) => {
+          gun.get(`~${friendPub}`).once((data) => {
+            resolve(data);
+          });
+        });
+
+        if (friendData) {
+          console.log('Aggiornamento dati per amico:', friendPub);
+
+          // Salva i dati dell'amico in userList
+          await gun
+            .get(DAPP_NAME)
+            .get('userList')
+            .get('users')
+            .get(friendPub)
+            .put({
+              pub: friendPub,
+              alias: friendData.alias,
+              displayName: friendData.alias,
+              lastSeen: Date.now(),
+              timestamp: Date.now(),
+            });
+
+          // Aggiorna il record di amicizia con gli alias
+          const updatedFriendship = {
+            ...friendship,
+            user1Alias:
+              friendship.user1 === user.is.pub
+                ? user.is.alias
+                : friendData.alias,
+            user2Alias:
+              friendship.user2 === user.is.pub
+                ? user.is.alias
+                : friendData.alias,
+            chatId: [friendship.user1, friendship.user2].sort().join('_'),
+          };
+
+          await gun
+            .get(DAPP_NAME)
+            .get('friendships')
+            .get(friendship.created)
+            .put(updatedFriendship);
+
+          // Assicurati che esista la chat
+          const chatData = {
+            id: updatedFriendship.chatId,
+            created: friendship.created || Date.now(),
+            status: 'active',
+            user1: friendship.user1,
+            user2: friendship.user2,
+            type: 'private',
+          };
+
+          await gun
+            .get(DAPP_NAME)
+            .get('chats')
+            .get(updatedFriendship.chatId)
+            .put(chatData);
+        }
+      }
+
+      // Salva anche i dati dell'utente corrente
+      await gun
+        .get(DAPP_NAME)
+        .get('userList')
+        .get('users')
+        .get(user.is.pub)
+        .put({
+          pub: user.is.pub,
+          alias: user.is.alias,
+          displayName: user.is.alias,
+          lastSeen: Date.now(),
+          timestamp: Date.now(),
+        });
+
+      console.log('Migrazione completata con successo');
+      return { success: true, message: 'Migrazione completata' };
+    } catch (error) {
+      console.error('Errore durante la migrazione:', error);
+      return { success: false, message: error.message };
+    }
+  },
 };
 
 export default friendsService;

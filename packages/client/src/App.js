@@ -243,6 +243,12 @@ function App() {
   const handleSelection = useCallback((item, type = "chat") => {
     console.log("Gestione selezione:", { item, type });
 
+    // Resetta lo stato dei messaggi
+    setMessages([]);
+
+    // Imposta il tipo di vista corretto
+    setCurrentView(type === "chat" ? "chats" : "channels");
+
     // Aggiorna il riferimento
     selectedRef.current = item;
 
@@ -265,7 +271,13 @@ function App() {
 
   // Effetto per gestire il cambio di vista
   useEffect(() => {
+    if (!currentView) return;
+
     console.log("Cambio vista:", currentView);
+
+    // Resetta la selezione quando si cambia vista
+    setMessages([]);
+    setSelected(null);
 
     // Ripristina la selezione appropriata
     if (currentView === "chats" && chatState.selected) {

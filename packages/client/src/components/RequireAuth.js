@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { sessionManager, user } from "linda-protocol";
-import { useContext } from "react";
-import Context from "../contexts/context";
+import { useAppState } from "../context/AppContext";
 
 const RequireAuth = ({ children }) => {
   const [authChecked, setAuthChecked] = useState(false);
   const [isAuth, setIsAuth] = useState(false);
   const location = useLocation();
-  const { setPub, setAlias } = useContext(Context);
+  const { appState, updateAppState } = useAppState();
 
   useEffect(() => {
     let mounted = true;
@@ -45,9 +44,12 @@ const RequireAuth = ({ children }) => {
           storedPub === user.is.pub
         ) {
           const username = localStorage.getItem("username");
-          setPub(storedPub);
-          setAlias(username || storedPub);
           if (mounted) {
+            updateAppState({
+              user: user,
+              isAuthenticated: true,
+              username: username || storedPub,
+            });
             setIsAuth(true);
           }
         } else {
@@ -55,6 +57,11 @@ const RequireAuth = ({ children }) => {
             "RequireAuth - Sessione non valida o utente non presente"
           );
           if (mounted) {
+            updateAppState({
+              user: null,
+              isAuthenticated: false,
+              username: null,
+            });
             setIsAuth(false);
           }
         }
@@ -64,6 +71,11 @@ const RequireAuth = ({ children }) => {
           error
         );
         if (mounted) {
+          updateAppState({
+            user: null,
+            isAuthenticated: false,
+            username: null,
+          });
           setIsAuth(false);
         }
       } finally {
@@ -73,12 +85,23 @@ const RequireAuth = ({ children }) => {
       }
     };
 
-    checkAuth();
+    // Esegui il check solo se lo stato di autenticazione non è già definito
+    if (!appState.isAuthenticated || !appState.user) {
+      checkAuth();
+    } else {
+      setIsAuth(true);
+      setAuthChecked(true);
+    }
 
     return () => {
       mounted = false;
     };
-  }, [location.pathname, setPub, setAlias]);
+  }, [
+    location.pathname,
+    updateAppState,
+    appState.isAuthenticated,
+    appState.user,
+  ]);
 
   if (!authChecked) {
     return (
@@ -101,18 +124,6 @@ const RequireAuth = ({ children }) => {
     }
     console.log("RequireAuth - Redirect a /login");
     return <Navigate to="/login" replace />;
-  }
-
-  // Se siamo autenticati ma siamo su /login, redirect alla homepage o alla pagina salvata
-  if (isAuth && location.pathname === "/login") {
-    const redirectPath =
-      localStorage.getItem("redirectAfterLogin") || "/homepage";
-    console.log(
-      "RequireAuth - Utente autenticato su /login, reindirizzamento a:",
-      redirectPath
-    );
-    localStorage.removeItem("redirectAfterLogin");
-    return <Navigate to={redirectPath} replace />;
   }
 
   return children;

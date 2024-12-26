@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import reportWebVitals from "./reportWebVitals";
-import { gun } from 'linda-protocol';
+import { gun } from "linda-protocol";
+import { AppProvider } from "./context/AppContext";
 
 // Funzione per verificare la connessione di Gun
 const waitForGunInitialization = () => {
@@ -11,10 +12,10 @@ const waitForGunInitialization = () => {
     const checkGun = () => {
       // Verifica se Gun è connesso controllando i peers
       if (gun && Object.keys(gun._.opt.peers).length > 0) {
-        console.log('Gun inizializzato con successo');
+        console.log("Gun inizializzato con successo");
         resolve();
       } else {
-        console.log('In attesa dell\'inizializzazione di Gun...');
+        console.log("In attesa dell'inizializzazione di Gun...");
         setTimeout(checkGun, 100);
       }
     };
@@ -26,16 +27,17 @@ const waitForGunInitialization = () => {
 const initializeApp = async () => {
   try {
     await waitForGunInitialization();
-    
+
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(
       // <React.StrictMode>
-          <App />
+      <AppProvider>
+        <App />
+      </AppProvider>
       // </React.StrictMode>
     );
-    
   } catch (error) {
-    console.error('Errore durante l\'inizializzazione:', error);
+    console.error("Errore durante l'inizializzazione:", error);
   }
 };
 

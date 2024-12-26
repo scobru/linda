@@ -12,8 +12,32 @@ const acceptFriendRequest = async (request) => {
   console.log('Accepting friend request:', request);
 
   try {
-    // Crea i certificati necessari
+    // Salva i dati dell'utente che ha inviato la richiesta
+    console.log('Salvataggio dati mittente:', request.senderInfo);
+    await gun
+      .get(DAPP_NAME)
+      .get('userList')
+      .get('users')
+      .get(request.from)
+      .put({
+        pub: request.from,
+        alias: request.senderInfo?.alias || request.alias,
+        displayName: request.senderInfo?.alias || request.alias,
+        lastSeen: Date.now(),
+        timestamp: Date.now(),
+      });
 
+    // Salva i dati dell'utente che accetta la richiesta
+    console.log('Salvataggio dati destinatario:', user.is);
+    await gun.get(DAPP_NAME).get('userList').get('users').get(user.is.pub).put({
+      pub: user.is.pub,
+      alias: user.is.alias,
+      displayName: user.is.alias,
+      lastSeen: Date.now(),
+      timestamp: Date.now(),
+    });
+
+    // Crea i certificati necessari
     const messagesCertificate = await createMessagesCertificate(request.from);
     const chatsCertificate = await createChatsCertificate(request.from);
 
@@ -34,30 +58,21 @@ const acceptFriendRequest = async (request) => {
     };
 
     // Salva la chat
-    await gun
-      .get(DAPP_NAME)
-      .get('chats')
-      .get(chatId)
-      .put(chatData, (ack) => {
-        return ack;
-      });
+    await gun.get(DAPP_NAME).get('chats').get(chatId).put(chatData);
 
-    // Crea il record di amicizia
+    // Crea il record di amicizia con alias
     const friendshipData = {
       user1: user.is.pub,
       user2: request.from,
       created: Date.now(),
       status: 'active',
       chatId: chatId,
+      user1Alias: user.is.alias,
+      user2Alias: request.senderInfo?.alias || request.alias,
     };
 
     // Salva l'amicizia
-    await gun
-      .get(DAPP_NAME)
-      .get('friendships')
-      .set(friendshipData, (ack) => {
-        return ack;
-      });
+    await gun.get(DAPP_NAME).get('friendships').set(friendshipData);
 
     // Rimuovi tutte le richieste correlate
     await gun
