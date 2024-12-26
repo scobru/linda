@@ -1,16 +1,43 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+} from "react";
 import { useAppState } from "../../context/AppContext";
 import FriendItem from "./FriendItem";
+import FriendRequest from "./FriendRequest";
 import { useFriends } from "../../hooks/useFriends";
 import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME, createMessagesCertificate } from "linda-protocol";
+import { gun, DAPP_NAME } from "linda-protocol";
 import { getUserUsername } from "../../utils/userUtils";
 
-const Friends = ({ onSelect, selectedUser }) => {
-  const { appState, currentView, setCurrentView } = useAppState();
+const Friends = ({
+  onSelect,
+  selectedUser,
+  pendingRequests = [],
+  loading = false,
+  onRequestProcessed,
+}) => {
+  const { appState } = useAppState();
   const { friends, removeFriend, blockUser, unblockUser } = useFriends();
   const [searchQuery, setSearchQuery] = useState("");
   const [friendsWithNames, setFriendsWithNames] = useState([]);
+
+  // Gestione richieste di amicizia
+  const handleRequestProcessed = useCallback(
+    (requestId, action) => {
+      console.log(
+        `Richiesta ${requestId} ${
+          action === "accept" ? "accettata" : "rifiutata"
+        }`
+      );
+      // Notifica il componente padre
+      onRequestProcessed?.(requestId, action);
+    },
+    [onRequestProcessed]
+  );
 
   // Carica i nomi degli amici
   useEffect(() => {
@@ -53,67 +80,27 @@ const Friends = ({ onSelect, selectedUser }) => {
   }, [friends, appState.pub]);
 
   const handleSelectFriend = useCallback(
-    async (friend) => {
-      if (!appState.pub) {
-        toast.error("Errore: utente non autenticato");
+    (friend) => {
+      if (friend.isBlocked) {
+        toast.error("Non puoi chattare con un utente bloccato");
         return;
       }
-
-      try {
-        const roomId = [friend.pub, appState.pub].sort().join("_");
-        console.log("Selezione amico:", {
-          ...friend,
-          type: "friend",
-          roomId,
-        });
-
-        // Verifica se esiste già il certificato
-        const cert = await gun
-          .get(DAPP_NAME)
-          .get("certificates")
-          .get(friend.pub)
-          .get("messages")
-          .then();
-
-        if (!cert) {
-          console.log("Creazione certificato per:", friend.pub);
-          await createMessagesCertificate(friend.pub);
-        }
-
-        // Passa l'amico selezionato con le informazioni necessarie
-        onSelect({
-          ...friend,
-          type: "friend",
-          roomId,
-        });
-      } catch (error) {
-        console.error("Errore selezione amico:", error);
-        toast.error("Errore nella selezione dell'amico");
-      }
+      onSelect(friend);
     },
-    [appState.pub, onSelect]
+    [onSelect]
   );
 
   const handleRemoveFriend = useCallback(
     async (friendPub) => {
       try {
-        if (!window.confirm("Sei sicuro di voler rimuovere questo amico?")) {
-          return;
-        }
-
         await removeFriend(friendPub);
         toast.success("Amico rimosso con successo");
-
-        // Se l'amico rimosso era selezionato, deselezionalo
-        if (selectedUser?.pub === friendPub) {
-          onSelect(null);
-        }
       } catch (error) {
         console.error("Errore rimozione amico:", error);
         toast.error("Errore durante la rimozione dell'amico");
       }
     },
-    [removeFriend, selectedUser, onSelect]
+    [removeFriend]
   );
 
   const handleBlockUser = useCallback(
@@ -162,6 +149,25 @@ const Friends = ({ onSelect, selectedUser }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* Richieste di amicizia pendenti */}
+        {pendingRequests.length > 0 && (
+          <div className="mb-4">
+            <h3 className="px-4 py-2 text-sm font-medium text-gray-400">
+              Richieste di amicizia ({pendingRequests.length})
+            </h3>
+            <div className="space-y-2 px-4">
+              {pendingRequests.map((request) => (
+                <FriendRequest
+                  key={request.id}
+                  request={request}
+                  onRequestProcessed={handleRequestProcessed}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Lista amici */}
         <div>
           <h3 className="px-4 py-2 text-sm font-medium text-gray-400">
             Amici ({filteredFriends.length})
