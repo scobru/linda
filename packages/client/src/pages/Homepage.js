@@ -890,6 +890,84 @@ export default function Homepage() {
     }
   }, [activeView]);
 
+  const handleBlockUser = async (friend) => {
+    try {
+      setLoading(true);
+      const result = await userBlocking.blockUser(friend.pub);
+      if (result.success) {
+        toast.success("Utente bloccato con successo");
+        // Aggiorna lo stato locale
+        setFriends((prev) =>
+          prev.map((f) =>
+            f.pub === friend.pub ? { ...f, isBlocked: true } : f
+          )
+        );
+      } else {
+        throw new Error(
+          result.message || "Errore durante il blocco dell'utente"
+        );
+      }
+    } catch (error) {
+      console.error("Errore nel blocco dell'utente:", error);
+      toast.error(error.message || "Errore durante il blocco dell'utente");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnblockUser = async (friend) => {
+    try {
+      setLoading(true);
+      const result = await userBlocking.unblockUser(friend.pub);
+      if (result.success) {
+        toast.success("Utente sbloccato con successo");
+        // Aggiorna lo stato locale
+        setFriends((prev) =>
+          prev.map((f) =>
+            f.pub === friend.pub ? { ...f, isBlocked: false } : f
+          )
+        );
+      } else {
+        throw new Error(
+          result.message || "Errore durante lo sblocco dell'utente"
+        );
+      }
+    } catch (error) {
+      console.error("Errore nello sblocco dell'utente:", error);
+      toast.error(error.message || "Errore durante lo sblocco dell'utente");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Monitora lo stato di blocco
+  useEffect(() => {
+    if (!user?.is) return;
+
+    const blockStatusSubscription = userBlocking
+      .observeBlockStatus()
+      .subscribe({
+        next: ({ targetPub, isBlocked, blockedBy }) => {
+          setFriends((prev) =>
+            prev.map((f) =>
+              f.pub === targetPub
+                ? { ...f, isBlocked, isBlockedBy: blockedBy }
+                : f
+            )
+          );
+        },
+        error: (error) => {
+          console.error("Errore nel monitoraggio stato di blocco:", error);
+        },
+      });
+
+    return () => {
+      if (blockStatusSubscription) {
+        blockStatusSubscription.unsubscribe();
+      }
+    };
+  }, [user?.is]);
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       <Header
@@ -1006,43 +1084,8 @@ export default function Homepage() {
                     toast.error("Errore durante la rimozione");
                   }
                 }}
-                onBlockUser={async (friend) => {
-                  try {
-                    const result = await userBlocking.blockUser(friend.pub);
-                    if (result.success) {
-                      toast.success(`${friend.alias} è stato bloccato`);
-                      setFriends((prev) =>
-                        prev.map((f) =>
-                          f.pub === friend.pub ? { ...f, isBlocked: true } : f
-                        )
-                      );
-                    }
-                  } catch (error) {
-                    console.error("Error blocking user:", error);
-                    toast.error("Errore durante il blocco dell'utente");
-                  }
-                }}
-                onUnblockUser={async (friend) => {
-                  try {
-                    const unblockResult = await userBlocking.unblockUser(
-                      friend.pub
-                    );
-                    if (!unblockResult.success) {
-                      throw new Error(unblockResult.message);
-                    }
-                    const chatId = [user.is.pub, friend.pub].sort().join("_");
-                    await chat.unblockChat(chatId);
-                    setFriends((prev) =>
-                      prev.map((f) =>
-                        f.pub === friend.pub ? { ...f, isBlocked: false } : f
-                      )
-                    );
-                    toast.success(`${friend.alias} è stato sbloccato`);
-                  } catch (error) {
-                    console.error("Error unblocking user:", error);
-                    toast.error("Errore durante lo sblocco dell'utente");
-                  }
-                }}
+                onBlockUser={handleBlockUser}
+                onUnblockUser={handleUnblockUser}
                 friends={friends}
               />
             )}

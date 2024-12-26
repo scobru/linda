@@ -177,27 +177,44 @@ export default function Friends({
 
     console.log("Avvio monitoraggio lista amici usando friendsService");
     let mounted = true;
-    let processedFriends = new Set(); // Set per tenere traccia degli amici già processati
+    let processedFriends = new Set();
+
+    const updateFriendBlockStatus = async (friend) => {
+      try {
+        const blockStatus = await userBlocking.getBlockStatus(friend.pub);
+        return {
+          ...friend,
+          isBlocked: blockStatus.blocked,
+          isBlockedBy: blockStatus.blockedBy,
+        };
+      } catch (error) {
+        console.error("Errore nel recupero dello stato di blocco:", error);
+        return friend;
+      }
+    };
 
     const subscription = friendsService.observeFriendsList().subscribe({
-      next: (friend) => {
+      next: async (friend) => {
         if (!mounted) return;
 
         const friendId = friend.pub;
         if (processedFriends.has(friendId)) {
           console.log("Amico già processato, aggiorno solo i dati:", friendId);
+          const updatedFriend = await updateFriendBlockStatus(friend);
           setFriends((prev) =>
-            prev.map((f) => (f.pub === friendId ? { ...f, ...friend } : f))
+            prev.map((f) =>
+              f.pub === friendId ? { ...f, ...updatedFriend } : f
+            )
           );
           return;
         }
 
         console.log("Nuovo amico:", friend);
         processedFriends.add(friendId);
+        const friendWithBlockStatus = await updateFriendBlockStatus(friend);
         setFriends((prev) => {
-          // Rimuovi eventuali duplicati esistenti
           const withoutDuplicates = prev.filter((f) => f.pub !== friendId);
-          return [...withoutDuplicates, friend];
+          return [...withoutDuplicates, friendWithBlockStatus];
         });
       },
       error: (error) => {
@@ -206,34 +223,53 @@ export default function Friends({
     });
 
     // Carica la lista amici iniziale
-    friendsService.getFriendsList(user.is.pub).then((friendsList) => {
+    friendsService.getFriendsList(user.is.pub).then(async (friendsList) => {
       if (mounted) {
         console.log("Lista amici iniziale caricata:", friendsList);
-        // Rimuovi duplicati dalla lista iniziale
-        const uniqueFriends = friendsList.reduce((acc, friend) => {
-          if (!friend || !friend.pub) return acc;
-          const existingIndex = acc.findIndex((f) => f.pub === friend.pub);
+        const uniqueFriends = [];
+        for (const friend of friendsList) {
+          if (!friend || !friend.pub) continue;
+          const existingIndex = uniqueFriends.findIndex(
+            (f) => f.pub === friend.pub
+          );
           if (existingIndex >= 0) {
-            // Aggiorna l'amico esistente con i nuovi dati
-            acc[existingIndex] = { ...acc[existingIndex], ...friend };
+            uniqueFriends[existingIndex] = {
+              ...uniqueFriends[existingIndex],
+              ...friend,
+            };
           } else {
-            // Aggiungi il nuovo amico
-            acc.push(friend);
+            const friendWithBlockStatus = await updateFriendBlockStatus(friend);
+            uniqueFriends.push(friendWithBlockStatus);
             processedFriends.add(friend.pub);
           }
-          return acc;
-        }, []);
+        }
 
         setFriends(uniqueFriends);
         setFilteredFriends(uniqueFriends);
       }
     });
 
+    // Monitora i cambiamenti nello stato di blocco
+    const blockStatusSubscription = userBlocking
+      .observeBlockStatus()
+      .subscribe({
+        next: ({ targetPub, isBlocked }) => {
+          if (!mounted) return;
+          setFriends((prev) =>
+            prev.map((f) => (f.pub === targetPub ? { ...f, isBlocked } : f))
+          );
+        },
+        error: (error) => {
+          console.error("Errore nel monitoraggio stato di blocco:", error);
+        },
+      });
+
     return () => {
       console.log("Cleanup sottoscrizioni amici");
       mounted = false;
       processedFriends.clear();
       subscription.unsubscribe();
+      blockStatusSubscription.unsubscribe();
     };
   }, [user?.is]);
 
@@ -340,8 +376,8 @@ export default function Friends({
         </div>
       </div>
 
-      {/* Lista amici */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Lista amici con gestione migliore dello spazio */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Richieste di amicizia in sospeso */}
         {renderFriendRequests()}
 
@@ -352,22 +388,24 @@ export default function Friends({
               <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
             </div>
           ) : (searchQuery.trim() ? filteredFriends : friends).length > 0 ? (
-            (searchQuery.trim() ? filteredFriends : friends).map(
-              (friend) =>
-                friend && (
-                  <FriendItem
-                    key={friend.pub}
-                    friend={friend}
-                    isSelected={selectedUser?.pub === friend.pub}
-                    onSelect={onSelect}
-                    onRemove={onRemoveFriend}
-                    onBlock={onBlockUser}
-                    onUnblock={onUnblockUser}
-                    isActiveMenu={activeMenu === friend.pub}
-                    onMenuToggle={handleMenuToggle}
-                  />
-                )
-            )
+            <div className="flex flex-col min-h-0">
+              {(searchQuery.trim() ? filteredFriends : friends).map(
+                (friend) =>
+                  friend && (
+                    <FriendItem
+                      key={friend.pub}
+                      friend={friend}
+                      isSelected={selectedUser?.pub === friend.pub}
+                      onSelect={onSelect}
+                      onRemove={onRemoveFriend}
+                      onBlock={onBlockUser}
+                      onUnblock={onUnblockUser}
+                      isActiveMenu={activeMenu === friend.pub}
+                      onMenuToggle={handleMenuToggle}
+                    />
+                  )
+              )}
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-32 text-gray-400">
               {searchQuery ? (

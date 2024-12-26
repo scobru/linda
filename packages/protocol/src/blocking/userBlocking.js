@@ -17,14 +17,15 @@ const userBlocking = {
       const blockData = {
         timestamp: Date.now(),
         status: 'blocked',
-        reason: 'user_blocked'
+        reason: 'user_blocked',
       };
 
       // Aggiorna tutti i punti di storage
       await Promise.all([
         // Database principale
         new Promise((resolve, reject) => {
-          gun.get(`${DAPP_NAME}/users`)
+          gun
+            .get(`${DAPP_NAME}/users`)
             .get(user.is.pub)
             .get('blocked')
             .get(targetPub)
@@ -36,30 +37,68 @@ const userBlocking = {
 
         // Profilo utente
         new Promise((resolve, reject) => {
-          user.get('profile')
+          user
+            .get('profile')
             .get('blocked')
-            .set({
-              pub: targetPub,
-              ...blockData
-            }, (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve();
-            });
+            .set(
+              {
+                pub: targetPub,
+                ...blockData,
+              },
+              (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve();
+              }
+            );
         }),
 
         // Stato globale
         new Promise((resolve, reject) => {
-          gun.get(`${DAPP_NAME}/blockStatus`)
+          gun
+            .get(`${DAPP_NAME}/blockStatus`)
             .get(`${user.is.pub}_${targetPub}`)
-            .put({
-              blocker: user.is.pub,
-              blocked: targetPub,
-              ...blockData
-            }, (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve();
-            });
-        })
+            .put(
+              {
+                blocker: user.is.pub,
+                blocked: targetPub,
+                ...blockData,
+              },
+              (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve();
+              }
+            );
+        }),
+
+        // Notifica l'utente bloccato
+        new Promise((resolve) => {
+          gun.get(`~${targetPub}`).get('notifications').get('blocks').set(
+            {
+              type: 'block',
+              from: user.is.pub,
+              timestamp: Date.now(),
+              status: 'blocked',
+            },
+            resolve
+          );
+        }),
+
+        // Aggiorna lo stato di blocco nell'utente bloccato
+        new Promise((resolve) => {
+          gun
+            .get(`${DAPP_NAME}/users`)
+            .get(targetPub)
+            .get('blockedBy')
+            .get(user.is.pub)
+            .put(
+              {
+                blocker: user.is.pub,
+                timestamp: Date.now(),
+                status: 'blocked',
+              },
+              resolve
+            );
+        }),
       ]);
 
       console.log(`Utente ${targetPub} bloccato con successo`);
@@ -86,7 +125,8 @@ const userBlocking = {
       await Promise.all([
         // Database principale
         new Promise((resolve) => {
-          gun.get(`${DAPP_NAME}/users`)
+          gun
+            .get(`${DAPP_NAME}/users`)
             .get(user.is.pub)
             .get('blocked')
             .get(targetPub)
@@ -95,15 +135,13 @@ const userBlocking = {
 
         // Profilo utente
         new Promise((resolve) => {
-          user.get('profile')
+          user
+            .get('profile')
             .get('blocked')
             .map()
             .once((data, key) => {
               if (data && data.pub === targetPub) {
-                user.get('profile')
-                  .get('blocked')
-                  .get(key)
-                  .put(null);
+                user.get('profile').get('blocked').get(key).put(null);
               }
             });
           setTimeout(resolve, 1000);
@@ -111,15 +149,19 @@ const userBlocking = {
 
         // Stato globale
         new Promise((resolve) => {
-          gun.get(`${DAPP_NAME}/blockStatus`)
+          gun
+            .get(`${DAPP_NAME}/blockStatus`)
             .get(`${user.is.pub}_${targetPub}`)
-            .put({
-              blocker: user.is.pub,
-              blocked: targetPub,
-              status: 'unblocked',
-              timestamp: Date.now()
-            }, resolve);
-        })
+            .put(
+              {
+                blocker: user.is.pub,
+                blocked: targetPub,
+                status: 'unblocked',
+                timestamp: Date.now(),
+              },
+              resolve
+            );
+        }),
       ]);
 
       console.log(`Utente ${targetPub} sbloccato con successo`);
@@ -141,7 +183,8 @@ const userBlocking = {
     try {
       // Verifica nel database principale
       const blockStatus = await new Promise((resolve) => {
-        gun.get(`${DAPP_NAME}/users`)
+        gun
+          .get(`${DAPP_NAME}/users`)
           .get(user.is.pub)
           .get('blocked')
           .get(targetPub)
@@ -154,11 +197,19 @@ const userBlocking = {
       if (!blockStatus) {
         const profileBlock = await new Promise((resolve) => {
           let found = false;
-          user.get('profile').get('blocked').map().once((blocked) => {
-            if (blocked && blocked.pub === targetPub && blocked.status === 'blocked') {
-              found = true;
-            }
-          });
+          user
+            .get('profile')
+            .get('blocked')
+            .map()
+            .once((blocked) => {
+              if (
+                blocked &&
+                blocked.pub === targetPub &&
+                blocked.status === 'blocked'
+              ) {
+                found = true;
+              }
+            });
           setTimeout(() => resolve(found), 500);
         });
         return profileBlock;
@@ -182,7 +233,8 @@ const userBlocking = {
     try {
       // Verifica nel database principale
       const blockStatus = await new Promise((resolve) => {
-        gun.get(`${DAPP_NAME}/users`)
+        gun
+          .get(`${DAPP_NAME}/users`)
           .get(targetPub)
           .get('blocked')
           .get(user.is.pub)
@@ -195,12 +247,17 @@ const userBlocking = {
       if (!blockStatus) {
         const profileBlock = await new Promise((resolve) => {
           let found = false;
-          gun.user(targetPub)
+          gun
+            .user(targetPub)
             .get('profile')
             .get('blocked')
             .map()
             .once((blocked) => {
-              if (blocked && blocked.pub === user.is.pub && blocked.status === 'blocked') {
+              if (
+                blocked &&
+                blocked.pub === user.is.pub &&
+                blocked.status === 'blocked'
+              ) {
                 found = true;
               }
             });
@@ -227,10 +284,77 @@ const userBlocking = {
     }
 
     try {
-      const [blocked, blockedBy] = await Promise.all([
-        userBlocking.isBlocked(targetPub),
-        userBlocking.isBlockedBy(targetPub)
-      ]);
+      // Verifica nel database principale
+      const mainDbStatus = await new Promise((resolve) => {
+        gun
+          .get(`${DAPP_NAME}/users`)
+          .get(user.is.pub)
+          .get('blocked')
+          .get(targetPub)
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      // Verifica nel profilo utente
+      const profileStatus = await new Promise((resolve) => {
+        let found = false;
+        user
+          .get('profile')
+          .get('blocked')
+          .map()
+          .once((blocked) => {
+            if (
+              blocked &&
+              blocked.pub === targetPub &&
+              blocked.status === 'blocked'
+            ) {
+              found = true;
+            }
+          });
+        setTimeout(() => resolve(found), 500);
+      });
+
+      // Verifica nello stato globale
+      const globalStatus = await new Promise((resolve) => {
+        gun
+          .get(`${DAPP_NAME}/blockStatus`)
+          .get(`${user.is.pub}_${targetPub}`)
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      // Verifica se siamo stati bloccati dall'altro utente
+      const blockedByStatus = await new Promise((resolve) => {
+        gun
+          .get(`${DAPP_NAME}/users`)
+          .get(user.is.pub)
+          .get('blockedBy')
+          .get(targetPub)
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      // Verifica anche nello stato globale dell'altro utente
+      const blockedByGlobalStatus = await new Promise((resolve) => {
+        gun
+          .get(`${DAPP_NAME}/blockStatus`)
+          .get(`${targetPub}_${user.is.pub}`)
+          .once((data) => {
+            resolve(data);
+          });
+      });
+
+      const blocked =
+        (mainDbStatus && mainDbStatus.status === 'blocked') ||
+        profileStatus ||
+        (globalStatus && globalStatus.status === 'blocked');
+
+      const blockedBy =
+        (blockedByStatus && blockedByStatus.status === 'blocked') ||
+        (blockedByGlobalStatus && blockedByGlobalStatus.status === 'blocked');
 
       return { blocked, blockedBy };
     } catch (error) {
@@ -246,7 +370,9 @@ const userBlocking = {
    */
   canInteract: async (targetPub) => {
     try {
-      const { blocked, blockedBy } = await userBlocking.getBlockStatus(targetPub);
+      const { blocked, blockedBy } = await userBlocking.getBlockStatus(
+        targetPub
+      );
 
       if (blocked) {
         return { canInteract: false, reason: 'user_blocked' };
@@ -275,41 +401,41 @@ const userBlocking = {
       }
 
       // Osserva il database principale
-      const mainHandler = gun.get(`${DAPP_NAME}/users`)
+      const mainHandler = gun
+        .get(`${DAPP_NAME}/users`)
         .get(user.is.pub)
         .get('blocked')
         .get(targetPub)
         .on((data) => {
           subscriber.next({
             isBlocked: !!data && data.status === 'blocked',
-            source: 'main'
+            source: 'main',
           });
         });
 
       // Osserva il profilo utente
-      const profileHandler = user.get('profile')
+      const profileHandler = user
+        .get('profile')
         .get('blocked')
         .map()
         .on((data) => {
           if (data && data.pub === targetPub) {
             subscriber.next({
               isBlocked: data.status === 'blocked',
-              source: 'profile'
+              source: 'profile',
             });
           }
         });
 
       // Cleanup
       return () => {
-        gun.get(`${DAPP_NAME}/users`)
+        gun
+          .get(`${DAPP_NAME}/users`)
           .get(user.is.pub)
           .get('blocked')
           .get(targetPub)
           .off();
-        user.get('profile')
-          .get('blocked')
-          .map()
-          .off();
+        user.get('profile').get('blocked').map().off();
       };
     });
   },
@@ -327,7 +453,8 @@ const userBlocking = {
       // Ottieni i blocchi dal database principale
       const mainBlocks = await new Promise((resolve) => {
         const blockedUsers = [];
-        gun.get(`${DAPP_NAME}/users`)
+        gun
+          .get(`${DAPP_NAME}/users`)
           .get(user.is.pub)
           .get('blocked')
           .map()
@@ -337,7 +464,7 @@ const userBlocking = {
                 pub: key,
                 timestamp: data.timestamp,
                 reason: data.reason,
-                source: 'main'
+                source: 'main',
               });
             }
           });
@@ -347,7 +474,8 @@ const userBlocking = {
       // Ottieni i blocchi dal profilo utente
       const profileBlocks = await new Promise((resolve) => {
         const blockedUsers = [];
-        user.get('profile')
+        user
+          .get('profile')
           .get('blocked')
           .map()
           .once((data) => {
@@ -356,7 +484,7 @@ const userBlocking = {
                 pub: data.pub,
                 timestamp: data.timestamp,
                 reason: data.reason,
-                source: 'profile'
+                source: 'profile',
               });
             }
           });
@@ -366,7 +494,7 @@ const userBlocking = {
       // Combina e deduplicizza i risultati
       const allBlocks = [...mainBlocks, ...profileBlocks];
       const uniqueBlocks = allBlocks.reduce((acc, block) => {
-        if (!acc.find(b => b.pub === block.pub)) {
+        if (!acc.find((b) => b.pub === block.pub)) {
           acc.push(block);
         }
         return acc;
@@ -374,7 +502,6 @@ const userBlocking = {
 
       // Ordina per timestamp decrescente
       return uniqueBlocks.sort((a, b) => b.timestamp - a.timestamp);
-
     } catch (error) {
       console.error('Errore nel recupero degli utenti bloccati:', error);
       return [];
@@ -398,7 +525,8 @@ const userBlocking = {
       };
 
       // Osserva i cambiamenti nel database principale
-      const mainHandler = gun.get(`${DAPP_NAME}/users`)
+      const mainHandler = gun
+        .get(`${DAPP_NAME}/users`)
         .get(user.is.pub)
         .get('blocked')
         .map()
@@ -407,7 +535,8 @@ const userBlocking = {
         });
 
       // Osserva i cambiamenti nel profilo
-      const profileHandler = user.get('profile')
+      const profileHandler = user
+        .get('profile')
         .get('blocked')
         .map()
         .on(() => {
@@ -419,18 +548,87 @@ const userBlocking = {
 
       // Cleanup
       return () => {
-        gun.get(`${DAPP_NAME}/users`)
+        gun
+          .get(`${DAPP_NAME}/users`)
           .get(user.is.pub)
           .get('blocked')
           .map()
           .off();
-        user.get('profile')
-          .get('blocked')
-          .map()
-          .off();
+        user.get('profile').get('blocked').map().off();
       };
     });
-  }
+  },
+
+  /**
+   * Osserva i cambiamenti nello stato di blocco
+   * @returns {Observable}
+   */
+  observeBlockStatus: () => {
+    return new Observable((subscriber) => {
+      if (!user.is) {
+        subscriber.error(new Error('Utente non autenticato'));
+        return;
+      }
+
+      const emitBlockStatus = async (targetPub) => {
+        const status = await userBlocking.getBlockStatus(targetPub);
+        subscriber.next({
+          targetPub,
+          isBlocked: status.blocked,
+          blockedBy: status.blockedBy,
+        });
+      };
+
+      // Monitora i cambiamenti nel database principale
+      const mainHandler = gun
+        .get(`${DAPP_NAME}/users`)
+        .get(user.is.pub)
+        .get('blocked')
+        .map()
+        .on((data, key) => {
+          if (key) emitBlockStatus(key);
+        });
+
+      // Monitora i cambiamenti nel profilo
+      const profileHandler = user
+        .get('profile')
+        .get('blocked')
+        .map()
+        .on((data) => {
+          if (data && data.pub) emitBlockStatus(data.pub);
+        });
+
+      // Monitora i cambiamenti nello stato globale (quando blocchiamo)
+      const globalHandler1 = gun
+        .get(`${DAPP_NAME}/blockStatus`)
+        .map()
+        .on((data, key) => {
+          if (key && key.startsWith(user.is.pub + '_')) {
+            const targetPub = key.split('_')[1];
+            emitBlockStatus(targetPub);
+          }
+        });
+
+      // Monitora i cambiamenti nello stato globale (quando veniamo bloccati)
+      const globalHandler2 = gun
+        .get(`${DAPP_NAME}/blockStatus`)
+        .map()
+        .on((data, key) => {
+          if (key && key.endsWith('_' + user.is.pub)) {
+            const targetPub = key.split('_')[0];
+            emitBlockStatus(targetPub);
+          }
+        });
+
+      return () => {
+        // Cleanup delle sottoscrizioni
+        if (mainHandler) mainHandler.off();
+        if (profileHandler) profileHandler.off();
+        if (globalHandler1) globalHandler1.off();
+        if (globalHandler2) globalHandler2.off();
+      };
+    });
+  },
 };
 
 export default userBlocking;

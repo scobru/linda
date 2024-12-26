@@ -551,11 +551,11 @@ const checkMicrophonePermission = async () => {
   }
 };
 
-export default function Messages({ chatData, isMobileView = false, onBack }) {
+export default function Messages({ chatData, isMobileView, onBack }) {
   const { selected, setCurrentChat, setSelected } = React.useContext(Context);
   const [messages, setMessages] = React.useState([]);
   const [newMessage, setNewMessage] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [currentIsMobileView, setCurrentIsMobileView] =
     React.useState(isMobileView);
@@ -573,20 +573,18 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   const blockCheckTimeoutRef = React.useRef(null);
   const lastBlockCheckRef = React.useRef(null);
   const [isAdmin, setIsAdmin] = React.useState(false);
-  const [canWrite, setCanWrite] = React.useState(false);
+  const [canWrite, setCanWrite] = React.useState(true);
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [isSubscribing, setIsSubscribing] = React.useState(false);
   const previousRoomIdRef = React.useRef(null);
-  const [isSubscribed, setIsSubscribed] = React.useState(true);
+  const isSubscribed = useRef(true);
   const [shouldScrollToBottom, setShouldScrollToBottom] = React.useState(true);
   const lastMessageRef = React.useRef(null);
   const [displayName, setDisplayName] = React.useState("");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(
-    Date.now()
-  );
+  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(null);
   const messagesContainerRef = useRef(null);
   const [chatUserInfo, setChatUserInfo] = React.useState({
     displayName: selected?.name || "Loading...",
@@ -1535,6 +1533,54 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       toast("✅ Registrazione completata");
     }
   };
+
+  // Aggiungi questo effetto dopo gli altri useEffect
+  useEffect(() => {
+    if (!selected?.type || selected.type !== "friend" || !selected.pub) {
+      return;
+    }
+
+    console.log("Avvio monitoraggio stato di blocco per:", selected.pub);
+    const subscription = userBlocking.observeBlockStatus().subscribe({
+      next: async ({ targetPub, isBlocked, blockedBy }) => {
+        if (targetPub !== selected.pub) return;
+
+        console.log("Aggiornamento stato di blocco:", { isBlocked, blockedBy });
+
+        if (isBlocked || blockedBy) {
+          setCanWrite(false);
+          setError(
+            isBlocked
+              ? "Hai bloccato questo utente"
+              : "Questo utente ti ha bloccato"
+          );
+        } else {
+          setCanWrite(true);
+          setError(null);
+        }
+      },
+      error: (error) => {
+        console.error("Errore nel monitoraggio stato di blocco:", error);
+      },
+    });
+
+    // Verifica lo stato iniziale
+    userBlocking.getBlockStatus(selected.pub).then((status) => {
+      if (status.blocked || status.blockedBy) {
+        setCanWrite(false);
+        setError(
+          status.blocked
+            ? "Hai bloccato questo utente"
+            : "Questo utente ti ha bloccato"
+        );
+      }
+    });
+
+    return () => {
+      console.log("Cleanup monitoraggio stato di blocco");
+      subscription.unsubscribe();
+    };
+  }, [selected?.pub, selected?.type]);
 
   if (!selected?.pub) {
     return (

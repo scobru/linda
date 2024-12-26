@@ -209,60 +209,63 @@ const FriendItem = React.memo(
             </button>
 
             {isActiveMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
+              <div className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-auto sm:right-0 sm:bottom-auto sm:mt-2 w-full sm:w-48 bg-[#2D325A] rounded-t-lg sm:rounded-md shadow-lg z-50">
                 <div
-                  className="fixed inset-0"
+                  className="fixed inset-0 bg-black bg-opacity-50"
                   onClick={() => onMenuToggle(null)}
                 />
-                <div className="relative z-50 bg-white rounded-md">
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        if (
-                          window.confirm(
-                            "Sei sicuro di voler rimuovere questo amico?"
-                          )
-                        ) {
-                          await removeFriend(friend.pub);
-                          toast.success("Amico rimosso con successo");
-                          onRemove(friend);
-                          onMenuToggle(null);
+                <div className="relative z-50 bg-[#2D325A] rounded-t-lg sm:rounded-md">
+                  {/* Menu contestuale mobile-friendly */}
+                  <div className="py-1 max-h-[calc(100vh-200px)] overflow-y-auto">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          if (
+                            window.confirm(
+                              "Sei sicuro di voler rimuovere questo amico?"
+                            )
+                          ) {
+                            await removeFriend(friend.pub);
+                            toast.success("Amico rimosso con successo");
+                            onRemove(friend);
+                            onMenuToggle(null);
+                          }
+                        } catch (error) {
+                          console.error("Errore rimozione amico:", error);
+                          toast.error(
+                            error.message || "Errore durante la rimozione"
+                          );
                         }
-                      } catch (error) {
-                        console.error("Errore rimozione amico:", error);
-                        toast.error(
-                          error.message || "Errore durante la rimozione"
-                        );
-                      }
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    Rimuovi amico
-                  </button>
-                  {friend.isBlocked ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUnblock(friend);
-                        onMenuToggle(null);
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                      className="block w-full text-left px-4 py-4 text-sm text-red-400 hover:bg-[#373B5C] border-b border-[#4A4F76]"
                     >
-                      Sblocca utente
+                      Rimuovi amico
                     </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onBlock(friend);
-                        onMenuToggle(null);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      Blocca utente
-                    </button>
-                  )}
+                    {friend.isBlocked ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnblock(friend);
+                          onMenuToggle(null);
+                        }}
+                        className="block w-full text-left px-4 py-4 text-sm text-blue-400 hover:bg-[#373B5C]"
+                      >
+                        Sblocca utente
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBlock(friend);
+                          onMenuToggle(null);
+                        }}
+                        className="block w-full text-left px-4 py-4 text-sm text-red-400 hover:bg-[#373B5C]"
+                      >
+                        Blocca utente
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

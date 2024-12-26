@@ -1,4 +1,5 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
+import userBlocking from '../blocking/userBlocking.js';
 
 /**
  * Verifica se è possibile interagire con un utente
@@ -11,33 +12,14 @@ export const canInteractWithUser = async (targetPub) => {
   }
 
   try {
-    // Verifica nel database principale
-    const blockStatus = await new Promise((resolve) => {
-      gun.get(`${DAPP_NAME}/users`)
-        .get(user.is.pub)
-        .get('blocked')
-        .get(targetPub)
-        .once((data) => {
-          resolve(data);
-        });
-    });
+    // Utilizza il servizio userBlocking per una verifica completa
+    const { blocked, blockedBy } = await userBlocking.getBlockStatus(targetPub);
 
-    if (blockStatus && blockStatus.status === 'blocked') {
+    if (blocked) {
       return { canInteract: false, reason: 'user_blocked' };
     }
 
-    // Verifica se siamo stati bloccati
-    const blockedByStatus = await new Promise((resolve) => {
-      gun.get(`${DAPP_NAME}/users`)
-        .get(targetPub)
-        .get('blocked')
-        .get(user.is.pub)
-        .once((data) => {
-          resolve(data);
-        });
-    });
-
-    if (blockedByStatus && blockedByStatus.status === 'blocked') {
+    if (blockedBy) {
       return { canInteract: false, reason: 'blocked_by_user' };
     }
 
@@ -46,4 +28,4 @@ export const canInteractWithUser = async (targetPub) => {
     console.error('Errore nella verifica delle interazioni:', error);
     return { canInteract: false, reason: 'error' };
   }
-}; 
+};
