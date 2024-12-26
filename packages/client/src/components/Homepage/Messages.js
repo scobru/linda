@@ -6,7 +6,7 @@ import React, {
   useEffect,
 } from "react";
 import Context from "../../contexts/context";
-import { toast, Toaster } from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
 import { messaging, blocking } from "linda-protocol";
 import { gun, user, notifications, DAPP_NAME } from "linda-protocol";
@@ -18,8 +18,7 @@ import { ethers } from "ethers";
 import WalletModal from "./WalletModal";
 
 const { userBlocking } = blocking;
-const { channels } = messaging;
-const { chat } = messaging;
+const { channels, chat, sendVoiceMessage } = messaging;
 
 // Custom hook for the intersection observer
 const useIntersectionObserver = (callback, deps = []) => {
@@ -439,11 +438,18 @@ const MessageItem = ({
               : "bg-[#2D325A] text-white rounded-bl-none"
           } max-w-full`}
         >
-          <span className="whitespace-pre-wrap">
-            {typeof message.content === "string"
-              ? message.content
-              : "[Invalid message]"}
-          </span>
+          {message.type === "voice" ? (
+            <audio controls className="max-w-[200px]">
+              <source src={message.content} type="audio/webm;codecs=opus" />
+              Il tuo browser non supporta l'elemento audio.
+            </audio>
+          ) : (
+            <span className="whitespace-pre-wrap">
+              {typeof message.content === "string"
+                ? message.content
+                : "[Invalid message]"}
+            </span>
+          )}
         </div>
         {isOwnMessage && <MessageStatus message={message} />}
       </div>
@@ -469,20 +475,52 @@ const handleMessages = (data) => {
 
     if (data.initial) {
       const validMessages = (data.initial || []).filter(
-        (msg) => msg && msg.content && msg.sender && msg.timestamp
+        (msg) =>
+          msg &&
+          (msg.content || msg.type === "voice") &&
+          msg.sender &&
+          msg.timestamp
       );
 
-      const processedMessages =
-        selected.type === "friend"
-          ? validMessages.map((msg) =>
-              messageList.decryptMessage(msg, msg.sender)
-            )
-          : validMessages;
+      // Non decrittare i messaggi vocali
+      const processedMessages = validMessages.map((msg) => {
+        if (msg.type === "voice") {
+          console.log("Messaggio vocale trovato:", msg);
+          return msg;
+        }
+        return selected.type === "friend"
+          ? messageList.decryptMessage(msg, msg.sender)
+          : msg;
+      });
 
       Promise.all(processedMessages).then((decryptedMessages) => {
+        console.log("Messaggi processati:", decryptedMessages);
         setMessages(decryptedMessages);
         setLoading(false);
       });
+    } else if (data.new) {
+      const newMsg = data.new;
+      if (
+        newMsg &&
+        (newMsg.content || newMsg.type === "voice") &&
+        newMsg.sender &&
+        newMsg.timestamp
+      ) {
+        if (newMsg.type === "voice") {
+          console.log("Nuovo messaggio vocale ricevuto:", newMsg);
+          setMessages((prevMessages) => [...prevMessages, newMsg]);
+        } else {
+          const processedMessage =
+            selected.type === "friend"
+              ? messageList.decryptMessage(newMsg, newMsg.sender)
+              : Promise.resolve(newMsg);
+
+          processedMessage.then((decryptedMsg) => {
+            console.log("Nuovo messaggio decrittato:", decryptedMsg);
+            setMessages((prevMessages) => [...prevMessages, decryptedMsg]);
+          });
+        }
+      }
     }
   } catch (error) {
     console.error("Errore durante la decrittazione:", error);
@@ -494,6 +532,23 @@ const handleError = (error) => {
   console.error("Error loading messages:", error);
   setError("Error loading messages");
   setLoading(false);
+};
+
+// Funzione per verificare i permessi del microfono
+const checkMicrophonePermission = async () => {
+  try {
+    const result = await navigator.permissions.query({ name: "microphone" });
+    if (result.state === "denied") {
+      toast.error(
+        "Permesso microfono negato. Controlla le impostazioni del browser."
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("Errore nel controllo dei permessi:", error);
+    return false;
+  }
 };
 
 export default function Messages({ chatData, isMobileView = false, onBack }) {
@@ -538,6 +593,10 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     username: "",
     nickname: "",
   });
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [audioStream, setAudioStream] = React.useState(null);
+  const [mediaRecorder, setMediaRecorder] = React.useState(null);
+  const [audioChunks, setAudioChunks] = React.useState([]);
 
   // Usa useMemo per creare una singola istanza del messageTracking
   const messageTracking = useMemo(() => createMessageTracking(), []);
@@ -1356,6 +1415,127 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Modifica la funzione startRecording
+  const startRecording = async () => {
+    try {
+      const hasPermission = await checkMicrophonePermission();
+      if (!hasPermission) return;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        },
+      });
+
+      setAudioStream(stream);
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+      });
+      setMediaRecorder(recorder);
+
+      const chunks = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: "audio/webm;codecs=opus" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          const messageId = `msg_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          const voiceMessage = {
+            id: messageId,
+            sender: user.is.pub,
+            recipient: selected.pub,
+            type: "voice",
+            content: base64Audio,
+            timestamp: Date.now(),
+            status: "pending",
+            version: "2.0",
+          };
+
+          try {
+            // Salva il messaggio usando il sistema di messaggistica
+            gun
+              .get(DAPP_NAME)
+              .get("chats")
+              .get(selected.roomId || selected.id)
+              .get("messages")
+              .get(messageId)
+              .put(voiceMessage, (ack) => {
+                if (ack.err) {
+                  console.error(
+                    "Errore nel salvataggio del messaggio vocale:",
+                    ack.err
+                  );
+                  toast("❌ Errore nell'invio del messaggio vocale");
+                  return;
+                }
+
+                // Aggiorna l'ultimo messaggio della chat
+                gun
+                  .get(DAPP_NAME)
+                  .get("chats")
+                  .get(selected.roomId || selected.id)
+                  .get("lastMessage")
+                  .put({
+                    content: "[Messaggio vocale]",
+                    sender: user.is.pub,
+                    timestamp: Date.now(),
+                    type: "voice",
+                    version: "2.0",
+                  });
+
+                // Aggiorna la lista dei messaggi localmente
+                setMessages((prevMessages) => [...prevMessages, voiceMessage]);
+                toast("🎙️ Messaggio vocale inviato con successo");
+              });
+          } catch (error) {
+            console.error("Errore nell'invio del messaggio vocale:", error);
+            toast("❌ Errore nell'invio del messaggio vocale");
+          }
+        };
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      toast("🎤 Registrazione in corso...");
+    } catch (error) {
+      console.error("Errore nell'accesso al microfono:", error);
+      if (error.name === "NotAllowedError") {
+        toast(
+          "❌ Accesso al microfono negato. Controlla le impostazioni del browser."
+        );
+      } else if (error.name === "NotFoundError") {
+        toast("❌ Nessun microfono trovato. Collega un microfono e riprova.");
+      } else {
+        toast("❌ Errore nell'accesso al microfono: " + error.message);
+      }
+    }
+  };
+
+  // Funzione per fermare la registrazione
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      audioStream.getTracks().forEach((track) => track.stop());
+      setIsRecording(false);
+      setAudioStream(null);
+      setMediaRecorder(null);
+      setAudioChunks([]);
+      toast("✅ Registrazione completata");
+    }
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1491,8 +1671,43 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       </div>
 
       {/* Input area */}
-      {canWrite ? (
-        <div className="p-3 bg-[#373B5C] border-t border-[#4A4F76]">
+      <div className="flex items-center p-4 bg-gray-800">
+        {/* Pulsante registrazione */}
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          className={`p-2 rounded-full mr-2 ${
+            isRecording
+              ? "bg-red-500 hover:bg-red-600"
+              : "bg-blue-500 hover:bg-blue-600"
+          }`}
+          title={isRecording ? "Ferma registrazione" : "Inizia registrazione"}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            {isRecording ? (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            ) : (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+              />
+            )}
+          </svg>
+        </button>
+
+        {canWrite ? (
           <div className="flex items-center space-x-2 bg-[#2D325A] rounded-full px-4 py-2">
             <input
               type="text"
@@ -1516,12 +1731,12 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
               <AiOutlineSend className="w-5 h-5" />
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
-          Non hai i permessi per scrivere qui
-        </div>
-      )}
+        ) : (
+          <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
+            Non hai i permessi per scrivere qui
+          </div>
+        )}
+      </div>
       <Toaster />
       <WalletModal
         isOpen={isWalletModalOpen}

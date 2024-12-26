@@ -22,7 +22,9 @@ import {
  * @throws {Error} If user not authenticated or removal fails
  */
 const removeFriend = async (friendPub) => {
+  console.log('Removing friend', friendPub);
   if (!user.is) throw new Error('Utente non autenticato');
+  if (!friendPub) throw new Error('Chiave pubblica amico richiesta');
 
   try {
     // Genera ID univoco per la chat
@@ -30,14 +32,19 @@ const removeFriend = async (friendPub) => {
 
     // 1. Revoca tutti i certificati associati
     try {
-      await revokeChatsCertificate(friendPub);
-      await revokeMessagesCertificate(friendPub);
+      await Promise.resolve([
+        revokeChatsCertificate(friendPub),
+        revokeMessagesCertificate(friendPub),
+      ]);
     } catch (error) {
       console.warn('Errore durante la revoca dei certificati:', error);
     }
 
+    console.log('Revoca certificati completata');
+
     // 2. Rimuovi completamente l'amicizia dal nodo friendships
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
+      let found = false;
       gun
         .get(DAPP_NAME)
         .get('friendships')
@@ -51,15 +58,25 @@ const removeFriend = async (friendPub) => {
                 friendship.user1 === user.is.pub);
 
             if (isMatch) {
-              gun.get(DAPP_NAME).get('friendships').get(friendshipId).put(null);
+              found = true;
+              gun
+                .get(DAPP_NAME)
+                .get('friendships')
+                .get(friendshipId)
+                .put(null, (ack) => {
+                  if (ack.err) reject(new Error(ack.err));
+                });
             }
           }
         });
-      setTimeout(resolve, 500);
+
+      // Risolvi dopo un timeout anche se non trovato
+      setTimeout(() => resolve(found), 1000);
     });
 
     // 3. Rimuovi dalla lista amici dell'utente corrente
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
+      let found = false;
       gun
         .user()
         .get(DAPP_NAME)
@@ -67,10 +84,19 @@ const removeFriend = async (friendPub) => {
         .map()
         .once((data, key) => {
           if (data && data.pub === friendPub) {
-            gun.user().get(DAPP_NAME).get('my_friends').get(key).put(null);
+            found = true;
+            gun
+              .user()
+              .get(DAPP_NAME)
+              .get('my_friends')
+              .get(key)
+              .put(null, (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+              });
           }
         });
-      setTimeout(resolve, 500);
+
+      setTimeout(() => resolve(found), 1000);
     });
 
     // 4. Rimuovi dalla lista amici dell'altro utente
@@ -90,7 +116,7 @@ const removeFriend = async (friendPub) => {
               .put(null);
           }
         });
-      setTimeout(resolve, 500);
+      setTimeout(resolve, 1000);
     });
 
     // 5. Rimuovi completamente la chat e tutti i suoi messaggi
@@ -117,7 +143,7 @@ const removeFriend = async (friendPub) => {
       // Poi rimuovi la chat stessa
       gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
 
-      setTimeout(resolve, 500);
+      setTimeout(resolve, 1000);
     });
 
     // 6. Rimuovi eventuali richieste di amicizia pendenti
@@ -137,21 +163,25 @@ const removeFriend = async (friendPub) => {
             }
           }
         });
-      setTimeout(resolve, 500);
+      setTimeout(resolve, 1000);
     });
 
     // 7. Pulisci eventuali riferimenti nel nodo dell'utente
-    await gun
-      .user()
-      .get(DAPP_NAME)
-      .get('friends_data')
-      .get(friendPub)
-      .put(null);
+    await new Promise((resolve, reject) => {
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('friends_data')
+        .get(friendPub)
+        .put(null, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
 
     // 8. Pulisci eventuali dati di chat memorizzati localmente
     if (typeof window !== 'undefined') {
       try {
-        // Rimuovi dati dalla localStorage se presenti
         localStorage.removeItem(`chat_${chatId}`);
         localStorage.removeItem(`messages_${chatId}`);
       } catch (error) {
@@ -166,7 +196,7 @@ const removeFriend = async (friendPub) => {
     return { success: true, message: 'Amico rimosso con successo' };
   } catch (error) {
     console.error('Error removing friend:', error);
-    throw error;
+    throw new Error("Errore durante la rimozione dell'amico: " + error.message);
   }
 };
 

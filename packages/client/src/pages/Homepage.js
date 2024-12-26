@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import Context from "../contexts/context";
-import { messaging, sessionManager } from "linda-protocol";
+import {
+  messaging,
+  sessionManager,
+  userBlocking,
+  friendships,
+} from "linda-protocol";
 import { toast } from "react-hot-toast";
-import { gun, user } from "linda-protocol";
+import { gun, user, DAPP_NAME } from "linda-protocol";
 // compos
 import Friends from "../components/Homepage/Friends";
 import Profile from "../components/Homepage/Profile";
@@ -10,7 +15,6 @@ import AddFriend from "../components/Homepage/AddFriend";
 import Messages from "../components/Homepage/Messages";
 import AppStatus from "../components/AppStatus";
 import { useNavigate } from "react-router-dom";
-import { authentication, DAPP_NAME } from "linda-protocol";
 import Channels from "../components/Homepage/Channels";
 import { walletService } from "linda-protocol";
 import TransactionHistory from "../components/Homepage/TransactionHistory";
@@ -18,7 +22,55 @@ import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
 import TransactionModal from "../components/Homepage/TransactionModal";
 import Header from "../components/Header";
 
-const { chat } = messaging; // Destruttura il servizio chat
+const { chat } = messaging;
+
+// Funzione per rimuovere un amico
+const removeFriend = async (friendPub) => {
+  try {
+    // Rimuovi l'amicizia da Gun
+    await new Promise((resolve, reject) => {
+      const friendshipId = [user.is.pub, friendPub].sort().join("_");
+      gun
+        .get(DAPP_NAME)
+        .get("friendships")
+        .get(friendshipId)
+        .put(null, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
+
+    // Rimuovi l'amico dalla lista amici dell'utente
+    await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get("users")
+        .get(user.is.pub)
+        .get("friends")
+        .map()
+        .once((data, key) => {
+          if (data && data.pub === friendPub) {
+            gun
+              .get(DAPP_NAME)
+              .get("users")
+              .get(user.is.pub)
+              .get("friends")
+              .get(key)
+              .put(null, (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve();
+              });
+          }
+        });
+      setTimeout(resolve, 500);
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Errore nella rimozione dell'amico:", error);
+    throw new Error("Errore nella rimozione dell'amico");
+  }
+};
 
 export default function Homepage() {
   const [isShown, setIsShown] = React.useState(false);
@@ -74,6 +126,27 @@ export default function Homepage() {
     selected: null,
     lastChannel: null,
   });
+
+  const [processedRequests, setProcessedRequests] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("processedFriendRequests");
+      return new Set(saved ? JSON.parse(saved) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const addProcessedRequest = (requestId) => {
+    setProcessedRequests((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(requestId);
+      localStorage.setItem(
+        "processedFriendRequests",
+        JSON.stringify([...newSet])
+      );
+      return newSet;
+    });
+  };
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -394,7 +467,6 @@ export default function Homepage() {
 
     console.log("Starting friend requests and friends monitoring");
     let mounted = true;
-    const processedRequests = new Set(); // Cache per le richieste già processate
 
     // Monitora il nodo pubblico delle richieste
     const processRequest = async (request) => {
@@ -404,39 +476,38 @@ export default function Homepage() {
       if (request.to !== user.is.pub) return;
 
       // Crea un ID univoco per la richiesta
-      const requestId = `${request.from}_${request.timestamp}`;
+      const requestId = `${request.from || request.pub}_${request.timestamp}`;
 
       // Se la richiesta è già stata processata, ignorala
       if (processedRequests.has(requestId)) {
-        console.log("Request already processed:", requestId);
+        console.log("Richiesta già processata, la ignoro:", requestId);
         return;
       }
-
-      console.log("Processing friend request:", request);
-      processedRequests.add(requestId);
 
       // Verifica se l'utente è già un amico
-      if (friendsRef.current.has(request.from)) {
-        console.log("User is already a friend:", request.from);
-        // Rimuovi la richiesta se esiste
-        gun
-          .get(DAPP_NAME)
-          .get("all_friend_requests")
-          .map()
-          .once((data, key) => {
-            if (data && data.from === request.from) {
-              gun.get(DAPP_NAME).get("all_friend_requests").get(key).put(null);
-            }
-          });
+      const isAlreadyFriend = friendsRef.current.has(
+        request.from || request.pub
+      );
+      if (isAlreadyFriend) {
+        console.log(
+          "Utente già amico, ignoro la richiesta:",
+          request.from || request.pub
+        );
+        addProcessedRequest(requestId);
         return;
       }
 
-      // Aggiungi la nuova richiesta
+      // Aggiungi la nuova richiesta solo se non è già presente
       setPendingRequests((prev) => {
-        const exists = prev.some((r) => r.pub === request.from);
+        const exists = prev.some(
+          (r) =>
+            (r.from === request.from || r.pub === request.pub) &&
+            (!r.timestamp || r.timestamp === request.timestamp)
+        );
         if (!exists) {
           const newRequest = {
-            pub: request.from,
+            pub: request.pub || request.from,
+            from: request.from || request.pub,
             alias:
               request.senderInfo?.alias ||
               request.data?.senderInfo?.alias ||
@@ -445,8 +516,9 @@ export default function Homepage() {
             data: request.data,
             senderInfo: request.senderInfo,
             key: request.key,
+            id: requestId,
           };
-          console.log("New request added:", newRequest);
+          console.log("Nuova richiesta aggiunta:", newRequest);
           return [...prev, newRequest];
         }
         return prev;
@@ -876,7 +948,95 @@ export default function Homepage() {
                 pendingRequests={pendingRequests}
                 loading={loading}
                 selectedUser={selected}
-                setPendingRequests={setPendingRequests}
+                onRequestProcessed={(requestFrom, action) => {
+                  console.log("Processamento richiesta:", requestFrom, action);
+
+                  // Trova la richiesta nel pendingRequests
+                  const request = pendingRequests.find(
+                    (r) => r.from === requestFrom || r.pub === requestFrom
+                  );
+                  if (request) {
+                    // Aggiungi l'ID della richiesta a quelle processate
+                    const requestId =
+                      request.id || `${requestFrom}_${request.timestamp}`;
+                    addProcessedRequest(requestId);
+                  }
+
+                  // Rimuovi la richiesta dalla lista delle pending
+                  setPendingRequests((prev) =>
+                    prev.filter(
+                      (r) => r.from !== requestFrom && r.pub !== requestFrom
+                    )
+                  );
+
+                  if (action === "accept") {
+                    loadFriends();
+                  }
+                }}
+                onRemoveFriend={async (friend) => {
+                  try {
+                    if (
+                      window.confirm(
+                        "Sei sicuro di voler rimuovere questo amico?"
+                      )
+                    ) {
+                      const result = await removeFriend(friend.pub);
+                      if (result.success) {
+                        toast.success("Amico rimosso con successo");
+                        // Aggiorna la lista amici
+                        setFriends((prev) =>
+                          prev.filter((f) => f.pub !== friend.pub)
+                        );
+                        friendsRef.current.delete(friend.pub);
+                        // Se l'amico rimosso era selezionato, deselezionalo
+                        if (selected?.pub === friend.pub) {
+                          setSelected(null);
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.error("Errore rimozione amico:", error);
+                    toast.error("Errore durante la rimozione");
+                  }
+                }}
+                onBlockUser={async (friend) => {
+                  try {
+                    const result = await userBlocking.blockUser(friend.pub);
+                    if (result.success) {
+                      toast.success(`${friend.alias} è stato bloccato`);
+                      setFriends((prev) =>
+                        prev.map((f) =>
+                          f.pub === friend.pub ? { ...f, isBlocked: true } : f
+                        )
+                      );
+                    }
+                  } catch (error) {
+                    console.error("Error blocking user:", error);
+                    toast.error("Errore durante il blocco dell'utente");
+                  }
+                }}
+                onUnblockUser={async (friend) => {
+                  try {
+                    const unblockResult = await userBlocking.unblockUser(
+                      friend.pub
+                    );
+                    if (!unblockResult.success) {
+                      throw new Error(unblockResult.message);
+                    }
+                    const chatId = [user.is.pub, friend.pub].sort().join("_");
+                    await chat.unblockChat(chatId);
+                    setFriends((prev) =>
+                      prev.map((f) =>
+                        f.pub === friend.pub ? { ...f, isBlocked: false } : f
+                      )
+                    );
+                    toast.success(`${friend.alias} è stato sbloccato`);
+                  } catch (error) {
+                    console.error("Error unblocking user:", error);
+                    toast.error("Errore durante lo sblocco dell'utente");
+                  }
+                }}
+                friends={friends}
               />
             )}
             {activeView === "channels" && <Channels onSelect={handleSelect} />}

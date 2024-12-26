@@ -247,24 +247,20 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       console.log('AddFriendCertificate generated, saving request...');
 
       // Salva la richiesta
-      await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Timeout nel salvataggio della richiesta'));
-        }, 5000);
+      const request = await gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .get(requestId)
+        .put(requestData, (ack) => {
+          if (ack.err) {
+            console.error('Errore nel salvataggio:', ack.err);
+          } else {
+            console.log('Richiesta salvata con successo');
+            return true;
+          }
+        });
 
-        gun
-          .get(DAPP_NAME)
-          .get('all_friend_requests')
-          .get(requestId)
-          .put(requestData, (ack) => {
-            clearTimeout(timeoutId);
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(true);
-            }
-          });
-      });
+      console.log('Request saved:', request);
 
       // segna requestData con sea sign
       const signedRequestData = await SEA.sign(
@@ -312,6 +308,8 @@ const notifyUser = async (targetPub, signedRequestData) => {
       .get('friendRequests')
       .then();
 
+    console.log('AuthCert:', authCert);
+
     if (!authCert) {
       // Crea un nuovo certificato di autorizzazione
       const newAuthCert = await createFriendRequestCertificate();
@@ -342,6 +340,8 @@ const notifyUser = async (targetPub, signedRequestData) => {
       user._.sea
     );
 
+    console.log('SignedNotification:', signedNotification);
+
     // Cifra la notifica firmata con la chiave condivisa
     const sharedSecret = await SEA.secret(targetUser.epub, user._.sea);
     const encryptedNotification = await SEA.encrypt(
@@ -349,49 +349,104 @@ const notifyUser = async (targetPub, signedRequestData) => {
       sharedSecret
     );
 
+    console.log('EncryptedNotification:', encryptedNotification);
+
     // Salva la notifica cifrata
-    await Promise.all([
-      // Nel nodo friend_requests
+    const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
+
+    try {
+      // Nel nodo friend_requests (richieste private)
       new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
           .get('friend_requests')
           .get(targetPub)
-          .set(
+          .get(requestId)
+          .put(
             {
+              id: requestId,
               from: user.is.pub,
+              to: targetPub,
               data: encryptedNotification,
               timestamp: Date.now(),
+              type: 'friendRequest',
             },
             (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve();
+              if (ack.err) {
+                console.error('Errore salvataggio richiesta privata:', ack.err);
+                reject(new Error(ack.err));
+              } else {
+                console.log('Richiesta privata salvata con successo');
+                resolve();
+              }
             }
           );
-      }),
+      });
 
       // Nel nodo pubblico delle richieste
       new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
           .get('all_friend_requests')
-          .set(
+          .get(requestId)
+          .put(
             {
+              id: requestId,
               from: user.is.pub,
               to: targetPub,
-              timestamp: Date.now(),
               data: encryptedNotification,
+              timestamp: Date.now(),
+              type: 'friendRequest',
+              senderInfo: {
+                pub: user.is.pub,
+                alias: user.is.alias,
+              },
             },
             (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve();
+              if (ack.err) {
+                console.error(
+                  'Errore salvataggio richiesta pubblica:',
+                  ack.err
+                );
+                reject(new Error(ack.err));
+              } else {
+                console.log('Richiesta pubblica salvata con successo');
+                resolve();
+              }
             }
           );
-      }),
-    ]);
+      });
 
-    console.log('Notifica inviata con successo a:', targetPub);
-    return true;
+      // Forza la sincronizzazione
+      gun
+        .get(DAPP_NAME)
+        .get('friend_requests')
+        .get(targetPub)
+        .once((data) => {
+          console.log('Verifica richiesta privata:', data);
+        });
+
+      gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .once((data) => {
+          console.log('Verifica richieste pubbliche:', data);
+        });
+
+      // Notifica diretta all'utente target
+      gun.user(targetPub).get('notifications').set({
+        type: 'friendRequest',
+        from: user.is.pub,
+        timestamp: Date.now(),
+        data: encryptedNotification,
+      });
+
+      console.log('Notifica inviata con successo a:', targetPub);
+      return true;
+    } catch (error) {
+      console.error("Errore dettagliato nell'invio della notifica:", error);
+      throw new Error(`Errore nell'invio della notifica: ${error.message}`);
+    }
   } catch (error) {
     console.error("Errore dettagliato nell'invio della notifica:", error);
     throw new Error(`Errore nell'invio della notifica: ${error.message}`);

@@ -21,7 +21,7 @@ export const createFriendRequestCertificate = async () => {
     const signedCert = await SEA.sign(certificate, user?._.sea);
 
     // Salva sia nella sezione pubblica che privata
-    await Promise.resolve([
+    await Promise.all([
       // Certificato pubblico
       new Promise((resolve) => {
         gun

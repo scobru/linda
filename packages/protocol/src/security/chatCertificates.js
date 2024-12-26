@@ -68,14 +68,25 @@ export const createMessagesCertificate = async (targetPub) => {
  */
 export const revokeChatsCertificate = async (targetPub) => {
   if (!user.is) throw new Error('User not authenticated');
+  if (!targetPub) throw new Error('Target public key is required');
 
-  await gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(targetPub)
-    .get('chats')
-    .put(null);
+  try {
+    await new Promise((resolve, reject) => {
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('certificates')
+        .get(targetPub)
+        .get('chats')
+        .put(null, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
+  } catch (error) {
+    console.error('Error revoking chats certificate:', error);
+    throw error;
+  }
 };
 
 /**
@@ -87,12 +98,23 @@ export const revokeChatsCertificate = async (targetPub) => {
  */
 export const revokeMessagesCertificate = async (targetPub) => {
   if (!user.is) throw new Error('User not authenticated');
+  if (!targetPub) throw new Error('Target public key is required');
 
-  await gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(targetPub)
-    .get('messages')
-    .put(null);
+  try {
+    await new Promise((resolve, reject) => {
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('certificates')
+        .get(targetPub)
+        .get('messages')
+        .put(null, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
+  } catch (error) {
+    console.error('Error revoking messages certificate:', error);
+    throw error;
+  }
 };

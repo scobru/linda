@@ -1,436 +1,316 @@
 import React from "react";
-import { gun, user, DAPP_NAME, blocking, messaging } from "linda-protocol";
-import { userUtils } from "linda-protocol";
 import {
-  removeFriend,
-  acceptFriendRequest,
-  rejectFriendRequest,
+  gun,
+  user,
+  DAPP_NAME,
+  blocking,
+  messaging,
+  friendsService,
 } from "linda-protocol";
+import { userUtils } from "linda-protocol";
+import { removeFriend } from "linda-protocol";
 import { toast } from "react-hot-toast";
-import { walletService } from "linda-protocol";
 import FriendRequest from "./FriendRequest";
-import UserInfoModal from "./UserInfoModal";
-import Context from "../../contexts/context";
+import FriendItem from "./FriendItem";
 
 const { userBlocking } = blocking;
 const { chat } = messaging;
 
-const FriendItem = React.memo(
-  ({
-    friend,
-    isSelected,
-    onSelect,
-    onRemove,
-    onBlock,
-    onUnblock,
-    isActiveMenu,
-    onMenuToggle,
-  }) => {
-    const [userInfo, setUserInfo] = React.useState({
-      displayName: friend.alias || "Caricamento...",
-      username: "",
-      nickname: "",
-    });
-    const [showUserInfo, setShowUserInfo] = React.useState(false);
-    const isBlocked = friend.isBlocked;
+// Funzione per rimuovere un amico
+const handleRemoveFriend = async (friend) => {
+  try {
+    if (window.confirm("Sei sicuro di voler rimuovere questo amico?")) {
+      setIsLoading(true);
+      const result = await removeFriend(friend.pub);
 
-    React.useEffect(() => {
-      const loadUserInfo = async () => {
-        try {
-          // Prima cerca l'alias dell'utente
-          const userData = await new Promise((resolve) => {
-            gun.get(`~${friend.pub}`).once((data) => {
-              resolve(data);
-            });
-          });
-
-          if (userData?.alias) {
-            const username = userData.alias.split(".")[0];
-            setUserInfo({
-              displayName: `@${username}`,
-              username: username,
-              nickname: "",
-            });
-            return;
-          }
-
-          // Se non c'è un alias, cerca nel nodo nicknames
-          const nickname = await new Promise((resolve) => {
-            gun
-              .get(DAPP_NAME)
-              .get("userList")
-              .get("nicknames")
-              .get(friend.pub)
-              .once((nickname) => {
-                resolve(nickname);
-              });
-          });
-
-          if (nickname) {
-            setUserInfo({
-              displayName: nickname,
-              username: "",
-              nickname: nickname,
-            });
-            return;
-          }
-
-          // Se non c'è un nickname, cerca nelle info utente
-          const userInfo = await new Promise((resolve) => {
-            gun
-              .get(DAPP_NAME)
-              .get("userList")
-              .get("users")
-              .get(friend.pub)
-              .once((userData) => {
-                resolve(userData);
-              });
-          });
-
-          if (userInfo?.username) {
-            setUserInfo({
-              displayName: `@${userInfo.username}`,
-              username: userInfo.username,
-              nickname: userInfo.nickname || "",
-            });
-            return;
-          }
-
-          // Come ultima risorsa, usa la chiave pubblica abbreviata
-          setUserInfo({
-            displayName: `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
-            username: "",
-            nickname: "",
-          });
-        } catch (error) {
-          console.warn("Errore nel recupero info utente:", error);
-          setUserInfo({
-            displayName: `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
-            username: "",
-            nickname: "",
-          });
-        }
-      };
-
-      loadUserInfo();
-
-      // Sottoscrizione ai cambiamenti dell'alias
-      const unsubAlias = gun.get(`~${friend.pub}`).on((data) => {
-        if (data?.alias) {
-          const username = data.alias.split(".")[0];
-          setUserInfo({
-            displayName: `@${username}`,
-            username: username,
-            nickname: "",
-          });
-        }
-      });
-
-      // Sottoscrizione ai cambiamenti del nickname
-      const unsubNickname = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("nicknames")
-        .get(friend.pub)
-        .on((nickname) => {
-          if (nickname) {
-            setUserInfo({
-              displayName: nickname,
-              username: "",
-              nickname: nickname,
-            });
-          }
-        });
-
-      // Sottoscrizione ai cambiamenti delle info utente
-      const unsubUser = gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("users")
-        .get(friend.pub)
-        .on((data) => {
-          if (data?.username) {
-            setUserInfo({
-              displayName: `@${data.username}`,
-              username: data.username,
-              nickname: data.nickname || "",
-            });
-          }
-        });
-
-      return () => {
-        if (typeof unsubAlias === "function") unsubAlias();
-        if (typeof unsubNickname === "function") unsubNickname();
-        if (typeof unsubUser === "function") unsubUser();
-      };
-    }, [friend.pub]);
-
-    return (
-      <>
-        <div
-          className={`relative flex items-center p-3 hover:bg-[#4A4F76] cursor-pointer ${
-            isSelected ? "bg-[#4A4F76]" : ""
-          } ${isBlocked ? "opacity-50" : ""}`}
-        >
-          <div className="flex-1 flex items-center">
-            <div
-              className="flex-shrink-0 cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowUserInfo(true);
-              }}
-              title="Visualizza informazioni contatto"
-            >
-              <img
-                className="h-10 w-10 rounded-full hover:opacity-80 transition-opacity"
-                src={`https://api.dicebear.com/7.x/bottts/svg?seed=${userInfo.displayName}&backgroundColor=b6e3f4`}
-                alt=""
-              />
-            </div>
-            <div className="ml-3 flex-1" onClick={() => onSelect(friend)}>
-              <p className="text-sm font-medium text-white">
-                {userInfo.displayName}
-              </p>
-              {userInfo.username && (
-                <p className="text-xs text-gray-300">@{userInfo.username}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Menu contestuale */}
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="p-2 hover:bg-gray-100 rounded-full"
-              onClick={() => onMenuToggle(friend.pub)}
-            >
-              <svg
-                className="w-5 h-5 text-gray-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                />
-              </svg>
-            </button>
-
-            {isActiveMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
-                {/* Overlay trasparente per gestire il click fuori */}
-                <div
-                  className="fixed inset-0"
-                  onClick={() => onMenuToggle(null)}
-                />
-                {/* Contenuto del menu con z-index più alto */}
-                <div className="relative z-50 bg-white rounded-md">
-                  <button
-                    onClick={() => {
-                      onRemove(friend);
-                      onMenuToggle(null);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    Rimuovi amico
-                  </button>
-                  {friend.isBlocked ? (
-                    <button
-                      onClick={() => {
-                        onUnblock(friend);
-                        onMenuToggle(null);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
-                    >
-                      Sblocca utente
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        onBlock(friend);
-                        onMenuToggle(null);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      Blocca utente
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          {/* Indicatore di blocco con pulsante di sblocco */}
-          {friend.isBlocked && (
-            <div className="absolute top-0 right-0 m-2 flex items-center space-x-2">
-              <span className="text-xs text-red-500 bg-red-100 px-2 py-1 rounded-full">
-                Bloccato
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUnblock(friend);
-                }}
-                className="text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full hover:bg-blue-200"
-              >
-                Sblocca
-              </button>
-            </div>
-          )}
-        </div>
-
-        <UserInfoModal
-          isOpen={showUserInfo}
-          onClose={() => setShowUserInfo(false)}
-          userPub={friend.pub}
-        />
-      </>
-    );
+      if (result.success) {
+        // Rimuovi l'amico dalla lista locale
+        setFriends((prev) => prev.filter((f) => f.pub !== friend.pub));
+        setFilteredFriends((prev) => prev.filter((f) => f.pub !== friend.pub));
+        toast.success(result.message || "Amico rimosso con successo");
+      } else {
+        throw new Error(
+          result.message || "Errore durante la rimozione dell'amico"
+        );
+      }
+    }
+  } catch (error) {
+    console.error("Errore rimozione amico:", error);
+    toast.error(error.message || "Errore durante la rimozione dell'amico");
+  } finally {
+    setIsLoading(false);
+    setActiveMenu(null);
   }
-);
+};
 
 export default function Friends({
   onSelect,
   loading,
   selectedUser,
-  pendingRequests,
-  setPendingRequests,
+  onRequestProcessed,
+  onRemoveFriend,
+  onBlockUser,
+  onUnblockUser,
+  initialFriends = [],
 }) {
+  const [friends, setFriends] = React.useState([]);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [filteredFriends, setFilteredFriends] = React.useState([]);
   const [activeMenu, setActiveMenu] = React.useState(null);
-  const [blockedUsers, setBlockedUsers] = React.useState(new Set());
-  const blockedUsersRef = React.useRef(new Set());
+  const [pendingRequests, setPendingRequests] = React.useState([]);
   const [isLoading, setIsLoading] = React.useState(false);
-  const { friends, setFriends } = React.useContext(Context);
+  const processedRequestsRef = React.useRef(new Map()); // Usiamo useRef per mantenere la Map tra i re-render
 
-  // Deduplicazione della lista amici
-  const uniqueFriends = React.useMemo(() => {
-    const seen = new Set();
-    return friends.filter((friend) => {
-      if (!friend || !friend.pub || seen.has(friend.pub)) return false;
-      seen.add(friend.pub);
-      return true;
+  // Monitora le richieste di amicizia usando friendsService
+  React.useEffect(() => {
+    if (!user?.is) {
+      console.log("Utente non autenticato, monitoraggio richieste non avviato");
+      return;
+    }
+
+    console.log("Avvio monitoraggio richieste usando friendsService");
+    let mounted = true;
+
+    const processRequest = async (data) => {
+      if (
+        !mounted ||
+        !data ||
+        !data.from ||
+        !data.to ||
+        data.to !== user.is.pub
+      ) {
+        return;
+      }
+
+      try {
+        const senderInfo = await userUtils.getUserInfo(data.from);
+        console.log("Info mittente recuperate:", senderInfo);
+
+        // Se abbiamo già una richiesta con alias da questo mittente, ignoriamo le altre
+        const existingRequest = processedRequestsRef.current.get(data.from);
+        if (existingRequest && existingRequest.hasAlias && !data.alias) {
+          console.log(
+            "Ignoro richiesta senza alias, abbiamo già una richiesta completa"
+          );
+          return;
+        }
+
+        const requestId =
+          data.id || `${data.from}_${data.to}_${data.timestamp}`;
+        const enrichedRequest = {
+          id: requestId,
+          from: data.from,
+          to: data.to,
+          timestamp: data.timestamp || Date.now(),
+          type: "friendRequest",
+          senderInfo: {
+            ...senderInfo,
+            pub: data.from,
+            alias: data.alias || senderInfo?.alias || "Utente sconosciuto",
+          },
+          data: data.data,
+          hasAlias: !!data.alias,
+        };
+
+        console.log("Richiesta arricchita:", enrichedRequest);
+
+        // Aggiorna la Map delle richieste processate
+        processedRequestsRef.current.set(data.from, enrichedRequest);
+
+        // Aggiorna lo stato con tutte le richieste valide dalla Map
+        setPendingRequests(Array.from(processedRequestsRef.current.values()));
+      } catch (error) {
+        console.error("Errore processamento richiesta:", error);
+      }
+    };
+
+    // Sottoscrizione alle richieste di amicizia
+    const subscription = friendsService.observeFriendRequests().subscribe({
+      next: async ({ type, data }) => {
+        if (!mounted) return;
+        console.log("Nuova richiesta ricevuta:", { type, data });
+        if (type === "incoming") {
+          await processRequest(data);
+        }
+      },
+      error: (error) => {
+        console.error("Errore nel monitoraggio richieste:", error);
+      },
     });
-  }, [friends]);
 
-  // Funzioni per gestire le richieste di amicizia
-  const handleAcceptRequest = async (request) => {
-    try {
-      await acceptFriendRequest(request.pub);
-      setPendingRequests((prev) => prev.filter((r) => r.pub !== request.pub));
-      toast.success("Richiesta di amicizia accettata");
-    } catch (error) {
-      console.error("Errore nell'accettare la richiesta:", error);
-      toast.error("Errore nell'accettare la richiesta");
+    // Carica le richieste esistenti
+    gun
+      .get(DAPP_NAME)
+      .get("friend_requests")
+      .get(user.is.pub)
+      .map()
+      .once((request, key) => {
+        if (request && !request._) {
+          processRequest(request);
+        }
+      });
+
+    gun
+      .get(DAPP_NAME)
+      .get("all_friend_requests")
+      .map()
+      .once((request, key) => {
+        if (request && !request._ && request.to === user.is.pub) {
+          processRequest(request);
+        }
+      });
+
+    return () => {
+      console.log("Cleanup monitoraggio richieste");
+      mounted = false;
+      processedRequestsRef.current.clear();
+      subscription.unsubscribe();
+    };
+  }, [user?.is, onRequestProcessed]);
+
+  // Monitora la lista amici usando friendsService
+  React.useEffect(() => {
+    if (!user?.is) {
+      console.log("Utente non autenticato nel componente Friends");
+      return;
     }
-  };
 
-  const handleRejectRequest = async (request) => {
-    try {
-      await rejectFriendRequest(request.pub);
-      setPendingRequests((prev) => prev.filter((r) => r.pub !== request.pub));
-      toast.success("Richiesta di amicizia rifiutata");
-    } catch (error) {
-      console.error("Errore nel rifiutare la richiesta:", error);
-      toast.error("Errore nel rifiutare la richiesta");
-    }
-  };
+    console.log("Avvio monitoraggio lista amici usando friendsService");
+    let mounted = true;
+    let processedFriends = new Set(); // Set per tenere traccia degli amici già processati
 
-  const handleRemoveFriend = async (friend) => {
-    try {
-      if (window.confirm("Sei sicuro di voler rimuovere questo amico?")) {
-        await removeFriend(friend.pub);
-        toast.success("Amico rimosso con successo");
+    const subscription = friendsService.observeFriendsList().subscribe({
+      next: (friend) => {
+        if (!mounted) return;
+
+        const friendId = friend.pub;
+        if (processedFriends.has(friendId)) {
+          console.log("Amico già processato, aggiorno solo i dati:", friendId);
+          setFriends((prev) =>
+            prev.map((f) => (f.pub === friendId ? { ...f, ...friend } : f))
+          );
+          return;
+        }
+
+        console.log("Nuovo amico:", friend);
+        processedFriends.add(friendId);
+        setFriends((prev) => {
+          // Rimuovi eventuali duplicati esistenti
+          const withoutDuplicates = prev.filter((f) => f.pub !== friendId);
+          return [...withoutDuplicates, friend];
+        });
+      },
+      error: (error) => {
+        console.error("Errore nel monitoraggio lista amici:", error);
+      },
+    });
+
+    // Carica la lista amici iniziale
+    friendsService.getFriendsList(user.is.pub).then((friendsList) => {
+      if (mounted) {
+        console.log("Lista amici iniziale caricata:", friendsList);
+        // Rimuovi duplicati dalla lista iniziale
+        const uniqueFriends = friendsList.reduce((acc, friend) => {
+          if (!friend || !friend.pub) return acc;
+          const existingIndex = acc.findIndex((f) => f.pub === friend.pub);
+          if (existingIndex >= 0) {
+            // Aggiorna l'amico esistente con i nuovi dati
+            acc[existingIndex] = { ...acc[existingIndex], ...friend };
+          } else {
+            // Aggiungi il nuovo amico
+            acc.push(friend);
+            processedFriends.add(friend.pub);
+          }
+          return acc;
+        }, []);
+
+        setFriends(uniqueFriends);
+        setFilteredFriends(uniqueFriends);
       }
-    } catch (error) {
-      console.error("Errore rimozione amico:", error);
-      toast.error("Errore durante la rimozione");
+    });
+
+    return () => {
+      console.log("Cleanup sottoscrizioni amici");
+      mounted = false;
+      processedFriends.clear();
+      subscription.unsubscribe();
+    };
+  }, [user?.is]);
+
+  // Filtra gli amici in base alla ricerca
+  React.useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredFriends(friends);
+      return;
     }
-  };
 
-  const handleBlock = async (friend) => {
-    try {
-      const result = await userBlocking.blockUser(friend.pub);
-      if (result.success) {
-        toast.success(`${friend.alias} è stato bloccato`);
-        setFriends((prev) =>
-          prev.map((f) =>
-            f.pub === friend.pub ? { ...f, isBlocked: true } : f
-          )
-        );
-      }
-    } catch (error) {
-      console.error("Error blocking user:", error);
-      toast.error("Errore durante il blocco dell'utente");
-    }
-  };
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = friends.filter((friend) => {
+      if (!friend) return false;
 
-  const handleUnblock = async (friend) => {
-    try {
-      const unblockResult = await userBlocking.unblockUser(friend.pub);
-      if (!unblockResult.success) {
-        throw new Error(unblockResult.message);
-      }
+      const displayName = friend.displayName || friend.alias || "";
+      const username = friend.username || "";
+      const pub = friend.pub || "";
 
-      const chatId = [user.is.pub, friend.pub].sort().join("_");
-      await chat.unblockChat(chatId);
-
-      setFriends((prev) =>
-        prev.map((f) => (f.pub === friend.pub ? { ...f, isBlocked: false } : f))
+      return (
+        displayName.toLowerCase().includes(query) ||
+        username.toLowerCase().includes(query) ||
+        pub.toLowerCase().includes(query)
       );
+    });
 
-      toast.success(`${friend.alias} è stato sbloccato`);
-      setActiveMenu(null);
-    } catch (error) {
-      console.error("Error unblocking user:", error);
-      toast.error("Errore durante lo sblocco dell'utente");
-    }
-  };
+    setFilteredFriends(filtered);
+  }, [searchQuery, friends]);
 
   const handleMenuToggle = (friendPub) => {
     setActiveMenu(activeMenu === friendPub ? null : friendPub);
   };
 
-  // Effetto per gestire la ricerca
-  React.useEffect(() => {
-    if (!searchQuery || !searchQuery.trim()) {
-      setFilteredFriends(uniqueFriends);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase().trim();
-    const filtered = uniqueFriends.filter((friend) => {
-      if (!friend) return false;
-
-      const displayName =
-        friend.userInfo?.displayName ||
-        friend.displayName ||
-        friend.alias ||
-        "";
-      const username = friend.userInfo?.username || friend.alias || "";
-      const pub = friend.pub || "";
-
-      const searchableDisplayName = displayName.replace("@", "").toLowerCase();
-      const searchableUsername = username.replace("@", "").toLowerCase();
-
-      return (
-        searchableDisplayName.includes(query) ||
-        searchableUsername.includes(query) ||
-        pub.toLowerCase().includes(query) ||
-        (query.startsWith("@") && `@${searchableUsername}`.includes(query))
-      );
+  // Renderizza le richieste di amicizia
+  const renderFriendRequests = () => {
+    console.log("Rendering richieste di amicizia:", {
+      count: pendingRequests.length,
+      requests: pendingRequests,
     });
 
-    setFilteredFriends(filtered);
-  }, [searchQuery, uniqueFriends]);
+    if (!pendingRequests || pendingRequests.length === 0) {
+      console.log("Nessuna richiesta pendente");
+      return null;
+    }
 
-  // Monitora i cambiamenti nella lista amici
-  React.useEffect(() => {
-    console.log("Lista amici aggiornata:", uniqueFriends);
-    setFilteredFriends(uniqueFriends);
-  }, [uniqueFriends]);
+    return (
+      <div className="p-3">
+        <h3 className="text-sm font-medium text-gray-300 mb-2">
+          Richieste di amicizia ({pendingRequests.length})
+        </h3>
+        {pendingRequests.map((request) => {
+          console.log("Rendering singola richiesta:", request);
+          return (
+            <FriendRequest
+              key={request.id || `${request.from}_${request.timestamp}`}
+              request={request}
+              onRequestProcessed={async (from, action) => {
+                console.log(`Richiesta ${action}:`, from);
+
+                // Rimuovi la richiesta dalle pending
+                setPendingRequests((prev) =>
+                  prev.filter((r) => r.from !== from)
+                );
+
+                // Rimuovi la richiesta dalla Map delle richieste processate
+                processedRequestsRef.current.delete(from);
+
+                // Notifica il componente padre
+                if (onRequestProcessed) {
+                  onRequestProcessed(from);
+                }
+              }}
+            />
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#373B5C]">
@@ -463,39 +343,39 @@ export default function Friends({
       {/* Lista amici */}
       <div className="flex-1 overflow-y-auto">
         {/* Richieste di amicizia in sospeso */}
-        {pendingRequests && pendingRequests.length > 0 && (
-          <div className="p-3 border-b border-[#4A4F76]">
-            <h3 className="text-sm font-medium text-gray-300 mb-2">
-              Richieste di amicizia
-            </h3>
-            {pendingRequests.map((request) => (
-              <FriendRequest
-                key={request.from}
-                request={request}
-                onAccept={handleAcceptRequest}
-                onReject={handleRejectRequest}
-              />
-            ))}
-          </div>
-        )}
+        {renderFriendRequests()}
 
         {/* Lista amici */}
         <div className="divide-y divide-[#4A4F76]">
-          {(searchQuery.trim() ? filteredFriends : uniqueFriends).map(
-            (friend) =>
-              friend && (
-                <FriendItem
-                  key={friend.pub}
-                  friend={friend}
-                  isSelected={selectedUser?.pub === friend.pub}
-                  onSelect={onSelect}
-                  onRemove={handleRemoveFriend}
-                  onBlock={handleBlock}
-                  onUnblock={handleUnblock}
-                  isActiveMenu={activeMenu === friend.pub}
-                  onMenuToggle={handleMenuToggle}
-                />
-              )
+          {isLoading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            </div>
+          ) : (searchQuery.trim() ? filteredFriends : friends).length > 0 ? (
+            (searchQuery.trim() ? filteredFriends : friends).map(
+              (friend) =>
+                friend && (
+                  <FriendItem
+                    key={friend.pub}
+                    friend={friend}
+                    isSelected={selectedUser?.pub === friend.pub}
+                    onSelect={onSelect}
+                    onRemove={onRemoveFriend}
+                    onBlock={onBlockUser}
+                    onUnblock={onUnblockUser}
+                    isActiveMenu={activeMenu === friend.pub}
+                    onMenuToggle={handleMenuToggle}
+                  />
+                )
+            )
+          ) : (
+            <div className="flex flex-col items-center justify-center h-32 text-gray-400">
+              {searchQuery ? (
+                <p>Nessun amico trovato per "{searchQuery}"</p>
+              ) : (
+                <p>Nessun amico ancora</p>
+              )}
+            </div>
           )}
         </div>
       </div>
