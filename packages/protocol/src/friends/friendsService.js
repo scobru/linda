@@ -1,6 +1,11 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 import { userBlocking } from '../blocking/index.js';
 import { Observable } from 'rxjs';
+import { userUtils } from '../utils/userUtils.js';
+import {
+  revokeChatsCertificate,
+  revokeMessagesCertificate,
+} from '../security/index.js';
 
 const friendsService = {
   /**
@@ -121,12 +126,116 @@ const friendsService = {
   },
 
   /**
+   * Invia una richiesta di amicizia
+   * @param {string} targetPub - Chiave pubblica dell'utente target
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  addFriendRequest: async (targetPub) => {
+    if (!user.is) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      // Crea un ID univoco per la richiesta
+      const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
+
+      // Salva la richiesta di amicizia
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('all_friend_requests')
+          .get(requestId)
+          .put(
+            {
+              from: user.is.pub,
+              to: targetPub,
+              timestamp: Date.now(),
+              status: 'pending',
+            },
+            (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            }
+          );
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error adding friend request:', error);
+      return { success: false, message: error.message };
+    }
+  },
+
+  /**
+   * Rimuove un amico
+   * @param {string} targetPub - Chiave pubblica dell'amico da rimuovere
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  removeFriend: async (targetPub) => {
+    if (!user.is) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      // Revoca tutti i certificati associati
+      await Promise.all([
+        revokeChatsCertificate(targetPub),
+        revokeMessagesCertificate(targetPub),
+      ]);
+
+      console.log('Revoca certificati completata');
+
+      // Cerca e rimuovi l'amicizia
+      const friendship = await new Promise((resolve) => {
+        let found = null;
+        gun
+          .get(DAPP_NAME)
+          .get('friendships')
+          .map()
+          .once((data, key) => {
+            if (
+              data &&
+              ((data.user1 === user.is.pub && data.user2 === targetPub) ||
+                (data.user2 === user.is.pub && data.user1 === targetPub))
+            ) {
+              found = { key, data };
+            }
+          });
+
+        setTimeout(() => resolve(found), 1000);
+      });
+
+      if (friendship) {
+        // Rimuovi l'amicizia
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('friendships')
+            .get(friendship.key)
+            .put(null, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            });
+        });
+
+        // Rimuovi la chat associata
+        const chatId = [user.is.pub, targetPub].sort().join('_');
+        gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error removing friend:', error);
+      return { success: false, message: error.message };
+    }
+  },
+
+  /**
    * Osserva le richieste di amicizia
    * @returns {Observable} Observable che emette le richieste di amicizia
    */
   observeFriendRequests: () => {
     return new Observable((subscriber) => {
-      // Aggiungi un delay per permettere l'inizializzazione
       setTimeout(() => {
         if (!user.is) {
           subscriber.error(new Error('Utente non autenticato'));
@@ -156,7 +265,7 @@ const friendsService = {
         } catch (error) {
           subscriber.error(error);
         }
-      }, 1000); // Delay di 1 secondo
+      }, 1000);
     });
   },
 
@@ -166,7 +275,6 @@ const friendsService = {
    */
   observeFriendsList: () => {
     return new Observable((subscriber) => {
-      // Aggiungi un delay per permettere l'inizializzazione
       setTimeout(() => {
         if (!user.is) {
           subscriber.error(new Error('Utente non autenticato'));
@@ -214,7 +322,7 @@ const friendsService = {
         } catch (error) {
           subscriber.error(error);
         }
-      }, 1000); // Delay di 1 secondo
+      }, 1000);
     });
   },
 
@@ -254,125 +362,89 @@ const friendsService = {
   },
 
   /**
-   * Migra le amicizie esistenti aggiungendo i dati mancanti
-   * @returns {Promise<{success: boolean, message: string}>}
+   * Blocca un utente
+   * @param {string} targetPub - Chiave pubblica dell'utente da bloccare
+   * @returns {Promise<{success: boolean, message?: string}>}
    */
-  migrateExistingFriendships: async () => {
+  blockUser: async (targetPub) => {
+    if (!user.is) {
+      throw new Error('User not authenticated');
+    }
+
     try {
-      if (!user?.is) {
-        throw new Error('Utente non autenticato');
-      }
-
-      console.log('Inizio migrazione amicizie esistenti...');
-
-      // Recupera tutte le amicizie esistenti
-      const friendships = await new Promise((resolve) => {
-        const list = [];
+      await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
           .get('friendships')
           .map()
-          .once((friendship) => {
+          .once((friendship, id) => {
             if (
               friendship &&
-              (friendship.user1 === user.is.pub ||
-                friendship.user2 === user.is.pub)
+              ((friendship.user1 === targetPub &&
+                friendship.user2 === user.is.pub) ||
+                (friendship.user2 === targetPub &&
+                  friendship.user1 === user.is.pub))
             ) {
-              list.push(friendship);
+              gun
+                .get(DAPP_NAME)
+                .get('friendships')
+                .get(id)
+                .get('isBlocked')
+                .put(true, (ack) => {
+                  if (ack.err) reject(new Error(ack.err));
+                  else resolve();
+                });
             }
           });
-        setTimeout(() => resolve(list), 2000);
       });
 
-      console.log('Amicizie trovate:', friendships.length);
-
-      // Per ogni amicizia
-      for (const friendship of friendships) {
-        const friendPub =
-          friendship.user1 === user.is.pub
-            ? friendship.user2
-            : friendship.user1;
-
-        // Recupera i dati dell'amico
-        const friendData = await new Promise((resolve) => {
-          gun.get(`~${friendPub}`).once((data) => {
-            resolve(data);
-          });
-        });
-
-        if (friendData) {
-          console.log('Aggiornamento dati per amico:', friendPub);
-
-          // Salva i dati dell'amico in userList
-          await gun
-            .get(DAPP_NAME)
-            .get('userList')
-            .get('users')
-            .get(friendPub)
-            .put({
-              pub: friendPub,
-              alias: friendData.alias,
-              displayName: friendData.alias,
-              lastSeen: Date.now(),
-              timestamp: Date.now(),
-            });
-
-          // Aggiorna il record di amicizia con gli alias
-          const updatedFriendship = {
-            ...friendship,
-            user1Alias:
-              friendship.user1 === user.is.pub
-                ? user.is.alias
-                : friendData.alias,
-            user2Alias:
-              friendship.user2 === user.is.pub
-                ? user.is.alias
-                : friendData.alias,
-            chatId: [friendship.user1, friendship.user2].sort().join('_'),
-          };
-
-          await gun
-            .get(DAPP_NAME)
-            .get('friendships')
-            .get(friendship.created)
-            .put(updatedFriendship);
-
-          // Assicurati che esista la chat
-          const chatData = {
-            id: updatedFriendship.chatId,
-            created: friendship.created || Date.now(),
-            status: 'active',
-            user1: friendship.user1,
-            user2: friendship.user2,
-            type: 'private',
-          };
-
-          await gun
-            .get(DAPP_NAME)
-            .get('chats')
-            .get(updatedFriendship.chatId)
-            .put(chatData);
-        }
-      }
-
-      // Salva anche i dati dell'utente corrente
-      await gun
-        .get(DAPP_NAME)
-        .get('userList')
-        .get('users')
-        .get(user.is.pub)
-        .put({
-          pub: user.is.pub,
-          alias: user.is.alias,
-          displayName: user.is.alias,
-          lastSeen: Date.now(),
-          timestamp: Date.now(),
-        });
-
-      console.log('Migrazione completata con successo');
-      return { success: true, message: 'Migrazione completata' };
+      return { success: true };
     } catch (error) {
-      console.error('Errore durante la migrazione:', error);
+      console.error('Error blocking user:', error);
+      return { success: false, message: error.message };
+    }
+  },
+
+  /**
+   * Sblocca un utente
+   * @param {string} targetPub - Chiave pubblica dell'utente da sbloccare
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  unblockUser: async (targetPub) => {
+    if (!user.is) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('friendships')
+          .map()
+          .once((friendship, id) => {
+            if (
+              friendship &&
+              ((friendship.user1 === targetPub &&
+                friendship.user2 === user.is.pub) ||
+                (friendship.user2 === targetPub &&
+                  friendship.user1 === user.is.pub))
+            ) {
+              gun
+                .get(DAPP_NAME)
+                .get('friendships')
+                .get(id)
+                .get('isBlocked')
+                .put(false, (ack) => {
+                  if (ack.err) reject(new Error(ack.err));
+                  else resolve();
+                });
+            }
+          });
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error unblocking user:', error);
       return { success: false, message: error.message };
     }
   },

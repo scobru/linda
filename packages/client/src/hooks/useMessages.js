@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { messaging, gun, DAPP_NAME } from "linda-protocol";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { messaging, gun, DAPP_NAME, user } from "linda-protocol";
 
 export const useMessages = (selected, chatData) => {
   const [messages, setMessages] = useState([]);
@@ -10,17 +10,16 @@ export const useMessages = (selected, chatData) => {
   const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(
     Date.now()
   );
-  const [processedMessageIds] = useState(new Set());
+  const messageMap = useRef(new Map());
+  const gunRef = useRef(null);
+  const processedIds = useRef(new Set());
 
   const processMessage = async (msg, selected) => {
     if (!msg || !msg.content || !msg.id) return null;
 
-    // Se il messaggio è già stato processato, lo saltiamo
-    if (processedMessageIds.has(msg.id)) {
-      return null;
-    }
-
-    processedMessageIds.add(msg.id);
+    // Evita duplicati
+    if (processedIds.current.has(msg.id)) return null;
+    processedIds.current.add(msg.id);
 
     if (selected.type === "friend" && msg.content.startsWith("SEA{")) {
       try {
@@ -37,26 +36,48 @@ export const useMessages = (selected, chatData) => {
     return msg;
   };
 
-  const updateMessages = useCallback((newMessage) => {
-    setMessages((prev) => {
-      // Verifica se il messaggio esiste già
-      const exists = prev.some((m) => m.id === newMessage.id);
-      if (exists) {
-        // Aggiorna il messaggio esistente
-        return prev.map((m) => (m.id === newMessage.id ? newMessage : m));
-      }
-      // Aggiungi il nuovo messaggio e ordina
-      return [...prev, newMessage].sort((a, b) => a.timestamp - b.timestamp);
-    });
+  const updateMessageList = useCallback(() => {
+    const sortedMessages = Array.from(messageMap.current.values())
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .filter((msg, index, self) => {
+        // Rimuovi duplicati basati su ID
+        return index === self.findIndex((m) => m.id === msg.id);
+      });
+    setMessages(sortedMessages);
   }, []);
+
+  const addMessage = useCallback(
+    async (msg, key) => {
+      if (!msg || !msg.content) return;
+
+      const messageId =
+        key ||
+        msg.id ||
+        `msg_${msg.timestamp}_${Math.random().toString(36).substring(2, 15)}`;
+
+      // Evita duplicati
+      if (messageMap.current.has(messageId)) return;
+
+      const processedMsg = await processMessage(
+        { ...msg, id: messageId },
+        selected
+      );
+      if (processedMsg) {
+        messageMap.current.set(messageId, processedMsg);
+        updateMessageList();
+      }
+    },
+    [selected, updateMessageList]
+  );
 
   const loadMessages = useCallback(async () => {
     if (!selected?.roomId && !selected?.id) return;
 
     try {
       setLoading(true);
-      processedMessageIds.clear(); // Reset dei messaggi processati
-      console.log("Caricamento messaggi per:", selected);
+      messageMap.current.clear();
+      processedIds.current.clear();
+      setMessages([]);
 
       const path =
         selected.type === "friend"
@@ -66,148 +87,106 @@ export const useMessages = (selected, chatData) => {
           : "boards";
       const id = selected.type === "friend" ? selected.roomId : selected.id;
 
-      // Carica i messaggi esistenti
+      // Rimuovi la vecchia sottoscrizione
+      if (gunRef.current) {
+        gunRef.current.off();
+        gunRef.current = null;
+      }
+
+      // Carica messaggi esistenti
       const existingMessages = await messaging.chat.messageList.loadMessages(
         path,
         id,
         null,
         Date.now()
       );
+      for (const msg of existingMessages) {
+        await addMessage(msg);
+      }
 
-      // Processa i messaggi esistenti
-      const processedMessages = await Promise.all(
-        existingMessages
-          .filter((msg) => msg && msg.content)
-          .map((msg) => processMessage(msg, selected))
-      );
+      // Sottoscrizione per nuovi messaggi
+      gunRef.current = gun
+        .get(DAPP_NAME)
+        .get(path)
+        .get(id)
+        .get("messages")
+        .map();
 
-      setMessages(
-        processedMessages
-          .filter(Boolean)
-          .sort((a, b) => a.timestamp - b.timestamp)
-      );
+      gunRef.current.on(async (data, key) => {
+        if (!data) return;
+        await addMessage(data, key);
+      });
     } catch (error) {
       console.error("Errore caricamento messaggi:", error);
       setError("Errore nel caricamento dei messaggi");
     } finally {
       setLoading(false);
     }
-  }, [selected?.roomId, selected?.id, selected?.type, selected?.pub]);
+  }, [selected, addMessage]);
 
-  // Sottoscrizione in tempo reale ai nuovi messaggi
   useEffect(() => {
-    if (!selected?.roomId && !selected?.id) return;
-
-    const path =
-      selected.type === "friend"
-        ? "chats"
-        : selected.type === "channel"
-        ? "channels"
-        : "boards";
-    const id = selected.type === "friend" ? selected.roomId : selected.id;
-
-    console.log("Sottoscrizione ai messaggi per:", path, id);
-
-    const unsubMessages = gun
-      .get(DAPP_NAME)
-      .get(path)
-      .get(id)
-      .get("messages")
-      .map()
-      .on(async (data, key) => {
-        if (!data) return;
-
-        try {
-          const processedMessage = await processMessage(
-            { ...data, id: key },
-            selected
-          );
-          if (processedMessage) {
-            updateMessages(processedMessage);
-          }
-        } catch (error) {
-          console.error("Errore processamento messaggio:", error);
-        }
-      });
-
+    loadMessages();
     return () => {
-      if (typeof unsubMessages === "function") {
-        unsubMessages();
+      if (gunRef.current) {
+        gunRef.current.off();
+        gunRef.current = null;
       }
-      processedMessageIds.clear(); // Pulisci i messaggi processati quando la sottoscrizione viene rimossa
+      messageMap.current.clear();
+      processedIds.current.clear();
     };
-  }, [
-    selected?.roomId,
-    selected?.id,
-    selected?.type,
-    selected?.pub,
-    updateMessages,
-  ]);
+  }, [loadMessages]);
 
-  const loadMoreMessages = useCallback(async () => {
-    if (isLoadingMore || !hasMoreMessages) return;
+  const sendMessage = useCallback(
+    async (content, type = "text") => {
+      if (!selected?.roomId && !selected?.id) return;
 
-    try {
-      setIsLoadingMore(true);
-      const path =
-        selected.type === "friend"
-          ? "chats"
-          : selected.type === "channel"
-          ? "channels"
-          : "boards";
-      const id = selected.type === "friend" ? selected.roomId : selected.id;
+      const timestamp = Date.now();
+      const messageId = `msg_${timestamp}_${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
 
-      const olderMessages = await messaging.chat.messageList.loadMessages(
-        path,
-        id,
-        20,
-        oldestMessageTimestamp
-      );
+      const message = {
+        content,
+        type,
+        sender: user.is.pub,
+        timestamp,
+        status: "sent",
+      };
 
-      if (olderMessages.length === 0) {
-        setHasMoreMessages(false);
-        return;
+      try {
+        const path =
+          selected.type === "friend"
+            ? "chats"
+            : selected.type === "channel"
+            ? "channels"
+            : "boards";
+        const id = selected.type === "friend" ? selected.roomId : selected.id;
+
+        await gun
+          .get(DAPP_NAME)
+          .get(path)
+          .get(id)
+          .get("messages")
+          .get(messageId)
+          .put(message);
+
+        return true;
+      } catch (error) {
+        console.error("Errore invio messaggio:", error);
+        return false;
       }
-
-      const processedMessages = await Promise.all(
-        olderMessages.map((msg) => processMessage(msg, selected))
-      );
-
-      const validMessages = processedMessages.filter(Boolean);
-      if (validMessages.length > 0) {
-        const newOldestTimestamp = Math.min(
-          ...validMessages.map((msg) => msg.timestamp)
-        );
-        setOldestMessageTimestamp(newOldestTimestamp);
-
-        setMessages((prev) => {
-          const allMessages = [...prev, ...validMessages];
-          return allMessages.sort((a, b) => a.timestamp - b.timestamp);
-        });
-      }
-    } catch (error) {
-      console.error("Errore caricamento messaggi precedenti:", error);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [
-    isLoadingMore,
-    hasMoreMessages,
-    oldestMessageTimestamp,
-    selected?.type,
-    selected?.roomId,
-    selected?.id,
-    selected?.pub,
-  ]);
+    },
+    [selected]
+  );
 
   return {
     messages,
-    setMessages,
     loading,
     error,
     isLoadingMore,
     hasMoreMessages,
     loadMessages,
-    loadMoreMessages,
+    loadMoreMessages: () => {}, // Implementare se necessario
+    sendMessage,
   };
 };

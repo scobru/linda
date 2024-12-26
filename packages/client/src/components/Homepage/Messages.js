@@ -15,7 +15,7 @@ import { useMessageSending } from "../../hooks/useMessageSending";
 import { useMobileView } from "../../hooks/useMobileView";
 
 const { userBlocking } = blocking;
-const { channels } = messaging;
+const { channels, messageList } = messaging;
 const { chat } = messaging;
 
 // Componente per l'area di input
@@ -134,13 +134,13 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   // Utilizzo dei custom hooks
   const {
     messages,
-    setMessages,
     loading,
     error,
     isLoadingMore,
     hasMoreMessages,
     loadMessages,
     loadMoreMessages,
+    sendMessage: updateMessages,
   } = useMessages(selected, chatData);
 
   const { chatUserInfo, chatUserAvatar } = useChatUser(selected, chatData);
@@ -158,7 +158,7 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     handleDeleteAllMessages,
     handleVoiceMessage,
     messageTracking,
-  } = useMessageSending(selected, setMessages);
+  } = useMessageSending(selected, messages, updateMessages);
 
   const { currentIsMobileView } = useMobileView(isMobileView);
 
@@ -224,6 +224,54 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     }
   };
 
+  const handleClearChat = async () => {
+    if (!selected?.roomId) return;
+
+    try {
+      // Ottieni tutti i messaggi della chat
+      const chatRef = gun
+        .get(DAPP_NAME)
+        .get("chats")
+        .get(selected.roomId)
+        .get("messages");
+
+      // Prima ottieni tutti gli ID dei messaggi
+      const messageIds = await new Promise((resolve) => {
+        const ids = [];
+        chatRef.map().once((msg, id) => {
+          if (msg) {
+            ids.push(id);
+          }
+        });
+        setTimeout(() => resolve(ids), 1000);
+      });
+
+      console.log("Messaggi da cancellare:", messageIds.length);
+
+      // Cancella ogni messaggio individualmente
+      for (const id of messageIds) {
+        await new Promise((resolve) => {
+          chatRef.get(id).put(null, (ack) => {
+            if (ack.err) {
+              console.error("Errore cancellazione messaggio:", id, ack.err);
+            }
+            resolve();
+          });
+        });
+      }
+
+      // Pulisci lo stato locale
+      setMessages([]);
+
+      toast.success(
+        `Chat cancellata con successo (${messageIds.length} messaggi)`
+      );
+    } catch (error) {
+      console.error("Errore durante la cancellazione della chat:", error);
+      toast.error("Errore durante la cancellazione della chat");
+    }
+  };
+
   if (!selected?.pub) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -280,7 +328,26 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
             )}
           </div>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleClearChat}
+            className="p-2 hover:bg-[#4A4F76] rounded-full text-gray-300 hover:text-white transition-colors"
+            title="Cancella chat"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
           {chatData &&
             chatData.type !== "channel" &&
             chatData.type !== "board" && (

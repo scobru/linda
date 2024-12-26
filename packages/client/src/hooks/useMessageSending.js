@@ -3,7 +3,7 @@ import { gun, user, DAPP_NAME } from "linda-protocol";
 import { messaging } from "linda-protocol";
 import { toast } from "react-hot-toast";
 
-export const useMessageSending = (selected, setMessages) => {
+export const useMessageSending = (selected, messages, updateMessages) => {
   const [newMessage, setNewMessage] = useState("");
 
   const sendMessage = async () => {
@@ -67,13 +67,15 @@ export const useMessageSending = (selected, setMessages) => {
       }
 
       // Aggiorna lo stato locale
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageData,
-          content: messageContent, // Usa il contenuto non criptato per la visualizzazione locale
-        },
-      ]);
+      if (updateMessages) {
+        updateMessages([
+          ...messages,
+          {
+            ...messageData,
+            content: messageContent, // Usa il contenuto non criptato per la visualizzazione locale
+          },
+        ]);
+      }
     } catch (error) {
       console.error("Errore invio messaggio:", error);
       toast.error(error.message || "Errore nell'invio del messaggio");
@@ -100,7 +102,9 @@ export const useMessageSending = (selected, setMessages) => {
       const id = selected.type === "friend" ? selected.roomId : selected.id;
 
       await messaging.chat.messageList.deleteMessage(path, id, messageId);
-      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      if (updateMessages) {
+        updateMessages(messages.filter((msg) => msg.id !== messageId));
+      }
       toast.success("Messaggio eliminato");
     } catch (error) {
       console.error("Errore eliminazione messaggio:", error);
@@ -127,7 +131,9 @@ export const useMessageSending = (selected, setMessages) => {
       const id = selected.type === "friend" ? selected.roomId : selected.id;
 
       await messaging.chat.messageList.deleteAllMessages(path, id);
-      setMessages([]);
+      if (updateMessages) {
+        updateMessages([]);
+      }
       toast.success("Tutti i messaggi sono stati eliminati");
     } catch (error) {
       console.error("Errore eliminazione messaggi:", error);

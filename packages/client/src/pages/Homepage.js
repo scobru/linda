@@ -8,9 +8,11 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
+import { friendsService } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
 import Context from "../contexts/context";
 import { useChat } from "../hooks/useChat";
+import { useFriendRequestNotifications } from "../hooks/useFriendRequestNotifications";
 
 // Components
 import Friends from "../components/Homepage/Friends";
@@ -26,7 +28,7 @@ import Header from "../components/Header";
 
 export default function Homepage() {
   const navigate = useNavigate();
-  const { appState } = useAppState();
+  const { appState, updateAppState } = useAppState();
   const {
     setFriends: setOldFriends,
     setSelected: setOldSelected,
@@ -39,7 +41,6 @@ export default function Homepage() {
 
   // Stati locali
   const [loading, setLoading] = useState(false);
-  const [pendingRequests, setPendingRequests] = useState([]);
   const [isMobileView, setIsMobileView] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [activeView, setActiveView] = useState("chats");
@@ -48,16 +49,23 @@ export default function Homepage() {
   // Integrazione useChat
   const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
 
+  // Integrazione notifiche richieste di amicizia
+  const {
+    pendingRequests,
+    loading: requestsLoading,
+    markAsRead,
+  } = useFriendRequestNotifications();
+
   // Refs
   const friendsRef = useRef(new Set());
-  const processedRequestsRef = useRef(new Set());
   const initializationRef = useRef(false);
 
   // Verifica autenticazione e inizializzazione
   useEffect(() => {
+    let mounted = true;
+
     const initializeHomepage = async () => {
-      // Evita inizializzazioni multiple
-      if (initializationRef.current) return;
+      if (!mounted || initializationRef.current) return;
       if (!appState.isAuthenticated || !appState.user?.is) {
         console.log("Homepage - Utente non autenticato");
         return;
@@ -69,68 +77,48 @@ export default function Homepage() {
         console.log("Homepage - Inizializzazione...");
 
         // Carica i dati iniziali
-        await loadInitialData();
-        setConnectionState("online");
+        if (mounted) {
+          await loadInitialData();
+          setConnectionState("online");
+        }
       } catch (error) {
         console.error("Homepage - Errore inizializzazione:", error);
-        toast.error("Errore durante il caricamento dei dati");
+        if (mounted) {
+          toast.error("Errore durante il caricamento dei dati");
+        }
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     initializeHomepage();
 
-    return () => {
-      initializationRef.current = false;
-    };
-  }, [appState.isAuthenticated, appState.user]);
+    // Sottoscrizione ai cambiamenti delle amicizie
+    const unsubFriendships = gun
+      .get(DAPP_NAME)
+      .get("friendships")
+      .map()
+      .on((friendship, id) => {
+        if (!mounted || !friendship) return;
 
-  // Caricamento dati iniziali
-  const loadInitialData = async () => {
-    try {
-      console.log("Caricamento dati iniziali...");
+        // Verifica se l'amicizia coinvolge l'utente corrente
+        if (
+          friendship.user1 === appState.user?.is?.pub ||
+          friendship.user2 === appState.user?.is?.pub
+        ) {
+          // Aggiorna la lista amici solo se necessario
+          setOldFriends((prevFriends) => {
+            const friendPub =
+              friendship.user1 === appState.user?.is?.pub
+                ? friendship.user2
+                : friendship.user1;
 
-      // Carica lista amici
-      const friendsList = await loadFriends();
-      if (friendsList.length > 0) {
-        console.log("Amici caricati:", friendsList);
-        setOldFriends(friendsList);
-        friendsRef.current = new Set(friendsList.map((f) => f.pub));
-      }
-
-      // Carica richieste di amicizia pendenti
-      await loadPendingRequests();
-    } catch (error) {
-      console.error("Errore nel caricamento dati:", error);
-      throw error;
-    }
-  };
-
-  // Caricamento amici
-  const loadFriends = async () => {
-    try {
-      const friendsList = [];
-      const friendshipsPromise = new Promise((resolve) => {
-        const processedFriendships = new Set();
-
-        gun
-          .get(DAPP_NAME)
-          .get("friendships")
-          .map()
-          .once(async (friendship, id) => {
-            if (!friendship || processedFriendships.has(id)) return;
-            processedFriendships.add(id);
-
-            if (
-              friendship.user1 === appState.user.is.pub ||
-              friendship.user2 === appState.user.is.pub
-            ) {
-              const friendPub =
-                friendship.user1 === appState.user.is.pub
-                  ? friendship.user2
-                  : friendship.user1;
-
+            // Verifica se l'amico è già presente
+            const existingFriend = prevFriends.find((f) => f.pub === friendPub);
+            if (!existingFriend) {
+              // Carica le informazioni dell'amico
               gun
                 .get(DAPP_NAME)
                 .get("userList")
@@ -138,7 +126,7 @@ export default function Homepage() {
                 .map()
                 .once((userData) => {
                   if (userData && userData.pub === friendPub) {
-                    friendsList.push({
+                    const newFriend = {
                       pub: friendPub,
                       alias:
                         userData.nickname ||
@@ -150,57 +138,64 @@ export default function Homepage() {
                       friendshipId: id,
                       added: friendship.created,
                       type: "friend",
-                    });
+                      chatId: [friendPub, appState.user.is.pub]
+                        .sort()
+                        .join("_"),
+                    };
+                    return [...prevFriends, newFriend];
                   }
+                  return prevFriends;
                 });
             }
+            return prevFriends;
           });
-
-        // Risolvi dopo un breve delay per assicurarsi che tutte le callback siano completate
-        setTimeout(resolve, 1000);
+        }
       });
 
-      await friendshipsPromise;
+    return () => {
+      mounted = false;
+      initializationRef.current = false;
+      if (typeof unsubFriendships === "function") {
+        unsubFriendships();
+      }
+    };
+  }, [appState.isAuthenticated, appState.user]);
+
+  // Caricamento dati iniziali
+  const loadInitialData = async () => {
+    try {
+      console.log("Caricamento dati iniziali...");
+
+      // Carica lista amici
+      const friendsList = await loadFriends();
+      if (friendsList && friendsList.length > 0) {
+        console.log("Amici caricati:", friendsList);
+        // Aggiungi chatId a ogni amico
+        const friendsWithChatId = friendsList.map((friend) => ({
+          ...friend,
+          chatId: [friend.pub, appState.user.is.pub].sort().join("_"),
+        }));
+        setOldFriends(friendsWithChatId);
+        friendsRef.current = new Set(friendsWithChatId.map((f) => f.pub));
+      }
+    } catch (error) {
+      console.error("Errore nel caricamento dati:", error);
+      throw error;
+    }
+  };
+
+  // Caricamento amici
+  const loadFriends = async () => {
+    try {
+      console.log("Caricamento amici tramite getFriendsList...");
+      const friendsList = await friendsService.getFriendsList(
+        appState.user.is.pub
+      );
+      console.log("Lista amici ricevuta:", friendsList);
       return friendsList;
     } catch (error) {
       console.error("Errore caricamento amici:", error);
       return [];
-    }
-  };
-
-  // Caricamento richieste pendenti
-  const loadPendingRequests = async () => {
-    try {
-      const requests = [];
-      const requestsPromise = new Promise((resolve) => {
-        const processedRequests = new Set();
-
-        gun
-          .get(DAPP_NAME)
-          .get("friendRequests")
-          .map()
-          .once((request) => {
-            if (
-              request &&
-              request.to === appState.user.is.pub &&
-              !processedRequestsRef.current.has(request.from) &&
-              !processedRequests.has(request.from)
-            ) {
-              processedRequests.add(request.from);
-              requests.push(request);
-            }
-          });
-
-        // Risolvi dopo un breve delay per assicurarsi che tutte le callback siano completate
-        setTimeout(resolve, 500);
-      });
-
-      await requestsPromise;
-      if (requests.length > 0) {
-        setPendingRequests(requests);
-      }
-    } catch (error) {
-      console.error("Errore caricamento richieste:", error);
     }
   };
 
@@ -221,6 +216,42 @@ export default function Homepage() {
       setChatRoomId(null);
     }
   }, [oldSelected, appState.user.is.pub]);
+
+  // Gestione selezione canale/chat
+  const handleSelect = useCallback(
+    (selected) => {
+      console.log("Selezione:", selected);
+
+      // Aggiorna il vecchio contesto
+      setOldSelected(selected.item);
+
+      // Aggiorna il nuovo contesto
+      updateAppState({
+        selected: selected.item,
+        currentChat: {
+          ...selected.item,
+          type: selected.type,
+          isGroup: true,
+        },
+        activeChat: {
+          id: selected.item.roomId || selected.item.pub,
+          type: selected.type,
+          name: selected.item.name,
+          pub: selected.item.pub,
+          isGroup: true,
+          members: selected.item.members,
+          creator: selected.item.creator,
+          settings: selected.item.settings,
+        },
+      });
+
+      // Gestione vista mobile
+      if (isMobileView) {
+        setShowMobileChat(true);
+      }
+    },
+    [setOldSelected, updateAppState, isMobileView]
+  );
 
   return (
     <div className="flex flex-col h-screen max-h-screen">
@@ -262,21 +293,16 @@ export default function Homepage() {
           <div className="flex-1 overflow-y-auto min-h-0">
             {activeView === "chats" && (
               <Friends
-                onSelect={(friend) => {
-                  setOldSelected(friend);
-                  if (isMobileView) {
-                    setShowMobileChat(true);
-                  }
-                }}
+                onSelect={(friend) =>
+                  handleSelect({ item: friend, type: "chat" })
+                }
                 pendingRequests={pendingRequests}
                 loading={loading}
                 selectedUser={oldSelected}
                 friends={oldFriends}
               />
             )}
-            {activeView === "channels" && (
-              <Channels onSelect={setOldSelected} />
-            )}
+            {activeView === "channels" && <Channels onSelect={handleSelect} />}
           </div>
         </div>
 

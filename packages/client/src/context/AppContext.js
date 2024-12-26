@@ -25,7 +25,19 @@ const initialState = {
   friendRequests: [],
   blockedUsers: [],
 
-  activeChat: null,
+  activeChat: {
+    id: null,
+    type: null,
+    name: null,
+    pub: null,
+    isGroup: false,
+    members: [],
+    creator: null,
+    settings: {
+      isPublic: true,
+      canWrite: true,
+    },
+  },
   messages: {},
 
   walletInfo: null,

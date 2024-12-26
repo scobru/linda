@@ -1,151 +1,192 @@
 import { useState, useEffect, useRef } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
+import { friendsService } from "linda-protocol";
+import { gun, DAPP_NAME } from "linda-protocol";
+import { userUtils } from "linda-protocol";
 
 export const useFriends = () => {
   const [friends, setFriends] = useState([]);
   const { appState } = useAppState();
-  const processedIds = useRef(new Set());
-  const friendsMap = useRef(new Map());
   const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const friendsMapRef = useRef(new Map());
 
   useEffect(() => {
     if (!appState.pub) return;
 
     console.log("Inizializzazione monitoraggio amicizie per:", appState.pub);
-    let mounted = true;
     loadingRef.current = true;
+    mountedRef.current = true;
 
-    // Funzione per processare un'amicizia
-    const processFriendship = async (friendship, id) => {
-      // Evita di processare più volte la stessa amicizia
-      if (!mounted || !friendship || processedIds.current.has(id)) return;
-      processedIds.current.add(id);
-
-      // Verifica che l'amicizia sia valida e attiva
-      if (!friendship.status || friendship.status !== "active") return;
-
-      // Determina quale utente è l'amico
-      const friendPub =
-        friendship.user1 === appState.pub ? friendship.user2 : friendship.user1;
-      if (!friendPub) return;
-
-      // Crea subito un oggetto amico base per mostrare qualcosa
-      const baseFriend = {
-        pub: friendPub,
-        friendshipId: id,
-        chatId: friendship.chatId || [friendPub, appState.pub].sort().join("_"),
-        status: friendship.status,
-        created: friendship.created,
-        displayName: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-        alias: `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-      };
-
-      // Aggiorna subito con le info base
-      friendsMap.current.set(friendPub, baseFriend);
-      updateFriendsList();
+    // Funzione per aggiornare un amico
+    const updateFriend = async (friendPub, friendshipData) => {
+      if (!mountedRef.current) return;
 
       try {
-        // Carica le info utente in background
-        gun
-          .get(DAPP_NAME)
-          .get("userList")
-          .get("users")
-          .get(friendPub)
-          .once((userInfo) => {
-            if (!mounted || !userInfo) return;
+        // Carica le info dell'utente
+        const userInfo = await userUtils.getUserInfo(friendPub);
+        if (!mountedRef.current) return;
 
-            // Aggiorna con le info complete
-            const enrichedFriend = {
-              ...baseFriend,
-              displayName:
-                userInfo.nickname ||
-                userInfo.username ||
-                baseFriend.displayName,
-              nickname: userInfo.nickname,
-              username: userInfo.username,
-              alias: userInfo.alias || baseFriend.alias,
-              avatarSeed: userInfo.avatarSeed,
-              lastSeen: userInfo.lastSeen,
-              isOnline: userInfo.isOnline,
-            };
+        const friend = {
+          pub: friendPub,
+          chatId: [friendPub, appState.pub].sort().join("_"),
+          displayName:
+            userInfo.displayName ||
+            userInfo.username ||
+            `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+          username: userInfo.username,
+          nickname: userInfo.nickname,
+          lastSeen: userInfo.lastSeen || Date.now(),
+          isOnline: userInfo.isOnline || false,
+          isBlocked: friendshipData?.isBlocked || false,
+          timestamp: friendshipData?.timestamp || Date.now(),
+          status: friendshipData?.status || "accepted",
+        };
 
-            friendsMap.current.set(friendPub, enrichedFriend);
-            updateFriendsList();
-          });
+        friendsMapRef.current.set(friendPub, friend);
+
+        setFriends(
+          Array.from(friendsMapRef.current.values()).sort(
+            (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+          )
+        );
       } catch (error) {
-        console.error("Errore nel caricamento info amico:", friendPub, error);
+        console.error("Errore aggiornamento amico:", error);
       }
     };
 
-    const updateFriendsList = () => {
-      if (!mounted) return;
-      const sortedFriends = Array.from(friendsMap.current.values()).sort(
-        (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
-      );
-      setFriends(sortedFriends);
-    };
-
-    // Carica tutte le amicizie in parallelo
-    const loadFriendships = () => {
-      return new Promise((resolve) => {
-        gun
-          .get(DAPP_NAME)
-          .get("friendships")
-          .map()
-          .once(async (friendship, id) => {
-            if (friendship) {
-              await processFriendship(friendship, id);
-            }
-          });
-        // Risolvi dopo un breve timeout per dare tempo alle amicizie di caricarsi
-        setTimeout(resolve, 100);
-      });
-    };
-
-    // Esegui il caricamento iniziale
-    loadFriendships().then(() => {
-      loadingRef.current = false;
-      updateFriendsList();
-    });
-
-    // Sottoscrizione agli aggiornamenti degli utenti
-    const unsubUsers = gun
+    // Sottoscrizione alle amicizie
+    const unsubFriendships = gun
       .get(DAPP_NAME)
-      .get("userList")
-      .get("users")
+      .get("friendships")
       .map()
-      .on((userData, userPub) => {
-        if (!mounted || !userData || !friendsMap.current.has(userPub)) return;
+      .on((friendship, id) => {
+        if (!mountedRef.current || !friendship) return;
 
-        const friend = friendsMap.current.get(userPub);
-        if (!friend) return;
+        // Verifica che l'amicizia sia valida e coinvolga l'utente corrente
+        if (friendship.user1 === appState.pub) {
+          updateFriend(friendship.user2, friendship);
+        } else if (friendship.user2 === appState.pub) {
+          updateFriend(friendship.user1, friendship);
+        }
+      });
 
-        // Aggiorna le info dell'amico
-        friendsMap.current.set(userPub, {
-          ...friend,
-          displayName:
-            userData.nickname || userData.username || friend.displayName,
-          nickname: userData.nickname,
-          username: userData.username,
-          alias: userData.alias || friend.alias,
-          avatarSeed: userData.avatarSeed,
-          lastSeen: userData.lastSeen,
-          isOnline: userData.isOnline,
+    // Caricamento iniziale degli amici
+    const loadInitialFriends = async () => {
+      try {
+        // Carica tutte le amicizie
+        const friendships = await new Promise((resolve) => {
+          const results = [];
+          gun
+            .get(DAPP_NAME)
+            .get("friendships")
+            .map()
+            .once((friendship, id) => {
+              if (
+                friendship &&
+                (friendship.user1 === appState.pub ||
+                  friendship.user2 === appState.pub)
+              ) {
+                results.push({ ...friendship, id });
+              }
+            });
+          setTimeout(() => resolve(results), 1000);
         });
 
-        updateFriendsList();
-      });
+        if (!mountedRef.current) return;
+
+        // Processa ogni amicizia
+        for (const friendship of friendships) {
+          const friendPub =
+            friendship.user1 === appState.pub
+              ? friendship.user2
+              : friendship.user1;
+          await updateFriend(friendPub, friendship);
+        }
+
+        loadingRef.current = false;
+      } catch (error) {
+        console.error("Errore caricamento iniziale amici:", error);
+        loadingRef.current = false;
+      }
+    };
+
+    loadInitialFriends();
 
     return () => {
       console.log("Cleanup sottoscrizioni amici");
-      mounted = false;
+      mountedRef.current = false;
       loadingRef.current = false;
-      processedIds.current.clear();
-      friendsMap.current.clear();
-      if (typeof unsubUsers === "function") unsubUsers();
+      friendsMapRef.current.clear();
+      if (typeof unsubFriendships === "function") unsubFriendships();
     };
   }, [appState.pub]);
 
-  return { friends, loading: loadingRef.current };
+  const removeFriend = async (friendPub) => {
+    try {
+      const result = await friendsService.removeFriend(friendPub);
+      if (result.success) {
+        friendsMapRef.current.delete(friendPub);
+        setFriends(
+          Array.from(friendsMapRef.current.values()).sort(
+            (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+          )
+        );
+      }
+      return result;
+    } catch (error) {
+      console.error("Errore rimozione amico:", error);
+      throw error;
+    }
+  };
+
+  const blockUser = async (friendPub) => {
+    try {
+      const result = await friendsService.blockUser(friendPub);
+      if (result.success) {
+        const friend = friendsMapRef.current.get(friendPub);
+        if (friend) {
+          friendsMapRef.current.set(friendPub, { ...friend, isBlocked: true });
+          setFriends(
+            Array.from(friendsMapRef.current.values()).sort(
+              (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+            )
+          );
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error("Errore blocco utente:", error);
+      throw error;
+    }
+  };
+
+  const unblockUser = async (friendPub) => {
+    try {
+      const result = await friendsService.unblockUser(friendPub);
+      if (result.success) {
+        const friend = friendsMapRef.current.get(friendPub);
+        if (friend) {
+          friendsMapRef.current.set(friendPub, { ...friend, isBlocked: false });
+          setFriends(
+            Array.from(friendsMapRef.current.values()).sort(
+              (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+            )
+          );
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error("Errore sblocco utente:", error);
+      throw error;
+    }
+  };
+
+  return {
+    friends,
+    loading: loadingRef.current,
+    removeFriend,
+    blockUser,
+    unblockUser,
+  };
 };

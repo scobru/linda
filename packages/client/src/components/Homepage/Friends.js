@@ -8,7 +8,7 @@ import { getUserUsername } from "../../utils/userUtils";
 
 const Friends = ({ onSelect, selectedUser }) => {
   const { appState, currentView, setCurrentView } = useAppState();
-  const { friends } = useFriends();
+  const { friends, removeFriend, blockUser, unblockUser } = useFriends();
   const [searchQuery, setSearchQuery] = useState("");
   const [friendsWithNames, setFriendsWithNames] = useState([]);
 
@@ -94,6 +94,54 @@ const Friends = ({ onSelect, selectedUser }) => {
     [appState.pub, onSelect]
   );
 
+  const handleRemoveFriend = useCallback(
+    async (friendPub) => {
+      try {
+        if (!window.confirm("Sei sicuro di voler rimuovere questo amico?")) {
+          return;
+        }
+
+        await removeFriend(friendPub);
+        toast.success("Amico rimosso con successo");
+
+        // Se l'amico rimosso era selezionato, deselezionalo
+        if (selectedUser?.pub === friendPub) {
+          onSelect(null);
+        }
+      } catch (error) {
+        console.error("Errore rimozione amico:", error);
+        toast.error("Errore durante la rimozione dell'amico");
+      }
+    },
+    [removeFriend, selectedUser, onSelect]
+  );
+
+  const handleBlockUser = useCallback(
+    async (friendPub) => {
+      try {
+        await blockUser(friendPub);
+        toast.success("Utente bloccato con successo");
+      } catch (error) {
+        console.error("Errore blocco utente:", error);
+        toast.error("Errore durante il blocco dell'utente");
+      }
+    },
+    [blockUser]
+  );
+
+  const handleUnblockUser = useCallback(
+    async (friendPub) => {
+      try {
+        await unblockUser(friendPub);
+        toast.success("Utente sbloccato con successo");
+      } catch (error) {
+        console.error("Errore sblocco utente:", error);
+        toast.error("Errore durante lo sblocco dell'utente");
+      }
+    },
+    [unblockUser]
+  );
+
   const filteredFriends = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
     return friendsWithNames.filter((friend) =>
@@ -125,6 +173,9 @@ const Friends = ({ onSelect, selectedUser }) => {
                 friend={friend}
                 isSelected={selectedUser?.pub === friend.pub}
                 onSelect={() => handleSelectFriend(friend)}
+                onRemove={handleRemoveFriend}
+                onBlock={handleBlockUser}
+                onUnblock={handleUnblockUser}
               />
             ))
           ) : (
