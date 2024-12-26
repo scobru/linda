@@ -9,34 +9,6 @@ const certificateManager = {
   debug: false,
 
   /**
-   * Creates and signs a new certificate
-   * @async
-   * @param {Object} data - Certificate data to sign
-   * @returns {Promise<string>} Signed certificate string
-   * @throws {Error} If user is not authenticated
-   */
-  async createCertificate(data) {
-    if (!user.is) throw new Error('User not authenticated');
-
-    const certificate = {
-      ...data,
-      iat: Date.now(),
-      iss: user.is.pub,
-    };
-
-    const signed = await SEA.sign(certificate, user._.sea);
-
-    if (this.debug) {
-      console.log('Created certificate:', {
-        certificate,
-        signed,
-      });
-    }
-
-    return signed;
-  },
-
-  /**
    * Verifies a certificate's signature and expiration
    * @async
    * @param {string} certificate - The certificate to verify
@@ -52,40 +24,30 @@ const certificateManager = {
         type,
       });
 
-      // Rimuovi il prefisso SEA se presente
-      const certStr = certificate.startsWith('SEA')
-        ? certificate.slice(3)
-        : certificate;
-
-      // Verifica la firma
-      const parsed = JSON.parse(certStr);
-      console.log('Certificato parsato:', parsed);
-
-      if (!parsed || !parsed.m) {
-        console.error('Certificato malformato');
+      if (!certificate) {
+        console.error('Certificato mancante');
         return false;
       }
 
-      console.log('Verifica firma con chiave:', parsed.m.pub);
-      const verified = await SEA.verify(parsed, parsed.m.pub);
+      // Verifica il certificato usando SEA.verify
+      const verified = await SEA.verify(certificate, false);
       console.log('Risultato verifica:', verified);
 
-      if (!verified) {
-        console.error('Firma del certificato non valida');
+      if (!verified || !verified.w) {
+        console.error('Certificato non valido o malformato');
         return false;
       }
 
-      // Verifica il tipo
-      console.log('Verifica tipo:', { atteso: type, ricevuto: verified.type });
-      const expectedTypes = {
-        messages: ['message', 'messages'],
-        chats: ['chat', 'chats'],
-      };
+      // Estrai i dati del certificato
+      const certData = verified.w;
+      console.log('Dati certificato:', certData);
 
-      if (!expectedTypes[type]?.includes(verified.type)) {
+      // Verifica il tipo di certificato
+      console.log('Verifica tipo:', { atteso: type, ricevuto: certData['*'] });
+      if (certData['*'] !== type) {
         console.error('Tipo di certificato non corrispondente:', {
-          expected: expectedTypes[type],
-          got: verified.type,
+          expected: type,
+          got: certData['*'],
         });
         return false;
       }
@@ -93,20 +55,32 @@ const certificateManager = {
       // Verifica il destinatario
       console.log('Verifica destinatario:', {
         atteso: pubKey,
-        ricevuto: verified.target,
+        ricevuto: certData['+'],
       });
-      if (verified.target !== pubKey) {
+      if (certData['+'] !== pubKey) {
         console.error('Destinatario del certificato non corrispondente:', {
           expected: pubKey,
-          got: verified.target,
+          got: certData['+'],
         });
         return false;
       }
 
-      // Verifica la scadenza
-      if (verified.exp && verified.exp < Date.now()) {
+      // Verifica l'emittente
+      if (!certData['-']) {
+        console.error('Emittente del certificato mancante');
+        return false;
+      }
+
+      // Verifica i permessi
+      if (!certData['?'] || !Array.isArray(certData['?'])) {
+        console.error('Permessi del certificato non validi');
+        return false;
+      }
+
+      // Verifica la scadenza se presente
+      if (certData['>'] && certData['>'] < Date.now()) {
         console.error('Certificato scaduto:', {
-          expiration: verified.exp,
+          expiration: certData['>'],
           now: Date.now(),
         });
         return false;
@@ -119,8 +93,8 @@ const certificateManager = {
         return false;
       }
 
-      console.log('Certificato valido:', verified);
-      return verified;
+      console.log('Certificato valido:', certData);
+      return certData;
     } catch (error) {
       console.error('Errore nella verifica del certificato:', error);
       return false;
@@ -162,30 +136,6 @@ const certificateManager = {
       .once();
 
     return !!revoked;
-  },
-
-  async createAuthorizationCertificate(targetPub, permissions) {
-    if (!user.is) throw new Error('User not authenticated');
-
-    const certificate = {
-      type: 'authorization',
-      issuer: user.is.pub,
-      target: targetPub,
-      permissions,
-      exp: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 giorni
-      iat: Date.now(),
-    };
-
-    const signed = await SEA.sign(certificate, user._.sea);
-    return signed;
-  },
-
-  async verifyAuthorization(certificate, requiredPermission) {
-    const verified = await SEA.verify(certificate, certificate.issuer);
-    if (!verified) return false;
-
-    if (Date.now() > verified.exp) return false;
-    return verified.permissions.includes(requiredPermission);
   },
 };
 

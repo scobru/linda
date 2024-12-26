@@ -225,10 +225,13 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       console.log('Verifica certificati esistenti...');
 
       // Genera certificati per chat e messaggi
-      console.log('Generazione certificati chat e messaggi...');
+      console.log('Generazione certificati chat e messaggi...', {
+        targetPub,
+        userPub,
+      });
       const [chatCertificate, messageCertificate] = await Promise.all([
-        createChatsCertificate(userPub),
-        createMessagesCertificate(userPub),
+        createChatsCertificate(targetPub),
+        createMessagesCertificate(targetPub),
       ]);
 
       if (!chatCertificate || !messageCertificate) {
@@ -296,11 +299,18 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       }
 
       // Verifica la validità dei certificati
+      console.log('Verifica certificati con:', {
+        targetPub,
+        userPub,
+        savedChatCert,
+        savedMessageCert,
+      });
+
       const [isChatValid, isMessageValid] = await Promise.all([
-        certificateManager.verifyCertificate(savedChatCert, userPub, 'chats'),
+        certificateManager.verifyCertificate(savedChatCert, targetPub, 'chats'),
         certificateManager.verifyCertificate(
           savedMessageCert,
-          userPub,
+          targetPub,
           'messages'
         ),
       ]);

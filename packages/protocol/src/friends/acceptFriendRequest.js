@@ -26,31 +26,19 @@ const acceptFriendRequest = async (request) => {
         .get(DAPP_NAME)
         .get('certificates')
         .get('messages')
-        .get(request.from)
+        .get(user.is.pub)
         .then(),
       // Certificati privati
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('private_certificates')
-        .get('messages')
-        .get(request.from)
-        .then(),
+      user.get('private_certificates').get('messages').get(request.from).then(),
       // Certificati chat pubblici
       gun
         .get(DAPP_NAME)
         .get('certificates')
         .get('chats')
-        .get(request.from)
+        .get(user.is.pub)
         .then(),
       // Certificati chat privati
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('private_certificates')
-        .get('chats')
-        .get(request.from)
-        .then(),
+      user.get('private_certificates').get('chats').get(request.from).then(),
     ]);
 
     let messagesCertificate =
@@ -104,7 +92,7 @@ const acceptFriendRequest = async (request) => {
             .get(DAPP_NAME)
             .get('certificates')
             .get('messages')
-            .get(request.from)
+            .get(user.is.pub)
             .put(messagesCertificate, (ack) => {
               if (ack.err) reject(new Error(ack.err));
               else resolve();
@@ -112,9 +100,7 @@ const acceptFriendRequest = async (request) => {
         }),
         // Privato
         new Promise((resolve, reject) => {
-          gun
-            .user(user.is.pub)
-            .get(DAPP_NAME)
+          user
             .get('private_certificates')
             .get('messages')
             .get(request.from)
@@ -132,17 +118,21 @@ const acceptFriendRequest = async (request) => {
             .get(DAPP_NAME)
             .get('certificates')
             .get('messages')
-            .get(request.from)
-            .once((cert) => resolve(cert));
+            .get(user.is.pub)
+            .once((cert) => {
+              console.log('Certificato messaggi pubblico recuperato:', cert);
+              resolve(cert);
+            });
         }),
         new Promise((resolve) => {
-          gun
-            .user(user.is.pub)
-            .get(DAPP_NAME)
+          user
             .get('private_certificates')
             .get('messages')
             .get(request.from)
-            .once((cert) => resolve(cert));
+            .once((cert) => {
+              console.log('Certificato messaggi privato recuperato:', cert);
+              resolve(cert);
+            });
         }),
       ]);
 
@@ -172,7 +162,7 @@ const acceptFriendRequest = async (request) => {
             .get(DAPP_NAME)
             .get('certificates')
             .get('chats')
-            .get(request.from)
+            .get(user.is.pub)
             .put(chatsCertificate, (ack) => {
               console.log('Salvataggio certificato chat pubblico:', ack);
               if (ack.err) reject(new Error(ack.err));
@@ -181,9 +171,7 @@ const acceptFriendRequest = async (request) => {
         }),
         // Privato
         new Promise((resolve, reject) => {
-          gun
-            .user()
-            .get(DAPP_NAME)
+          user
             .get('private_certificates')
             .get('chats')
             .get(request.from)
@@ -206,16 +194,14 @@ const acceptFriendRequest = async (request) => {
             .get(DAPP_NAME)
             .get('certificates')
             .get('chats')
-            .get(request.from)
+            .get(user.is.pub)
             .once((cert) => {
               console.log('Certificato chat pubblico recuperato:', cert);
               resolve(cert);
             });
         }),
         new Promise((resolve) => {
-          gun
-            .user()
-            .get(DAPP_NAME)
+          user
             .get('private_certificates')
             .get('chats')
             .get(request.from)
@@ -271,38 +257,38 @@ const acceptFriendRequest = async (request) => {
       finalPublicChatsCert,
       finalPrivateChatsCert,
     ] = await Promise.all([
+      // Certificati pubblici messaggi
       new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get('certificates')
           .get('messages')
-          .get(request.from)
+          .get(user.is.pub) // Cambiato da request.from a user.is.pub
           .once((cert) => resolve(cert));
       }),
+      // Certificati privati messaggi
       new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
-          .get('certificates')
+        user
+          .get('private_certificates')
           .get('messages')
-          .get(request.from)
+          .get(request.from) // Usa request.from per i certificati privati
           .once((cert) => resolve(cert));
       }),
+      // Certificati pubblici chat
       new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get('certificates')
           .get('chats')
-          .get(request.from)
+          .get(user.is.pub) // Cambiato da request.from a user.is.pub
           .once((cert) => resolve(cert));
       }),
+      // Certificati privati chat
       new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
-          .get('certificates')
+        user
+          .get('private_certificates')
           .get('chats')
-          .get(request.from)
+          .get(request.from) // Usa request.from per i certificati privati
           .once((cert) => resolve(cert));
       }),
     ]);
@@ -391,10 +377,10 @@ const acceptFriendRequest = async (request) => {
       user.is.pub
     );
 
-    // Genera certificati per il mittente con il target corretto
+    // Genera certificati per il mittente
     const [senderChatCertificate, senderMessageCertificate] = await Promise.all(
       [
-        createChatsCertificate(request.from), // Il mittente deve avere certificati per comunicare con chi accetta
+        createChatsCertificate(request.from),
         createMessagesCertificate(request.from),
       ]
     );
@@ -411,7 +397,7 @@ const acceptFriendRequest = async (request) => {
           .get(DAPP_NAME)
           .get('certificates')
           .get('chats')
-          .get(request.from) // Usa il pub del mittente come chiave
+          .get(user.is.pub)
           .put(senderChatCertificate, (ack) => {
             console.log(
               'Salvataggio certificato chat pubblico per mittente:',
@@ -427,7 +413,7 @@ const acceptFriendRequest = async (request) => {
           .get(DAPP_NAME)
           .get('certificates')
           .get('messages')
-          .get(request.from) // Usa il pub del mittente come chiave
+          .get(user.is.pub)
           .put(senderMessageCertificate, (ack) => {
             console.log(
               'Salvataggio certificato messaggi pubblico per mittente:',
@@ -450,7 +436,7 @@ const acceptFriendRequest = async (request) => {
           .get(DAPP_NAME)
           .get('certificates')
           .get('chats')
-          .get(request.from) // Usa il pub del mittente come chiave
+          .get(user.is.pub) // Cambiato: verifichiamo nel percorso dove li abbiamo salvati
           .once((cert) => {
             console.log(
               'Certificato chat pubblico del mittente recuperato:',
@@ -464,7 +450,7 @@ const acceptFriendRequest = async (request) => {
           .get(DAPP_NAME)
           .get('certificates')
           .get('messages')
-          .get(request.from) // Usa il pub del mittente come chiave
+          .get(user.is.pub) // Cambiato: verifichiamo nel percorso dove li abbiamo salvati
           .once((cert) => {
             console.log(
               'Certificato messaggi pubblico del mittente recuperato:',
@@ -489,12 +475,12 @@ const acceptFriendRequest = async (request) => {
     const [isSenderChatValid, isSenderMessageValid] = await Promise.all([
       certificateManager.verifyCertificate(
         senderPublicChatCert,
-        request.from,
+        request.from, // Cambiato: verifichiamo che il certificato sia stato creato dal mittente
         'chats'
       ),
       certificateManager.verifyCertificate(
         senderPublicMessageCert,
-        request.from,
+        request.from, // Cambiato: verifichiamo che il certificato sia stato creato dal mittente
         'messages'
       ),
     ]);

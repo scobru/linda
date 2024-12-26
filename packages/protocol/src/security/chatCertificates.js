@@ -17,17 +17,19 @@ export const createChatsCertificate = async (targetPub) => {
 
     console.log('Creazione certificato chat per:', targetPub);
 
-    const certPair = await SEA.pair();
+    // Crea il certificato usando SEA.certify
     const certificate = {
-      type: 'chats',
-      pub: user.is.pub,
-      target: targetPub,
-      timestamp: Date.now(),
-      certKey: certPair.pub,
-      permissions: ['read', 'write'],
+      '*': 'chats', // tipo di certificato
+      '+': targetPub, // per chi è il certificato
+      '-': user.is.pub, // chi ha creato il certificato
+      '>': Date.now() + 24 * 60 * 60 * 1000, // timestamp di scadenza (24 ore)
+      '?': ['read', 'write'], // permessi
     };
 
-    const signedCert = await SEA.sign(certificate, user._.sea);
+    const signedCert = await SEA.certify([targetPub], certificate, user._.sea);
+    if (!signedCert) {
+      throw new Error('Impossibile creare il certificato');
+    }
     console.log('Certificato chat generato:', signedCert);
 
     // Salva il certificato pubblico
@@ -36,7 +38,7 @@ export const createChatsCertificate = async (targetPub) => {
         .get(DAPP_NAME)
         .get('certificates')
         .get('chats')
-        .get(user.is.pub)
+        .get(targetPub)
         .put(signedCert, (ack) => {
           console.log('Certificato chat pubblico salvato:', ack);
           if (ack.err) {
@@ -57,93 +59,34 @@ export const createChatsCertificate = async (targetPub) => {
         return;
       }
 
-      // Prepara il certificato per il salvataggio privato
-      const privateCertData = {
-        cert: signedCert,
-        timestamp: Date.now(),
-        type: 'chats',
-      };
-
-      // Cifra il certificato
-      SEA.encrypt(
-        JSON.stringify(privateCertData),
-        user._.sea,
-        async (encryptedData) => {
-          try {
-            // Salva il certificato cifrato
-            await new Promise((innerResolve, innerReject) => {
-              user
-                .get('private_certificates')
-                .get('chats')
-                .get(user.is.pub)
-                .put(encryptedData, (ack) => {
-                  console.log(
-                    'Tentativo salvataggio certificato chat privato:',
-                    ack
-                  );
-                  if (ack.err) {
-                    console.error(
-                      'Errore salvataggio certificato privato:',
-                      ack.err
-                    );
-                    innerReject(new Error(ack.err));
-                  } else {
-                    innerResolve(ack);
-                  }
-                });
-            });
-
-            // Attendi un momento per la propagazione
-            await new Promise((r) => setTimeout(r, 100));
-
+      // Salva direttamente nel nodo privato dell'utente
+      user
+        .get('private_certificates')
+        .get('chats')
+        .get(targetPub)
+        .put(signedCert, (ack) => {
+          console.log('Tentativo salvataggio certificato chat privato:', ack);
+          if (ack.err) {
+            console.error('Errore salvataggio certificato privato:', ack.err);
+            reject(new Error(ack.err));
+          } else {
             // Verifica il salvataggio
-            const savedData = await new Promise((verifyResolve) => {
-              user
-                .get('private_certificates')
-                .get('chats')
-                .get(user.is.pub)
-                .once(async (data) => {
-                  if (!data) {
-                    console.error('Nessun dato salvato trovato');
-                    verifyResolve(null);
-                    return;
-                  }
-                  try {
-                    const decrypted = await SEA.decrypt(data, user._.sea);
-                    if (!decrypted) {
-                      console.error(
-                        'Impossibile decifrare il certificato salvato'
-                      );
-                      verifyResolve(null);
-                      return;
-                    }
-                    const parsedData = JSON.parse(decrypted);
-                    verifyResolve(parsedData);
-                  } catch (err) {
-                    console.error('Errore durante la decifratura:', err);
-                    verifyResolve(null);
-                  }
-                });
-            });
-
-            if (savedData && savedData.cert === signedCert) {
-              console.log('Certificato privato verificato con successo');
-              resolve();
-            } else {
-              console.error('Verifica certificato fallita:', {
-                saved: savedData?.cert,
-                original: signedCert,
+            user
+              .get('private_certificates')
+              .get('chats')
+              .get(targetPub)
+              .once((data) => {
+                if (data === signedCert) {
+                  console.log('Certificato privato verificato con successo');
+                  resolve();
+                } else {
+                  reject(
+                    new Error('Certificato privato non salvato correttamente')
+                  );
+                }
               });
-              reject(
-                new Error('Certificato privato non salvato correttamente')
-              );
-            }
-          } catch (error) {
-            console.error('Errore durante il salvataggio/verifica:', error);
-            reject(error);
           }
-        }
-      );
+        });
     });
 
     return signedCert;
@@ -169,17 +112,19 @@ export const createMessagesCertificate = async (targetPub) => {
 
     console.log('Creazione certificato messaggi per:', targetPub);
 
-    const certPair = await SEA.pair();
+    // Crea il certificato usando SEA.certify
     const certificate = {
-      type: 'messages',
-      pub: user.is.pub,
-      target: targetPub,
-      timestamp: Date.now(),
-      certKey: certPair.pub,
-      permissions: ['send', 'receive'],
+      '*': 'messages', // tipo di certificato
+      '+': targetPub, // per chi è il certificato
+      '-': user.is.pub, // chi ha creato il certificato
+      '>': Date.now() + 24 * 60 * 60 * 1000, // timestamp di scadenza (24 ore)
+      '?': ['send', 'receive'], // permessi
     };
 
-    const signedCert = await SEA.sign(certificate, user._.sea);
+    const signedCert = await SEA.certify([targetPub], certificate, user._.sea);
+    if (!signedCert) {
+      throw new Error('Impossibile creare il certificato');
+    }
     console.log('Certificato messaggi generato:', signedCert);
 
     // Salva il certificato pubblico
@@ -188,7 +133,7 @@ export const createMessagesCertificate = async (targetPub) => {
         .get(DAPP_NAME)
         .get('certificates')
         .get('messages')
-        .get(user.is.pub)
+        .get(targetPub)
         .put(signedCert, (ack) => {
           console.log('Certificato messaggi pubblico salvato:', ack);
           if (ack.err) {
@@ -209,97 +154,39 @@ export const createMessagesCertificate = async (targetPub) => {
         return;
       }
 
-      // Prepara il certificato per il salvataggio privato
-      const privateCertData = {
-        cert: signedCert,
-        timestamp: Date.now(),
-        type: 'messages',
-      };
-
-      // Cifra il certificato
-      SEA.encrypt(
-        JSON.stringify(privateCertData),
-        user._.sea,
-        async (encryptedData) => {
-          try {
-            // Salva il certificato cifrato
-            await new Promise((innerResolve, innerReject) => {
-              user
-                .get('private_certificates')
-                .get('messages')
-                .get(user.is.pub)
-                .put(encryptedData, (ack) => {
-                  console.log(
-                    'Tentativo salvataggio certificato messaggi privato:',
-                    ack
-                  );
-                  if (ack.err) {
-                    console.error(
-                      'Errore salvataggio certificato privato:',
-                      ack.err
-                    );
-                    innerReject(new Error(ack.err));
-                  } else {
-                    innerResolve(ack);
-                  }
-                });
-            });
-
-            // Attendi un momento per la propagazione
-            await new Promise((r) => setTimeout(r, 100));
-
+      // Salva direttamente nel nodo privato dell'utente
+      user
+        .get('private_certificates')
+        .get('messages')
+        .get(targetPub)
+        .put(signedCert, (ack) => {
+          console.log(
+            'Tentativo salvataggio certificato messaggi privato:',
+            ack
+          );
+          if (ack.err) {
+            console.error('Errore salvataggio certificato privato:', ack.err);
+            reject(new Error(ack.err));
+          } else {
             // Verifica il salvataggio
-            const savedData = await new Promise((verifyResolve) => {
-              user
-                .get('private_certificates')
-                .get('messages')
-                .get(user.is.pub)
-                .once(async (data) => {
-                  if (!data) {
-                    console.error('Nessun dato salvato trovato');
-                    verifyResolve(null);
-                    return;
-                  }
-                  try {
-                    const decrypted = await SEA.decrypt(data, user._.sea);
-                    if (!decrypted) {
-                      console.error(
-                        'Impossibile decifrare il certificato salvato'
-                      );
-                      verifyResolve(null);
-                      return;
-                    }
-                    const parsedData = JSON.parse(decrypted);
-                    verifyResolve(parsedData);
-                  } catch (err) {
-                    console.error('Errore durante la decifratura:', err);
-                    verifyResolve(null);
-                  }
-                });
-            });
-
-            if (savedData && savedData.cert === signedCert) {
-              console.log(
-                'Certificato privato messaggi verificato con successo'
-              );
-              resolve();
-            } else {
-              console.error('Verifica certificato messaggi fallita:', {
-                saved: savedData?.cert,
-                original: signedCert,
+            user
+              .get('private_certificates')
+              .get('messages')
+              .get(targetPub)
+              .once((data) => {
+                if (data === signedCert) {
+                  console.log('Certificato privato verificato con successo');
+                  resolve();
+                } else {
+                  reject(
+                    new Error(
+                      'Certificato privato messaggi non salvato correttamente'
+                    )
+                  );
+                }
               });
-              reject(
-                new Error(
-                  'Certificato privato messaggi non salvato correttamente'
-                )
-              );
-            }
-          } catch (error) {
-            console.error('Errore durante il salvataggio/verifica:', error);
-            reject(error);
           }
-        }
-      );
+        });
     });
 
     return signedCert;

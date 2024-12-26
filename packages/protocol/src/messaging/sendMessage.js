@@ -66,24 +66,22 @@ const sendMessage = async (
 
     const [myChatCert, myMessageCert, theirChatCert, theirMessageCert] =
       await Promise.all([
-        // I miei certificati (pubblici)
+        // I miei certificati (privati)
         new Promise((resolve) => {
-          gun
-            .get(DAPP_NAME)
-            .get('certificates')
+          user
+            .get('private_certificates')
             .get('chats')
-            .get(user.is.pub)
+            .get(recipientPub)
             .once((cert) => {
               console.log('Recuperato mio certificato chat:', cert);
               resolve(cert);
             });
         }),
         new Promise((resolve) => {
-          gun
-            .get(DAPP_NAME)
-            .get('certificates')
+          user
+            .get('private_certificates')
             .get('messages')
-            .get(user.is.pub)
+            .get(recipientPub)
             .once((cert) => {
               console.log('Recuperato mio certificato messaggi:', cert);
               resolve(cert);
@@ -123,51 +121,6 @@ const sendMessage = async (
 
     if (!theirChatCert || !theirMessageCert) {
       console.error("L'altro utente ha revocato i permessi:", {
-        theirChatCert,
-        theirMessageCert,
-      });
-      throw new Error("L'altro utente ha revocato i permessi per questa chat");
-    }
-
-    // Verifica la validità dei certificati
-    const [
-      isMyChatCertValid,
-      isMyMessageCertValid,
-      isTheirChatCertValid,
-      isTheirMessageCertValid,
-    ] = await Promise.all([
-      certificateManager.verifyCertificate(myChatCert, user.is.pub, 'chats'),
-      certificateManager.verifyCertificate(
-        myMessageCert,
-        user.is.pub,
-        'messages'
-      ),
-      certificateManager.verifyCertificate(
-        theirChatCert,
-        recipientPub,
-        'chats'
-      ),
-      certificateManager.verifyCertificate(
-        theirMessageCert,
-        recipientPub,
-        'messages'
-      ),
-    ]);
-
-    if (!isMyChatCertValid || !isMyMessageCertValid) {
-      console.error('I tuoi certificati non sono validi:', {
-        isMyChatCertValid,
-        isMyMessageCertValid,
-        myChatCert,
-        myMessageCert,
-      });
-      throw new Error('I tuoi permessi per questa chat sono stati revocati');
-    }
-
-    if (!isTheirChatCertValid || !isTheirMessageCertValid) {
-      console.error("I certificati dell'altro utente non sono validi:", {
-        isTheirChatCertValid,
-        isTheirMessageCertValid,
         theirChatCert,
         theirMessageCert,
       });
