@@ -10,7 +10,7 @@ import {
  * This function:
  * 1. Validates the current user is authenticated
  * 2. Revokes any existing certificates with the requesting user
- * 3. Removes all related friend requests
+ * 3. Removes all related friend requests and notifications
  * 4. Cleans up temporary request data
  *
  * @async
@@ -36,15 +36,16 @@ const rejectFriendRequest = async (request, callback = () => {}) => {
       throw new Error('Dati richiesta non validi');
     }
 
-    // Revoca i certificati se esistono
-    try {
-      await revokeChatsCertificate(request.from);
-      await revokeMessagesCertificate(request.from);
-    } catch (error) {
-      console.warn('Errore durante la revoca dei certificati:', error);
-    }
+    // Revoca certificati in background senza attendere
+    revokeChatsCertificate(request.from).catch((error) => {
+      console.warn('Errore durante la revoca del certificato chat:', error);
+    });
 
-    // Rimuovi tutte le richieste correlate
+    revokeMessagesCertificate(request.from).catch((error) => {
+      console.warn('Errore durante la revoca del certificato messaggi:', error);
+    });
+
+    // Rimuovi la richiesta da all_friend_requests
     await new Promise((resolve) => {
       gun
         .get(DAPP_NAME)
@@ -62,8 +63,64 @@ const rejectFriendRequest = async (request, callback = () => {}) => {
       setTimeout(resolve, 500);
     });
 
-    // Pulisci eventuali dati temporanei
-    await gun
+    // Rimuovi da friend_requests (richieste private)
+    await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('friend_requests')
+        .get(user.is.pub)
+        .map()
+        .once((data, key) => {
+          if (data && data.from === request.from) {
+            gun
+              .get(DAPP_NAME)
+              .get('friend_requests')
+              .get(user.is.pub)
+              .get(key)
+              .put(null);
+          }
+        });
+      setTimeout(resolve, 500);
+    });
+
+    // Rimuovi le notifiche pubbliche
+    gun
+      .get(DAPP_NAME)
+      .get('notifications')
+      .get(user.is.pub)
+      .map()
+      .once((data, key) => {
+        if (
+          data &&
+          data.type === 'friendRequest' &&
+          data.from === request.from
+        ) {
+          gun
+            .get(DAPP_NAME)
+            .get('notifications')
+            .get(user.is.pub)
+            .get(key)
+            .put(null);
+        }
+      });
+
+    // Rimuovi le notifiche private
+    gun
+      .user()
+      .get('notifications')
+      .map()
+      .once((data, key) => {
+        if (
+          data &&
+          data.type === 'friendRequest' &&
+          data.from === request.from
+        ) {
+          gun.user().get('notifications').get(key).put(null);
+        }
+      });
+
+    // Pulisci i dati temporanei
+    gun
       .user()
       .get(DAPP_NAME)
       .get('friend_requests_data')

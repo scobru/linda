@@ -1,4 +1,4 @@
-import { gun, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from '../useGun.js';
 
 export const getUserInfo = async (userPub) => {
   try {
@@ -170,47 +170,86 @@ export const updateUserProfile = async (userPub, profileData) => {
   }
 };
 
-export const getFriends = async (userPub) => {
+export const getFriends = async () => {
   try {
-    if (!userPub) {
-      console.log('userPub non valido per getFriends');
+    if (!user?.is) {
+      console.log('Utente non autenticato per getFriends');
       return [];
     }
 
-    return new Promise((resolve) => {
-      const friends = [];
-      let checked = false;
+    console.log('Inizio recupero amici per:', user.is.pub);
 
-      gun
-        .get(DAPP_NAME)
-        .get('userList')
-        .get('users')
-        .get(userPub)
-        .get('friends')
-        .map()
-        .once(async (friendData, friendPub) => {
-          if (friendData && !checked) {
+    return new Promise((resolve) => {
+      const friends = new Map(); // Usa una Map per deduplicare
+      let timeoutId;
+
+      const handleFriendship = async (friendship, key) => {
+        if (!friendship || !friendship.user1 || !friendship.user2) {
+          console.log('Amicizia non valida:', friendship);
+          return;
+        }
+
+        // Verifica se l'utente corrente è coinvolto nell'amicizia
+        if (
+          friendship.user1 === user.is.pub ||
+          friendship.user2 === user.is.pub
+        ) {
+          // Determina quale è l'altro utente
+          const friendPub =
+            friendship.user1 === user.is.pub
+              ? friendship.user2
+              : friendship.user1;
+
+          // Se non abbiamo già questo amico
+          if (!friends.has(friendPub)) {
             try {
+              console.log('Recupero info per amico:', friendPub);
               const friendInfo = await getUserInfo(friendPub);
               if (friendInfo) {
-                friends.push({
+                console.log('Info amico recuperate:', friendInfo);
+                friends.set(friendPub, {
                   ...friendInfo,
                   pub: friendPub,
-                  lastSeen: friendData.lastSeen || Date.now(),
+                  lastSeen: friendship.lastSeen || Date.now(),
+                  friendshipId: key,
+                  status: friendship.status || 'active',
                 });
               }
             } catch (error) {
               console.error('Errore nel recupero info amico:', error);
             }
           }
+        }
+      };
+
+      // Sottoscrizione alle amicizie
+      console.log('Sottoscrizione alle amicizie...');
+      const unsub = gun
+        .get(DAPP_NAME)
+        .get('friendships')
+        .map()
+        .on(async (friendship, key) => {
+          console.log('Ricevuta amicizia:', friendship);
+          await handleFriendship(friendship, key);
+
+          // Resetta il timeout ogni volta che riceviamo dati
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+            console.log('Completato recupero amici, totale:', friends.size);
+            if (typeof unsub === 'function') unsub();
+            resolve(Array.from(friends.values())); // Converti la Map in array
+          }, 2000);
         });
 
-      // Timeout per evitare attese infinite
+      // Timeout di sicurezza
       setTimeout(() => {
-        checked = true;
-        console.log('Lista amici recuperata:', friends);
-        resolve(friends);
-      }, 2000);
+        console.log(
+          'Timeout principale getFriends, amici trovati:',
+          friends.size
+        );
+        if (typeof unsub === 'function') unsub();
+        resolve(Array.from(friends.values()));
+      }, 5000);
     });
   } catch (error) {
     console.error('Errore nel recupero lista amici:', error);

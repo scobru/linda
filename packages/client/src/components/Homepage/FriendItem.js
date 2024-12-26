@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { getUserAvatar } from "../../utils/userUtils";
 
 const FriendItem = ({
   friend,
@@ -7,45 +8,63 @@ const FriendItem = ({
   onRemove,
   onBlock,
   onUnblock,
-  isActiveMenu,
-  onMenuToggle,
 }) => {
+  const [avatar, setAvatar] = useState(null);
+  const [showMenu, setShowMenu] = useState(false);
+
+  useEffect(() => {
+    const loadAvatar = async () => {
+      try {
+        const avatarUrl = await getUserAvatar(friend.pub);
+        setAvatar(avatarUrl);
+      } catch (error) {
+        console.warn("Errore caricamento avatar:", error);
+      }
+    };
+
+    loadAvatar();
+  }, [friend.pub]);
+
   return (
     <div
-      className={`flex items-center justify-between p-3 hover:bg-gray-50 cursor-pointer ${
-        isSelected ? "bg-blue-50" : ""
-      }`}
-      onClick={() => onSelect(friend)}
+      className={`flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-[#2D325A] ${
+        isSelected ? "bg-[#2D325A]" : ""
+      } ${friend.isBlocked ? "opacity-50" : ""}`}
+      onClick={onSelect}
     >
-      <div className="flex items-center">
-        <img
-          className="h-10 w-10 rounded-full"
-          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${
-            friend.alias || friend.pub
-          }&backgroundColor=b6e3f4`}
-          alt=""
-        />
-        <div className="ml-3">
-          <p className="text-sm font-medium text-gray-900">
-            {friend.nickname || friend.alias || friend.pub}
-          </p>
-          {friend.username && (
-            <p className="text-xs text-gray-500">@{friend.username}</p>
+      <div className="flex items-center space-x-3">
+        <div className="w-10 h-10 rounded-full flex-shrink-0">
+          {avatar ? (
+            <img
+              src={avatar}
+              alt={friend.displayName}
+              className="w-full h-full rounded-full object-cover"
+            />
+          ) : (
+            <img
+              src={`https://api.dicebear.com/7.x/bottts/svg?seed=${friend.displayName}&backgroundColor=b6e3f4`}
+              alt={friend.displayName}
+              className="w-full h-full rounded-full"
+            />
           )}
         </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-medium truncate">
+            {friend.displayName}
+          </p>
+          {friend.isBlocked && <p className="text-xs text-red-400">Bloccato</p>}
+        </div>
       </div>
-
-      {/* Menu contestuale */}
-      <div className="relative">
+      <div className="flex items-center space-x-2">
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onMenuToggle(friend.pub);
+            setShowMenu(!showMenu);
           }}
-          className="p-2 hover:bg-gray-100 rounded-full"
+          className="p-1 text-gray-400 hover:text-gray-300 transition-colors relative"
         >
           <svg
-            className="w-5 h-5 text-gray-500"
+            className="w-5 h-5"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -57,60 +76,49 @@ const FriendItem = ({
               d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
             />
           </svg>
-        </button>
-
-        {/* Menu dropdown */}
-        {isActiveMenu && (
-          <div className="absolute right-0 -mt-2 w-48 bg-white rounded-md shadow-lg z-50">
-            <div className="py-1 mt-4">
-              <div
-                className="fixed inset-0 bg-transparent"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMenuToggle(null);
-                }}
-              />
-              <div className="relative z-50">
+          {showMenu && (
+            <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-[#2D325A] ring-1 ring-black ring-opacity-5 z-50">
+              <div className="py-1" role="menu">
                 {friend.isBlocked ? (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onUnblock(friend);
-                      onMenuToggle(null);
+                      onUnblock(friend.pub);
+                      setShowMenu(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white"
                   >
-                    Sblocca
+                    Sblocca utente
                   </button>
                 ) : (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onBlock(friend);
-                      onMenuToggle(null);
+                      onBlock(friend.pub);
+                      setShowMenu(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white"
                   >
-                    Blocca
+                    Blocca utente
                   </button>
                 )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onRemove(friend);
-                    onMenuToggle(null);
+                    onRemove(friend.pub);
+                    setShowMenu(false);
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                  className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-[#4A4F76] hover:text-red-300"
                 >
                   Rimuovi amico
                 </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </button>
       </div>
     </div>
   );
 };
 
-export default FriendItem;
+export default React.memo(FriendItem);

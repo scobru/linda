@@ -1,307 +1,156 @@
-import React from "react";
-import { gun, user, DAPP_NAME } from "linda-protocol";
-import { messaging } from "linda-protocol";
-import { toast } from "react-hot-toast";
-
-const { channels } = messaging;
+import React, { useState } from "react";
+import { useChannels } from "../../hooks/useChannels";
 
 export default function Channels({ onSelect }) {
-  const [myChannels, setMyChannels] = React.useState([]);
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [filteredChannels, setFilteredChannels] = React.useState([]);
-  const [showCreateModal, setShowCreateModal] = React.useState(false);
-  const [showSearchModal, setShowSearchModal] = React.useState(false);
-  const [newChannelName, setNewChannelName] = React.useState("");
-  const [isChannel, setIsChannel] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [searchResults, setSearchResults] = React.useState({
-    boards: [],
-    channels: [],
-  });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [isChannel, setIsChannel] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
 
-  // Carica i canali dell'utente
-  React.useEffect(() => {
-    if (!user.is) return;
+  const {
+    channelList,
+    loading,
+    createChannel,
+    joinChannel,
+    leaveChannel,
+    deleteChannel,
+    searchChannels,
+    isChannelCreator,
+  } = useChannels();
 
-    let mounted = true;
-
-    const loadChannels = async () => {
-      try {
-        const channelsList = new Map();
-        let loadingPromises = [];
-
-        // Caricamento parallelo dei canali
-        await new Promise((resolve) => {
-          gun
-            .user()
-            .get(DAPP_NAME)
-            .get("my_channels")
-            .map()
-            .once(async (data) => {
-              if (!data || !data.channelId) return;
-
-              loadingPromises.push(
-                Promise.all([
-                  channels.countMembers(data.channelId),
-                  new Promise((resolveChannel) => {
-                    gun
-                      .get(DAPP_NAME)
-                      .get("channels")
-                      .get(data.channelId)
-                      .once((channelData) => {
-                        resolveChannel(channelData);
-                      });
-                  }),
-                ]).then(([membersCount, channelData]) => {
-                  if (channelData) {
-                    channelsList.set(data.channelId, {
-                      ...channelData,
-                      id: data.channelId,
-                      joined: data.joined || channelData.created || Date.now(),
-                      membersCount,
-                    });
-                  }
-                })
-              );
-            });
-
-          setTimeout(resolve, 500);
-        });
-
-        await Promise.all(loadingPromises);
-
-        if (mounted) {
-          const channelsArray = Array.from(channelsList.values());
-          setMyChannels(channelsArray.sort((a, b) => b.joined - a.joined));
-          setFilteredChannels(channelsArray);
-        }
-      } catch (error) {
-        console.error("Error loading channels:", error);
-        if (mounted) {
-          toast.error("Error loading channels");
-        }
-      }
-    };
-
-    loadChannels();
-
-    // Monitora i cambiamenti nei canali
-    const channelsSubscription = gun
-      .user()
-      .get(DAPP_NAME)
-      .get("my_channels")
-      .map()
-      .on(async (data) => {
-        if (!mounted || !data || !data.channelId) return;
-
-        try {
-          const [membersCount, channel] = await Promise.all([
-            channels.countMembers(data.channelId),
-            new Promise((resolve) => {
-              gun
-                .get(DAPP_NAME)
-                .get("channels")
-                .get(data.channelId)
-                .once((channelData) => {
-                  resolve(channelData);
-                });
-            }),
-          ]);
-
-          if (channel) {
-            setMyChannels((prev) => {
-              const withoutCurrent = prev.filter(
-                (c) => c.id !== data.channelId
-              );
-              const updatedChannel = {
-                ...channel,
-                id: data.channelId,
-                joined: data.joined || channel.created || Date.now(),
-                membersCount,
-              };
-              return [...withoutCurrent, updatedChannel].sort(
-                (a, b) => b.joined - a.joined
-              );
-            });
-          }
-        } catch (error) {
-          console.error("Error updating channel:", error);
-        }
-      });
-
-    return () => {
-      mounted = false;
-      if (typeof channelsSubscription === "function") {
-        channelsSubscription();
-      }
-    };
-  }, []);
-
-  // Effetto per gestire la ricerca
-  React.useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredChannels(myChannels);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase().trim();
-    const filtered = myChannels.filter((channel) => {
-      const name = channel.name || "";
-      const type = channel.type || "";
-      const members = channel.membersCount || 0;
-
-      return (
-        name.toLowerCase().includes(query) ||
-        type.toLowerCase().includes(query) ||
-        `${members} members`.toLowerCase().includes(query)
-      );
-    });
-
-    setFilteredChannels(filtered);
-  }, [searchQuery, myChannels]);
-
-  // Gestisci la selezione del canale
-  const handleChannelSelect = (channel) => {
-    onSelect({
-      ...channel,
-      roomId: channel.id,
-      type: channel.type,
-      name: channel.name,
-      isGroup: false,
-      pub: channel.id,
-      timestamp: Date.now(),
-    });
-  };
-
-  // Create new board/channel
   const handleCreate = async () => {
-    if (!user.is) {
-      toast.error("User not authenticated");
-      return;
-    }
-
-    if (!newChannelName.trim()) {
-      toast.error("Please enter a name");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await channels.create(
-        newChannelName.trim(),
-        isChannel ? "channel" : "board"
-      );
-      toast.success(`${isChannel ? "Channel" : "Board"} created successfully!`);
-      setNewChannelName("");
-      setIsChannel(false);
+    if (!newChannelName.trim()) return;
+    const result = await createChannel(newChannelName.trim(), isChannel);
+    if (result) {
       setShowCreateModal(false);
-    } catch (error) {
-      console.error("Error during creation:", error);
-      toast.error(error.message || "Error during creation");
-    } finally {
-      setLoading(false);
+      setNewChannelName("");
     }
   };
 
-  // Search boards and channels
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-
-    setLoading(true);
-    try {
-      const results = await channels.search(searchQuery);
-      setSearchResults(results);
-    } catch (error) {
-      console.error("Error searching:", error);
-      toast.error("Error during search");
-    } finally {
-      setLoading(false);
-    }
+    const results = await searchChannels(searchQuery.trim());
+    setSearchResults(results);
   };
 
-  // Join a board/channel
   const handleJoin = async (channelId) => {
-    try {
-      await channels.join(channelId);
-      toast.success("Successfully joined");
-      setShowSearchModal(false);
-    } catch (error) {
-      console.error("Error joining:", error);
-      toast.error(error.message);
-    }
+    await joinChannel(channelId);
+  };
+
+  const handleLeave = async (channelId) => {
+    await leaveChannel(channelId);
+  };
+
+  const handleDelete = async (channelId) => {
+    await deleteChannel(channelId);
+  };
+
+  const handleSelect = (channel) => {
+    onSelect({
+      item: {
+        ...channel,
+        roomId: channel.id,
+        pub: channel.id,
+        name: channel.name,
+        type: channel.isChannel ? "channel" : "board",
+        isGroup: true,
+        timestamp: channel.created,
+        creator: channel.creator,
+        members: channel.members,
+        settings: channel.settings || {
+          isPublic: true,
+          canWrite: true,
+        },
+        messages: channel.messages || {},
+      },
+      type: channel.isChannel ? "channel" : "board",
+    });
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#373B5C]">
-      {/* Pulsanti principali */}
-      <div className="p-3 space-y-2">
+    <div className="flex flex-col h-full">
+      {/* Header con pulsanti */}
+      <div className="flex justify-between items-center p-4 border-b border-[#4A4F76]">
         <button
           onClick={() => setShowCreateModal(true)}
-          className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
-          Create Board/Channel
+          Create New
         </button>
         <button
           onClick={() => setShowSearchModal(true)}
-          className="w-full py-2 px-4 bg-[#2D325A] text-white rounded-lg hover:bg-[#4A4F76] transition-colors"
+          className="px-4 py-2 text-white hover:bg-[#4A4F76] rounded-lg"
         >
-          Search Boards and Channels
+          Search
         </button>
       </div>
 
-      {/* Barra di ricerca locale */}
-      <div className="p-3 border-b border-[#4A4F76]">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Filter your boards and channels..."
-            className="w-full bg-[#2D325A] text-white placeholder-gray-400 rounded-full py-2 px-4 pl-10 focus:outline-none"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <svg
-            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-        </div>
-      </div>
-
       {/* Lista canali */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="divide-y divide-[#4A4F76]">
-          {(searchQuery ? filteredChannels : myChannels).map((channel) => (
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {loading ? (
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+        ) : (
+          channelList.map((channel) => (
             <div
               key={channel.id}
-              onClick={() => handleChannelSelect(channel)}
-              className="flex items-center p-3 hover:bg-[#4A4F76] cursor-pointer"
+              className="flex items-center justify-between p-4 bg-[#2D325A] rounded-lg hover:bg-[#373B5C] cursor-pointer"
+              onClick={() => handleSelect(channel)}
             >
-              <div className="flex-shrink-0">
-                <img
-                  className="h-10 w-10 rounded-full"
-                  src={`https://api.dicebear.com/7.x/icons/svg?seed=${channel.name}`}
-                  alt=""
-                />
+              <div className="flex items-center space-x-3">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    channel.isChannel ? "bg-blue-500" : "bg-green-500"
+                  }`}
+                >
+                  {channel.isChannel ? "C" : "B"}
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">{channel.name}</h3>
+                  <p className="text-sm text-gray-400">
+                    {channel.members?.length || 0} members
+                  </p>
+                </div>
               </div>
-              <div className="ml-3 flex-1">
-                <p className="text-sm font-medium text-white">{channel.name}</p>
-                <p className="text-xs text-gray-300">
-                  {channel.type === "board" ? "Board" : "Channel"} •{" "}
-                  {channel.membersCount || 0} members
-                </p>
+              <div className="flex space-x-2">
+                {isChannelCreator(channel) ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(channel.id);
+                    }}
+                    className="p-2 text-red-400 hover:bg-[#4A4F76] rounded-lg"
+                  >
+                    Delete
+                  </button>
+                ) : channel.joined ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLeave(channel.id);
+                    }}
+                    className="p-2 text-gray-300 hover:bg-[#4A4F76] rounded-lg"
+                  >
+                    Leave
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleJoin(channel.id);
+                    }}
+                    className="p-2 text-blue-400 hover:bg-[#4A4F76] rounded-lg"
+                  >
+                    Join
+                  </button>
+                )}
               </div>
             </div>
-          ))}
-        </div>
+          ))
+        )}
       </div>
 
       {/* Modal creazione */}
@@ -368,9 +217,9 @@ export default function Channels({ onSelect }) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSearch()}
                   className="flex-1 px-3 py-2 bg-[#373B5C] rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Search..."
+                  onKeyPress={(e) => e.key === "Enter" && handleSearch()}
                 />
                 <button
                   onClick={handleSearch}
@@ -382,42 +231,37 @@ export default function Channels({ onSelect }) {
               </div>
 
               {/* Risultati ricerca */}
-              <div className="space-y-2">
-                {[...searchResults.boards, ...searchResults.channels].map(
-                  (item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between p-3 bg-[#373B5C] rounded-lg"
-                    >
-                      <div>
-                        <h4 className="font-medium">{item.name}</h4>
-                        <p className="text-sm text-gray-300">
-                          {item.membersCount || 0} members •{" "}
-                          {item.type === "channel" ? "Channel" : "Board"}
-                        </p>
-                      </div>
+              <div className="space-y-3">
+                {searchResults.map((channel) => (
+                  <div
+                    key={channel.id}
+                    className="flex items-center justify-between p-3 bg-[#373B5C] rounded-lg"
+                  >
+                    <div>
+                      <h4 className="font-medium">{channel.name}</h4>
+                      <p className="text-sm text-gray-400">
+                        {channel.members?.length || 0} members
+                      </p>
+                    </div>
+                    {!channel.joined && (
                       <button
-                        onClick={() => handleJoin(item.id)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                        onClick={() => handleJoin(channel.id)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                       >
                         Join
                       </button>
-                    </div>
-                  )
-                )}
-                {searchResults.boards.length === 0 &&
-                  searchResults.channels.length === 0 &&
-                  searchQuery &&
-                  !loading && (
-                    <p className="text-center text-gray-300 py-4">
-                      No results found
-                    </p>
-                  )}
+                    )}
+                  </div>
+                ))}
               </div>
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => setShowSearchModal(false)}
+                  onClick={() => {
+                    setShowSearchModal(false);
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }}
                   className="px-4 py-2 text-gray-300 hover:bg-[#4A4F76] rounded-md"
                 >
                   Close

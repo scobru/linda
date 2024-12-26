@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": false,
   "dependencies": {
+    "@headlessui/react": "^2.2.0",
     "@rainbow-me/rainbowkit": "^1.0.11",
     "@tailwindcss/forms": "^0.5.9",
     "@tanstack/react-query": "^5.60.5",

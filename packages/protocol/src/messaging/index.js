@@ -6,13 +6,15 @@
 import createChat from './createChat.js';
 import messageList from './messageList.js';
 import sendMessage from './sendMessage.js';
+import sendVoiceMessage from './sendVoiceMessage.js';
 import channelsService from './channels.js';
 import { gun, user, DAPP_NAME } from '../useGun.js';
 
 // Funzioni per la gestione del blocco chat
 const blockChat = async (chatId) => {
   return new Promise((resolve) => {
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('blocked_chats')
       .get(chatId)
       .put({ blocked: true, timestamp: Date.now() }, (ack) => {
@@ -23,7 +25,8 @@ const blockChat = async (chatId) => {
 
 const unblockChat = async (chatId) => {
   return new Promise((resolve) => {
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('blocked_chats')
       .get(chatId)
       .put(null, (ack) => {
@@ -35,7 +38,8 @@ const unblockChat = async (chatId) => {
 const getBlockedChats = async () => {
   return new Promise((resolve) => {
     const blockedChats = [];
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('blocked_chats')
       .map()
       .once((data, id) => {
@@ -43,7 +47,7 @@ const getBlockedChats = async () => {
           blockedChats.push(id);
         }
       });
-    
+
     setTimeout(() => resolve(blockedChats), 500);
   });
 };
@@ -55,7 +59,8 @@ export const chat = {
   getBlockedChats,
   createChat,
   messageList,
-  sendMessage
+  sendMessage,
+  sendVoiceMessage,
 };
 
 // Servizio per i canali e le bacheche
@@ -64,14 +69,10 @@ export const channels = channelsService;
 // Esporta sia il servizio chat che il servizio channels
 export const messaging = {
   chat,
-  channels
+  channels,
 };
 
 // Esporta anche le singole funzioni per retrocompatibilità
-export {
-  createChat,
-  messageList,
-  sendMessage
-};
+export { createChat, messageList, sendMessage, sendVoiceMessage };
 
 export default messaging;

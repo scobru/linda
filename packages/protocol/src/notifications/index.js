@@ -4,11 +4,11 @@
  */
 
 import messageNotifications from './messageNotifications.js';
+import friendRequestNotifications from './friendRequestNotifications.js';
 
-export {
-  messageNotifications
-};
+export { messageNotifications, friendRequestNotifications };
 
 export default {
   messageNotifications,
+  friendRequestNotifications,
 };

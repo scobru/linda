@@ -1,31 +1,82 @@
-import { useState, useEffect } from 'react';
-import { gun } from 'linda-protocol/useGun';
+import { useCallback, useEffect } from "react";
+import { useAppState } from "../context/AppContext";
+import { user, auth } from "linda-protocol";
+import { toast } from "react-hot-toast";
 
 export const useAuth = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState({ is: null });
+  const { appState, updateAppState } = useAppState();
 
+  // Effetto per monitorare lo stato di autenticazione
   useEffect(() => {
-    const checkAuthStatus = () => {
-      const currentUser = gun.user().is;
-      if (currentUser) {
-        setUser({ is: currentUser });
-        setIsAuthenticated(true);
-      } else {
-        setUser({ is: null });
-        setIsAuthenticated(false);
-      }
+    const checkAuth = () => {
+      const isAuthenticated = !!user?.is;
+      updateAppState({ isAuthenticated, currentUser: user?.is || null });
     };
 
-    checkAuthStatus();
-    const interval = setInterval(checkAuthStatus, 1000);
+    // Verifica iniziale
+    checkAuth();
 
-    return () => clearInterval(interval);
+    // Sottoscrizione ai cambiamenti di autenticazione
+    user.on("auth", checkAuth);
+
+    return () => {
+      user.off("auth", checkAuth);
+    };
+  }, [updateAppState]);
+
+  const login = useCallback(async (username, password) => {
+    try {
+      const result = await auth.login(username, password);
+      if (!result.success) {
+        throw new Error(result.message || "Errore durante il login");
+      }
+      toast.success("Login effettuato con successo!");
+      return true;
+    } catch (error) {
+      console.error("Errore durante il login:", error);
+      toast.error(error.message || "Errore durante il login");
+      return false;
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await auth.logout();
+      updateAppState({
+        isAuthenticated: false,
+        currentUser: null,
+        friends: [],
+        messages: {},
+        activeChat: null,
+        walletInfo: null,
+      });
+      toast.success("Logout effettuato con successo");
+    } catch (error) {
+      console.error("Errore durante il logout:", error);
+      toast.error("Errore durante il logout");
+    }
+  }, [updateAppState]);
+
+  const register = useCallback(async (username, password) => {
+    try {
+      const result = await auth.register(username, password);
+      if (!result.success) {
+        throw new Error(result.message || "Errore durante la registrazione");
+      }
+      toast.success("Registrazione effettuata con successo!");
+      return true;
+    } catch (error) {
+      console.error("Errore durante la registrazione:", error);
+      toast.error(error.message || "Errore durante la registrazione");
+      return false;
+    }
   }, []);
 
   return {
-    user,
-    isAuthenticated,
-    setIsAuthenticated
+    isAuthenticated: appState.isAuthenticated,
+    currentUser: appState.currentUser,
+    login,
+    logout,
+    register,
   };
 };

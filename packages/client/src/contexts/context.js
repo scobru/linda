@@ -1,42 +1,57 @@
-import React from "react";
+import React, { createContext } from "react";
 
-const Context = React.createContext();
+const Context = createContext();
+
+const initialState = {
+  selected: null,
+  alias: "",
+  pub: "",
+  friends: [],
+  connectionState: "disconnected",
+  currentChat: null,
+};
 
 export function ContextProvider({ children }) {
-  const [selected, setSelected] = React.useState(null);
-  const [alias, setAlias] = React.useState("");
-  const [pub, setPub] = React.useState("");
-  const [friends, setFriends] = React.useState([]);
-  const [connectionState, setConnectionState] = React.useState('disconnected');
-  const [currentChat, setCurrentChat] = React.useState(null);
+  const [state, setState] = React.useState(initialState);
 
-  const value = React.useMemo(() => ({
-    selected,
-    setSelected,
-    alias,
-    setAlias,
-    pub,
-    setPub,
-    friends,
-    setFriends,
-    connectionState,
-    setConnectionState,
-    currentChat,
-    setCurrentChat
-  }), [selected, alias, pub, friends, connectionState, currentChat]);
+  const setSelected = (selected) => {
+    setState((prev) => ({ ...prev, selected }));
+  };
 
-  // Aggiungi un effetto per il cleanup quando cambia il tipo di chat
-  React.useEffect(() => {
-    if (selected?.type !== currentChat?.type) {
-      setCurrentChat(null);
-    }
-  }, [selected?.type]);
+  const setAlias = (alias) => {
+    setState((prev) => ({ ...prev, alias }));
+  };
 
-  return (
-    <Context.Provider value={value}>
-      {children}
-    </Context.Provider>
+  const setPub = (pub) => {
+    setState((prev) => ({ ...prev, pub }));
+  };
+
+  const setFriends = (friends) => {
+    setState((prev) => ({ ...prev, friends }));
+  };
+
+  const setConnectionState = (connectionState) => {
+    setState((prev) => ({ ...prev, connectionState }));
+  };
+
+  const setCurrentChat = (currentChat) => {
+    setState((prev) => ({ ...prev, currentChat }));
+  };
+
+  const value = React.useMemo(
+    () => ({
+      ...state,
+      setSelected,
+      setAlias,
+      setPub,
+      setFriends,
+      setConnectionState,
+      setCurrentChat,
+    }),
+    [state]
   );
+
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
 export default Context;

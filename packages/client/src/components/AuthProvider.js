@@ -1,13 +1,22 @@
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { sessionManager, user } from "linda-protocol";
+import { useAppState } from "../context/AppContext";
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+  const { appState, updateAppState } = useAppState();
 
   useEffect(() => {
     const checkSession = async () => {
       try {
+        // Se siamo già in una pagina di autenticazione, non fare il check
+        if (
+          ["/login", "/register", "/landing"].includes(window.location.pathname)
+        ) {
+          return;
+        }
+
         const isSessionValid = await sessionManager.validateSession();
         const isAuthenticated =
           localStorage.getItem("isAuthenticated") === "true";
@@ -28,21 +37,30 @@ export const AuthProvider = ({ children }) => {
           storedPub !== user?.is?.pub
         ) {
           console.log("AuthProvider - Sessione non valida, pulizia...");
+
+          // Pulisci localStorage
           localStorage.removeItem("isAuthenticated");
           localStorage.removeItem("userPub");
           localStorage.removeItem("username");
           localStorage.removeItem("userAlias");
           localStorage.removeItem("userAddress");
-          localStorage.removeItem("redirectAfterLogin");
           localStorage.removeItem("selectedUser");
           localStorage.removeItem("walletAuth");
 
+          // Pulisci la sessione
           await sessionManager.clearSession();
-
           if (user.is) {
             user.leave();
           }
 
+          // Aggiorna AppState
+          updateAppState({
+            user: null,
+            isAuthenticated: false,
+            username: null,
+          });
+
+          // Reindirizza al login se necessario
           if (
             window.location.pathname !== "/login" &&
             window.location.pathname !== "/register" &&
@@ -61,35 +79,24 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (error) {
         console.error("AuthProvider - Errore verifica sessione:", error);
-        if (
-          window.location.pathname !== "/login" &&
-          window.location.pathname !== "/register" &&
-          window.location.pathname !== "/landing"
-        ) {
-          console.log(
-            "AuthProvider - Redirect a /login dopo errore da:",
-            window.location.pathname
-          );
-          localStorage.setItem("redirectAfterLogin", window.location.pathname);
-          navigate("/login", { replace: true });
-        }
+        updateAppState({
+          user: null,
+          isAuthenticated: false,
+          username: null,
+        });
       }
     };
 
-    // Verifica la sessione ogni minuto
-    const interval = setInterval(checkSession, 60 * 1000);
+    // Verifica la sessione solo se non siamo già autenticati
+    if (!appState.isAuthenticated || !appState.user) {
+      // Verifica iniziale
+      checkSession();
 
-    // Verifica iniziale
-    checkSession();
-
-    return () => {
-      clearInterval(interval);
-      // Pulisci lo stato quando il componente viene smontato
-      if (user.is) {
-        user.leave();
-      }
-    };
-  }, [navigate]);
+      // Verifica periodica
+      const interval = setInterval(checkSession, 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [navigate, updateAppState, appState.isAuthenticated, appState.user]);
 
   return children;
 };
