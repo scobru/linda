@@ -1,29 +1,55 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { useAppState } from "../../context/AppContext";
 import FriendItem from "./FriendItem";
 import { useFriends } from "../../hooks/useFriends";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME, createMessagesCertificate } from "linda-protocol";
+import { getUserUsername } from "../../utils/userUtils";
 
 const Friends = ({ onSelect, selectedUser }) => {
   const { appState, currentView, setCurrentView } = useAppState();
   const { friends } = useFriends();
   const [searchQuery, setSearchQuery] = useState("");
+  const [friendsWithNames, setFriendsWithNames] = useState([]);
 
-  // Memorizziamo i displayName per evitare ricalcoli inutili
-  const friendsWithDisplayNames = useMemo(() => {
-    return (
-      friends?.map((friend) => ({
-        ...friend,
-        displayName:
-          friend.displayName ||
-          friend.nickname ||
-          friend.username ||
-          `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
-        roomId: [friend.pub, appState.pub].sort().join("_"),
-        type: "friend",
-      })) || []
-    );
+  // Carica i nomi degli amici
+  useEffect(() => {
+    const loadFriendsInfo = async () => {
+      if (!friends) return;
+
+      const friendsInfo = await Promise.all(
+        friends.map(async (friend) => {
+          try {
+            const displayName = await getUserUsername(friend.pub);
+            return {
+              ...friend,
+              displayName:
+                displayName ||
+                friend.nickname ||
+                friend.username ||
+                `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
+              roomId: [friend.pub, appState.pub].sort().join("_"),
+              type: "friend",
+            };
+          } catch (error) {
+            console.warn("Errore caricamento info amico:", error);
+            return {
+              ...friend,
+              displayName:
+                friend.nickname ||
+                friend.username ||
+                `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
+              roomId: [friend.pub, appState.pub].sort().join("_"),
+              type: "friend",
+            };
+          }
+        })
+      );
+
+      setFriendsWithNames(friendsInfo);
+    };
+
+    loadFriendsInfo();
   }, [friends, appState.pub]);
 
   const handleSelectFriend = useCallback(
@@ -70,10 +96,10 @@ const Friends = ({ onSelect, selectedUser }) => {
 
   const filteredFriends = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
-    return friendsWithDisplayNames.filter((friend) =>
+    return friendsWithNames.filter((friend) =>
       friend.displayName.toLowerCase().includes(searchLower)
     );
-  }, [friendsWithDisplayNames, searchQuery]);
+  }, [friendsWithNames, searchQuery]);
 
   return (
     <div className="flex flex-col h-full">
