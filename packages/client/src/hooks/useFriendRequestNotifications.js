@@ -17,7 +17,30 @@ export const useFriendRequestNotifications = () => {
   const processedRequestsRef = useRef(new Set());
   const subscriptionRef = useRef(null);
   const initialLoadDoneRef = useRef(false);
-  const lastProcessedTimestampRef = useRef({});
+
+  // Funzione per caricare i dati dell'utente
+  const loadUserData = useCallback(async (pub) => {
+    return new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("userList")
+        .get("users")
+        .map()
+        .once((userData) => {
+          if (userData && userData.pub === pub) {
+            resolve({
+              alias: userData.nickname || userData.username || pub,
+              displayName: userData.nickname,
+              username: userData.username,
+              avatarSeed: userData.avatarSeed,
+            });
+          }
+        });
+
+      // Timeout di sicurezza
+      setTimeout(() => resolve({ alias: pub }), 2000);
+    });
+  }, []);
 
   const cleanupSubscription = useCallback(() => {
     if (subscriptionRef.current) {
@@ -26,79 +49,82 @@ export const useFriendRequestNotifications = () => {
     }
   }, []);
 
-  const handleRequest = useCallback((request, id, type = "public") => {
-    // Ignora richieste senza ID
-    if (!id) return;
-
-    // Estrai il timestamp dall'id
-    const timestamp = parseInt(id.split("_").pop());
-
-    // Se abbiamo già processato una richiesta più recente per questo tipo, ignora
-    if (lastProcessedTimestampRef.current[type] >= timestamp) return;
-
-    // Se la richiesta è già stata processata, ignora
-    if (processedRequestsRef.current.has(id)) return;
-
-    // Aggiorna l'ultimo timestamp processato per questo tipo
-    lastProcessedTimestampRef.current[type] = timestamp;
-
-    // Se la richiesta è null o ha uno status, rimuovila silenziosamente
-    if (!request || request.status) {
-      setPendingRequests((prev) => prev.filter((r) => r.id !== id));
-      processedRequestsRef.current.add(id);
-      return;
-    }
-
-    // Verifica che la richiesta sia destinata all'utente corrente
-    if (type === "public" && request.to !== user.is.pub) return;
-
-    // Aggiungi la richiesta solo se non è già presente
-    setPendingRequests((prev) => {
-      const exists = prev.some((r) => r.id === id);
-      if (exists) return prev;
-
-      // Mostra notifica solo per nuove richieste e dopo il caricamento iniziale
-      if (initialLoadDoneRef.current) {
-        toast.success(`Nuova richiesta di amicizia da ${request.from}`);
-      }
-
-      return [...prev, { ...request, id, type }];
-    });
-
-    processedRequestsRef.current.add(id);
-  }, []);
-
   useEffect(() => {
     if (!user?.is?.pub) {
       setLoading(false);
       return;
     }
 
+    console.debug("Inizializzazione sottoscrizione richieste di amicizia");
     setLoading(true);
     processedRequestsRef.current.clear();
-    lastProcessedTimestampRef.current = {};
     initialLoadDoneRef.current = false;
     cleanupSubscription();
 
-    // Sottoscrizione per le richieste pubbliche
-    const publicPath = gun.get(DAPP_NAME).get("all_friend_requests");
+    const requests = new Map();
 
-    // Sottoscrizione per le richieste private
-    const privatePath = gun
-      .get(`~${user.is.pub}`)
+    // Funzione per aggiornare lo stato
+    const updateState = () => {
+      const pendingReqs = Array.from(requests.values())
+        .filter((req) => {
+          // Filtra le richieste pendenti e con un nome utente valido
+          const isValidUser = req.alias || req.username || req.displayName;
+          const isPending = !req.status || req.status === "pending";
+          return isPending && isValidUser;
+        })
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      setPendingRequests(pendingReqs);
+    };
+
+    // Sottoscrizione alle richieste
+    const subscription = gun
       .get(DAPP_NAME)
-      .get("friend_requests");
+      .get("all_friend_requests")
+      .map()
+      .on(async (request, id) => {
+        if (!request || id === "_") return;
 
-    // Carica le richieste esistenti e sottoscrivi ai cambiamenti
-    const publicSub = publicPath.map().once((request, id) => {
-      if (request && request.to === user.is.pub) {
-        handleRequest(request, id, "public");
-      }
-    });
+        // Se la richiesta non è per l'utente corrente, ignora
+        if (request.to !== user.is.pub) return;
 
-    const privateSub = privatePath.map().once((request, id) => {
-      handleRequest(request, id, "private");
-    });
+        console.debug(`Richiesta ricevuta [${id}]:`, request);
+
+        // Se la richiesta ha uno status diverso da pending, rimuovila
+        if (request.status && request.status !== "pending") {
+          requests.delete(id);
+          processedRequestsRef.current.add(id);
+        } else if (!processedRequestsRef.current.has(id)) {
+          // Carica i dati dell'utente se non sono presenti
+          if (!request.alias && !request.username) {
+            const userData = await loadUserData(request.from);
+            request = { ...request, ...userData };
+          }
+
+          // Aggiungi la richiesta solo se abbiamo informazioni valide sull'utente
+          if (request.alias || request.username || request.displayName) {
+            requests.set(id, {
+              ...request,
+              id,
+              displayName:
+                request.alias || request.username || request.displayName,
+            });
+
+            // Mostra notifica solo per nuove richieste
+            if (initialLoadDoneRef.current) {
+              toast.success(
+                `Nuova richiesta di amicizia da ${
+                  request.alias || request.username || request.displayName
+                }`
+              );
+            }
+          } else {
+            console.debug(`Richiesta ${id} ignorata: utente sconosciuto`);
+          }
+        }
+
+        updateState();
+      });
 
     // Imposta il flag di caricamento completato dopo un breve delay
     setTimeout(() => {
@@ -106,24 +132,36 @@ export const useFriendRequestNotifications = () => {
       setLoading(false);
     }, 500);
 
+    // Salva la funzione di cleanup
     subscriptionRef.current = () => {
-      if (typeof publicSub === "function") publicSub();
-      if (typeof privateSub === "function") privateSub();
+      if (typeof subscription === "function") {
+        subscription();
+      }
     };
 
     return () => {
-      cleanupSubscription();
+      if (subscriptionRef.current) {
+        subscriptionRef.current();
+      }
     };
-  }, [user?.is?.pub, handleRequest, cleanupSubscription]);
+  }, [user?.is?.pub, cleanupSubscription]);
 
   const removeRequest = useCallback((requestId) => {
-    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    console.debug(`Rimozione richiesta ${requestId}`);
     processedRequestsRef.current.add(requestId);
+    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+
+    // Aggiorna anche lo stato in Gun
+    gun
+      .get(DAPP_NAME)
+      .get("all_friend_requests")
+      .get(requestId)
+      .put({ status: "removed", removedAt: Date.now() });
   }, []);
 
-  const markAsRead = useCallback(async (requestId, type) => {
+  const markAsRead = useCallback(async (requestId) => {
     try {
-      await friendRequestNotifications.markAsRead(requestId, type);
+      await friendRequestNotifications.markAsRead(requestId);
       setPendingRequests((prev) =>
         prev.map((req) =>
           req.id === requestId ? { ...req, status: "read" } : req

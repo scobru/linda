@@ -27,17 +27,38 @@ const Friends = ({
 
   // Gestione richieste di amicizia
   const handleRequestProcessed = useCallback(
-    (requestId, action) => {
+    async (requestId, action) => {
       console.log(
         `Richiesta ${requestId} ${
           action === "accept" ? "accettata" : "rifiutata"
         }`
       );
-      // Notifica il componente padre
-      onRequestProcessed?.(requestId, action);
+
+      try {
+        // Notifica il componente padre prima di aggiornare Gun
+        onRequestProcessed?.(requestId, action);
+
+        // Aggiorna lo stato della richiesta in Gun
+        await gun
+          .get(DAPP_NAME)
+          .get("all_friend_requests")
+          .get(requestId)
+          .put({
+            status: action === "accept" ? "accepted" : "rejected",
+            processedAt: Date.now(),
+          });
+      } catch (error) {
+        console.error("Errore nell'aggiornamento della richiesta:", error);
+        toast.error("Errore nell'elaborazione della richiesta");
+      }
     },
     [onRequestProcessed]
   );
+
+  // Effetto per gestire gli aggiornamenti delle richieste pendenti
+  useEffect(() => {
+    console.log("Richieste pendenti aggiornate:", pendingRequests);
+  }, [pendingRequests]);
 
   // Carica i nomi degli amici
   useEffect(() => {
@@ -156,13 +177,17 @@ const Friends = ({
               Richieste di amicizia ({pendingRequests.length})
             </h3>
             <div className="space-y-2 px-4">
-              {pendingRequests.map((request) => (
-                <FriendRequest
-                  key={request.id}
-                  request={request}
-                  onRequestProcessed={handleRequestProcessed}
-                />
-              ))}
+              {pendingRequests
+                .filter(
+                  (request) => !request.status || request.status === "pending"
+                )
+                .map((request) => (
+                  <FriendRequest
+                    key={request.id}
+                    request={request}
+                    onRequestProcessed={handleRequestProcessed}
+                  />
+                ))}
             </div>
           </div>
         )}

@@ -43,12 +43,15 @@ const friendRequestNotifications = {
       };
 
       // Funzione per processare una richiesta
-      const processRequest = async (request, id, type) => {
-        if (!request || !request.to || processedRequests.has(id)) return;
+      const processRequest = async (request, id) => {
+        if (!request || !request.to || processedRequests.has(id)) {
+          console.log('Richiesta ignorata:', { request, id });
+          return;
+        }
 
         // Verifica che la richiesta sia per l'utente corrente e sia pendente
-        if (request.to === user.is.pub && request.status === 'pending') {
-          console.log(`Nuova richiesta ${type} trovata:`, request);
+        if (request.to === user.is.pub) {
+          console.log('Nuova richiesta trovata:', { request, id });
 
           // Se mancano i dati dell'utente, li recuperiamo
           if (!request.alias || !request.from) {
@@ -59,30 +62,25 @@ const friendRequestNotifications = {
           processedRequests.add(id);
           subscriber.next({
             ...request,
-            type,
             id,
+            status: request.status || 'pending', // Assicuriamoci che lo status sia sempre definito
           });
         }
       };
 
-      // Osserva le richieste private
-      const privateHandler = gun
-        .user()
-        .get(DAPP_NAME)
-        .get('private_requests')
-        .map()
-        .on((request, id) => processRequest(request, id, 'private'));
-
       // Osserva le richieste pubbliche
       const publicHandler = gun
         .get(DAPP_NAME)
-        .get('friendRequests')
+        .get('all_friend_requests')
         .map()
-        .on((request, id) => processRequest(request, id, 'public'));
+        .on((request, id) => {
+          if (id === '_' || !request) return; // Ignora le chiavi speciali di Gun
+          console.log('Richiesta ricevuta:', { request, id });
+          processRequest(request, id);
+        });
 
       // Cleanup function
       return () => {
-        if (typeof privateHandler === 'function') privateHandler();
         if (typeof publicHandler === 'function') publicHandler();
         processedRequests.clear();
       };
@@ -94,28 +92,18 @@ const friendRequestNotifications = {
    * @param {string} requestId - ID della richiesta
    * @param {string} type - Tipo di richiesta ('private' o 'public')
    */
-  markAsRead: async (requestId, type) => {
+  markAsRead: async (requestId) => {
     if (!user?.is) {
       throw new Error('Utente non autenticato');
     }
 
     try {
-      if (type === 'private') {
-        await gun
-          .user()
-          .get(DAPP_NAME)
-          .get('private_requests')
-          .get(requestId)
-          .get('status')
-          .put('read');
-      } else {
-        await gun
-          .get(DAPP_NAME)
-          .get('friendRequests')
-          .get(requestId)
-          .get('status')
-          .put('read');
-      }
+      await gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .get(requestId)
+        .get('status')
+        .put('read');
 
       return true;
     } catch (error) {

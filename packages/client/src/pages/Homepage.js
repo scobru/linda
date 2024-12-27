@@ -54,11 +54,13 @@ export default function Homepage() {
     pendingRequests,
     loading: requestsLoading,
     markAsRead,
+    removeRequest,
   } = useFriendRequestNotifications();
 
   // Refs
   const friendsRef = useRef(new Set());
   const initializationRef = useRef(false);
+  const processedRequestsRef = useRef(new Set());
 
   // Verifica autenticazione e inizializzazione
   useEffect(() => {
@@ -272,6 +274,46 @@ export default function Homepage() {
     setShowMobileChat(false);
   }, []);
 
+  // Gestione richieste di amicizia processate
+  const handleRequestProcessed = useCallback(
+    async (requestId, action) => {
+      // Se la richiesta è già stata processata, ignora
+      if (processedRequestsRef.current.has(requestId)) {
+        console.log(`Richiesta ${requestId} già processata, ignoro`);
+        return;
+      }
+
+      console.log(
+        `Homepage: Richiesta ${requestId} processata con azione ${action}`
+      );
+
+      // Marca la richiesta come processata
+      processedRequestsRef.current.add(requestId);
+
+      // Rimuovi immediatamente la richiesta dalla lista delle pendenti
+      removeRequest(requestId);
+
+      // Se la richiesta è stata accettata, aggiorna la lista amici
+      if (action === "accept") {
+        try {
+          await loadInitialData();
+          toast.success("Richiesta di amicizia accettata");
+        } catch (error) {
+          console.error("Errore nell'aggiornamento della lista amici:", error);
+          toast.error("Errore nell'aggiornamento della lista amici");
+        }
+      } else {
+        toast.success("Richiesta di amicizia rifiutata");
+      }
+    },
+    [removeRequest, loadInitialData]
+  );
+
+  // Reset del ref quando cambia l'utente
+  useEffect(() => {
+    processedRequestsRef.current.clear();
+  }, [appState.user?.is?.pub]);
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       <Header />
@@ -319,6 +361,7 @@ export default function Homepage() {
                 loading={loading}
                 selectedUser={oldSelected}
                 friends={oldFriends}
+                onRequestProcessed={handleRequestProcessed}
               />
             )}
             {activeView === "channels" && <Channels onSelect={handleSelect} />}
