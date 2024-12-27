@@ -15,149 +15,180 @@ export const useChannels = () => {
     try {
       setLoading(true);
       const channelMap = new Map();
-      processedChannelsRef.current.clear();
 
-      // Prima carica la lista dei canali dell'utente
-      const userChannels = new Set();
+      console.log("Inizio caricamento canali e bacheche");
+
+      // Carica prima la lista personale
       await new Promise((resolve) => {
         gun
           .user()
           .get(DAPP_NAME)
           .get("my_channels")
           .map()
-          .on((data) => {
-            if (data && data.channelId) {
-              userChannels.add(data.channelId);
-            }
-          });
-        setTimeout(resolve, 500);
-      });
+          .on((data, key) => {
+            if (data && data.channelId && key !== "_") {
+              // Carica i dettagli del canale
+              gun
+                .get(DAPP_NAME)
+                .get("channels")
+                .get(data.channelId)
+                .on((channelData) => {
+                  if (channelData) {
+                    const isBoard = channelData.type === "board";
+                    channelMap.set(data.channelId, {
+                      ...channelData,
+                      id: data.channelId,
+                      joined: true,
+                      members: channelData.members
+                        ? Object.keys(channelData.members).length
+                        : 1,
+                      isChannel: !isBoard,
+                      name:
+                        channelData.name ||
+                        (isBoard ? "Bacheca senza nome" : "Canale senza nome"),
+                      creator: channelData.creator,
+                      created: channelData.created || Date.now(),
+                      type: channelData.type || "channel",
+                      messages: channelData.messages || {},
+                      settings: {
+                        isPublic: true,
+                        canWrite: isBoard,
+                        ...channelData.settings,
+                      },
+                    });
 
-      console.log("Canali iscritto:", Array.from(userChannels));
-
-      // Poi carica i dettagli solo dei canali a cui l'utente è iscritto
-      await new Promise((resolve) => {
-        gun
-          .get(DAPP_NAME)
-          .get("channels")
-          .map()
-          .on(async (data, channelId) => {
-            if (
-              !data ||
-              !userChannels.has(channelId) ||
-              processedChannelsRef.current.has(channelId)
-            )
-              return;
-
-            processedChannelsRef.current.add(channelId);
-            console.log("Caricamento dettagli canale:", channelId, data);
-
-            try {
-              const membersCount = await channels.countMembers(channelId);
-
-              channelMap.set(channelId, {
-                ...data,
-                id: channelId,
-                joined: true,
-                members: membersCount,
-                isChannel: data.type === "channel",
-                name: data.name || "Canale senza nome",
-                creator: data.creator,
-                created: data.created || Date.now(),
-                type: data.type || "channel",
-                messages: data.messages || {},
-              });
-
-              // Aggiorna la lista dei canali ogni volta che viene aggiunto un nuovo canale
-              const sortedChannels = Array.from(channelMap.values()).sort(
-                (a, b) => b.created - a.created
-              );
-              console.log("Lista canali aggiornata:", sortedChannels);
-              setChannelList(sortedChannels);
-            } catch (error) {
-              console.error("Errore caricamento dettagli canale:", error);
+                    // Aggiorna la lista
+                    const sortedChannels = Array.from(channelMap.values()).sort(
+                      (a, b) => b.created - a.created
+                    );
+                    setChannelList(sortedChannels);
+                  }
+                });
             }
           });
 
-        setTimeout(resolve, 1000);
+        setTimeout(resolve, 2000);
       });
+
+      setLoading(false);
     } catch (error) {
-      console.error("Errore caricamento canali:", error);
-      setError("Errore nel caricamento dei canali");
-      toast.error("Errore nel caricamento dei canali");
+      console.error("Errore caricamento:", error);
+      setError("Errore nel caricamento");
+      toast.error("Errore nel caricamento");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Crea un nuovo canale
+  // Crea un nuovo canale o bacheca
   const createChannel = useCallback(
     async (name, isChannel = true) => {
+      if (!user.is) {
+        toast.error("Devi essere autenticato per creare un canale");
+        return;
+      }
+
       try {
-        setLoading(true);
         const channelId = `channel_${Date.now()}_${Math.random()
           .toString(36)
           .substr(2, 9)}`;
 
-        // Crea il nuovo canale con struttura completa
-        await new Promise((resolve) => {
+        console.log("Creazione:", { channelId, name, isChannel });
+
+        // Struttura base
+        const channelData = {
+          id: channelId,
+          name,
+          type: isChannel ? "channel" : "board",
+          creator: user.is.pub,
+          created: Date.now(),
+          messages: {},
+          members: {},
+          membersCount: 1,
+          writeAccess: isChannel ? "creator" : "members",
+          settings: {
+            isPublic: true,
+            canWrite: isChannel ? false : true,
+          },
+        };
+
+        // Salva il canale
+        await new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
             .get("channels")
             .get(channelId)
-            .put(
-              {
-                name,
-                type: isChannel ? "channel" : "board",
-                creator: user.is.pub,
-                created: Date.now(),
-                messages: {},
-                members: {},
-                settings: {
-                  isPublic: true,
-                  canWrite: true,
-                },
-              },
-              (ack) => {
-                if (ack.err) {
-                  throw new Error(ack.err);
-                }
-                resolve();
+            .put(channelData, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+                return;
               }
-            );
+              resolve();
+            });
         });
 
-        // Aggiungi il canale alla lista dei canali dell'utente
-        await new Promise((resolve) => {
+        // Aggiungi il creatore come membro
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get("channels")
+            .get(channelId)
+            .get("members")
+            .get(user.is.pub)
+            .put(true, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+                return;
+              }
+              resolve();
+            });
+        });
+
+        // Aggiungi alla lista personale
+        await new Promise((resolve, reject) => {
           gun
             .user()
             .get(DAPP_NAME)
             .get("my_channels")
-            .set(
+            .get(channelId)
+            .put(
               {
                 channelId,
                 joined: Date.now(),
+                type: isChannel ? "channel" : "board",
               },
               (ack) => {
                 if (ack.err) {
-                  throw new Error(ack.err);
+                  reject(new Error(ack.err));
+                  return;
                 }
                 resolve();
               }
             );
         });
 
+        // Aggiorna la lista locale
+        setChannelList((prev) => [
+          {
+            ...channelData,
+            joined: true,
+            members: { [user.is.pub]: true },
+          },
+          ...prev,
+        ]);
+
+        // Ricarica i canali
+        setTimeout(loadChannels, 1000);
+
         toast.success(
           `${isChannel ? "Canale" : "Bacheca"} creato con successo!`
         );
-        await loadChannels();
+
         return channelId;
       } catch (error) {
-        console.error("Errore creazione canale:", error);
-        toast.error("Errore nella creazione");
-        setError("Errore nella creazione del canale");
-      } finally {
-        setLoading(false);
+        console.error("Errore creazione:", error);
+        toast.error("Errore nella creazione: " + error.message);
+        throw error;
       }
     },
     [loadChannels]
@@ -168,23 +199,40 @@ export const useChannels = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+          // Aggiungi l'utente ai membri del canale
           gun
-            .user()
             .get(DAPP_NAME)
-            .get("my_channels")
-            .set(
-              {
-                channelId,
-                joined: Date.now(),
-              },
-              (ack) => {
-                if (ack.err) {
-                  throw new Error(ack.err);
-                }
-                resolve();
+            .get("channels")
+            .get(channelId)
+            .get("members")
+            .get(user.is.pub)
+            .put(true, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+                return;
               }
-            );
+
+              // Aggiungi il canale alla lista personale
+              gun
+                .user()
+                .get(DAPP_NAME)
+                .get("my_channels")
+                .get(channelId)
+                .put(
+                  {
+                    channelId,
+                    joined: Date.now(),
+                  },
+                  (ack2) => {
+                    if (ack2.err) {
+                      reject(new Error(ack2.err));
+                      return;
+                    }
+                    resolve();
+                  }
+                );
+            });
         });
 
         toast.success("Iscrizione effettuata con successo!");
@@ -206,17 +254,33 @@ export const useChannels = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+          // Rimuovi l'utente dai membri del canale
           gun
-            .user()
             .get(DAPP_NAME)
-            .get("my_channels")
+            .get("channels")
             .get(channelId)
+            .get("members")
+            .get(user.is.pub)
             .put(null, (ack) => {
               if (ack.err) {
-                throw new Error(ack.err);
+                reject(new Error(ack.err));
+                return;
               }
-              resolve();
+
+              // Rimuovi il canale dalla lista personale
+              gun
+                .user()
+                .get(DAPP_NAME)
+                .get("my_channels")
+                .get(channelId)
+                .put(null, (ack2) => {
+                  if (ack2.err) {
+                    reject(new Error(ack2.err));
+                    return;
+                  }
+                  resolve();
+                });
             });
         });
 
@@ -239,14 +303,66 @@ export const useChannels = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await new Promise((resolve) => {
+
+        // Verifica che l'utente sia il creatore
+        const channel = await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("channels")
+            .get(channelId)
+            .once((data) => resolve(data));
+        });
+
+        if (!channel || channel.creator !== user.is.pub) {
+          throw new Error("Non hai i permessi per eliminare questo canale");
+        }
+
+        await new Promise((resolve, reject) => {
+          // Prima rimuovi tutti i membri
+          gun
+            .get(DAPP_NAME)
+            .get("channels")
+            .get(channelId)
+            .get("members")
+            .map()
+            .once((member, key) => {
+              if (member) {
+                gun
+                  .get(DAPP_NAME)
+                  .get("channels")
+                  .get(channelId)
+                  .get("members")
+                  .get(key)
+                  .put(null);
+
+                // Rimuovi anche dalla lista personale di ogni membro
+                gun
+                  .user(member)
+                  .get(DAPP_NAME)
+                  .get("my_channels")
+                  .map()
+                  .once((data, key) => {
+                    if (data && data.channelId === channelId) {
+                      gun
+                        .user(member)
+                        .get(DAPP_NAME)
+                        .get("my_channels")
+                        .get(key)
+                        .put(null);
+                    }
+                  });
+              }
+            });
+
+          // Poi elimina il canale
           gun
             .get(DAPP_NAME)
             .get("channels")
             .get(channelId)
             .put(null, (ack) => {
               if (ack.err) {
-                throw new Error(ack.err);
+                reject(new Error(ack.err));
+                return;
               }
               resolve();
             });
@@ -257,7 +373,7 @@ export const useChannels = () => {
         return true;
       } catch (error) {
         console.error("Errore eliminazione canale:", error);
-        toast.error("Errore nell'eliminazione");
+        toast.error("Errore nell'eliminazione: " + error.message);
         setError("Errore nell'eliminazione del canale");
       } finally {
         setLoading(false);
