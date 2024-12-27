@@ -1,441 +1,295 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
+import {
+  revokeChatsCertificate,
+  revokeMessagesCertificate,
+  friendsCertificates,
+  createChatsCertificate,
+  createMessagesCertificate,
+  createFriendRequestCertificate,
+} from '../security/index.js';
 import { Observable } from 'rxjs';
-import { updateGlobalMetrics } from '../system/systemService.js';
 
-const userBlocking = {
+// Cache per gli stati di blocco
+const blockStatusCache = new Map();
+const CACHE_DURATION = 30000; // 30 secondi di cache
+
+export const userBlocking = {
+  /**
+   * Pulisce la cache per un utente specifico o tutta la cache
+   * @param {string} [targetPub] - Chiave pubblica dell'utente da rimuovere dalla cache
+   */
+  clearCache: (targetPub) => {
+    if (targetPub) {
+      blockStatusCache.delete(targetPub);
+    } else {
+      blockStatusCache.clear();
+    }
+  },
+
   /**
    * Blocca un utente
    * @param {string} targetPub - Chiave pubblica dell'utente da bloccare
-   * @returns {Promise<{success: boolean, message: string}>}
    */
   blockUser: async (targetPub) => {
-    if (!user.is) {
-      return { success: false, message: 'Utente non autenticato' };
-    }
+    if (!user.is) throw new Error('Utente non autenticato');
+    if (!targetPub) throw new Error('Utente target non specificato');
 
     try {
-      const blockData = {
-        timestamp: Date.now(),
-        status: 'blocked',
-        reason: 'user_blocked',
-      };
-
-      // Aggiorna tutti i punti di storage
-      await Promise.all([
-        // Database principale
-        new Promise((resolve, reject) => {
-          gun
-            .get(`${DAPP_NAME}/users`)
-            .get(user.is.pub)
-            .get('blocked')
-            .get(targetPub)
-            .put(blockData, (ack) => {
+      // 1. Salva il blocco nel nodo dell'utente corrente
+      await new Promise((resolve, reject) => {
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('blocked_users')
+          .get(targetPub)
+          .put(
+            {
+              timestamp: Date.now(),
+              type: 'blocked',
+              blocker: user.is.pub,
+            },
+            (ack) => {
               if (ack.err) reject(new Error(ack.err));
               else resolve();
-            });
-        }),
-
-        // Profilo utente
-        new Promise((resolve, reject) => {
-          user
-            .get('profile')
-            .get('blocked')
-            .set(
-              {
-                pub: targetPub,
-                ...blockData,
-              },
-              (ack) => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              }
-            );
-        }),
-
-        // Stato globale
-        new Promise((resolve, reject) => {
-          gun
-            .get(`${DAPP_NAME}/blockStatus`)
-            .get(`${user.is.pub}_${targetPub}`)
-            .put(
-              {
-                blocker: user.is.pub,
-                blocked: targetPub,
-                ...blockData,
-              },
-              (ack) => {
-                if (ack.err) reject(new Error(ack.err));
-                else resolve();
-              }
-            );
-        }),
-
-        // Notifica l'utente bloccato
-        new Promise((resolve) => {
-          gun.get(`~${targetPub}`).get('notifications').get('blocks').set(
-            {
-              type: 'block',
-              from: user.is.pub,
-              timestamp: Date.now(),
-              status: 'blocked',
-            },
-            resolve
+            }
           );
-        }),
+      });
 
-        // Aggiorna lo stato di blocco nell'utente bloccato
-        new Promise((resolve) => {
-          gun
-            .get(`${DAPP_NAME}/users`)
-            .get(targetPub)
-            .get('blockedBy')
-            .get(user.is.pub)
-            .put(
-              {
-                blocker: user.is.pub,
-                timestamp: Date.now(),
-                status: 'blocked',
-              },
-              resolve
-            );
-        }),
+      // Invalida la cache per questo utente
+      userBlocking.clearCache(targetPub);
+
+      // 2. Revoca tutti i certificati
+      await Promise.all([
+        revokeChatsCertificate(targetPub),
+        revokeMessagesCertificate(targetPub),
+        friendsCertificates.revokeCertificate(targetPub),
       ]);
 
-      console.log(`Utente ${targetPub} bloccato con successo`);
-      updateGlobalMetrics('totalUsersBlocked', 1);
-      return { success: true, message: 'Utente bloccato con successo' };
+      // 3. Rimuovi l'amicizia se esiste
+      await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('friendships')
+          .map()
+          .once((friendship, key) => {
+            if (
+              friendship &&
+              ((friendship.user1 === user.is.pub &&
+                friendship.user2 === targetPub) ||
+                (friendship.user2 === user.is.pub &&
+                  friendship.user1 === targetPub))
+            ) {
+              gun.get(DAPP_NAME).get('friendships').get(key).put(null);
+            }
+          });
+        setTimeout(resolve, 1000);
+      });
+
+      // 4. Rimuovi eventuali chat esistenti
+      const chatId = [user.is.pub, targetPub].sort().join('_');
+      gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
+
+      // 5. Notifica l'utente bloccato
+      gun.get(`~${targetPub}`).get('notifications').get('blocks').set({
+        type: 'block',
+        from: user.is.pub,
+        timestamp: Date.now(),
+      });
+
+      return { success: true };
     } catch (error) {
-      console.error('Errore nel blocco:', error);
-      return { success: false, message: error.message };
+      console.error('Errore nel blocco utente:', error);
+      throw error;
     }
   },
 
   /**
    * Sblocca un utente
    * @param {string} targetPub - Chiave pubblica dell'utente da sbloccare
-   * @returns {Promise<{success: boolean, message: string}>}
    */
   unblockUser: async (targetPub) => {
-    if (!user.is) {
-      return { success: false, message: 'Utente non autenticato' };
-    }
+    if (!user.is) throw new Error('Utente non autenticato');
+    if (!targetPub) throw new Error('Utente target non specificato');
 
     try {
-      // Rimuovi il blocco da tutti i punti di storage
+      // Verifica che l'utente corrente sia quello che ha fatto il blocco
+      const blockData = await new Promise((resolve) => {
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('blocked_users')
+          .get(targetPub)
+          .once((data) => resolve(data));
+      });
+
+      if (!blockData || blockData.blocker !== user.is.pub) {
+        throw new Error('Non hai i permessi per sbloccare questo utente');
+      }
+
+      // Rimuovi il blocco
+      await new Promise((resolve, reject) => {
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('blocked_users')
+          .get(targetPub)
+          .put(null, (ack) => {
+            if (ack.err) reject(new Error(ack.err));
+            else resolve();
+          });
+      });
+
+      // Invalida la cache per questo utente
+      userBlocking.clearCache(targetPub);
+
+      // Rigenera tutti i certificati
       await Promise.all([
-        // Database principale
-        new Promise((resolve) => {
-          gun
-            .get(`${DAPP_NAME}/users`)
-            .get(user.is.pub)
-            .get('blocked')
-            .get(targetPub)
-            .put(null, resolve);
-        }),
-
-        // Profilo utente
-        new Promise((resolve) => {
-          user
-            .get('profile')
-            .get('blocked')
-            .map()
-            .once((data, key) => {
-              if (data && data.pub === targetPub) {
-                user.get('profile').get('blocked').get(key).put(null);
-              }
-            });
-          setTimeout(resolve, 1000);
-        }),
-
-        // Stato globale
-        new Promise((resolve) => {
-          gun
-            .get(`${DAPP_NAME}/blockStatus`)
-            .get(`${user.is.pub}_${targetPub}`)
-            .put(
-              {
-                blocker: user.is.pub,
-                blocked: targetPub,
-                status: 'unblocked',
-                timestamp: Date.now(),
-              },
-              resolve
-            );
-        }),
+        createChatsCertificate(targetPub),
+        createMessagesCertificate(targetPub),
+        createFriendRequestCertificate(targetPub),
       ]);
 
-      console.log(`Utente ${targetPub} sbloccato con successo`);
-      return { success: true, message: 'Utente sbloccato con successo' };
-    } catch (error) {
-      console.error('Errore nello sblocco:', error);
-      return { success: false, message: error.message };
-    }
-  },
-
-  /**
-   * Verifica se un utente è bloccato
-   * @param {string} targetPub - Chiave pubblica dell'utente da verificare
-   * @returns {Promise<boolean>}
-   */
-  isBlocked: async (targetPub) => {
-    if (!user.is) return false;
-
-    try {
-      // Verifica nel database principale
-      const blockStatus = await new Promise((resolve) => {
-        gun
-          .get(`${DAPP_NAME}/users`)
-          .get(user.is.pub)
-          .get('blocked')
-          .get(targetPub)
-          .once((data) => {
-            resolve(data);
-          });
+      // Notifica l'utente sbloccato
+      gun.get(`~${targetPub}`).get('notifications').get('blocks').set({
+        type: 'unblock',
+        from: user.is.pub,
+        timestamp: Date.now(),
       });
 
-      // Se non trovato nel database principale, verifica nel profilo
-      if (!blockStatus) {
-        const profileBlock = await new Promise((resolve) => {
-          let found = false;
-          user
-            .get('profile')
-            .get('blocked')
-            .map()
-            .once((blocked) => {
-              if (
-                blocked &&
-                blocked.pub === targetPub &&
-                blocked.status === 'blocked'
-              ) {
-                found = true;
-              }
-            });
-          setTimeout(() => resolve(found), 500);
-        });
-        return profileBlock;
-      }
-
-      return !!blockStatus && blockStatus.status === 'blocked';
+      return { success: true };
     } catch (error) {
-      console.error('Errore nella verifica del blocco:', error);
-      return false;
+      console.error('Errore nello sblocco utente:', error);
+      throw error;
     }
   },
 
   /**
-   * Verifica se l'utente corrente è stato bloccato da un altro utente
+   * Verifica lo stato di blocco tra due utenti
    * @param {string} targetPub - Chiave pubblica dell'utente da verificare
-   * @returns {Promise<boolean>}
-   */
-  isBlockedBy: async (targetPub) => {
-    if (!user.is) return false;
-
-    try {
-      // Verifica nel database principale
-      const blockStatus = await new Promise((resolve) => {
-        gun
-          .get(`${DAPP_NAME}/users`)
-          .get(targetPub)
-          .get('blocked')
-          .get(user.is.pub)
-          .once((data) => {
-            resolve(data);
-          });
-      });
-
-      // Se non trovato nel database principale, verifica nel profilo dell'altro utente
-      if (!blockStatus) {
-        const profileBlock = await new Promise((resolve) => {
-          let found = false;
-          gun
-            .user(targetPub)
-            .get('profile')
-            .get('blocked')
-            .map()
-            .once((blocked) => {
-              if (
-                blocked &&
-                blocked.pub === user.is.pub &&
-                blocked.status === 'blocked'
-              ) {
-                found = true;
-              }
-            });
-          setTimeout(() => resolve(found), 500);
-        });
-        return profileBlock;
-      }
-
-      return !!blockStatus && blockStatus.status === 'blocked';
-    } catch (error) {
-      console.error('Errore nella verifica del blocco:', error);
-      return false;
-    }
-  },
-
-  /**
-   * Verifica lo stato di blocco bidirezionale tra due utenti
-   * @param {string} targetPub - Chiave pubblica dell'utente da verificare
-   * @returns {Promise<{blocked: boolean, blockedBy: boolean}>}
    */
   getBlockStatus: async (targetPub) => {
-    if (!user.is) {
-      return { blocked: false, blockedBy: false };
-    }
+    if (!user.is) throw new Error('Utente non autenticato');
+    if (!targetPub) throw new Error('Utente target non specificato');
 
     try {
-      // Verifica nel database principale
-      const mainDbStatus = await new Promise((resolve) => {
+      // Controlla la cache
+      const cachedStatus = blockStatusCache.get(targetPub);
+      if (
+        cachedStatus &&
+        Date.now() - cachedStatus.timestamp < CACHE_DURATION
+      ) {
+        return cachedStatus.status;
+      }
+
+      // Verifica se l'utente corrente ha bloccato il target
+      const myBlockData = await new Promise((resolve) => {
         gun
-          .get(`${DAPP_NAME}/users`)
-          .get(user.is.pub)
-          .get('blocked')
+          .user()
+          .get(DAPP_NAME)
+          .get('blocked_users')
           .get(targetPub)
           .once((data) => {
             resolve(data);
           });
+        setTimeout(() => resolve(null), 1000);
       });
 
-      // Verifica nel profilo utente
-      const profileStatus = await new Promise((resolve) => {
-        let found = false;
-        user
-          .get('profile')
-          .get('blocked')
-          .map()
-          .once((blocked) => {
-            if (
-              blocked &&
-              blocked.pub === targetPub &&
-              blocked.status === 'blocked'
-            ) {
-              found = true;
-            }
-          });
-        setTimeout(() => resolve(found), 500);
-      });
-
-      // Verifica nello stato globale
-      const globalStatus = await new Promise((resolve) => {
+      // Verifica se il target ha bloccato l'utente corrente
+      const theirBlockData = await new Promise((resolve) => {
         gun
-          .get(`${DAPP_NAME}/blockStatus`)
-          .get(`${user.is.pub}_${targetPub}`)
-          .once((data) => {
-            resolve(data);
-          });
-      });
-
-      // Verifica se siamo stati bloccati dall'altro utente
-      const blockedByStatus = await new Promise((resolve) => {
-        gun
-          .get(`${DAPP_NAME}/users`)
+          .user(targetPub)
+          .get(DAPP_NAME)
+          .get('blocked_users')
           .get(user.is.pub)
-          .get('blockedBy')
-          .get(targetPub)
           .once((data) => {
             resolve(data);
           });
+        setTimeout(() => resolve(null), 1000);
       });
 
-      // Verifica anche nello stato globale dell'altro utente
-      const blockedByGlobalStatus = await new Promise((resolve) => {
-        gun
-          .get(`${DAPP_NAME}/blockStatus`)
-          .get(`${targetPub}_${user.is.pub}`)
-          .once((data) => {
-            resolve(data);
-          });
+      const status = {
+        blocked: !!myBlockData,
+        blockedBy: !!theirBlockData,
+        canInteract: !myBlockData && !theirBlockData,
+        canUnblock: myBlockData?.blocker === user.is.pub,
+      };
+
+      // Salva nella cache
+      blockStatusCache.set(targetPub, {
+        status,
+        timestamp: Date.now(),
       });
 
-      const blocked =
-        (mainDbStatus && mainDbStatus.status === 'blocked') ||
-        profileStatus ||
-        (globalStatus && globalStatus.status === 'blocked');
-
-      const blockedBy =
-        (blockedByStatus && blockedByStatus.status === 'blocked') ||
-        (blockedByGlobalStatus && blockedByGlobalStatus.status === 'blocked');
-
-      return { blocked, blockedBy };
+      return status;
     } catch (error) {
-      console.error('Errore nella verifica dello stato di blocco:', error);
-      return { blocked: false, blockedBy: false };
+      console.error('Errore nella verifica stato blocco:', error);
+      return {
+        blocked: false,
+        blockedBy: false,
+        canInteract: true,
+        canUnblock: false,
+      };
     }
   },
 
   /**
-   * Verifica se è possibile interagire tra due utenti
-   * @param {string} targetPub - Chiave pubblica dell'utente da verificare
-   * @returns {Promise<{canInteract: boolean, reason: string}>}
-   */
-  canInteract: async (targetPub) => {
-    try {
-      const { blocked, blockedBy } = await userBlocking.getBlockStatus(
-        targetPub
-      );
-
-      if (blocked) {
-        return { canInteract: false, reason: 'user_blocked' };
-      }
-      if (blockedBy) {
-        return { canInteract: false, reason: 'blocked_by_user' };
-      }
-
-      return { canInteract: true, reason: null };
-    } catch (error) {
-      console.error('Errore nella verifica delle interazioni:', error);
-      return { canInteract: false, reason: 'error' };
-    }
-  },
-
-  /**
-   * Osserva lo stato di blocco di un utente
+   * Osserva i cambiamenti nello stato di blocco
    * @param {string} targetPub - Chiave pubblica dell'utente da osservare
-   * @returns {Observable} Observable che emette gli aggiornamenti dello stato di blocco
    */
   observeBlockStatus: (targetPub) => {
-    return new Observable((subscriber) => {
-      if (!user.is) {
-        subscriber.error(new Error('Utente non autenticato'));
-        return;
-      }
+    if (!user.is) throw new Error('Utente non autenticato');
+    if (!targetPub) throw new Error('Utente target non specificato');
 
-      // Osserva il database principale
-      const mainHandler = gun
-        .get(`${DAPP_NAME}/users`)
-        .get(user.is.pub)
-        .get('blocked')
+    return new Observable((subscriber) => {
+      let lastMyStatus = null;
+      let lastTheirStatus = null;
+
+      // Osserva i blocchi dell'utente corrente
+      const myBlockHandler = gun
+        .user()
+        .get(DAPP_NAME)
+        .get('blocked_users')
         .get(targetPub)
         .on((data) => {
-          subscriber.next({
-            isBlocked: !!data && data.status === 'blocked',
-            source: 'main',
-          });
+          const newStatus = {
+            type: 'my_block_status',
+            blocked: !!data,
+            canUnblock: data?.blocker === user.is.pub,
+          };
+
+          // Emetti solo se lo stato è cambiato
+          if (JSON.stringify(newStatus) !== JSON.stringify(lastMyStatus)) {
+            lastMyStatus = newStatus;
+            subscriber.next(newStatus);
+            userBlocking.clearCache(targetPub);
+          }
         });
 
-      // Osserva il profilo utente
-      const profileHandler = user
-        .get('profile')
-        .get('blocked')
-        .map()
+      // Osserva i blocchi dell'utente target
+      const theirBlockHandler = gun
+        .user(targetPub)
+        .get(DAPP_NAME)
+        .get('blocked_users')
+        .get(user.is.pub)
         .on((data) => {
-          if (data && data.pub === targetPub) {
-            subscriber.next({
-              isBlocked: data.status === 'blocked',
-              source: 'profile',
-            });
+          const newStatus = {
+            type: 'their_block_status',
+            blockedBy: !!data,
+            canUnblock: false,
+          };
+
+          // Emetti solo se lo stato è cambiato
+          if (JSON.stringify(newStatus) !== JSON.stringify(lastTheirStatus)) {
+            lastTheirStatus = newStatus;
+            subscriber.next(newStatus);
+            userBlocking.clearCache(targetPub);
           }
         });
 
       // Cleanup
       return () => {
-        gun
-          .get(`${DAPP_NAME}/users`)
-          .get(user.is.pub)
-          .get('blocked')
-          .get(targetPub)
-          .off();
-        user.get('profile').get('blocked').map().off();
+        if (typeof myBlockHandler === 'function') myBlockHandler();
+        if (typeof theirBlockHandler === 'function') theirBlockHandler();
       };
     });
   },
@@ -445,187 +299,66 @@ const userBlocking = {
    * @returns {Promise<Array>} Lista degli utenti bloccati
    */
   getBlockedUsers: async () => {
-    if (!user.is) {
-      return [];
-    }
+    if (!user.is) throw new Error('Utente non autenticato');
 
     try {
-      // Ottieni i blocchi dal database principale
-      const mainBlocks = await new Promise((resolve) => {
-        const blockedUsers = [];
+      const blockedUsers = await new Promise((resolve) => {
+        const users = [];
         gun
-          .get(`${DAPP_NAME}/users`)
-          .get(user.is.pub)
-          .get('blocked')
+          .user()
+          .get(DAPP_NAME)
+          .get('blocked_users')
           .map()
-          .once((data, key) => {
-            if (data && data.status === 'blocked') {
-              blockedUsers.push({
-                pub: key,
+          .once((data, pub) => {
+            if (data && data.blocker === user.is.pub) {
+              users.push({
+                pub,
                 timestamp: data.timestamp,
-                reason: data.reason,
-                source: 'main',
+                type: data.type,
               });
             }
           });
-        setTimeout(() => resolve(blockedUsers), 1000);
+        setTimeout(() => resolve(users), 1000);
       });
 
-      // Ottieni i blocchi dal profilo utente
-      const profileBlocks = await new Promise((resolve) => {
-        const blockedUsers = [];
-        user
-          .get('profile')
-          .get('blocked')
-          .map()
-          .once((data) => {
-            if (data && data.status === 'blocked') {
-              blockedUsers.push({
-                pub: data.pub,
-                timestamp: data.timestamp,
-                reason: data.reason,
-                source: 'profile',
-              });
-            }
-          });
-        setTimeout(() => resolve(blockedUsers), 1000);
-      });
-
-      // Combina e deduplicizza i risultati
-      const allBlocks = [...mainBlocks, ...profileBlocks];
-      const uniqueBlocks = allBlocks.reduce((acc, block) => {
-        if (!acc.find((b) => b.pub === block.pub)) {
-          acc.push(block);
-        }
-        return acc;
-      }, []);
-
-      // Ordina per timestamp decrescente
-      return uniqueBlocks.sort((a, b) => b.timestamp - a.timestamp);
+      return blockedUsers;
     } catch (error) {
-      console.error('Errore nel recupero degli utenti bloccati:', error);
+      console.error('Errore nel recupero utenti bloccati:', error);
       return [];
     }
   },
 
   /**
-   * Osserva la lista degli utenti bloccati
-   * @returns {Observable} Observable che emette gli aggiornamenti della lista di blocco
+   * Osserva i cambiamenti nella lista degli utenti bloccati
+   * @returns {Observable} Observable che emette la lista aggiornata degli utenti bloccati
    */
   observeBlockedUsers: () => {
+    if (!user.is) throw new Error('Utente non autenticato');
+
     return new Observable((subscriber) => {
-      if (!user.is) {
-        subscriber.error(new Error('Utente non autenticato'));
-        return;
-      }
-
-      const emitBlockedUsers = async () => {
-        const blockedUsers = await userBlocking.getBlockedUsers();
-        subscriber.next(blockedUsers);
-      };
-
-      // Osserva i cambiamenti nel database principale
-      const mainHandler = gun
-        .get(`${DAPP_NAME}/users`)
-        .get(user.is.pub)
-        .get('blocked')
+      const handler = gun
+        .user()
+        .get(DAPP_NAME)
+        .get('blocked_users')
         .map()
-        .on(() => {
-          emitBlockedUsers();
-        });
-
-      // Osserva i cambiamenti nel profilo
-      const profileHandler = user
-        .get('profile')
-        .get('blocked')
-        .map()
-        .on(() => {
-          emitBlockedUsers();
-        });
-
-      // Emetti la lista iniziale
-      emitBlockedUsers();
-
-      // Cleanup
-      return () => {
-        gun
-          .get(`${DAPP_NAME}/users`)
-          .get(user.is.pub)
-          .get('blocked')
-          .map()
-          .off();
-        user.get('profile').get('blocked').map().off();
-      };
-    });
-  },
-
-  /**
-   * Osserva i cambiamenti nello stato di blocco
-   * @returns {Observable}
-   */
-  observeBlockStatus: () => {
-    return new Observable((subscriber) => {
-      if (!user.is) {
-        subscriber.error(new Error('Utente non autenticato'));
-        return;
-      }
-
-      const emitBlockStatus = async (targetPub) => {
-        const status = await userBlocking.getBlockStatus(targetPub);
-        subscriber.next({
-          targetPub,
-          isBlocked: status.blocked,
-          blockedBy: status.blockedBy,
-        });
-      };
-
-      // Monitora i cambiamenti nel database principale
-      const mainHandler = gun
-        .get(`${DAPP_NAME}/users`)
-        .get(user.is.pub)
-        .get('blocked')
-        .map()
-        .on((data, key) => {
-          if (key) emitBlockStatus(key);
-        });
-
-      // Monitora i cambiamenti nel profilo
-      const profileHandler = user
-        .get('profile')
-        .get('blocked')
-        .map()
-        .on((data) => {
-          if (data && data.pub) emitBlockStatus(data.pub);
-        });
-
-      // Monitora i cambiamenti nello stato globale (quando blocchiamo)
-      const globalHandler1 = gun
-        .get(`${DAPP_NAME}/blockStatus`)
-        .map()
-        .on((data, key) => {
-          if (key && key.startsWith(user.is.pub + '_')) {
-            const targetPub = key.split('_')[1];
-            emitBlockStatus(targetPub);
-          }
-        });
-
-      // Monitora i cambiamenti nello stato globale (quando veniamo bloccati)
-      const globalHandler2 = gun
-        .get(`${DAPP_NAME}/blockStatus`)
-        .map()
-        .on((data, key) => {
-          if (key && key.endsWith('_' + user.is.pub)) {
-            const targetPub = key.split('_')[0];
-            emitBlockStatus(targetPub);
+        .on((data, pub) => {
+          if (data && data.blocker === user.is.pub) {
+            subscriber.next({
+              type: 'blocked_user',
+              pub,
+              timestamp: data.timestamp,
+              blockType: data.type,
+            });
+          } else if (data === null && pub !== '_') {
+            subscriber.next({
+              type: 'unblocked_user',
+              pub,
+            });
           }
         });
 
       return () => {
-        // Cleanup delle sottoscrizioni
-        if (mainHandler) mainHandler.off();
-        if (profileHandler) profileHandler.off();
-        if (globalHandler1) globalHandler1.off();
-        if (globalHandler2) globalHandler2.off();
+        if (typeof handler === 'function') handler();
       };
     });
   },

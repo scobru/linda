@@ -212,10 +212,9 @@ export const revokeChatsCertificate = async (targetPub) => {
 
     // Revoca tutti i certificati
     const revocationPromises = [
-      // Revoca certificati chat
+      // Revoca certificati chat pubblici
       new Promise((resolve) => {
         gun
-          .user()
           .get(DAPP_NAME)
           .get('certificates')
           .get('chats')
@@ -225,10 +224,9 @@ export const revokeChatsCertificate = async (targetPub) => {
             resolve(ack);
           });
       }),
+      // Revoca certificati chat privati
       new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
+        user
           .get('private_certificates')
           .get('chats')
           .get(targetPub)
@@ -237,10 +235,9 @@ export const revokeChatsCertificate = async (targetPub) => {
             resolve(ack);
           });
       }),
-      // Revoca certificati messaggi
+      // Revoca certificati messaggi pubblici
       new Promise((resolve) => {
         gun
-          .user()
           .get(DAPP_NAME)
           .get('certificates')
           .get('messages')
@@ -250,10 +247,9 @@ export const revokeChatsCertificate = async (targetPub) => {
             resolve(ack);
           });
       }),
+      // Revoca certificati messaggi privati
       new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
+        user
           .get('private_certificates')
           .get('messages')
           .get(targetPub)
@@ -262,28 +258,31 @@ export const revokeChatsCertificate = async (targetPub) => {
             resolve(ack);
           });
       }),
-      // Revoca certificati amicizia
+      // Revoca permessi di scrittura nella chat
       new Promise((resolve) => {
+        const chatId = [user.is.pub, targetPub].sort().join('_');
         gun
-          .user()
           .get(DAPP_NAME)
-          .get('certificates')
-          .get('friends')
+          .get('chats')
+          .get(chatId)
+          .get('permissions')
           .get(targetPub)
-          .put(null, (ack) => {
-            console.log('Certificato amicizia pubblico revocato:', ack);
+          .put({ read: true, write: false }, (ack) => {
+            console.log('Permessi di scrittura chat revocati:', ack);
             resolve(ack);
           });
       }),
+      // Revoca permessi di scrittura nei messaggi
       new Promise((resolve) => {
+        const chatId = [user.is.pub, targetPub].sort().join('_');
         gun
-          .user()
           .get(DAPP_NAME)
-          .get('private_certificates')
-          .get('friends')
+          .get('messages')
+          .get(chatId)
+          .get('permissions')
           .get(targetPub)
-          .put(null, (ack) => {
-            console.log('Certificato amicizia privato revocato:', ack);
+          .put({ read: true, write: false }, (ack) => {
+            console.log('Permessi di scrittura messaggi revocati:', ack);
             resolve(ack);
           });
       }),
@@ -296,53 +295,61 @@ export const revokeChatsCertificate = async (targetPub) => {
     // Attendi un momento per permettere la propagazione
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // Verifica la revoca con timeout
-    const verifyWithTimeout = async (path) => {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout verifica')), 2000)
-      );
-
-      const verifyPromise = new Promise((resolve) => {
+    // Verifica la revoca
+    const verifyPromises = [
+      // Verifica certificati chat
+      new Promise((resolve) => {
         gun
-          .user()
           .get(DAPP_NAME)
           .get('certificates')
-          .get(path)
+          .get('chats')
           .get(targetPub)
-          .once((data) => resolve(data));
-      });
+          .once((data) => resolve(!data));
+      }),
+      // Verifica certificati messaggi
+      new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('messages')
+          .get(targetPub)
+          .once((data) => resolve(!data));
+      }),
+      // Verifica permessi di scrittura chat
+      new Promise((resolve) => {
+        const chatId = [user.is.pub, targetPub].sort().join('_');
+        gun
+          .get(DAPP_NAME)
+          .get('chats')
+          .get(chatId)
+          .get('permissions')
+          .get(targetPub)
+          .once((data) => resolve(data?.write === false));
+      }),
+      // Verifica permessi di scrittura messaggi
+      new Promise((resolve) => {
+        const chatId = [user.is.pub, targetPub].sort().join('_');
+        gun
+          .get(DAPP_NAME)
+          .get('messages')
+          .get(chatId)
+          .get('permissions')
+          .get(targetPub)
+          .once((data) => resolve(data?.write === false));
+      }),
+    ];
 
-      try {
-        const result = await Promise.race([verifyPromise, timeoutPromise]);
-        return result;
-      } catch (error) {
-        console.log('Timeout verifica per', path);
-        return null;
-      }
-    };
+    const verificationResults = await Promise.all(verifyPromises);
+    const allRevoked = verificationResults.every((result) => result === true);
 
-    const [verifyChat, verifyMsg, verifyFriend] = await Promise.all([
-      verifyWithTimeout('chats'),
-      verifyWithTimeout('messages'),
-      verifyWithTimeout('friends'),
-    ]);
-
-    console.log('Verifica revoca certificati:', {
-      verifyChat,
-      verifyMsg,
-      verifyFriend,
-    });
-
-    // Considera la revoca riuscita se i certificati sono null o non esistono
-    const isRevoked = !verifyChat && !verifyMsg && !verifyFriend;
-
-    if (!isRevoked) {
+    if (!allRevoked) {
       console.warn(
-        'Alcuni certificati potrebbero non essere stati revocati completamente'
+        'Alcuni certificati o permessi potrebbero non essere stati revocati completamente'
       );
+      return false;
     }
 
-    console.log('Processo di revoca completato');
+    console.log('Processo di revoca completato con successo');
     return true;
   } catch (error) {
     console.error('Errore revoca certificati:', error);

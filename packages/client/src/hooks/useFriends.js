@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../context/AppContext";
-import { friendsService } from "linda-protocol";
+import { friendsService, userBlocking } from "linda-protocol";
 import { gun, DAPP_NAME } from "linda-protocol";
 import { userUtils } from "linda-protocol";
 
@@ -142,11 +142,15 @@ export const useFriends = () => {
 
   const blockUser = async (friendPub) => {
     try {
-      const result = await friendsService.blockUser(friendPub);
+      const result = await userBlocking.blockUser(friendPub);
       if (result.success) {
         const friend = friendsMapRef.current.get(friendPub);
         if (friend) {
-          friendsMapRef.current.set(friendPub, { ...friend, isBlocked: true });
+          friendsMapRef.current.set(friendPub, {
+            ...friend,
+            isBlocked: true,
+            canUnblock: true,
+          });
           setFriends(
             Array.from(friendsMapRef.current.values()).sort(
               (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
@@ -163,11 +167,15 @@ export const useFriends = () => {
 
   const unblockUser = async (friendPub) => {
     try {
-      const result = await friendsService.unblockUser(friendPub);
+      const result = await userBlocking.unblockUser(friendPub);
       if (result.success) {
         const friend = friendsMapRef.current.get(friendPub);
         if (friend) {
-          friendsMapRef.current.set(friendPub, { ...friend, isBlocked: false });
+          friendsMapRef.current.set(friendPub, {
+            ...friend,
+            isBlocked: false,
+            canUnblock: false,
+          });
           setFriends(
             Array.from(friendsMapRef.current.values()).sort(
               (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
@@ -181,6 +189,53 @@ export const useFriends = () => {
       throw error;
     }
   };
+
+  // Aggiungiamo un effetto per monitorare lo stato di blocco degli amici
+  useEffect(() => {
+    if (!appState.pub) return;
+
+    const unsubscribers = new Map();
+
+    // Monitora lo stato di blocco per ogni amico
+    friends.forEach((friend) => {
+      const subscription = userBlocking
+        .observeBlockStatus(friend.pub)
+        .subscribe({
+          next: (status) => {
+            const currentFriend = friendsMapRef.current.get(friend.pub);
+            if (currentFriend) {
+              if (status.type === "my_block_status") {
+                friendsMapRef.current.set(friend.pub, {
+                  ...currentFriend,
+                  isBlocked: status.blocked,
+                  canUnblock: status.canUnblock,
+                });
+              } else if (status.type === "their_block_status") {
+                friendsMapRef.current.set(friend.pub, {
+                  ...currentFriend,
+                  isBlockedBy: status.blockedBy,
+                  canUnblock: false,
+                });
+              }
+              setFriends(
+                Array.from(friendsMapRef.current.values()).sort(
+                  (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+                )
+              );
+            }
+          },
+          error: (error) => {
+            console.error("Errore monitoraggio stato blocco:", error);
+          },
+        });
+
+      unsubscribers.set(friend.pub, subscription);
+    });
+
+    return () => {
+      unsubscribers.forEach((unsub) => unsub.unsubscribe());
+    };
+  }, [appState.pub, friends]);
 
   return {
     friends,

@@ -2,10 +2,6 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import { userBlocking } from '../blocking/index.js';
 import { Observable } from 'rxjs';
 import { userUtils } from '../utils/userUtils.js';
-import {
-  revokeChatsCertificate,
-  revokeMessagesCertificate,
-} from '../security/index.js';
 
 const friendsService = {
   /**
@@ -46,7 +42,7 @@ const friendsService = {
    */
   canInteractWith: async (targetPub) => {
     try {
-      // Verifica blocchi
+      // Verifica blocchi usando userBlocking
       const blockStatus = await userBlocking.getBlockStatus(targetPub);
       if (blockStatus.blocked || blockStatus.blockedBy) {
         return {
@@ -55,16 +51,18 @@ const friendsService = {
         };
       }
 
-      // Verifica amicizia
-      const areFriends = await friendsService.areFriends(
-        user.is.pub,
-        targetPub
-      );
-      if (!areFriends) {
-        return {
-          canInteract: false,
-          reason: 'not_friends',
-        };
+      // Verifica amicizia solo se non ci sono blocchi
+      if (!blockStatus.blocked && !blockStatus.blockedBy) {
+        const areFriends = await friendsService.areFriends(
+          user.is.pub,
+          targetPub
+        );
+        if (!areFriends) {
+          return {
+            canInteract: false,
+            reason: 'not_friends',
+          };
+        }
       }
 
       return {
@@ -136,6 +134,12 @@ const friendsService = {
     }
 
     try {
+      // Verifica se l'utente è bloccato
+      const blockStatus = await userBlocking.getBlockStatus(targetPub);
+      if (blockStatus.blocked || blockStatus.blockedBy) {
+        throw new Error('Non puoi inviare richieste a questo utente');
+      }
+
       // Crea un ID univoco per la richiesta
       const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
 
@@ -177,14 +181,6 @@ const friendsService = {
     }
 
     try {
-      // Revoca tutti i certificati associati
-      await Promise.all([
-        revokeChatsCertificate(targetPub),
-        revokeMessagesCertificate(targetPub),
-      ]);
-
-      console.log('Revoca certificati completata');
-
       // Cerca e rimuovi l'amicizia
       const friendship = await new Promise((resolve) => {
         let found = null;
@@ -359,94 +355,6 @@ const friendsService = {
         gun.get(`${DAPP_NAME}/users`).map().off(statusHandler);
       };
     });
-  },
-
-  /**
-   * Blocca un utente
-   * @param {string} targetPub - Chiave pubblica dell'utente da bloccare
-   * @returns {Promise<{success: boolean, message?: string}>}
-   */
-  blockUser: async (targetPub) => {
-    if (!user.is) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('friendships')
-          .map()
-          .once((friendship, id) => {
-            if (
-              friendship &&
-              ((friendship.user1 === targetPub &&
-                friendship.user2 === user.is.pub) ||
-                (friendship.user2 === targetPub &&
-                  friendship.user1 === user.is.pub))
-            ) {
-              gun
-                .get(DAPP_NAME)
-                .get('friendships')
-                .get(id)
-                .get('isBlocked')
-                .put(true, (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve();
-                });
-            }
-          });
-      });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error blocking user:', error);
-      return { success: false, message: error.message };
-    }
-  },
-
-  /**
-   * Sblocca un utente
-   * @param {string} targetPub - Chiave pubblica dell'utente da sbloccare
-   * @returns {Promise<{success: boolean, message?: string}>}
-   */
-  unblockUser: async (targetPub) => {
-    if (!user.is) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('friendships')
-          .map()
-          .once((friendship, id) => {
-            if (
-              friendship &&
-              ((friendship.user1 === targetPub &&
-                friendship.user2 === user.is.pub) ||
-                (friendship.user2 === targetPub &&
-                  friendship.user1 === user.is.pub))
-            ) {
-              gun
-                .get(DAPP_NAME)
-                .get('friendships')
-                .get(id)
-                .get('isBlocked')
-                .put(false, (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve();
-                });
-            }
-          });
-      });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      return { success: false, message: error.message };
-    }
   },
 };
 
