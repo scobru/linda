@@ -429,15 +429,27 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       </div>
 
       {/* Area messaggi */}
-      <MessageBox
-        messages={messages}
-        loading={loading}
-        isLoadingMore={isLoadingMore}
-        messageTracking={messageTracking}
-        selected={selected}
-        handleDeleteMessage={handleDeleteMessage}
-        loadMoreMessages={loadMoreMessages}
-      />
+      <div className="flex-1 overflow-y-auto message-container">
+        {loading && messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-gray-500">
+            Nessun messaggio
+          </div>
+        ) : (
+          messages.map((message) => (
+            <MessageBox
+              key={message.id}
+              message={message}
+              isOwnMessage={message.sender === user.is.pub}
+              onDelete={handleDeleteMessage}
+              messageTracking={messageTracking}
+            />
+          ))
+        )}
+      </div>
 
       {/* Input area */}
       {canWrite ? (

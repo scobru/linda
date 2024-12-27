@@ -91,7 +91,7 @@ export default function Channels({ onSelect }) {
         name: channel.name,
         type: channel.isChannel ? "channel" : "board",
         isGroup: true,
-        timestamp: channel.created,
+        timestamp: channel.created || Date.now(),
         creator: channel.creator,
         members: channel.members,
         settings: channel.settings || {
