@@ -34,7 +34,8 @@ export const useChannels = () => {
                 .get(data.channelId)
                 .on((channelData) => {
                   if (channelData) {
-                    const isBoard = channelData.type === "board";
+                    const isBoard =
+                      channelData.type === "board" || data.type === "board";
                     channelMap.set(data.channelId, {
                       ...channelData,
                       id: data.channelId,
@@ -43,12 +44,13 @@ export const useChannels = () => {
                         ? Object.keys(channelData.members).length
                         : 1,
                       isChannel: !isBoard,
+                      isBoard: isBoard,
                       name:
                         channelData.name ||
                         (isBoard ? "Bacheca senza nome" : "Canale senza nome"),
                       creator: channelData.creator,
                       created: channelData.created || Date.now(),
-                      type: channelData.type || "channel",
+                      type: isBoard ? "board" : "channel",
                       messages: channelData.messages || {},
                       settings: {
                         isPublic: true,
@@ -93,96 +95,59 @@ export const useChannels = () => {
           .toString(36)
           .substr(2, 9)}`;
 
-        console.log("Creazione:", { channelId, name, isChannel });
+        console.log("Iniziando creazione:", {
+          channelId,
+          name,
+          isChannel,
+          creator: user.is.pub,
+        });
 
-        // Struttura base
+        // Struttura base semplificata
         const channelData = {
           id: channelId,
           name,
           type: isChannel ? "channel" : "board",
           creator: user.is.pub,
           created: Date.now(),
-          messages: {},
-          members: {},
+          members: { [user.is.pub]: true },
           membersCount: 1,
-          writeAccess: isChannel ? "creator" : "members",
-          settings: {
-            isPublic: true,
-            canWrite: isChannel ? false : true,
-          },
+          isChannel,
+          isBoard: !isChannel,
         };
 
-        // Salva il canale
-        await new Promise((resolve, reject) => {
-          gun
-            .get(DAPP_NAME)
-            .get("channels")
-            .get(channelId)
-            .put(channelData, (ack) => {
-              if (ack.err) {
-                reject(new Error(ack.err));
-                return;
-              }
-              resolve();
-            });
-        });
-
-        // Aggiungi il creatore come membro
-        await new Promise((resolve, reject) => {
-          gun
-            .get(DAPP_NAME)
-            .get("channels")
-            .get(channelId)
-            .get("members")
-            .get(user.is.pub)
-            .put(true, (ack) => {
-              if (ack.err) {
-                reject(new Error(ack.err));
-                return;
-              }
-              resolve();
-            });
-        });
+        // Salvataggio diretto
+        const channelNode = gun.get(DAPP_NAME).get("channels").get(channelId);
+        channelNode.put(channelData);
 
         // Aggiungi alla lista personale
-        await new Promise((resolve, reject) => {
-          gun
-            .user()
-            .get(DAPP_NAME)
-            .get("my_channels")
-            .get(channelId)
-            .put(
-              {
-                channelId,
-                joined: Date.now(),
-                type: isChannel ? "channel" : "board",
-              },
-              (ack) => {
-                if (ack.err) {
-                  reject(new Error(ack.err));
-                  return;
-                }
-                resolve();
-              }
-            );
+        const userChannelNode = gun
+          .user()
+          .get(DAPP_NAME)
+          .get("my_channels")
+          .get(channelId);
+        userChannelNode.put({
+          channelId,
+          joined: Date.now(),
+          type: isChannel ? "channel" : "board",
+          isBoard: !isChannel,
         });
 
-        // Aggiorna la lista locale
+        // Aggiorna la lista locale immediatamente
         setChannelList((prev) => [
           {
             ...channelData,
             joined: true,
-            members: { [user.is.pub]: true },
           },
           ...prev,
         ]);
 
-        // Ricarica i canali
-        setTimeout(loadChannels, 1000);
-
-        toast.success(
-          `${isChannel ? "Canale" : "Bacheca"} creato con successo!`
-        );
+        // Forza il ricaricamento dopo un breve ritardo
+        setTimeout(() => {
+          loadChannels();
+          toast.success(
+            `${isChannel ? "Canale" : "Bacheca"} creato con successo!`
+          );
+        }, 1000);
 
         return channelId;
       } catch (error) {
