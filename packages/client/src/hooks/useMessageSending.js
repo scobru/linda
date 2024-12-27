@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { gun, user, DAPP_NAME } from "linda-protocol";
-import { messaging } from "linda-protocol";
-import { toast } from "react-hot-toast";
+import { gun, user, DAPP_NAME, messaging } from "linda-protocol";
+import toast from "react-hot-toast";
 
 export const useMessageSending = (selected, messages, updateMessages) => {
   const [newMessage, setNewMessage] = useState("");
@@ -13,41 +12,38 @@ export const useMessageSending = (selected, messages, updateMessages) => {
     setNewMessage("");
 
     try {
-      const messageId = `msg_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-      let messageData;
-
       if (selected.type === "friend") {
-        // Cripta il messaggio per le chat private
-        const encryptedContent =
-          await messaging.chat.messageList.encryptMessage(
-            messageContent,
-            selected.pub
-          );
-
-        if (!encryptedContent) {
-          throw new Error("Errore durante la crittografia del messaggio");
-        }
-
-        messageData = {
-          id: messageId,
-          content: encryptedContent,
-          sender: user.is.pub,
-          timestamp: Date.now(),
-          type: "encrypted",
-        };
-
-        // Salva il messaggio criptato
-        await gun
-          .get(DAPP_NAME)
-          .get("chats")
-          .get(selected.roomId)
-          .get("messages")
-          .get(messageId)
-          .put(messageData);
+        // Usa la funzione sendMessage del protocollo per le chat private
+        await messaging.chat.sendMessage(
+          selected.roomId,
+          selected.pub,
+          messageContent,
+          (result) => {
+            if (result.success) {
+              // Aggiorna lo stato locale solo dopo il successo
+              if (updateMessages) {
+                updateMessages([
+                  ...messages,
+                  {
+                    id: result.messageId,
+                    content: messageContent,
+                    sender: user.is.pub,
+                    timestamp: Date.now(),
+                    status: "sent",
+                  },
+                ]);
+              }
+            } else {
+              throw new Error(result.errMessage);
+            }
+          }
+        );
       } else {
-        messageData = {
+        // Per canali e board usa il vecchio metodo
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        const messageData = {
           id: messageId,
           content: messageContent,
           sender: user.is.pub,
@@ -64,17 +60,11 @@ export const useMessageSending = (selected, messages, updateMessages) => {
           .get("messages")
           .get(messageId)
           .put(messageData);
-      }
 
-      // Aggiorna lo stato locale
-      if (updateMessages) {
-        updateMessages([
-          ...messages,
-          {
-            ...messageData,
-            content: messageContent, // Usa il contenuto non criptato per la visualizzazione locale
-          },
-        ]);
+        // Aggiorna lo stato locale
+        if (updateMessages) {
+          updateMessages([...messages, messageData]);
+        }
       }
     } catch (error) {
       console.error("Errore invio messaggio:", error);

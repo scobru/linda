@@ -22,29 +22,50 @@ export default function Channels({ onSelect }) {
 
   const handleCreate = async () => {
     if (!newChannelName.trim()) return;
-    const result = await createChannel(newChannelName.trim(), isChannel);
-    if (result) {
-      setShowCreateModal(false);
-      setNewChannelName("");
+
+    try {
+      const result = await createChannel(newChannelName.trim(), isChannel);
+      if (result) {
+        setShowCreateModal(false);
+        setNewChannelName("");
+      }
+    } catch (error) {
+      console.error("Errore nella creazione:", error);
     }
   };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    const results = await searchChannels(searchQuery.trim());
-    setSearchResults(results);
+    try {
+      const results = await searchChannels(searchQuery.trim());
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Errore nella ricerca:", error);
+    }
   };
 
   const handleJoin = async (channelId) => {
-    await joinChannel(channelId);
+    try {
+      await joinChannel(channelId);
+    } catch (error) {
+      console.error("Errore nell'iscrizione:", error);
+    }
   };
 
   const handleLeave = async (channelId) => {
-    await leaveChannel(channelId);
+    try {
+      await leaveChannel(channelId);
+    } catch (error) {
+      console.error("Errore nella disiscrizione:", error);
+    }
   };
 
   const handleDelete = async (channelId) => {
-    await deleteChannel(channelId);
+    try {
+      await deleteChannel(channelId);
+    } catch (error) {
+      console.error("Errore nell'eliminazione:", error);
+    }
   };
 
   const handleSelect = (channel) => {

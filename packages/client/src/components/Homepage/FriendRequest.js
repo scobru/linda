@@ -17,7 +17,7 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
       console.log("Accettazione richiesta:", request);
       await acceptFriendRequest(request);
       toast.success("Richiesta accettata con successo");
-      onRequestProcessed(request.from, "accept");
+      onRequestProcessed(request.id, "accept");
     } catch (error) {
       console.error("Errore accettazione richiesta:", error);
       toast.error(error.message || "Errore nell'accettare la richiesta");
@@ -32,7 +32,7 @@ const FriendRequest = ({ request, onRequestProcessed }) => {
       console.log("Rifiuto richiesta:", request);
       await rejectFriendRequest(request);
       toast.success("Richiesta rifiutata");
-      onRequestProcessed(request.from, "reject");
+      onRequestProcessed(request.id, "reject");
     } catch (error) {
       console.error("Errore rifiuto richiesta:", error);
       toast.error(error.message || "Errore nel rifiutare la richiesta");

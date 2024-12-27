@@ -9,44 +9,67 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
  * @returns {void}
  */
 let createChatsCertificate = async (publicKey, callback = () => {}) => {
-  let certificateExists = gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(publicKey)
-    .get('chats')
-    .once();
+  try {
+    console.log('Creazione certificato chat per:', publicKey);
 
-  if (certificateExists) return;
+    const certPair = await SEA.pair();
+    const certificate = {
+      type: 'chat',
+      pub: user.is.pub,
+      target: publicKey,
+      timestamp: Date.now(),
+      certKey: certPair.pub,
+      permissions: ['send', 'receive'],
+    };
 
-  let certificate = await SEA.certify(
-    [publicKey],
-    [{ '*': 'chats' }],
-    await gun.user().pair(),
-    null
-  );
+    const signedCert = await SEA.sign(certificate, user._.sea);
+    console.log('Certificato chat generato:', signedCert);
 
-  gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(publicKey)
-    .get('chats')
-    .put(certificate, ({ err }) => {
-      if (err)
-        return callback({
-          errMessage: err,
-          errCode: 'chats-certificate-creation-error',
-          success: undefined,
-        });
-      else
-        return callback({
-          errMessage: undefined,
-          errCode: undefined,
-          certificate,
-          success: 'Generated new chats certificate.',
-        });
+    // Salva il certificato
+    await Promise.all([
+      // Pubblico
+      new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('chats')
+          .get(publicKey)
+          .put(signedCert, (ack) => {
+            console.log('Certificato chat pubblico salvato:', ack);
+            callback({
+              errMessage: undefined,
+              errCode: undefined,
+              certificate: signedCert,
+              success: 'Generated new chats certificate.',
+            });
+            resolve(ack);
+          });
+      }),
+      // Privato
+      new Promise((resolve) => {
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('private_certificates')
+          .get('chats')
+          .get(publicKey)
+          .put(signedCert, (ack) => {
+            console.log('Certificato chat privato salvato:', ack);
+            resolve(ack);
+          });
+      }),
+    ]);
+
+    return signedCert;
+  } catch (error) {
+    console.error('Errore creazione certificato chat:', error);
+    callback({
+      errMessage: error.message,
+      errCode: 'chats-certificate-creation-error',
+      success: undefined,
     });
+    return null;
+  }
 };
 
 /**
@@ -58,44 +81,67 @@ let createChatsCertificate = async (publicKey, callback = () => {}) => {
  * @returns {void}
  */
 let createMessagesCertificate = async (publicKey, callback = () => {}) => {
-  let certificateExists = gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(publicKey)
-    .get('messages')
-    .once();
+  try {
+    console.log('Creazione certificato messaggi per:', publicKey);
 
-  if (certificateExists) return;
+    const certPair = await SEA.pair();
+    const certificate = {
+      type: 'message',
+      pub: user.is.pub,
+      target: publicKey,
+      timestamp: Date.now(),
+      certKey: certPair.pub,
+      permissions: ['send', 'receive'],
+    };
 
-  let certificate = await SEA.certify(
-    [publicKey],
-    [{ '*': 'messages' }],
-    await gun.user().pair(),
-    null
-  );
+    const signedCert = await SEA.sign(certificate, user._.sea);
+    console.log('Certificato messaggi generato:', signedCert);
 
-  gun
-    .user()
-    .get(DAPP_NAME)
-    .get('certificates')
-    .get(publicKey)
-    .get('messages')
-    .put(certificate, ({ err }) => {
-      if (err)
-        return callback({
-          errMessage: err,
-          errCode: 'messages-certificate-creation-error',
-          success: undefined,
-        });
-      else
-        return callback({
-          errMessage: undefined,
-          errCode: undefined,
-          certificate,
-          success: 'Generated new messages certificate.',
-        });
+    // Salva il certificato
+    await Promise.all([
+      // Pubblico
+      new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('messages')
+          .get(publicKey)
+          .put(signedCert, (ack) => {
+            console.log('Certificato messaggi pubblico salvato:', ack);
+            callback({
+              errMessage: undefined,
+              errCode: undefined,
+              certificate: signedCert,
+              success: 'Generated new messages certificate.',
+            });
+            resolve(ack);
+          });
+      }),
+      // Privato
+      new Promise((resolve) => {
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('private_certificates')
+          .get('messages')
+          .get(publicKey)
+          .put(signedCert, (ack) => {
+            console.log('Certificato messaggi privato salvato:', ack);
+            resolve(ack);
+          });
+      }),
+    ]);
+
+    return signedCert;
+  } catch (error) {
+    console.error('Errore creazione certificato messaggi:', error);
+    callback({
+      errMessage: error.message,
+      errCode: 'messages-certificate-creation-error',
+      success: undefined,
     });
+    return null;
+  }
 };
 
 /**

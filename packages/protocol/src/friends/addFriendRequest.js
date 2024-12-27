@@ -2,6 +2,8 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import {
   generateAddFriendCertificate,
   createFriendRequestCertificate,
+  createChatsCertificate,
+  createMessagesCertificate,
 } from '../security/index.js';
 import { certificateManager } from '../security/certificateManager.js';
 import SEA from 'gun/sea.js';
@@ -220,61 +222,257 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
     // Prima di salvare la richiesta, generiamo e verifichiamo i certificati
     try {
-      console.log('Getting addFriendRequestCertificate');
+      console.log('Verifica certificati esistenti...');
 
-      const addFriendRequestCertificate = await gun
-        .user(targetPub)
+      // Genera certificati per chat e messaggi
+      console.log('Generazione certificati chat e messaggi...', {
+        targetPub,
+        userPub,
+      });
+      const [chatCertificate, messageCertificate] = await Promise.all([
+        createChatsCertificate(targetPub),
+        createMessagesCertificate(targetPub),
+      ]);
+
+      if (!chatCertificate || !messageCertificate) {
+        throw new Error('Impossibile generare i certificati chat e messaggi');
+      }
+
+      // Salva i certificati pubblicamente
+      await Promise.all([
+        // Certificato chat
+        new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('chats')
+            .get(targetPub)
+            .put(chatCertificate, (ack) => {
+              console.log('Salvataggio certificato chat:', ack);
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            });
+        }),
+        // Certificato messaggi
+        new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('messages')
+            .get(targetPub)
+            .put(messageCertificate, (ack) => {
+              console.log('Salvataggio certificato messaggi:', ack);
+              if (ack.err) reject(new Error(ack.err));
+              else resolve();
+            });
+        }),
+      ]);
+
+      // Verifica il salvataggio dei certificati
+      const [savedChatCert, savedMessageCert] = await Promise.all([
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('chats')
+            .get(targetPub)
+            .once((cert) => {
+              console.log('Certificato chat salvato:', cert);
+              resolve(cert);
+            });
+        }),
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('certificates')
+            .get('messages')
+            .get(targetPub)
+            .once((cert) => {
+              console.log('Certificato messaggi salvato:', cert);
+              resolve(cert);
+            });
+        }),
+      ]);
+
+      if (!savedChatCert || !savedMessageCert) {
+        throw new Error('Errore nel salvataggio dei certificati');
+      }
+
+      // Verifica la validità dei certificati
+      console.log('Verifica certificati con:', {
+        targetPub,
+        userPub,
+        savedChatCert,
+        savedMessageCert,
+      });
+
+      const [isChatValid, isMessageValid] = await Promise.all([
+        certificateManager.verifyCertificate(savedChatCert, targetPub, 'chats'),
+        certificateManager.verifyCertificate(
+          savedMessageCert,
+          targetPub,
+          'messages'
+        ),
+      ]);
+
+      if (!isChatValid || !isMessageValid) {
+        throw new Error('I certificati generati non sono validi');
+      }
+
+      console.log('Certificati generati e verificati con successo:', {
+        chat: {
+          cert: savedChatCert,
+          valid: isChatValid,
+        },
+        message: {
+          cert: savedMessageCert,
+          valid: isMessageValid,
+        },
+      });
+
+      // Verifica certificato per richieste di amicizia con timeout
+      const existingFriendRequestCert = await new Promise((resolve) => {
+        let resolved = false;
+
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('friendRequests')
+          .get(targetPub)
+          .once((cert) => {
+            if (!resolved) {
+              resolved = true;
+              resolve(cert);
+            }
+          });
+
+        // Timeout di sicurezza
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
+          }
+        }, 2000);
+      });
+
+      console.log('Existing friend request cert:', existingFriendRequestCert);
+
+      // Genera sempre un nuovo certificato se non esiste o non è valido
+      console.log('Generazione certificato richieste...');
+      const friendRequestCertificate = await createFriendRequestCertificate(
+        targetPub
+      );
+      if (!friendRequestCertificate) {
+        throw new Error('Impossibile generare il certificato per le richieste');
+      }
+
+      // Salva esplicitamente il nuovo certificato
+      await gun
+        .user()
         .get(DAPP_NAME)
         .get('certificates')
         .get('friendRequests')
-        .then();
+        .get(targetPub)
+        .put(friendRequestCertificate);
 
-      if (!addFriendRequestCertificate) {
-        throw new Error('Certificato per richieste di amicizia non trovato');
+      // Verifica il salvataggio
+      const savedCert = await new Promise((resolve) => {
+        let resolved = false;
+
+        gun
+          .user()
+          .get(DAPP_NAME)
+          .get('certificates')
+          .get('friendRequests')
+          .get(targetPub)
+          .once((cert) => {
+            if (!resolved) {
+              resolved = true;
+              resolve(cert);
+            }
+          });
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
+          }
+        }, 2000);
+      });
+
+      if (!savedCert) {
+        throw new Error('Errore nel salvataggio del certificato');
       }
 
-      console.log('AddFriendRequestCertificate:', addFriendRequestCertificate);
-
-      // Modifica qui: chiamata diretta senza Promise wrapper
-      const certResult = await generateAddFriendCertificate(targetPub);
-
-      if (!certResult.success) {
+      // Genera certificato di autorizzazione
+      console.log('Generazione certificato di autorizzazione...');
+      const authCert = await generateAddFriendCertificate(targetPub);
+      if (!authCert.success) {
         throw new Error(
-          certResult.errorMessage || 'Errore nella generazione del certificato'
+          authCert.errorMessage || 'Errore nella generazione del certificato'
         );
       }
 
-      console.log('AddFriendCertificate generated, saving request...');
+      console.log('Certificati generati con successo:', {
+        friendRequestCertificate,
+        authCert,
+      });
 
-      // Salva la richiesta
+      // Firma i dati della richiesta
+      const signedData = await SEA.sign(
+        {
+          type: 'friendRequest',
+          from: userPub,
+          to: targetPub,
+          timestamp: Date.now(),
+          data: requestData,
+        },
+        user._.sea
+      );
+
+      if (!signedData) {
+        throw new Error('Errore nella firma dei dati della richiesta');
+      }
+
+      // Prima generiamo la notifica cifrata
+      const encryptedNotification = await notifyUser(targetPub, signedData);
+
+      // Poi salviamo la richiesta con i dati firmati e la notifica cifrata
       const request = await gun
         .get(DAPP_NAME)
         .get('all_friend_requests')
         .get(requestId)
-        .put(requestData, (ack) => {
-          if (ack.err) {
-            console.error('Errore nel salvataggio:', ack.err);
-          } else {
+        .put(
+          {
+            ...requestData,
+            signedData,
+            data: encryptedNotification,
+            type: 'friendRequest',
+            senderInfo: {
+              pub: user.is.pub,
+              alias: user.is.alias,
+            },
+          },
+          (ack) => {
+            if (ack.err) {
+              console.error('Errore nel salvataggio:', ack.err);
+              throw new Error(ack.err);
+            }
             console.log('Richiesta salvata con successo');
             return true;
           }
-        });
+        );
 
       console.log('Request saved:', request);
 
-      // segna requestData con sea sign
-      const signedRequestData = await SEA.sign(
-        JSON.stringify({
-          type: 'friendRequest',
-          from: userPub,
-          timestamp: Date.now(),
-          data: requestData,
-        }),
-        user.pair()
-      );
-
-      // Notifica il destinatario
-      await notifyUser(targetPub, signedRequestData);
+      // Infine inviamo la notifica diretta
+      gun.user(targetPub).get('notifications').set({
+        type: 'friendRequest',
+        from: user.is.pub,
+        timestamp: Date.now(),
+        data: encryptedNotification,
+      });
 
       return callback({
         success: true,
@@ -351,102 +549,16 @@ const notifyUser = async (targetPub, signedRequestData) => {
 
     console.log('EncryptedNotification:', encryptedNotification);
 
-    // Salva la notifica cifrata
-    const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
-
-    try {
-      // Nel nodo friend_requests (richieste private)
-      new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('friend_requests')
-          .get(targetPub)
-          .get(requestId)
-          .put(
-            {
-              id: requestId,
-              from: user.is.pub,
-              to: targetPub,
-              data: encryptedNotification,
-              timestamp: Date.now(),
-              type: 'friendRequest',
-            },
-            (ack) => {
-              if (ack.err) {
-                console.error('Errore salvataggio richiesta privata:', ack.err);
-                reject(new Error(ack.err));
-              } else {
-                console.log('Richiesta privata salvata con successo');
-                resolve();
-              }
-            }
-          );
+    // Forza la sincronizzazione
+    gun
+      .get(DAPP_NAME)
+      .get('all_friend_requests')
+      .once((data) => {
+        console.log('Verifica richieste pubbliche:', data);
       });
 
-      // Nel nodo pubblico delle richieste
-      new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('all_friend_requests')
-          .get(requestId)
-          .put(
-            {
-              id: requestId,
-              from: user.is.pub,
-              to: targetPub,
-              data: encryptedNotification,
-              timestamp: Date.now(),
-              type: 'friendRequest',
-              senderInfo: {
-                pub: user.is.pub,
-                alias: user.is.alias,
-              },
-            },
-            (ack) => {
-              if (ack.err) {
-                console.error(
-                  'Errore salvataggio richiesta pubblica:',
-                  ack.err
-                );
-                reject(new Error(ack.err));
-              } else {
-                console.log('Richiesta pubblica salvata con successo');
-                resolve();
-              }
-            }
-          );
-      });
-
-      // Forza la sincronizzazione
-      gun
-        .get(DAPP_NAME)
-        .get('friend_requests')
-        .get(targetPub)
-        .once((data) => {
-          console.log('Verifica richiesta privata:', data);
-        });
-
-      gun
-        .get(DAPP_NAME)
-        .get('all_friend_requests')
-        .once((data) => {
-          console.log('Verifica richieste pubbliche:', data);
-        });
-
-      // Notifica diretta all'utente target
-      gun.user(targetPub).get('notifications').set({
-        type: 'friendRequest',
-        from: user.is.pub,
-        timestamp: Date.now(),
-        data: encryptedNotification,
-      });
-
-      console.log('Notifica inviata con successo a:', targetPub);
-      return true;
-    } catch (error) {
-      console.error("Errore dettagliato nell'invio della notifica:", error);
-      throw new Error(`Errore nell'invio della notifica: ${error.message}`);
-    }
+    console.log('Notifica inviata con successo a:', targetPub);
+    return encryptedNotification;
   } catch (error) {
     console.error("Errore dettagliato nell'invio della notifica:", error);
     throw new Error(`Errore nell'invio della notifica: ${error.message}`);

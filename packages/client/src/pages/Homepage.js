@@ -41,10 +41,10 @@ export default function Homepage() {
 
   // Stati locali
   const [loading, setLoading] = useState(false);
-  const [isMobileView, setIsMobileView] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [activeView, setActiveView] = useState("chats");
   const [chatRoomId, setChatRoomId] = useState(null);
+  const [isMobileView, setIsMobileView] = useState(window.innerWidth <= 768);
 
   // Integrazione useChat
   const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
@@ -54,11 +54,13 @@ export default function Homepage() {
     pendingRequests,
     loading: requestsLoading,
     markAsRead,
+    removeRequest,
   } = useFriendRequestNotifications();
 
   // Refs
   const friendsRef = useRef(new Set());
   const initializationRef = useRef(false);
+  const processedRequestsRef = useRef(new Set());
 
   // Verifica autenticazione e inizializzazione
   useEffect(() => {
@@ -217,6 +219,20 @@ export default function Homepage() {
     }
   }, [oldSelected, appState.user.is.pub]);
 
+  // Effetto per gestire il resize della finestra
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobileView(mobile);
+      if (!mobile) {
+        setShowMobileChat(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // Gestione selezione canale/chat
   const handleSelect = useCallback(
     (selected) => {
@@ -253,6 +269,51 @@ export default function Homepage() {
     [setOldSelected, updateAppState, isMobileView]
   );
 
+  // Gestione ritorno alla lista in vista mobile
+  const handleBackToList = useCallback(() => {
+    setShowMobileChat(false);
+  }, []);
+
+  // Gestione richieste di amicizia processate
+  const handleRequestProcessed = useCallback(
+    async (requestId, action) => {
+      // Se la richiesta è già stata processata, ignora
+      if (processedRequestsRef.current.has(requestId)) {
+        console.log(`Richiesta ${requestId} già processata, ignoro`);
+        return;
+      }
+
+      console.log(
+        `Homepage: Richiesta ${requestId} processata con azione ${action}`
+      );
+
+      // Marca la richiesta come processata
+      processedRequestsRef.current.add(requestId);
+
+      // Rimuovi immediatamente la richiesta dalla lista delle pendenti
+      removeRequest(requestId);
+
+      // Se la richiesta è stata accettata, aggiorna la lista amici
+      if (action === "accept") {
+        try {
+          await loadInitialData();
+          toast.success("Richiesta di amicizia accettata");
+        } catch (error) {
+          console.error("Errore nell'aggiornamento della lista amici:", error);
+          toast.error("Errore nell'aggiornamento della lista amici");
+        }
+      } else {
+        toast.success("Richiesta di amicizia rifiutata");
+      }
+    },
+    [removeRequest, loadInitialData]
+  );
+
+  // Reset del ref quando cambia l'utente
+  useEffect(() => {
+    processedRequestsRef.current.clear();
+  }, [appState.user?.is?.pub]);
+
   return (
     <div className="flex flex-col h-screen max-h-screen">
       <Header />
@@ -262,8 +323,8 @@ export default function Homepage() {
         {/* Sidebar */}
         <div
           className={`${
-            isMobileView && showMobileChat ? "hidden" : "w-full"
-          } md:w-[320px] lg:w-[380px] md:flex flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
+            isMobileView && showMobileChat ? "hidden" : "flex"
+          } w-full md:w-[320px] lg:w-[380px] flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
         >
           {/* Tab di navigazione */}
           <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
@@ -300,6 +361,7 @@ export default function Homepage() {
                 loading={loading}
                 selectedUser={oldSelected}
                 friends={oldFriends}
+                onRequestProcessed={handleRequestProcessed}
               />
             )}
             {activeView === "channels" && <Channels onSelect={handleSelect} />}
@@ -309,8 +371,8 @@ export default function Homepage() {
         {/* Area chat */}
         <div
           className={`${
-            isMobileView && !showMobileChat ? "hidden" : "w-full"
-          } md:flex flex-1 flex-col min-h-0 bg-[#424874]`}
+            isMobileView && !showMobileChat ? "hidden" : "flex"
+          } flex-1 flex-col min-h-0 bg-[#424874]`}
         >
           {oldSelected ? (
             <Messages
@@ -320,7 +382,7 @@ export default function Homepage() {
               loading={chatLoading}
               onSendMessage={sendMessage}
               isMobileView={isMobileView}
-              onBack={() => setShowMobileChat(false)}
+              onBack={handleBackToList}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
