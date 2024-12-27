@@ -195,33 +195,53 @@ export const useFriends = () => {
     if (!appState.pub) return;
 
     const unsubscribers = new Map();
+    const processedFriends = new Set();
 
-    // Monitora lo stato di blocco per ogni amico
-    friends.forEach((friend) => {
+    // Funzione per sottoscriversi allo stato di blocco di un amico
+    const subscribeToFriend = (friend) => {
+      // Evita sottoscrizioni duplicate
+      if (processedFriends.has(friend.pub)) return;
+      processedFriends.add(friend.pub);
+
+      // Rimuovi eventuale vecchia sottoscrizione
+      if (unsubscribers.has(friend.pub)) {
+        unsubscribers.get(friend.pub).unsubscribe();
+      }
+
       const subscription = userBlocking
         .observeBlockStatus(friend.pub)
         .subscribe({
           next: (status) => {
             const currentFriend = friendsMapRef.current.get(friend.pub);
             if (currentFriend) {
+              let shouldUpdate = false;
+              const updatedFriend = { ...currentFriend };
+
               if (status.type === "my_block_status") {
-                friendsMapRef.current.set(friend.pub, {
-                  ...currentFriend,
-                  isBlocked: status.blocked,
-                  canUnblock: status.canUnblock,
-                });
+                if (
+                  updatedFriend.isBlocked !== status.blocked ||
+                  updatedFriend.canUnblock !== status.canUnblock
+                ) {
+                  updatedFriend.isBlocked = status.blocked;
+                  updatedFriend.canUnblock = status.canUnblock;
+                  shouldUpdate = true;
+                }
               } else if (status.type === "their_block_status") {
-                friendsMapRef.current.set(friend.pub, {
-                  ...currentFriend,
-                  isBlockedBy: status.blockedBy,
-                  canUnblock: false,
-                });
+                if (updatedFriend.isBlockedBy !== status.blockedBy) {
+                  updatedFriend.isBlockedBy = status.blockedBy;
+                  updatedFriend.canUnblock = false;
+                  shouldUpdate = true;
+                }
               }
-              setFriends(
-                Array.from(friendsMapRef.current.values()).sort(
-                  (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
-                )
-              );
+
+              if (shouldUpdate) {
+                friendsMapRef.current.set(friend.pub, updatedFriend);
+                setFriends(
+                  Array.from(friendsMapRef.current.values()).sort(
+                    (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+                  )
+                );
+              }
             }
           },
           error: (error) => {
@@ -230,12 +250,39 @@ export const useFriends = () => {
         });
 
       unsubscribers.set(friend.pub, subscription);
-    });
+    };
+
+    // Sottoscrivi agli amici esistenti
+    friendsMapRef.current.forEach(subscribeToFriend);
+
+    // Osserva cambiamenti nella lista amici per aggiungere nuove sottoscrizioni
+    const friendsObserver = gun
+      .get(DAPP_NAME)
+      .get("friendships")
+      .map()
+      .on((friendship, id) => {
+        if (!friendship) return;
+
+        let friendPub = null;
+        if (friendship.user1 === appState.pub) {
+          friendPub = friendship.user2;
+        } else if (friendship.user2 === appState.pub) {
+          friendPub = friendship.user1;
+        }
+
+        if (friendPub && !processedFriends.has(friendPub)) {
+          const friend = friendsMapRef.current.get(friendPub);
+          if (friend) {
+            subscribeToFriend(friend);
+          }
+        }
+      });
 
     return () => {
       unsubscribers.forEach((unsub) => unsub.unsubscribe());
+      if (typeof friendsObserver === "function") friendsObserver();
     };
-  }, [appState.pub, friends]);
+  }, [appState.pub]); // Rimuoviamo friends dalle dipendenze
 
   return {
     friends,
