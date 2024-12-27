@@ -27,175 +27,180 @@ const removeFriend = async (friendPub) => {
   if (!friendPub) throw new Error('Chiave pubblica amico richiesta');
 
   try {
-    // Genera ID univoco per la chat
     const chatId = [user.is.pub, friendPub].sort().join('_');
 
-    // 1. Revoca tutti i certificati associati
-    try {
-      await Promise.resolve([
-        revokeChatsCertificate(friendPub),
-        revokeMessagesCertificate(friendPub),
-      ]);
-    } catch (error) {
-      console.warn('Errore durante la revoca dei certificati:', error);
-    }
+    // 1. Revoca certificati
+    await Promise.all([
+      revokeChatsCertificate(friendPub),
+      revokeMessagesCertificate(friendPub),
+    ]);
 
-    console.log('Revoca certificati completata');
+    console.log('Certificati revocati, procedo con la rimozione dati');
 
-    // 2. Rimuovi completamente l'amicizia dal nodo friendships
-    await new Promise((resolve, reject) => {
-      let found = false;
-      gun
-        .get(DAPP_NAME)
-        .get('friendships')
-        .map()
-        .once((friendship, friendshipId) => {
-          if (friendship && friendshipId) {
-            const isMatch =
-              (friendship.user1 === friendPub &&
-                friendship.user2 === user.is.pub) ||
-              (friendship.user2 === friendPub &&
-                friendship.user1 === user.is.pub);
-
-            if (isMatch) {
-              found = true;
-              gun
-                .get(DAPP_NAME)
-                .get('friendships')
-                .get(friendshipId)
-                .put(null, (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                });
-            }
+    // 2. Rimuovi amicizia
+    const removeFriendship = () =>
+      new Promise((resolve, reject) => {
+        console.log('Cerco amicizia da rimuovere...');
+        gun.get(`${DAPP_NAME}/friendships`).once((friendships) => {
+          if (!friendships) {
+            console.log('Nessuna amicizia trovata');
+            resolve(false);
+            return;
           }
-        });
 
-      // Risolvi dopo un timeout anche se non trovato
-      setTimeout(() => resolve(found), 1000);
-    });
+          let found = false;
+          Object.keys(friendships).forEach((friendshipId) => {
+            if (friendshipId === '_') return;
 
-    // 3. Rimuovi dalla lista amici dell'utente corrente
-    await new Promise((resolve, reject) => {
-      let found = false;
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('my_friends')
-        .map()
-        .once((data, key) => {
-          if (data && data.pub === friendPub) {
-            found = true;
             gun
-              .user()
-              .get(DAPP_NAME)
-              .get('my_friends')
-              .get(key)
-              .put(null, (ack) => {
-                if (ack.err) reject(new Error(ack.err));
+              .get(`${DAPP_NAME}/friendships`)
+              .get(friendshipId)
+              .once((friendship) => {
+                if (!friendship) return;
+
+                const isMatch =
+                  (friendship.user1 === friendPub &&
+                    friendship.user2 === user.is.pub) ||
+                  (friendship.user2 === friendPub &&
+                    friendship.user1 === user.is.pub);
+
+                if (isMatch) {
+                  found = true;
+                  console.log('Amicizia trovata, rimuovo...');
+                  gun
+                    .get(`${DAPP_NAME}/friendships`)
+                    .get(friendshipId)
+                    .put(null, (ack) => {
+                      if (ack.err) {
+                        console.error('Errore rimozione amicizia:', ack.err);
+                        reject(new Error(ack.err));
+                      } else {
+                        console.log('Amicizia rimossa con successo');
+                        resolve(true);
+                      }
+                    });
+                }
               });
-          }
-        });
+          });
 
-      setTimeout(() => resolve(found), 1000);
-    });
-
-    // 4. Rimuovi dalla lista amici dell'altro utente
-    await new Promise((resolve) => {
-      gun
-        .get(`~${friendPub}`)
-        .get(DAPP_NAME)
-        .get('my_friends')
-        .map()
-        .once((data, key) => {
-          if (data && data.pub === user.is.pub) {
-            gun
-              .get(`~${friendPub}`)
-              .get(DAPP_NAME)
-              .get('my_friends')
-              .get(key)
-              .put(null);
-          }
-        });
-      setTimeout(resolve, 1000);
-    });
-
-    // 5. Rimuovi completamente la chat e tutti i suoi messaggi
-    await new Promise((resolve) => {
-      // Prima rimuovi tutti i messaggi
-      gun
-        .get(DAPP_NAME)
-        .get('chats')
-        .get(chatId)
-        .get('messages')
-        .map()
-        .once((msg, msgKey) => {
-          if (msg) {
-            gun
-              .get(DAPP_NAME)
-              .get('chats')
-              .get(chatId)
-              .get('messages')
-              .get(msgKey)
-              .put(null);
-          }
-        });
-
-      // Poi rimuovi la chat stessa
-      gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
-
-      setTimeout(resolve, 1000);
-    });
-
-    // 6. Rimuovi eventuali richieste di amicizia pendenti
-    await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get('all_friend_requests')
-        .map()
-        .once((request, key) => {
-          if (request && key) {
-            const isMatch =
-              (request.from === friendPub && request.to === user.is.pub) ||
-              (request.to === friendPub && request.from === user.is.pub);
-
-            if (isMatch) {
-              gun.get(DAPP_NAME).get('all_friend_requests').get(key).put(null);
+          // Se non trovata dopo il controllo di tutte le amicizie
+          setTimeout(() => {
+            if (!found) {
+              console.log('Nessuna amicizia trovata dopo la ricerca');
+              resolve(false);
             }
+          }, 1000);
+        });
+      });
+
+    // 3. Rimuovi messaggi
+    const removeMessages = () =>
+      new Promise((resolve) => {
+        console.log('Rimuovo messaggi della chat:', chatId);
+        gun
+          .get(`${DAPP_NAME}/chats`)
+          .get(chatId)
+          .once((chat) => {
+            if (!chat) {
+              console.log('Nessun messaggio trovato');
+              resolve(true);
+              return;
+            }
+
+            // Rimuovi la chat direttamente
+            gun
+              .get(`${DAPP_NAME}/chats`)
+              .get(chatId)
+              .put(null, (ack) => {
+                if (ack.err) console.warn('Errore rimozione chat:', ack.err);
+                console.log('Chat rimossa');
+                resolve(true);
+              });
+          });
+      });
+
+    // 4. Rimuovi richieste
+    const removeRequests = () =>
+      new Promise((resolve) => {
+        console.log('Rimuovo richieste pendenti...');
+        gun.get(`${DAPP_NAME}/all_friend_requests`).once((requests) => {
+          if (!requests) {
+            console.log('Nessuna richiesta trovata');
+            resolve(true);
+            return;
           }
-        });
-      setTimeout(resolve, 1000);
-    });
 
-    // 7. Pulisci eventuali riferimenti nel nodo dell'utente
-    await new Promise((resolve, reject) => {
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('friends_data')
-        .get(friendPub)
-        .put(null, (ack) => {
-          if (ack.err) reject(new Error(ack.err));
-          else resolve();
-        });
-    });
+          Object.keys(requests).forEach((requestId) => {
+            if (requestId === '_') return;
 
-    // 8. Pulisci eventuali dati di chat memorizzati localmente
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem(`chat_${chatId}`);
-        localStorage.removeItem(`messages_${chatId}`);
-      } catch (error) {
-        console.warn('Errore durante la pulizia dei dati locali:', error);
+            gun
+              .get(`${DAPP_NAME}/all_friend_requests`)
+              .get(requestId)
+              .once((request) => {
+                if (!request) return;
+
+                const isMatch =
+                  (request.from === friendPub && request.to === user.is.pub) ||
+                  (request.to === friendPub && request.from === user.is.pub);
+
+                if (isMatch) {
+                  gun
+                    .get(`${DAPP_NAME}/all_friend_requests`)
+                    .get(requestId)
+                    .put(null, (ack) => {
+                      if (ack.err)
+                        console.warn('Errore rimozione richiesta:', ack.err);
+                    });
+                }
+              });
+          });
+
+          // Risolvi dopo aver processato tutte le richieste
+          setTimeout(() => {
+            console.log('Richieste rimosse');
+            resolve(true);
+          }, 1000);
+        });
+      });
+
+    // 5. Rimuovi dati locali
+    const cleanupLocal = async () => {
+      console.log('Pulizia dati locali...');
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem(`chat_${chatId}`);
+          localStorage.removeItem(`messages_${chatId}`);
+          localStorage.removeItem(`friend_${friendPub}`);
+          console.log('Dati locali rimossi');
+        } catch (error) {
+          console.warn('Errore pulizia dati locali:', error);
+        }
       }
-    }
+      return true;
+    };
 
-    // 9. Forza un garbage collection dei nodi non più necessari
-    gun.get(DAPP_NAME).get('chats').get(chatId).off();
-    gun.get(`~${friendPub}`).off();
+    // Esegui le operazioni in sequenza
+    console.log('Inizio rimozione amicizia...');
+    await removeFriendship();
 
+    console.log('Inizio rimozione messaggi...');
+    await removeMessages();
+
+    console.log('Inizio rimozione richieste...');
+    await removeRequests();
+
+    console.log('Inizio pulizia dati locali...');
+    await cleanupLocal();
+
+    // Forza disconnessione dai nodi
+    gun.get(`${DAPP_NAME}/friendships`).off();
+    gun.get(`${DAPP_NAME}/chats/${chatId}`).off();
+    gun.get(`${DAPP_NAME}/all_friend_requests`).off();
+
+    console.log('Rimozione amico completata con successo');
     return { success: true, message: 'Amico rimosso con successo' };
   } catch (error) {
-    console.error('Error removing friend:', error);
+    console.error('Errore rimozione amico:', error);
     throw new Error("Errore durante la rimozione dell'amico: " + error.message);
   }
 };

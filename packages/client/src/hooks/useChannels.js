@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { messaging, gun, DAPP_NAME, user } from "linda-protocol";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { gun, user, DAPP_NAME, messaging } from "linda-protocol";
 import { toast } from "react-hot-toast";
 
 const { channels } = messaging;
@@ -9,83 +9,104 @@ export const useChannels = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const processedChannelsRef = useRef(new Set());
+  const channelMapRef = useRef(new Map());
+  const mountedRef = useRef(true);
+  const subscriptionsRef = useRef(new Map());
+
+  // Funzione per gestire le sottoscrizioni
+  const manageSubscription = useCallback((key, subscription) => {
+    // Cancella la vecchia sottoscrizione se esiste
+    if (subscriptionsRef.current.has(key)) {
+      const oldSub = subscriptionsRef.current.get(key);
+      if (typeof oldSub === "function") oldSub();
+    }
+    // Salva la nuova sottoscrizione
+    subscriptionsRef.current.set(key, subscription);
+  }, []);
 
   // Carica la lista dei canali e bacheche
   const loadChannels = useCallback(async () => {
+    if (!mountedRef.current) return;
+
     try {
       setLoading(true);
-      const channelMap = new Map();
-
       console.log("Inizio caricamento canali e bacheche");
 
       // Carica prima la lista personale
-      await new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
-          .get("my_channels")
-          .map()
-          .on((data, key) => {
-            if (data && data.channelId && key !== "_") {
-              // Carica i dettagli del canale
-              gun
-                .get(DAPP_NAME)
-                .get("channels")
-                .get(data.channelId)
-                .on((channelData) => {
-                  if (channelData) {
-                    const isBoard =
-                      channelData.type === "board" || data.type === "board";
+      const myChannelsSub = gun
+        .user()
+        .get(DAPP_NAME)
+        .get("my_channels")
+        .map()
+        .on((data, key) => {
+          if (!mountedRef.current) return;
+          if (data && data.channelId && key !== "_") {
+            // Carica i dettagli del canale
+            const channelSub = gun
+              .get(DAPP_NAME)
+              .get("channels")
+              .get(data.channelId)
+              .on((channelData) => {
+                if (!mountedRef.current) return;
+                if (channelData) {
+                  const isBoard =
+                    channelData.type === "board" || data.type === "board";
 
-                    // Monitora i membri in tempo reale
-                    gun
-                      .get(DAPP_NAME)
-                      .get("channels")
-                      .get(data.channelId)
-                      .get("members")
-                      .on((members) => {
-                        const membersCount = members
-                          ? Object.keys(members).filter(
-                              (key) => key !== "_" && members[key]
-                            ).length
-                          : 0;
+                  // Monitora i membri in tempo reale
+                  const membersSub = gun
+                    .get(DAPP_NAME)
+                    .get("channels")
+                    .get(data.channelId)
+                    .get("members")
+                    .on((members) => {
+                      if (!mountedRef.current) return;
+                      const membersCount = members
+                        ? Object.keys(members).filter(
+                            (key) => key !== "_" && members[key]
+                          ).length
+                        : 0;
 
-                        channelMap.set(data.channelId, {
-                          ...channelData,
-                          id: data.channelId,
-                          joined: true,
-                          members: membersCount,
-                          isChannel: !isBoard,
-                          isBoard: isBoard,
-                          name:
-                            channelData.name ||
-                            (isBoard
-                              ? "Bacheca senza nome"
-                              : "Canale senza nome"),
-                          creator: channelData.creator,
-                          created: channelData.created || Date.now(),
-                          type: isBoard ? "board" : "channel",
-                          messages: channelData.messages || {},
-                          settings: {
-                            isPublic: true,
-                            canWrite: isBoard,
-                            ...channelData.settings,
-                          },
-                        });
+                      channelMapRef.current.set(data.channelId, {
+                        ...channelData,
+                        id: data.channelId,
+                        joined: true,
+                        members: membersCount,
+                        isChannel: !isBoard,
+                        isBoard: isBoard,
+                        name:
+                          channelData.name ||
+                          (isBoard
+                            ? "Bacheca senza nome"
+                            : "Canale senza nome"),
+                        creator: channelData.creator,
+                        created: channelData.created || Date.now(),
+                        type: isBoard ? "board" : "channel",
+                        messages: channelData.messages || {},
+                        settings: {
+                          isPublic: true,
+                          canWrite: isBoard,
+                          ...channelData.settings,
+                        },
+                      });
 
-                        // Aggiorna la lista
+                      // Aggiorna la lista
+                      if (mountedRef.current) {
                         const sortedChannels = Array.from(
-                          channelMap.values()
+                          channelMapRef.current.values()
                         ).sort((a, b) => b.created - a.created);
                         setChannelList(sortedChannels);
-                      });
-                  }
-                });
-            }
-          });
+                      }
+                    });
 
-        setTimeout(resolve, 2000);
-      });
+                  manageSubscription(`members_${data.channelId}`, membersSub);
+                }
+              });
+
+            manageSubscription(`channel_${data.channelId}`, channelSub);
+          }
+        });
+
+      manageSubscription("my_channels", myChannelsSub);
 
       setLoading(false);
     } catch (error) {
@@ -93,9 +114,32 @@ export const useChannels = () => {
       setError("Errore nel caricamento");
       toast.error("Errore nel caricamento");
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
+  }, [manageSubscription]);
+
+  // Cleanup quando il componente viene smontato
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      // Cleanup delle sottoscrizioni
+      subscriptionsRef.current.forEach((unsub) => {
+        if (typeof unsub === "function") unsub();
+      });
+      subscriptionsRef.current.clear();
+    };
   }, []);
+
+  // Carica i canali all'avvio
+  useEffect(() => {
+    if (user.is) {
+      loadChannels();
+    }
+  }, [loadChannels, user.is]);
 
   // Crea un nuovo canale o bacheca
   const createChannel = useCallback(
@@ -441,11 +485,6 @@ export const useChannels = () => {
   const isChannelCreator = useCallback((channel) => {
     return channel?.creator === user.is.pub;
   }, []);
-
-  // Carica i canali all'avvio
-  useEffect(() => {
-    loadChannels();
-  }, [loadChannels]);
 
   return {
     channelList,

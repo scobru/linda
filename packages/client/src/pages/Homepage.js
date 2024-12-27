@@ -13,6 +13,7 @@ import { useAppState } from "../context/AppContext";
 import Context from "../contexts/context";
 import { useChat } from "../hooks/useChat";
 import { useFriendRequestNotifications } from "../hooks/useFriendRequestNotifications";
+import { Observable } from "rxjs";
 
 // Components
 import Friends from "../components/Homepage/Friends";
@@ -46,10 +47,8 @@ export default function Homepage() {
   const [chatRoomId, setChatRoomId] = useState(null);
   const [isMobileView, setIsMobileView] = useState(window.innerWidth <= 768);
 
-  // Integrazione useChat
+  // Integrazione useChat e notifiche
   const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
-
-  // Integrazione notifiche richieste di amicizia
   const {
     pendingRequests,
     loading: requestsLoading,
@@ -60,6 +59,7 @@ export default function Homepage() {
   // Refs
   const friendsRef = useRef(new Set());
   const initializationRef = useRef(false);
+  const friendshipSubscriptionRef = useRef(null);
   const processedRequestsRef = useRef(new Set());
 
   // Verifica autenticazione e inizializzazione
@@ -78,10 +78,10 @@ export default function Homepage() {
         initializationRef.current = true;
         console.log("Homepage - Inizializzazione...");
 
-        // Carica i dati iniziali
         if (mounted) {
           await loadInitialData();
           setConnectionState("online");
+          subscribeFriendships();
         }
       } catch (error) {
         console.error("Homepage - Errore inizializzazione:", error);
@@ -97,71 +97,91 @@ export default function Homepage() {
 
     initializeHomepage();
 
-    // Sottoscrizione ai cambiamenti delle amicizie
-    const unsubFriendships = gun
-      .get(DAPP_NAME)
-      .get("friendships")
-      .map()
-      .on((friendship, id) => {
-        if (!mounted || !friendship) return;
-
-        // Verifica se l'amicizia coinvolge l'utente corrente
-        if (
-          friendship.user1 === appState.user?.is?.pub ||
-          friendship.user2 === appState.user?.is?.pub
-        ) {
-          // Aggiorna la lista amici solo se necessario
-          setOldFriends((prevFriends) => {
-            const friendPub =
-              friendship.user1 === appState.user?.is?.pub
-                ? friendship.user2
-                : friendship.user1;
-
-            // Verifica se l'amico è già presente
-            const existingFriend = prevFriends.find((f) => f.pub === friendPub);
-            if (!existingFriend) {
-              // Carica le informazioni dell'amico
-              gun
-                .get(DAPP_NAME)
-                .get("userList")
-                .get("users")
-                .map()
-                .once((userData) => {
-                  if (userData && userData.pub === friendPub) {
-                    const newFriend = {
-                      pub: friendPub,
-                      alias:
-                        userData.nickname ||
-                        userData.username ||
-                        `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-                      displayName: userData.nickname,
-                      username: userData.username,
-                      avatarSeed: userData.avatarSeed,
-                      friendshipId: id,
-                      added: friendship.created,
-                      type: "friend",
-                      chatId: [friendPub, appState.user.is.pub]
-                        .sort()
-                        .join("_"),
-                    };
-                    return [...prevFriends, newFriend];
-                  }
-                  return prevFriends;
-                });
-            }
-            return prevFriends;
-          });
-        }
-      });
-
     return () => {
       mounted = false;
       initializationRef.current = false;
-      if (typeof unsubFriendships === "function") {
-        unsubFriendships();
+      if (friendshipSubscriptionRef.current) {
+        friendshipSubscriptionRef.current.unsubscribe();
       }
     };
   }, [appState.isAuthenticated, appState.user]);
+
+  // Sottoscrizione alle amicizie usando Observable
+  const subscribeFriendships = () => {
+    const subscription = new Observable((subscriber) => {
+      const handler = gun
+        .get(DAPP_NAME)
+        .get("friendships")
+        .map()
+        .on((friendship, id) => {
+          if (!friendship) return;
+
+          if (
+            friendship.user1 === appState.user?.is?.pub ||
+            friendship.user2 === appState.user?.is?.pub
+          ) {
+            subscriber.next({ friendship, id });
+          }
+        });
+
+      return () => {
+        if (typeof handler === "function") handler();
+      };
+    }).subscribe({
+      next: async ({ friendship, id }) => {
+        const friendPub =
+          friendship.user1 === appState.user?.is?.pub
+            ? friendship.user2
+            : friendship.user1;
+
+        // Verifica se l'amico è già presente
+        const existingFriend = oldFriends.find((f) => f.pub === friendPub);
+        if (existingFriend) return;
+
+        try {
+          // Carica le informazioni dell'amico in modo sincrono
+          const userData = await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get("userList")
+              .get("users")
+              .map()
+              .once((data) => {
+                if (data && data.pub === friendPub) {
+                  resolve(data);
+                }
+              });
+          });
+
+          if (userData) {
+            const newFriend = {
+              pub: friendPub,
+              alias:
+                userData.nickname ||
+                userData.username ||
+                `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+              displayName: userData.nickname,
+              username: userData.username,
+              avatarSeed: userData.avatarSeed,
+              friendshipId: id,
+              added: friendship.created,
+              type: "friend",
+              chatId: [friendPub, appState.user.is.pub].sort().join("_"),
+            };
+
+            setOldFriends((prev) => [...prev, newFriend]);
+          }
+        } catch (error) {
+          console.error("Errore caricamento dati amico:", error);
+        }
+      },
+      error: (error) => {
+        console.error("Errore nella sottoscrizione amicizie:", error);
+      },
+    });
+
+    friendshipSubscriptionRef.current = subscription;
+  };
 
   // Caricamento dati iniziali
   const loadInitialData = async () => {

@@ -10,50 +10,109 @@ export const useFriends = () => {
   const loadingRef = useRef(false);
   const mountedRef = useRef(true);
   const friendsMapRef = useRef(new Map());
+  const unsubscribersRef = useRef(new Map());
+  const processedFriendsRef = useRef(new Set());
+  const friendsObserverRef = useRef(null);
 
-  useEffect(() => {
-    if (!appState.pub) return;
+  // Funzione per aggiornare un amico
+  const updateFriend = async (friendPub, friendshipData) => {
+    if (!mountedRef.current) return;
 
-    console.log("Inizializzazione monitoraggio amicizie per:", appState.pub);
-    loadingRef.current = true;
-    mountedRef.current = true;
-
-    // Funzione per aggiornare un amico
-    const updateFriend = async (friendPub, friendshipData) => {
+    try {
+      // Carica le info dell'utente
+      const userInfo = await userUtils.getUserInfo(friendPub);
       if (!mountedRef.current) return;
 
-      try {
-        // Carica le info dell'utente
-        const userInfo = await userUtils.getUserInfo(friendPub);
-        if (!mountedRef.current) return;
+      const friend = {
+        pub: friendPub,
+        chatId: [friendPub, appState.pub].sort().join("_"),
+        displayName:
+          userInfo.displayName ||
+          userInfo.username ||
+          `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
+        username: userInfo.username,
+        nickname: userInfo.nickname,
+        lastSeen: userInfo.lastSeen || Date.now(),
+        isOnline: userInfo.isOnline || false,
+        isBlocked: friendshipData?.isBlocked || false,
+        timestamp: friendshipData?.timestamp || Date.now(),
+        status: friendshipData?.status || "accepted",
+      };
 
-        const friend = {
-          pub: friendPub,
-          chatId: [friendPub, appState.pub].sort().join("_"),
-          displayName:
-            userInfo.displayName ||
-            userInfo.username ||
-            `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-          username: userInfo.username,
-          nickname: userInfo.nickname,
-          lastSeen: userInfo.lastSeen || Date.now(),
-          isOnline: userInfo.isOnline || false,
-          isBlocked: friendshipData?.isBlocked || false,
-          timestamp: friendshipData?.timestamp || Date.now(),
-          status: friendshipData?.status || "accepted",
-        };
+      friendsMapRef.current.set(friendPub, friend);
 
-        friendsMapRef.current.set(friendPub, friend);
+      setFriends(
+        Array.from(friendsMapRef.current.values()).sort(
+          (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+        )
+      );
+    } catch (error) {
+      console.error("Errore aggiornamento amico:", error);
+    }
+  };
 
-        setFriends(
-          Array.from(friendsMapRef.current.values()).sort(
-            (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
-          )
-        );
-      } catch (error) {
-        console.error("Errore aggiornamento amico:", error);
-      }
-    };
+  // Funzione per sottoscriversi allo stato di blocco di un amico
+  const subscribeToFriend = (friend) => {
+    // Evita sottoscrizioni duplicate
+    if (processedFriendsRef.current.has(friend.pub)) return;
+    processedFriendsRef.current.add(friend.pub);
+
+    // Rimuovi eventuale vecchia sottoscrizione
+    if (unsubscribersRef.current.has(friend.pub)) {
+      unsubscribersRef.current.get(friend.pub).unsubscribe();
+    }
+
+    const subscription = userBlocking.observeBlockStatus(friend.pub).subscribe({
+      next: (status) => {
+        const currentFriend = friendsMapRef.current.get(friend.pub);
+        if (currentFriend) {
+          let shouldUpdate = false;
+          const updatedFriend = { ...currentFriend };
+
+          if (status.type === "my_block_status") {
+            if (
+              updatedFriend.isBlocked !== status.blocked ||
+              updatedFriend.canUnblock !== status.canUnblock
+            ) {
+              updatedFriend.isBlocked = status.blocked;
+              updatedFriend.canUnblock = status.canUnblock;
+              shouldUpdate = true;
+            }
+          } else if (status.type === "their_block_status") {
+            if (updatedFriend.isBlockedBy !== status.blockedBy) {
+              updatedFriend.isBlockedBy = status.blockedBy;
+              updatedFriend.canUnblock = false;
+              shouldUpdate = true;
+            }
+          }
+
+          if (shouldUpdate) {
+            friendsMapRef.current.set(friend.pub, updatedFriend);
+            setFriends(
+              Array.from(friendsMapRef.current.values()).sort(
+                (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
+              )
+            );
+          }
+        }
+      },
+      error: (error) => {
+        console.error("Errore monitoraggio stato blocco:", error);
+      },
+    });
+
+    unsubscribersRef.current.set(friend.pub, subscription);
+  };
+
+  useEffect(() => {
+    if (!appState.pub) {
+      mountedRef.current = false;
+      return;
+    }
+
+    console.log("Inizializzazione monitoraggio amicizie per:", appState.pub);
+    mountedRef.current = true;
+    loadingRef.current = true;
 
     // Sottoscrizione alle amicizie
     const unsubFriendships = gun
@@ -113,12 +172,46 @@ export const useFriends = () => {
 
     loadInitialFriends();
 
+    // Osserva cambiamenti nella lista amici per aggiungere nuove sottoscrizioni
+    friendsObserverRef.current = gun
+      .get(DAPP_NAME)
+      .get("friendships")
+      .map()
+      .on((friendship, id) => {
+        if (!friendship) return;
+
+        let friendPub = null;
+        if (friendship.user1 === appState.pub) {
+          friendPub = friendship.user2;
+        } else if (friendship.user2 === appState.pub) {
+          friendPub = friendship.user1;
+        }
+
+        if (friendPub && !processedFriendsRef.current.has(friendPub)) {
+          const friend = friendsMapRef.current.get(friendPub);
+          if (friend) {
+            subscribeToFriend(friend);
+          }
+        }
+      });
+
+    // Sottoscrivi agli amici esistenti
+    friendsMapRef.current.forEach(subscribeToFriend);
+
     return () => {
       console.log("Cleanup sottoscrizioni amici");
       mountedRef.current = false;
       loadingRef.current = false;
-      friendsMapRef.current.clear();
+
+      // Cleanup delle sottoscrizioni
+      unsubscribersRef.current.forEach((unsub) => unsub.unsubscribe());
+      unsubscribersRef.current.clear();
+
       if (typeof unsubFriendships === "function") unsubFriendships();
+      if (typeof friendsObserverRef.current === "function")
+        friendsObserverRef.current();
+
+      // Non pulire friendsMapRef e processedFriendsRef per mantenere lo stato
     };
   }, [appState.pub]);
 
@@ -189,100 +282,6 @@ export const useFriends = () => {
       throw error;
     }
   };
-
-  // Aggiungiamo un effetto per monitorare lo stato di blocco degli amici
-  useEffect(() => {
-    if (!appState.pub) return;
-
-    const unsubscribers = new Map();
-    const processedFriends = new Set();
-
-    // Funzione per sottoscriversi allo stato di blocco di un amico
-    const subscribeToFriend = (friend) => {
-      // Evita sottoscrizioni duplicate
-      if (processedFriends.has(friend.pub)) return;
-      processedFriends.add(friend.pub);
-
-      // Rimuovi eventuale vecchia sottoscrizione
-      if (unsubscribers.has(friend.pub)) {
-        unsubscribers.get(friend.pub).unsubscribe();
-      }
-
-      const subscription = userBlocking
-        .observeBlockStatus(friend.pub)
-        .subscribe({
-          next: (status) => {
-            const currentFriend = friendsMapRef.current.get(friend.pub);
-            if (currentFriend) {
-              let shouldUpdate = false;
-              const updatedFriend = { ...currentFriend };
-
-              if (status.type === "my_block_status") {
-                if (
-                  updatedFriend.isBlocked !== status.blocked ||
-                  updatedFriend.canUnblock !== status.canUnblock
-                ) {
-                  updatedFriend.isBlocked = status.blocked;
-                  updatedFriend.canUnblock = status.canUnblock;
-                  shouldUpdate = true;
-                }
-              } else if (status.type === "their_block_status") {
-                if (updatedFriend.isBlockedBy !== status.blockedBy) {
-                  updatedFriend.isBlockedBy = status.blockedBy;
-                  updatedFriend.canUnblock = false;
-                  shouldUpdate = true;
-                }
-              }
-
-              if (shouldUpdate) {
-                friendsMapRef.current.set(friend.pub, updatedFriend);
-                setFriends(
-                  Array.from(friendsMapRef.current.values()).sort(
-                    (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)
-                  )
-                );
-              }
-            }
-          },
-          error: (error) => {
-            console.error("Errore monitoraggio stato blocco:", error);
-          },
-        });
-
-      unsubscribers.set(friend.pub, subscription);
-    };
-
-    // Sottoscrivi agli amici esistenti
-    friendsMapRef.current.forEach(subscribeToFriend);
-
-    // Osserva cambiamenti nella lista amici per aggiungere nuove sottoscrizioni
-    const friendsObserver = gun
-      .get(DAPP_NAME)
-      .get("friendships")
-      .map()
-      .on((friendship, id) => {
-        if (!friendship) return;
-
-        let friendPub = null;
-        if (friendship.user1 === appState.pub) {
-          friendPub = friendship.user2;
-        } else if (friendship.user2 === appState.pub) {
-          friendPub = friendship.user1;
-        }
-
-        if (friendPub && !processedFriends.has(friendPub)) {
-          const friend = friendsMapRef.current.get(friendPub);
-          if (friend) {
-            subscribeToFriend(friend);
-          }
-        }
-      });
-
-    return () => {
-      unsubscribers.forEach((unsub) => unsub.unsubscribe());
-      if (typeof friendsObserver === "function") friendsObserver();
-    };
-  }, [appState.pub]); // Rimuoviamo friends dalle dipendenze
 
   return {
     friends,

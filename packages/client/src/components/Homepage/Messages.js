@@ -145,14 +145,10 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     loadMessages,
     loadMoreMessages,
     sendMessage: updateMessages,
-  } = useMessages(selected, chatData);
+  } = useMessages(selected);
 
-  const { chatUserInfo, chatUserAvatar } = useChatUser(selected, chatData);
-
-  const { canWrite, isBlocked, blockStatus } = useChatPermissions(
-    selected,
-    chatData
-  );
+  const { chatUserInfo, chatUserAvatar } = useChatUser(selected);
+  const { canWrite, isBlocked, blockStatus } = useChatPermissions(selected);
 
   const {
     newMessage,
@@ -172,6 +168,45 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       loadMessages();
     }
   }, [selected?.roomId, selected?.id, loadMessages]);
+
+  // Effetto per scrollare in basso quando arrivano nuovi messaggi
+  useEffect(() => {
+    if (messages.length > 0) {
+      const messageContainer = document.querySelector(".message-container");
+      if (messageContainer) {
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+      }
+    }
+  }, [messages]);
+
+  // Renderizza i messaggi
+  const renderMessages = () => {
+    if (loading && messages.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      );
+    }
+
+    if (messages.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-full text-gray-500">
+          Nessun messaggio
+        </div>
+      );
+    }
+
+    return messages.map((message) => (
+      <MessageBox
+        key={message.id}
+        message={message}
+        isOwnMessage={message.sender === user.is.pub}
+        onDelete={() => handleDeleteMessage(message.id)}
+        messageTracking={messageTracking}
+      />
+    ));
+  };
 
   // Handler per l'invio di mance
   const handleSendTip = async (amount, isStealthMode = false) => {

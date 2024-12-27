@@ -2,6 +2,7 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import { userBlocking } from '../blocking/index.js';
 import { Observable } from 'rxjs';
 import { userUtils } from '../utils/userUtils.js';
+import removeFriend from './removeFriend.js';
 
 const friendsService = {
   /**
@@ -239,61 +240,7 @@ const friendsService = {
     }
   },
 
-  /**
-   * Rimuove un amico
-   * @param {string} targetPub - Chiave pubblica dell'amico da rimuovere
-   * @returns {Promise<{success: boolean, message?: string}>}
-   */
-  removeFriend: async (targetPub) => {
-    if (!user.is) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      // Cerca e rimuovi l'amicizia
-      const friendship = await new Promise((resolve) => {
-        let found = null;
-        gun
-          .get(DAPP_NAME)
-          .get('friendships')
-          .map()
-          .once((data, key) => {
-            if (
-              data &&
-              ((data.user1 === user.is.pub && data.user2 === targetPub) ||
-                (data.user2 === user.is.pub && data.user1 === targetPub))
-            ) {
-              found = { key, data };
-            }
-          });
-
-        setTimeout(() => resolve(found), 1000);
-      });
-
-      if (friendship) {
-        // Rimuovi l'amicizia
-        await new Promise((resolve, reject) => {
-          gun
-            .get(DAPP_NAME)
-            .get('friendships')
-            .get(friendship.key)
-            .put(null, (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve();
-            });
-        });
-
-        // Rimuovi la chat associata
-        const chatId = [user.is.pub, targetPub].sort().join('_');
-        gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
-      }
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error removing friend:', error);
-      return { success: false, message: error.message };
-    }
-  },
+  removeFriend,
 
   /**
    * Osserva le richieste di amicizia

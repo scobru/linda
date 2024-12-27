@@ -153,101 +153,10 @@ const systemService = {
    * Monitora tutte le metriche del sistema
    */
   monitorSystemMetrics: () => {
+    // Disabilitato per migliorare le prestazioni
     return new Observable((subscriber) => {
-      const processedEvents = new Set();
-      const THROTTLE_TIME = 1000;
-      const lastUpdate = {};
-
-      const shouldUpdate = (eventType) => {
-        const now = Date.now();
-        if (
-          !lastUpdate[eventType] ||
-          now - lastUpdate[eventType] > THROTTLE_TIME
-        ) {
-          lastUpdate[eventType] = now;
-          return true;
-        }
-        return false;
-      };
-
-      // Monitora login e altri eventi
-      gun.on('auth', (ack) => {
-        if (!ack.err && shouldUpdate('login')) {
-          const loginId = `login_${Date.now()}`;
-          if (!processedEvents.has(loginId)) {
-            processedEvents.add(loginId);
-            updateGlobalMetrics('totalLogins', 1);
-            subscriber.next({ type: 'login', data: ack });
-          }
-        }
-      });
-
-      // Monitora i canali e le bacheche
-      gun
-        .get(DAPP_NAME)
-        .get('channels')
-        .map()
-        .on((channelData, channelId) => {
-          if (channelData && channelId !== '_') {
-            // Monitora i membri del canale
-            gun
-              .get(DAPP_NAME)
-              .get('channels')
-              .get(channelId)
-              .get('members')
-              .map()
-              .on((memberData, memberId) => {
-                if (memberData && memberId !== '_') {
-                  if (memberData === true) {
-                    // Nuovo membro aggiunto
-                    if (channelData.type === 'board') {
-                      updateGlobalMetrics('activeBoardMembers', 1);
-                    } else {
-                      updateGlobalMetrics('activeChannelMembers', 1);
-                    }
-                    updateGlobalMetrics('totalChannelJoins', 1);
-                  } else if (memberData === null) {
-                    // Membro rimosso
-                    if (channelData.type === 'board') {
-                      updateGlobalMetrics('activeBoardMembers', -1);
-                    } else {
-                      updateGlobalMetrics('activeChannelMembers', -1);
-                    }
-                    updateGlobalMetrics('totalChannelLeaves', 1);
-                  }
-                }
-              });
-
-            // Monitora creazione canali/bacheche
-            if (
-              channelData.created &&
-              shouldUpdate('channel_created_' + channelId)
-            ) {
-              if (channelData.type === 'board') {
-                updateGlobalMetrics('totalBoardsCreated', 1);
-              } else {
-                updateGlobalMetrics('totalChannelsCreated', 1);
-              }
-              updateGlobalMetrics('totalChannels', 1);
-            }
-          }
-        });
-
-      // Pulisci periodicamente gli eventi processati
-      const cleanupInterval = setInterval(() => {
-        const now = Date.now();
-        processedEvents.forEach((eventId) => {
-          if (now - parseInt(eventId.split('_')[1] || 0) > THROTTLE_TIME) {
-            processedEvents.delete(eventId);
-          }
-        });
-      }, THROTTLE_TIME);
-
-      return () => {
-        clearInterval(cleanupInterval);
-        gun.get(DAPP_NAME).off();
-        gun.off('auth');
-      };
+      subscriber.next({}); // Invia un oggetto vuoto
+      return () => {}; // Nessuna pulizia necessaria
     });
   },
 
@@ -255,33 +164,10 @@ const systemService = {
    * Inizializza il monitoraggio del sistema
    */
   initializeMonitoring: () => {
-    // Inizializza le metriche con valori numerici semplici
-    const initialMetrics = {
-      totalUsers: 0,
-      totalChannels: 0,
-      totalFriendRequests: 0,
-      totalFriendRequestsRejected: 0,
-      totalMessagesSent: 0,
-      totalLogins: 0,
-      totalRegistrations: 0,
-      totalFriendRequestsMade: 0,
+    // Disabilitato per migliorare le prestazioni
+    return {
+      unsubscribe: () => {},
     };
-
-    gun
-      .get(DAPP_NAME)
-      .get('globalMetrics')
-      .once((data) => {
-        if (!data) {
-          // Salva ogni metrica individualmente
-          Object.entries(initialMetrics).forEach(([key, value]) => {
-            gun.get(DAPP_NAME).get('globalMetrics').get(key).put(value);
-          });
-        }
-      });
-
-    return systemService.monitorSystemMetrics().subscribe({
-      error: (error) => console.error('Error monitoring metrics:', error),
-    });
   },
 };
 

@@ -1,124 +1,64 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { MessageItem } from "./MessageItem";
-import { useIntersectionObserver } from "../../hooks/useIntersectionObserver";
-import { user } from "linda-protocol";
+import React from "react";
+import { formatDistanceToNow } from "date-fns";
+import { it } from "date-fns/locale";
 
-const MessageBox = ({
-  messages,
-  loading,
-  isLoadingMore,
-  messageTracking,
-  selected,
-  handleDeleteMessage,
-  loadMoreMessages,
-}) => {
-  const messagesContainerRef = useRef(null);
-  const messagesEndRef = useRef(null);
-  const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
+const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
+  const formattedTime = formatDistanceToNow(new Date(message.timestamp), {
+    addSuffix: true,
+    locale: it,
+  });
 
-  const handleMessageVisible = useCallback(
-    (messageId) => {
-      if (!selected?.pub || !selected?.roomId) return;
-      const message = messages.find((m) => m.id === messageId);
-      if (message && message.sender !== user.is.pub && !message.read) {
-        messageTracking.updateMessageStatus(messageId, selected.roomId, "read");
-      }
-    },
-    [selected?.pub, selected?.roomId, messages, messageTracking]
-  );
-
-  const messageObserver = useIntersectionObserver(handleMessageVisible, [
-    selected?.pub,
-    selected?.roomId,
-  ]);
-
-  const scrollToBottom = useCallback(
-    (behavior = "smooth") => {
-      if (messagesEndRef.current && shouldScrollToBottom) {
-        messagesEndRef.current.scrollIntoView({ behavior });
-      }
-    },
-    [shouldScrollToBottom]
-  );
-
-  const handleScroll = useCallback(
-    (e) => {
-      const container = e.target;
-      const { scrollTop, scrollHeight, clientHeight } = container;
-
-      // Controlla se siamo vicini al top per caricare più messaggi
-      if (scrollTop === 0 && !isLoadingMore) {
-        loadMoreMessages?.();
-      }
-
-      // Controlla se siamo vicini al bottom per l'auto-scroll
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setShouldScrollToBottom(isNearBottom);
-    },
-    [isLoadingMore, loadMoreMessages]
-  );
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      const isNewMessage = lastMessage.timestamp > Date.now() - 1000;
-
-      if (isNewMessage || messages.length === 1) {
-        scrollToBottom("auto");
-      } else if (shouldScrollToBottom) {
-        scrollToBottom();
-      }
-    }
-  }, [messages, scrollToBottom, shouldScrollToBottom]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (shouldScrollToBottom) {
-        scrollToBottom("auto");
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [shouldScrollToBottom, scrollToBottom]);
-
-  const renderMessage = useCallback(
-    (message) => {
-      const isOwnMessage = message.sender === user.is.pub;
-      return (
-        <MessageItem
-          key={message.id}
-          message={message}
-          isOwnMessage={isOwnMessage}
-          showSender={true}
-          user={user}
-          messageObserver={messageObserver}
-          handleDeleteMessage={handleDeleteMessage}
-          selected={selected}
-        />
-      );
-    },
-    [messageObserver, handleDeleteMessage, selected]
-  );
+  const isRead = messageTracking?.[message.id]?.read;
 
   return (
     <div
-      ref={messagesContainerRef}
-      className="flex-1 overflow-y-auto p-4 space-y-3"
-      onScroll={handleScroll}
+      className={`flex ${
+        isOwnMessage ? "justify-end" : "justify-start"
+      } mb-4 px-4`}
     >
-      {loading && (
-        <div className="flex justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      <div
+        className={`max-w-[70%] rounded-lg p-3 ${
+          isOwnMessage
+            ? "bg-blue-500 text-white rounded-br-none"
+            : "bg-gray-700 text-white rounded-bl-none"
+        }`}
+      >
+        <div className="flex flex-col">
+          <div className="break-words">{message.content}</div>
+          <div className="flex items-center justify-end mt-1 space-x-1">
+            <span className="text-xs opacity-75">{formattedTime}</span>
+            {isOwnMessage && (
+              <>
+                {isRead ? (
+                  <span className="text-xs">✓✓</span>
+                ) : (
+                  <span className="text-xs">✓</span>
+                )}
+              </>
+            )}
+          </div>
         </div>
+      </div>
+      {isOwnMessage && (
+        <button
+          onClick={() => onDelete(message.id)}
+          className="ml-2 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
+          </svg>
+        </button>
       )}
-      {isLoadingMore && (
-        <div className="flex justify-center">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
-        </div>
-      )}
-      {messages.map(renderMessage)}
-      <div ref={messagesEndRef} />
     </div>
   );
 };
