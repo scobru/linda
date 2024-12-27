@@ -36,34 +36,49 @@ export const useChannels = () => {
                   if (channelData) {
                     const isBoard =
                       channelData.type === "board" || data.type === "board";
-                    channelMap.set(data.channelId, {
-                      ...channelData,
-                      id: data.channelId,
-                      joined: true,
-                      members: channelData.members
-                        ? Object.keys(channelData.members).length
-                        : 1,
-                      isChannel: !isBoard,
-                      isBoard: isBoard,
-                      name:
-                        channelData.name ||
-                        (isBoard ? "Bacheca senza nome" : "Canale senza nome"),
-                      creator: channelData.creator,
-                      created: channelData.created || Date.now(),
-                      type: isBoard ? "board" : "channel",
-                      messages: channelData.messages || {},
-                      settings: {
-                        isPublic: true,
-                        canWrite: isBoard,
-                        ...channelData.settings,
-                      },
-                    });
 
-                    // Aggiorna la lista
-                    const sortedChannels = Array.from(channelMap.values()).sort(
-                      (a, b) => b.created - a.created
-                    );
-                    setChannelList(sortedChannels);
+                    // Monitora i membri in tempo reale
+                    gun
+                      .get(DAPP_NAME)
+                      .get("channels")
+                      .get(data.channelId)
+                      .get("members")
+                      .on((members) => {
+                        const membersCount = members
+                          ? Object.keys(members).filter(
+                              (key) => key !== "_" && members[key]
+                            ).length
+                          : 0;
+
+                        channelMap.set(data.channelId, {
+                          ...channelData,
+                          id: data.channelId,
+                          joined: true,
+                          members: membersCount,
+                          isChannel: !isBoard,
+                          isBoard: isBoard,
+                          name:
+                            channelData.name ||
+                            (isBoard
+                              ? "Bacheca senza nome"
+                              : "Canale senza nome"),
+                          creator: channelData.creator,
+                          created: channelData.created || Date.now(),
+                          type: isBoard ? "board" : "channel",
+                          messages: channelData.messages || {},
+                          settings: {
+                            isPublic: true,
+                            canWrite: isBoard,
+                            ...channelData.settings,
+                          },
+                        });
+
+                        // Aggiorna la lista
+                        const sortedChannels = Array.from(
+                          channelMap.values()
+                        ).sort((a, b) => b.created - a.created);
+                        setChannelList(sortedChannels);
+                      });
                   }
                 });
             }
@@ -165,43 +180,59 @@ export const useChannels = () => {
       try {
         setLoading(true);
         await new Promise((resolve, reject) => {
-          // Aggiungi l'utente ai membri del canale
+          // Monitora i membri in tempo reale
           gun
             .get(DAPP_NAME)
             .get("channels")
             .get(channelId)
             .get("members")
-            .get(user.is.pub)
-            .put(true, (ack) => {
-              if (ack.err) {
-                reject(new Error(ack.err));
-                return;
-              }
+            .on((members) => {
+              const currentMembers = members
+                ? Object.keys(members).filter(
+                    (key) => key !== "_" && members[key]
+                  ).length
+                : 0;
 
-              // Aggiungi il canale alla lista personale
+              // Aggiungi l'utente ai membri del canale
               gun
-                .user()
                 .get(DAPP_NAME)
-                .get("my_channels")
+                .get("channels")
                 .get(channelId)
-                .put(
-                  {
-                    channelId,
-                    joined: Date.now(),
-                  },
-                  (ack2) => {
-                    if (ack2.err) {
-                      reject(new Error(ack2.err));
-                      return;
-                    }
-                    resolve();
+                .get("members")
+                .get(user.is.pub)
+                .put(true, (ack) => {
+                  if (ack.err) {
+                    reject(new Error(ack.err));
+                    return;
                   }
-                );
+
+                  // Aggiungi il canale alla lista personale
+                  gun
+                    .user()
+                    .get(DAPP_NAME)
+                    .get("my_channels")
+                    .get(channelId)
+                    .put(
+                      {
+                        channelId,
+                        joined: Date.now(),
+                      },
+                      (ack2) => {
+                        if (ack2.err) {
+                          reject(new Error(ack2.err));
+                          return;
+                        }
+                        resolve();
+                      }
+                    );
+                });
             });
         });
 
         toast.success("Iscrizione effettuata con successo!");
-        await loadChannels();
+
+        // Aggiorna in background per sicurezza
+        loadChannels();
         return true;
       } catch (error) {
         console.error("Errore iscrizione canale:", error);
@@ -220,37 +251,58 @@ export const useChannels = () => {
       try {
         setLoading(true);
         await new Promise((resolve, reject) => {
-          // Rimuovi l'utente dai membri del canale
+          // Monitora i membri in tempo reale
           gun
             .get(DAPP_NAME)
             .get("channels")
             .get(channelId)
             .get("members")
-            .get(user.is.pub)
-            .put(null, (ack) => {
-              if (ack.err) {
-                reject(new Error(ack.err));
-                return;
-              }
+            .on((members) => {
+              const currentMembers = members
+                ? Object.keys(members).filter(
+                    (key) => key !== "_" && members[key]
+                  ).length
+                : 0;
 
-              // Rimuovi il canale dalla lista personale
+              // Rimuovi l'utente dai membri del canale
               gun
-                .user()
                 .get(DAPP_NAME)
-                .get("my_channels")
+                .get("channels")
                 .get(channelId)
-                .put(null, (ack2) => {
-                  if (ack2.err) {
-                    reject(new Error(ack2.err));
+                .get("members")
+                .get(user.is.pub)
+                .put(null, (ack) => {
+                  if (ack.err) {
+                    reject(new Error(ack.err));
                     return;
                   }
-                  resolve();
+
+                  // Rimuovi il canale dalla lista personale
+                  gun
+                    .user()
+                    .get(DAPP_NAME)
+                    .get("my_channels")
+                    .get(channelId)
+                    .put(null, (ack2) => {
+                      if (ack2.err) {
+                        reject(new Error(ack2.err));
+                        return;
+                      }
+                      resolve();
+                    });
                 });
             });
         });
 
+        // Aggiorna immediatamente lo stato locale
+        setChannelList((prevList) =>
+          prevList.filter((channel) => channel.id !== channelId)
+        );
+
         toast.success("Disiscrizione effettuata con successo!");
-        await loadChannels();
+
+        // Aggiorna in background per sicurezza
+        loadChannels();
         return true;
       } catch (error) {
         console.error("Errore disiscrizione canale:", error);
@@ -370,11 +422,12 @@ export const useChannels = () => {
             }
           });
 
-        setTimeout(() => resolve(results), 500);
+        // Aumentiamo il timeout per dare più tempo all'utente
+        setTimeout(() => resolve(results), 2000);
       });
 
       const searchResults = await searchPromise;
-      return searchResults;
+      return searchResults.sort((a, b) => a.name.localeCompare(b.name));
     } catch (error) {
       console.error("Errore ricerca canali:", error);
       setError("Errore nella ricerca dei canali");

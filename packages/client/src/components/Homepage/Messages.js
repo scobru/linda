@@ -15,6 +15,7 @@ import { useChatPermissions } from "../../hooks/useChatPermissions";
 import { useMessageSending } from "../../hooks/useMessageSending";
 import { useMobileView } from "../../hooks/useMobileView";
 import { useFriends } from "../../hooks/useFriends";
+import { useMessageNotifications } from "../../hooks/useMessageNotifications";
 
 const { userBlocking } = blocking;
 const { channels, messageList } = messaging;
@@ -288,6 +289,8 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       toast.error(error.message || "Errore durante lo sblocco dell'utente");
     }
   };
+
+  useMessageNotifications(messages, chatData?.type);
 
   if (!selected?.pub) {
     return (
