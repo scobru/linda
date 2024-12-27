@@ -13,6 +13,7 @@ const friendsService = {
   areFriends: async (userPub1, userPub2) => {
     try {
       const friendship = await new Promise((resolve) => {
+        let found = false;
         gun
           .get(`${DAPP_NAME}/friendships`)
           .map()
@@ -22,15 +23,49 @@ const friendsService = {
               ((data.user1 === userPub1 && data.user2 === userPub2) ||
                 (data.user1 === userPub2 && data.user2 === userPub1))
             ) {
-              resolve(data);
+              found = true;
             }
           });
-        setTimeout(() => resolve(null), 2000);
+        setTimeout(() => resolve(found), 2000);
       });
 
-      return !!friendship;
+      return friendship;
     } catch (error) {
       console.error('Errore nella verifica amicizia:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Verifica se esiste già una richiesta di amicizia pendente
+   * @param {string} userPub1 - Chiave pubblica del primo utente
+   * @param {string} userPub2 - Chiave pubblica del secondo utente
+   * @returns {Promise<boolean>}
+   */
+  hasPendingRequest: async (userPub1, userPub2) => {
+    try {
+      const pendingRequest = await new Promise((resolve) => {
+        let found = false;
+        gun
+          .get(`${DAPP_NAME}/all_friend_requests`)
+          .map()
+          .once((request) => {
+            if (
+              request &&
+              !request._ &&
+              ((request.from === userPub1 && request.to === userPub2) ||
+                (request.from === userPub2 && request.to === userPub1)) &&
+              request.status === 'pending'
+            ) {
+              found = true;
+            }
+          });
+        setTimeout(() => resolve(found), 2000);
+      });
+
+      return pendingRequest;
+    } catch (error) {
+      console.error('Errore verifica richieste pendenti:', error);
       return false;
     }
   },
@@ -134,16 +169,39 @@ const friendsService = {
     }
 
     try {
-      // Verifica se l'utente è bloccato
+      // 1. Verifica se l'utente è bloccato
       const blockStatus = await userBlocking.getBlockStatus(targetPub);
       if (blockStatus.blocked || blockStatus.blockedBy) {
         throw new Error('Non puoi inviare richieste a questo utente');
       }
 
-      // Crea un ID univoco per la richiesta
+      // 2. Verifica se sono già amici
+      const areAlreadyFriends = await friendsService.areFriends(
+        user.is.pub,
+        targetPub
+      );
+      if (areAlreadyFriends) {
+        // Se sono già amici, aggiorna solo la lista amici locale
+        return {
+          success: true,
+          message: 'Siete già amici',
+          alreadyFriends: true,
+        };
+      }
+
+      // 3. Verifica se esiste già una richiesta pendente
+      const hasPending = await friendsService.hasPendingRequest(
+        user.is.pub,
+        targetPub
+      );
+      if (hasPending) {
+        throw new Error('Esiste già una richiesta di amicizia pendente');
+      }
+
+      // 4. Crea un ID univoco per la richiesta
       const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
 
-      // Salva la richiesta di amicizia
+      // 5. Salva la richiesta di amicizia
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
@@ -155,6 +213,11 @@ const friendsService = {
               to: targetPub,
               timestamp: Date.now(),
               status: 'pending',
+              fromAlias: user.is.alias,
+              senderInfo: {
+                alias: user.is.alias,
+                pub: user.is.pub,
+              },
             },
             (ack) => {
               if (ack.err) reject(new Error(ack.err));
@@ -163,10 +226,16 @@ const friendsService = {
           );
       });
 
-      return { success: true };
+      return {
+        success: true,
+        message: 'Richiesta di amicizia inviata con successo',
+      };
     } catch (error) {
       console.error('Error adding friend request:', error);
-      return { success: false, message: error.message };
+      return {
+        success: false,
+        message: error.message,
+      };
     }
   },
 
