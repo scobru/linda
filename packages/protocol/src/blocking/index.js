@@ -3,15 +3,7 @@
  * @module blocking
  */
 
-import userBlockingService from './userBlocking.js';
-import unblockUserService from './unblockService.js';
+import { userBlocking } from './userBlocking.js';
 
-export const userBlocking = userBlockingService;
-export const unblockService = unblockUserService;
-
-export const blocking = {
-  userBlocking: userBlockingService,
-  unblockService: unblockUserService
-};
-
-export default blocking;
+export { userBlocking };
+export default userBlocking;

@@ -8,11 +8,14 @@ import { walletService } from "linda-protocol";
 import { formatEther, parseEther } from "ethers";
 import WalletModal from "./WalletModal";
 import MessageBox from "./MessageBox";
+import BlockStatus from "./BlockStatus";
 import { useMessages } from "../../hooks/useMessages";
 import { useChatUser } from "../../hooks/useChatUser";
 import { useChatPermissions } from "../../hooks/useChatPermissions";
 import { useMessageSending } from "../../hooks/useMessageSending";
 import { useMobileView } from "../../hooks/useMobileView";
+import { useFriends } from "../../hooks/useFriends";
+import { useMessageNotifications } from "../../hooks/useMessageNotifications";
 
 const { userBlocking } = blocking;
 const { channels, messageList } = messaging;
@@ -130,6 +133,7 @@ const InputArea = ({
 export default function Messages({ chatData, isMobileView = false, onBack }) {
   const { selected, setCurrentChat } = React.useContext(Context);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const { unblockUser } = useFriends();
 
   // Utilizzo dei custom hooks
   const {
@@ -271,6 +275,22 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       toast.error("Errore durante la cancellazione della chat");
     }
   };
+
+  const handleUnblock = async () => {
+    if (!selected?.pub) return;
+
+    try {
+      const result = await unblockUser(selected.pub);
+      if (result.success) {
+        toast.success("Utente sbloccato con successo");
+      }
+    } catch (error) {
+      console.error("Errore sblocco utente:", error);
+      toast.error(error.message || "Errore durante lo sblocco dell'utente");
+    }
+  };
+
+  useMessageNotifications(messages, chatData?.type);
 
   if (!selected?.pub) {
     return (
@@ -420,6 +440,8 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
           </button>
         </div>
       )}
+
+      <BlockStatus targetPub={selected?.pub} />
     </div>
   );
 }

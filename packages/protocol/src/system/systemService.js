@@ -160,14 +160,17 @@ const systemService = {
 
       const shouldUpdate = (eventType) => {
         const now = Date.now();
-        if (!lastUpdate[eventType] || (now - lastUpdate[eventType] > THROTTLE_TIME)) {
+        if (
+          !lastUpdate[eventType] ||
+          now - lastUpdate[eventType] > THROTTLE_TIME
+        ) {
           lastUpdate[eventType] = now;
           return true;
         }
         return false;
       };
 
-      // Monitora solo login e altri eventi
+      // Monitora login e altri eventi
       gun.on('auth', (ack) => {
         if (!ack.err && shouldUpdate('login')) {
           const loginId = `login_${Date.now()}`;
@@ -179,10 +182,61 @@ const systemService = {
         }
       });
 
+      // Monitora i canali e le bacheche
+      gun
+        .get(DAPP_NAME)
+        .get('channels')
+        .map()
+        .on((channelData, channelId) => {
+          if (channelData && channelId !== '_') {
+            // Monitora i membri del canale
+            gun
+              .get(DAPP_NAME)
+              .get('channels')
+              .get(channelId)
+              .get('members')
+              .map()
+              .on((memberData, memberId) => {
+                if (memberData && memberId !== '_') {
+                  if (memberData === true) {
+                    // Nuovo membro aggiunto
+                    if (channelData.type === 'board') {
+                      updateGlobalMetrics('activeBoardMembers', 1);
+                    } else {
+                      updateGlobalMetrics('activeChannelMembers', 1);
+                    }
+                    updateGlobalMetrics('totalChannelJoins', 1);
+                  } else if (memberData === null) {
+                    // Membro rimosso
+                    if (channelData.type === 'board') {
+                      updateGlobalMetrics('activeBoardMembers', -1);
+                    } else {
+                      updateGlobalMetrics('activeChannelMembers', -1);
+                    }
+                    updateGlobalMetrics('totalChannelLeaves', 1);
+                  }
+                }
+              });
+
+            // Monitora creazione canali/bacheche
+            if (
+              channelData.created &&
+              shouldUpdate('channel_created_' + channelId)
+            ) {
+              if (channelData.type === 'board') {
+                updateGlobalMetrics('totalBoardsCreated', 1);
+              } else {
+                updateGlobalMetrics('totalChannelsCreated', 1);
+              }
+              updateGlobalMetrics('totalChannels', 1);
+            }
+          }
+        });
+
       // Pulisci periodicamente gli eventi processati
       const cleanupInterval = setInterval(() => {
         const now = Date.now();
-        processedEvents.forEach(eventId => {
+        processedEvents.forEach((eventId) => {
           if (now - parseInt(eventId.split('_')[1] || 0) > THROTTLE_TIME) {
             processedEvents.delete(eventId);
           }
@@ -210,27 +264,25 @@ const systemService = {
       totalMessagesSent: 0,
       totalLogins: 0,
       totalRegistrations: 0,
-      totalFriendRequestsMade: 0
+      totalFriendRequestsMade: 0,
     };
 
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('globalMetrics')
       .once((data) => {
         if (!data) {
           // Salva ogni metrica individualmente
           Object.entries(initialMetrics).forEach(([key, value]) => {
-            gun.get(DAPP_NAME)
-              .get('globalMetrics')
-              .get(key)
-              .put(value);
+            gun.get(DAPP_NAME).get('globalMetrics').get(key).put(value);
           });
         }
       });
 
     return systemService.monitorSystemMetrics().subscribe({
-      error: (error) => console.error('Error monitoring metrics:', error)
+      error: (error) => console.error('Error monitoring metrics:', error),
     });
-  }
+  },
 };
 
 const globalMetrics = {
@@ -242,6 +294,12 @@ const globalMetrics = {
   totalLogins: 0,
   totalRegistrations: 0,
   totalFriendRequestsMade: 0,
+  totalChannelJoins: 0,
+  totalChannelLeaves: 0,
+  totalBoardsCreated: 0,
+  totalChannelsCreated: 0,
+  activeChannelMembers: 0,
+  activeBoardMembers: 0,
 };
 
 const globalMetricsPath = gun.get(DAPP_NAME).get('globalMetrics');
@@ -254,20 +312,18 @@ const updateGlobalMetrics = (metric, value = 1) => {
   const data = {};
   data[metric] = value;
 
-  gun.get(DAPP_NAME)
+  gun
+    .get(DAPP_NAME)
     .get('globalMetrics')
     .get(metric)
     .once((currentValue) => {
       // Assicurati che il valore sia un numero
       const current = typeof currentValue === 'number' ? currentValue : 0;
       const newValue = current + value;
-      
+
       // Salva il valore direttamente senza metadati
-      gun.get(DAPP_NAME)
-        .get('globalMetrics')
-        .get(metric)
-        .put(newValue);
-      
+      gun.get(DAPP_NAME).get('globalMetrics').get(metric).put(newValue);
+
       console.log(`Updated ${metric}: ${current} -> ${newValue}`);
     });
 };
@@ -275,7 +331,8 @@ const updateGlobalMetrics = (metric, value = 1) => {
 // Funzione per ottenere le metriche globali
 const getGlobalMetrics = async () => {
   return new Promise((resolve) => {
-    gun.get(DAPP_NAME)
+    gun
+      .get(DAPP_NAME)
       .get('globalMetrics')
       .load((data) => {
         console.log('Loaded global metrics:', data);
@@ -289,11 +346,9 @@ const getGlobalMetrics = async () => {
             totalMessagesSent: 0,
             totalLogins: 0,
             totalRegistrations: 0,
-            totalFriendRequestsMade: 0
+            totalFriendRequestsMade: 0,
           };
-          gun.get(DAPP_NAME)
-            .get('globalMetrics')
-            .put(defaultMetrics);
+          gun.get(DAPP_NAME).get('globalMetrics').put(defaultMetrics);
           resolve(defaultMetrics);
         } else {
           resolve(data);

@@ -13,6 +13,35 @@ const acceptFriendRequest = async (request) => {
   console.log('Accepting friend request:', request);
 
   try {
+    // Verifica se sono già amici
+    const alreadyFriends = await new Promise((resolve) => {
+      let found = false;
+      gun
+        .get(DAPP_NAME)
+        .get('friendships')
+        .map()
+        .once((data) => {
+          if (
+            data &&
+            ((data.user1 === user.is.pub && data.user2 === request.from) ||
+              (data.user1 === request.from && data.user2 === user.is.pub))
+          ) {
+            found = true;
+          }
+        });
+      setTimeout(() => resolve(found), 1000);
+    });
+
+    if (alreadyFriends) {
+      // Se sono già amici, rimuovi solo la richiesta
+      await cleanupFriendRequests(request);
+      return {
+        success: true,
+        message: 'Siete già amici',
+        alreadyFriends: true,
+      };
+    }
+
     // Verifica e rigenera i certificati se necessario
     console.log('Verifica certificati esistenti...');
     const [
@@ -556,40 +585,45 @@ const acceptFriendRequest = async (request) => {
       user2Alias: request.senderInfo?.alias || request.alias,
     };
 
-    // Salva l'amicizia
-    await gun.get(DAPP_NAME).get('friendships').set(friendshipData);
+    // Salva l'amicizia e attendi la conferma
+    await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('friendships')
+        .set(friendshipData, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
 
-    // Rimuovi tutte le richieste correlate
-    await gun
-      .get(DAPP_NAME)
-      .get('all_friend_requests')
-      .map()
-      .once((data, key) => {
-        if (
-          data &&
-          ((data.from === request.from && data.to === user.is.pub) ||
-            (data.from === user.is.pub && data.to === request.from))
-        ) {
-          gun.get(DAPP_NAME).get('all_friend_requests').get(key).put(null);
-        }
-      });
+    // Attendi un momento per la propagazione
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // Rimuovi le richieste private
-    await gun
-      .get(DAPP_NAME)
-      .get('friend_requests')
-      .get(user.is.pub)
-      .map()
-      .once((data, key) => {
-        if (data && data.from === request.from) {
-          gun
-            .get(DAPP_NAME)
-            .get('friend_requests')
-            .get(user.is.pub)
-            .get(key)
-            .put(null);
-        }
-      });
+    // Verifica che l'amicizia sia stata salvata
+    const friendshipSaved = await new Promise((resolve) => {
+      let found = false;
+      gun
+        .get(DAPP_NAME)
+        .get('friendships')
+        .map()
+        .once((data) => {
+          if (
+            data &&
+            ((data.user1 === user.is.pub && data.user2 === request.from) ||
+              (data.user1 === request.from && data.user2 === user.is.pub))
+          ) {
+            found = true;
+          }
+        });
+      setTimeout(() => resolve(found), 1000);
+    });
+
+    if (!friendshipSaved) {
+      throw new Error("L'amicizia non è stata salvata correttamente");
+    }
+
+    // Pulisci tutte le richieste correlate
+    await cleanupFriendRequests(request);
 
     return {
       success: true,
@@ -599,6 +633,94 @@ const acceptFriendRequest = async (request) => {
   } catch (error) {
     console.error('Error accepting friend request:', error);
     throw error;
+  }
+};
+
+// Funzione di utilità per pulire le richieste di amicizia
+const cleanupFriendRequests = async (request) => {
+  try {
+    // Rimuovi tutte le richieste correlate
+    await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .map()
+        .once((data, key) => {
+          if (
+            data &&
+            ((data.from === request.from && data.to === user.is.pub) ||
+              (data.from === user.is.pub && data.to === request.from))
+          ) {
+            gun.get(DAPP_NAME).get('all_friend_requests').get(key).put(null);
+          }
+        });
+      setTimeout(resolve, 1000);
+    });
+
+    // Rimuovi le richieste private
+    await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('friend_requests')
+        .get(user.is.pub)
+        .map()
+        .once((data, key) => {
+          if (data && data.from === request.from) {
+            gun
+              .get(DAPP_NAME)
+              .get('friend_requests')
+              .get(user.is.pub)
+              .get(key)
+              .put(null);
+          }
+        });
+      setTimeout(resolve, 1000);
+    });
+
+    // Verifica che le richieste siano state rimosse
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const [hasPublicRequests, hasPrivateRequests] = await Promise.all([
+      new Promise((resolve) => {
+        let found = false;
+        gun
+          .get(DAPP_NAME)
+          .get('all_friend_requests')
+          .map()
+          .once((data) => {
+            if (
+              data &&
+              ((data.from === request.from && data.to === user.is.pub) ||
+                (data.from === user.is.pub && data.to === request.from))
+            ) {
+              found = true;
+            }
+          });
+        setTimeout(() => resolve(found), 1000);
+      }),
+      new Promise((resolve) => {
+        let found = false;
+        gun
+          .get(DAPP_NAME)
+          .get('friend_requests')
+          .get(user.is.pub)
+          .map()
+          .once((data) => {
+            if (data && data.from === request.from) {
+              found = true;
+            }
+          });
+        setTimeout(() => resolve(found), 1000);
+      }),
+    ]);
+
+    if (hasPublicRequests || hasPrivateRequests) {
+      console.warn(
+        'Alcune richieste potrebbero non essere state rimosse completamente'
+      );
+    }
+  } catch (error) {
+    console.error('Errore durante la pulizia delle richieste:', error);
   }
 };
 

@@ -2,10 +2,6 @@ import { gun, user, DAPP_NAME } from '../useGun.js';
 import { userBlocking } from '../blocking/index.js';
 import { Observable } from 'rxjs';
 import { userUtils } from '../utils/userUtils.js';
-import {
-  revokeChatsCertificate,
-  revokeMessagesCertificate,
-} from '../security/index.js';
 
 const friendsService = {
   /**
@@ -17,6 +13,7 @@ const friendsService = {
   areFriends: async (userPub1, userPub2) => {
     try {
       const friendship = await new Promise((resolve) => {
+        let found = false;
         gun
           .get(`${DAPP_NAME}/friendships`)
           .map()
@@ -26,15 +23,49 @@ const friendsService = {
               ((data.user1 === userPub1 && data.user2 === userPub2) ||
                 (data.user1 === userPub2 && data.user2 === userPub1))
             ) {
-              resolve(data);
+              found = true;
             }
           });
-        setTimeout(() => resolve(null), 2000);
+        setTimeout(() => resolve(found), 2000);
       });
 
-      return !!friendship;
+      return friendship;
     } catch (error) {
       console.error('Errore nella verifica amicizia:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Verifica se esiste già una richiesta di amicizia pendente
+   * @param {string} userPub1 - Chiave pubblica del primo utente
+   * @param {string} userPub2 - Chiave pubblica del secondo utente
+   * @returns {Promise<boolean>}
+   */
+  hasPendingRequest: async (userPub1, userPub2) => {
+    try {
+      const pendingRequest = await new Promise((resolve) => {
+        let found = false;
+        gun
+          .get(`${DAPP_NAME}/all_friend_requests`)
+          .map()
+          .once((request) => {
+            if (
+              request &&
+              !request._ &&
+              ((request.from === userPub1 && request.to === userPub2) ||
+                (request.from === userPub2 && request.to === userPub1)) &&
+              request.status === 'pending'
+            ) {
+              found = true;
+            }
+          });
+        setTimeout(() => resolve(found), 2000);
+      });
+
+      return pendingRequest;
+    } catch (error) {
+      console.error('Errore verifica richieste pendenti:', error);
       return false;
     }
   },
@@ -46,7 +77,7 @@ const friendsService = {
    */
   canInteractWith: async (targetPub) => {
     try {
-      // Verifica blocchi
+      // Verifica blocchi usando userBlocking
       const blockStatus = await userBlocking.getBlockStatus(targetPub);
       if (blockStatus.blocked || blockStatus.blockedBy) {
         return {
@@ -55,16 +86,18 @@ const friendsService = {
         };
       }
 
-      // Verifica amicizia
-      const areFriends = await friendsService.areFriends(
-        user.is.pub,
-        targetPub
-      );
-      if (!areFriends) {
-        return {
-          canInteract: false,
-          reason: 'not_friends',
-        };
+      // Verifica amicizia solo se non ci sono blocchi
+      if (!blockStatus.blocked && !blockStatus.blockedBy) {
+        const areFriends = await friendsService.areFriends(
+          user.is.pub,
+          targetPub
+        );
+        if (!areFriends) {
+          return {
+            canInteract: false,
+            reason: 'not_friends',
+          };
+        }
       }
 
       return {
@@ -136,10 +169,39 @@ const friendsService = {
     }
 
     try {
-      // Crea un ID univoco per la richiesta
+      // 1. Verifica se l'utente è bloccato
+      const blockStatus = await userBlocking.getBlockStatus(targetPub);
+      if (blockStatus.blocked || blockStatus.blockedBy) {
+        throw new Error('Non puoi inviare richieste a questo utente');
+      }
+
+      // 2. Verifica se sono già amici
+      const areAlreadyFriends = await friendsService.areFriends(
+        user.is.pub,
+        targetPub
+      );
+      if (areAlreadyFriends) {
+        // Se sono già amici, aggiorna solo la lista amici locale
+        return {
+          success: true,
+          message: 'Siete già amici',
+          alreadyFriends: true,
+        };
+      }
+
+      // 3. Verifica se esiste già una richiesta pendente
+      const hasPending = await friendsService.hasPendingRequest(
+        user.is.pub,
+        targetPub
+      );
+      if (hasPending) {
+        throw new Error('Esiste già una richiesta di amicizia pendente');
+      }
+
+      // 4. Crea un ID univoco per la richiesta
       const requestId = `${user.is.pub}_${targetPub}_${Date.now()}`;
 
-      // Salva la richiesta di amicizia
+      // 5. Salva la richiesta di amicizia
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
@@ -151,6 +213,11 @@ const friendsService = {
               to: targetPub,
               timestamp: Date.now(),
               status: 'pending',
+              fromAlias: user.is.alias,
+              senderInfo: {
+                alias: user.is.alias,
+                pub: user.is.pub,
+              },
             },
             (ack) => {
               if (ack.err) reject(new Error(ack.err));
@@ -159,10 +226,16 @@ const friendsService = {
           );
       });
 
-      return { success: true };
+      return {
+        success: true,
+        message: 'Richiesta di amicizia inviata con successo',
+      };
     } catch (error) {
       console.error('Error adding friend request:', error);
-      return { success: false, message: error.message };
+      return {
+        success: false,
+        message: error.message,
+      };
     }
   },
 
@@ -177,14 +250,6 @@ const friendsService = {
     }
 
     try {
-      // Revoca tutti i certificati associati
-      await Promise.all([
-        revokeChatsCertificate(targetPub),
-        revokeMessagesCertificate(targetPub),
-      ]);
-
-      console.log('Revoca certificati completata');
-
       // Cerca e rimuovi l'amicizia
       const friendship = await new Promise((resolve) => {
         let found = null;
@@ -359,94 +424,6 @@ const friendsService = {
         gun.get(`${DAPP_NAME}/users`).map().off(statusHandler);
       };
     });
-  },
-
-  /**
-   * Blocca un utente
-   * @param {string} targetPub - Chiave pubblica dell'utente da bloccare
-   * @returns {Promise<{success: boolean, message?: string}>}
-   */
-  blockUser: async (targetPub) => {
-    if (!user.is) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('friendships')
-          .map()
-          .once((friendship, id) => {
-            if (
-              friendship &&
-              ((friendship.user1 === targetPub &&
-                friendship.user2 === user.is.pub) ||
-                (friendship.user2 === targetPub &&
-                  friendship.user1 === user.is.pub))
-            ) {
-              gun
-                .get(DAPP_NAME)
-                .get('friendships')
-                .get(id)
-                .get('isBlocked')
-                .put(true, (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve();
-                });
-            }
-          });
-      });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error blocking user:', error);
-      return { success: false, message: error.message };
-    }
-  },
-
-  /**
-   * Sblocca un utente
-   * @param {string} targetPub - Chiave pubblica dell'utente da sbloccare
-   * @returns {Promise<{success: boolean, message?: string}>}
-   */
-  unblockUser: async (targetPub) => {
-    if (!user.is) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('friendships')
-          .map()
-          .once((friendship, id) => {
-            if (
-              friendship &&
-              ((friendship.user1 === targetPub &&
-                friendship.user2 === user.is.pub) ||
-                (friendship.user2 === targetPub &&
-                  friendship.user1 === user.is.pub))
-            ) {
-              gun
-                .get(DAPP_NAME)
-                .get('friendships')
-                .get(id)
-                .get('isBlocked')
-                .put(false, (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve();
-                });
-            }
-          });
-      });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      return { success: false, message: error.message };
-    }
   },
 };
 

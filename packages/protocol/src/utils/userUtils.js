@@ -1,5 +1,9 @@
 import { gun, user, DAPP_NAME } from '../useGun.js';
 
+// Cache per gli utenti
+const userCache = new Map();
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minuti di cache
+
 export const getUserInfo = async (userPub) => {
   try {
     // Verifica che userPub sia valido
@@ -14,6 +18,12 @@ export const getUserInfo = async (userPub) => {
       };
     }
 
+    // Controlla se l'utente è in cache e non è scaduto
+    const cachedUser = userCache.get(userPub);
+    if (cachedUser && Date.now() - cachedUser.timestamp < CACHE_EXPIRY) {
+      return cachedUser.data;
+    }
+
     // Cerca nei dati utente
     const userData = await new Promise((resolve) => {
       gun
@@ -22,18 +32,18 @@ export const getUserInfo = async (userPub) => {
         .get('users')
         .get(userPub)
         .once((data) => {
-          console.log('Dati utente trovati:', data);
           resolve(data);
         });
       setTimeout(() => resolve(null), 1000);
     });
 
+    let result;
+
     // Se abbiamo i dati dell'utente nel nodo userList
     if (userData) {
-      console.log('Usando dati da userList:', userData);
       // Se l'utente ha un nickname, lo usiamo come displayName
       if (userData.nickname) {
-        return {
+        result = {
           nickname: userData.nickname,
           username: userData.username || '',
           displayName: userData.nickname,
@@ -42,8 +52,8 @@ export const getUserInfo = async (userPub) => {
         };
       }
       // Altrimenti usiamo lo username
-      if (userData.username) {
-        return {
+      else if (userData.username) {
+        result = {
           nickname: '',
           username: userData.username,
           displayName: userData.username,
@@ -54,45 +64,43 @@ export const getUserInfo = async (userPub) => {
     }
 
     // Se non troviamo i dati nel nodo userList, proviamo a recuperare l'alias originale
-    console.log('Tentativo recupero alias per:', userPub);
-    const user = await gun.get(`~${userPub}`).once();
-    if (user?.alias) {
-      const username = user.alias.split('.')[0];
-      console.log('Alias trovato:', username);
-      return {
-        nickname: '',
-        username: username,
-        displayName: username,
-        pub: userPub,
-        authType: 'gun',
-      };
+    if (!result) {
+      const user = await gun.get(`~${userPub}`).once();
+      if (user?.alias) {
+        const username = user.alias.split('.')[0];
+        result = {
+          nickname: '',
+          username: username,
+          displayName: username,
+          pub: userPub,
+          authType: 'gun',
+        };
+      }
     }
 
     // Fallback finale alla chiave pubblica abbreviata
-    try {
-      console.log('Creazione shortPub per:', userPub);
+    if (!result) {
       const shortPub =
         userPub && typeof userPub === 'string'
           ? `${userPub.slice(0, 6)}...${userPub.slice(-4)}`
           : 'Utente sconosciuto';
 
-      return {
+      result = {
         nickname: '',
         username: shortPub,
         displayName: shortPub,
         pub: userPub,
         authType: 'unknown',
       };
-    } catch (error) {
-      console.error('Errore nella creazione shortPub:', error);
-      return {
-        nickname: '',
-        username: 'Utente sconosciuto',
-        displayName: 'Utente sconosciuto',
-        pub: userPub,
-        authType: 'unknown',
-      };
     }
+
+    // Salva il risultato in cache
+    userCache.set(userPub, {
+      data: result,
+      timestamp: Date.now(),
+    });
+
+    return result;
   } catch (error) {
     console.error('Errore nel recupero info utente:', error);
     return {
@@ -104,6 +112,26 @@ export const getUserInfo = async (userPub) => {
     };
   }
 };
+
+// Funzione per invalidare la cache di un utente specifico
+export const invalidateUserCache = (userPub) => {
+  if (userPub) {
+    userCache.delete(userPub);
+  }
+};
+
+// Funzione per pulire la cache scaduta
+export const cleanExpiredCache = () => {
+  const now = Date.now();
+  for (const [key, value] of userCache.entries()) {
+    if (now - value.timestamp > CACHE_EXPIRY) {
+      userCache.delete(key);
+    }
+  }
+};
+
+// Pulisci la cache ogni 5 minuti
+setInterval(cleanExpiredCache, CACHE_EXPIRY);
 
 export const subscribeToUserUpdates = (userPub, callback) => {
   // Sottoscrizione ai dati utente completi
@@ -173,82 +201,118 @@ export const updateUserProfile = async (userPub, profileData) => {
 export const getFriends = async () => {
   try {
     if (!user?.is) {
-      console.log('Utente non autenticato per getFriends');
       return [];
     }
 
-    console.log('Inizio recupero amici per:', user.is.pub);
-
     return new Promise((resolve) => {
-      const friends = new Map(); // Usa una Map per deduplicare
-      let timeoutId;
+      const friends = new Map();
+      let pendingUpdates = new Set();
+      let processingBatch = false;
+      let resolveCallback = null;
+      const BATCH_DELAY = 2000; // Attendi 2 secondi per processare il batch
+      let batchTimeout = null;
 
-      const handleFriendship = async (friendship, key) => {
-        if (!friendship || !friendship.user1 || !friendship.user2) {
-          console.log('Amicizia non valida:', friendship);
-          return;
+      // Funzione per ordinare gli amici in modo stabile
+      const getSortKey = (friend) => {
+        const lastSeen = friend.lastSeen || 0;
+        const displayName = friend.displayName || '';
+        // Combina lastSeen e displayName per creare una chiave di ordinamento stabile
+        return `${lastSeen.toString().padStart(20, '0')}_${displayName}`;
+      };
+
+      const processFriendsBatch = async () => {
+        if (processingBatch || pendingUpdates.size === 0) return;
+
+        processingBatch = true;
+        const currentBatch = new Set(pendingUpdates);
+        pendingUpdates.clear();
+
+        // Processa tutti gli aggiornamenti in sospeso
+        for (const friendPub of currentBatch) {
+          try {
+            const friendInfo = await getUserInfo(friendPub);
+            if (friendInfo) {
+              const existingFriend = friends.get(friendPub);
+              // Aggiorna solo se i dati sono effettivamente cambiati
+              if (
+                !existingFriend ||
+                existingFriend.lastSeen !== friendInfo.lastSeen ||
+                existingFriend.displayName !== friendInfo.displayName
+              ) {
+                friends.set(friendPub, {
+                  ...friendInfo,
+                  pub: friendPub,
+                  sortKey: getSortKey(friendInfo),
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Errore nel recupero info amico:', error);
+          }
         }
 
-        // Verifica se l'utente corrente è coinvolto nell'amicizia
+        // Ordina gli amici una volta sola dopo aver processato il batch
+        const sortedFriends = Array.from(friends.values()).sort((a, b) =>
+          b.sortKey.localeCompare(a.sortKey)
+        );
+
+        processingBatch = false;
+
+        // Notifica solo se ci sono cambiamenti effettivi
+        if (resolveCallback) {
+          resolveCallback(sortedFriends);
+          resolveCallback = null;
+        }
+
+        // Se ci sono nuovi aggiornamenti in sospeso, pianifica il prossimo batch
+        if (pendingUpdates.size > 0) {
+          scheduleBatch();
+        }
+      };
+
+      const scheduleBatch = () => {
+        if (batchTimeout) clearTimeout(batchTimeout);
+        batchTimeout = setTimeout(processFriendsBatch, BATCH_DELAY);
+      };
+
+      const handleFriendship = (friendship) => {
+        if (!friendship || !friendship.user1 || !friendship.user2) return;
+
         if (
           friendship.user1 === user.is.pub ||
           friendship.user2 === user.is.pub
         ) {
-          // Determina quale è l'altro utente
           const friendPub =
             friendship.user1 === user.is.pub
               ? friendship.user2
               : friendship.user1;
-
-          // Se non abbiamo già questo amico
-          if (!friends.has(friendPub)) {
-            try {
-              console.log('Recupero info per amico:', friendPub);
-              const friendInfo = await getUserInfo(friendPub);
-              if (friendInfo) {
-                console.log('Info amico recuperate:', friendInfo);
-                friends.set(friendPub, {
-                  ...friendInfo,
-                  pub: friendPub,
-                  lastSeen: friendship.lastSeen || Date.now(),
-                  friendshipId: key,
-                  status: friendship.status || 'active',
-                });
-              }
-            } catch (error) {
-              console.error('Errore nel recupero info amico:', error);
-            }
-          }
+          pendingUpdates.add(friendPub);
+          scheduleBatch();
         }
       };
 
       // Sottoscrizione alle amicizie
-      console.log('Sottoscrizione alle amicizie...');
       const unsub = gun
         .get(DAPP_NAME)
         .get('friendships')
         .map()
-        .on(async (friendship, key) => {
-          console.log('Ricevuta amicizia:', friendship);
-          await handleFriendship(friendship, key);
-
-          // Resetta il timeout ogni volta che riceviamo dati
-          clearTimeout(timeoutId);
-          timeoutId = setTimeout(() => {
-            console.log('Completato recupero amici, totale:', friends.size);
-            if (typeof unsub === 'function') unsub();
-            resolve(Array.from(friends.values())); // Converti la Map in array
-          }, 2000);
+        .on((friendship) => {
+          handleFriendship(friendship);
         });
+
+      // Imposta il callback di risoluzione
+      resolveCallback = resolve;
 
       // Timeout di sicurezza
       setTimeout(() => {
-        console.log(
-          'Timeout principale getFriends, amici trovati:',
-          friends.size
-        );
         if (typeof unsub === 'function') unsub();
-        resolve(Array.from(friends.values()));
+        if (resolveCallback) {
+          const sortedFriends = Array.from(friends.values()).sort((a, b) =>
+            b.sortKey.localeCompare(a.sortKey)
+          );
+          resolveCallback(sortedFriends);
+          resolveCallback = null;
+        }
       }, 5000);
     });
   } catch (error) {
@@ -259,10 +323,7 @@ export const getFriends = async () => {
 
 export const handleFriendRequest = async (request, action = 'accept') => {
   try {
-    console.log('Gestione richiesta amicizia:', request);
-
     if (!request || !request.from) {
-      console.error('Dati richiesta invalidi:', request);
       throw new Error('Dati richiesta non validi');
     }
 
@@ -276,48 +337,16 @@ export const handleFriendRequest = async (request, action = 'accept') => {
       throw new Error('Richiesta non destinata a questo utente');
     }
 
-    console.log('Recupero info mittente:', request.from);
-
-    // Verifica che l'utente esista
+    // Recupera info mittente
     const senderInfo = await getUserInfo(request.from);
     if (!senderInfo) {
       throw new Error('Informazioni mittente non trovate');
     }
 
-    console.log('Info mittente trovate:', senderInfo);
-
-    // Aggiorna lo stato della richiesta
     const requestId = request.id || `${request.from}_${request.timestamp}`;
-    console.log('ID richiesta:', requestId);
-
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('friend_requests')
-        .get(user.is.pub)
-        .get(requestId)
-        .put(
-          {
-            status: action,
-            timestamp: Date.now(),
-            from: request.from,
-            to: user.is.pub,
-            data: request.data || {},
-          },
-          (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve();
-            }
-          }
-        );
-    });
 
     // Se accettata, aggiungi alla lista amici
     if (action === 'accept') {
-      console.log('Aggiunta alla lista amici');
-
       // Aggiungi alla lista amici dell'utente corrente
       await new Promise((resolve, reject) => {
         gun
@@ -361,12 +390,167 @@ export const handleFriendRequest = async (request, action = 'accept') => {
             }
           );
       });
-    }
 
-    return {
-      success: true,
-      userInfo: senderInfo,
-    };
+      // Rimuovi la richiesta da tutte le liste
+      await Promise.all([
+        // Rimuovi dalla lista pubblica
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('all_friend_requests')
+            .map()
+            .once((data, key) => {
+              if (
+                data &&
+                data.from === request.from &&
+                data.to === user.is.pub
+              ) {
+                gun
+                  .get(DAPP_NAME)
+                  .get('all_friend_requests')
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        }),
+
+        // Rimuovi dalla lista privata dell'utente
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('friend_requests')
+            .get(user.is.pub)
+            .map()
+            .once((data, key) => {
+              if (data && data.from === request.from) {
+                gun
+                  .get(DAPP_NAME)
+                  .get('friend_requests')
+                  .get(user.is.pub)
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        }),
+
+        // Rimuovi dalla lista privata del mittente
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('friend_requests')
+            .get(request.from)
+            .map()
+            .once((data, key) => {
+              if (data && data.to === user.is.pub) {
+                gun
+                  .get(DAPP_NAME)
+                  .get('friend_requests')
+                  .get(request.from)
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        }),
+      ]);
+
+      // Verifica che le richieste siano state rimosse
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const [hasPublicRequest, hasPrivateRequest] = await Promise.all([
+        // Verifica richieste pubbliche
+        new Promise((resolve) => {
+          let found = false;
+          gun
+            .get(DAPP_NAME)
+            .get('all_friend_requests')
+            .map()
+            .once((data) => {
+              if (
+                data &&
+                data.from === request.from &&
+                data.to === user.is.pub
+              ) {
+                found = true;
+              }
+            });
+          setTimeout(() => resolve(found), 500);
+        }),
+
+        // Verifica richieste private
+        new Promise((resolve) => {
+          let found = false;
+          gun
+            .get(DAPP_NAME)
+            .get('friend_requests')
+            .get(user.is.pub)
+            .map()
+            .once((data) => {
+              if (data && data.from === request.from) {
+                found = true;
+              }
+            });
+          setTimeout(() => resolve(found), 500);
+        }),
+      ]);
+
+      if (hasPublicRequest || hasPrivateRequest) {
+        console.warn(
+          'Alcune richieste potrebbero non essere state rimosse completamente'
+        );
+      }
+
+      // Invalida la cache dell'utente per aggiornare i dati
+      invalidateUserCache(request.from);
+      invalidateUserCache(user.is.pub);
+
+      return {
+        success: true,
+        userInfo: senderInfo,
+        message: `Richiesta accettata. ${senderInfo.displayName} è stato aggiunto ai tuoi amici.`,
+      };
+    } else {
+      // Se rifiutata, rimuovi solo la richiesta
+      await Promise.all([
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('all_friend_requests')
+            .map()
+            .once((data, key) => {
+              if (
+                data &&
+                data.from === request.from &&
+                data.to === user.is.pub
+              ) {
+                gun
+                  .get(DAPP_NAME)
+                  .get('all_friend_requests')
+                  .get(key)
+                  .put(null);
+              }
+            });
+          setTimeout(resolve, 500);
+        }),
+        new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get('friend_requests')
+            .get(user.is.pub)
+            .get(requestId)
+            .put(null);
+          setTimeout(resolve, 500);
+        }),
+      ]);
+
+      return {
+        success: true,
+        userInfo: senderInfo,
+        message: `Richiesta di ${senderInfo.displayName} rifiutata.`,
+      };
+    }
   } catch (error) {
     console.error('Errore nella gestione della richiesta di amicizia:', error);
     throw error;
