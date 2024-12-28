@@ -320,14 +320,6 @@ export const useMessages = (selected) => {
                   type: type,
                 };
 
-                console.log("Messaggio privato inviato:", {
-                  type: newMessage.type,
-                  contentPreview:
-                    typeof newMessage.content === "string"
-                      ? newMessage.content.substring(0, 100)
-                      : "object",
-                });
-
                 setMessages((prev) =>
                   [...prev, newMessage].sort(
                     (a, b) => a.timestamp - b.timestamp
@@ -347,36 +339,72 @@ export const useMessages = (selected) => {
 
           return result;
         }
-        // Per canali e bacheche
-        else {
-          const service = selected.type === "channel" ? channels : chat;
+        // Per canali
+        else if (selected.type === "channel") {
           const messageData = {
             content,
             type,
             timestamp: Date.now(),
+            sender: user.is.pub,
           };
 
-          console.log("Invio messaggio a canale/bacheca:", {
-            type: messageData.type,
-            contentPreview:
-              typeof messageData.content === "string"
-                ? messageData.content.substring(0, 100)
-                : "object",
-          });
+          const result = await channels.sendMessage(id, messageData);
 
-          const result = await service.messageList.sendMessage(
-            path,
-            id,
-            messageData
-          );
-
-          if (!result || !result.success) {
-            throw new Error(
-              result?.message || "Errore nell'invio del messaggio"
+          if (result && result.success) {
+            setMessages((prev) =>
+              [...prev, { ...messageData, id: result.messageId }].sort(
+                (a, b) => a.timestamp - b.timestamp
+              )
             );
           }
 
           return result;
+        }
+        // Per bacheche
+        else if (selected.type === "board") {
+          const messageData = {
+            content,
+            type,
+            timestamp: Date.now(),
+            sender: user.is.pub,
+          };
+
+          // Genera un ID unico per il messaggio
+          const messageId = `${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          // Usa il metodo specifico per le board
+          return new Promise((resolve, reject) => {
+            gun
+              .get(DAPP_NAME)
+              .get(path)
+              .get(id)
+              .get("messages")
+              .get(messageId)
+              .put(messageData, (ack) => {
+                if (ack.err) {
+                  console.error("Errore salvataggio messaggio:", ack.err);
+                  reject(new Error(ack.err));
+                  return;
+                }
+
+                const newMessage = {
+                  ...messageData,
+                  id: messageId,
+                };
+
+                setMessages((prev) =>
+                  [...prev, newMessage].sort(
+                    (a, b) => a.timestamp - b.timestamp
+                  )
+                );
+
+                resolve({ success: true, messageId });
+              });
+          });
+        } else {
+          throw new Error(`Tipo di chat non supportato: ${selected.type}`);
         }
       } catch (error) {
         console.error("Errore invio messaggio:", error);
