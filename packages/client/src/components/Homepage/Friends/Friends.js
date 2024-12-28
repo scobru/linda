@@ -14,10 +14,7 @@ import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
 import { getUserUsername } from "../../../utils/userUtils";
 
-const Friends = ({
-  selectedUser,
-  onMobileSelect,
-}) => {
+const Friends = ({ selectedUser, onMobileSelect }) => {
   const { appState, updateAppState } = useAppState();
   const { friends, removeFriend, blockUser, unblockUser } = useFriends();
   const {
@@ -63,8 +60,27 @@ const Friends = ({
     const loadFriendsInfo = async () => {
       if (!friends || !appState.user?.is?.pub) return;
 
+      // Filtra gli amici per assicurarsi che non ci siano amici rimossi
+      const activeFriends = friends.filter((friend) => {
+        // Verifica che l'amico non sia stato rimosso
+        if (!friend || friend.status === "removed") {
+          console.log("Amico rimosso, escluso dalla lista:", friend?.pub);
+          return false;
+        }
+
+        // Verifica che l'amico abbia un pub valido
+        if (!friend.pub) {
+          console.log("Amico senza pub, escluso dalla lista");
+          return false;
+        }
+
+        return true;
+      });
+
+      console.log("Amici attivi dopo filtraggio:", activeFriends);
+
       const friendsInfo = await Promise.all(
-        friends.map(async (friend) => {
+        activeFriends.map(async (friend) => {
           try {
             const displayName = await getUserUsername(friend.pub);
             const roomId = [friend.pub, appState.user.is.pub].sort().join("_");
@@ -94,6 +110,7 @@ const Friends = ({
         })
       );
 
+      console.log("Lista amici aggiornata:", friendsInfo);
       setFriendsWithNames(friendsInfo);
     };
 
@@ -144,13 +161,37 @@ const Friends = ({
     async (friendPub) => {
       try {
         await removeFriend(friendPub);
+
+        // Aggiorna immediatamente la lista locale
+        setFriendsWithNames((prev) =>
+          prev.filter((friend) => friend.pub !== friendPub)
+        );
+
+        // Se l'amico rimosso era selezionato, deselezionalo
+        if (selectedUser?.pub === friendPub) {
+          updateAppState({
+            selected: null,
+            currentChat: null,
+            activeChat: null,
+          });
+        }
+
+        // Forza un refresh della lista amici
+        gun
+          .get(DAPP_NAME)
+          .get("friendships")
+          .map()
+          .once(() => {
+            console.log("Forzato refresh lista amici dopo rimozione");
+          });
+
         toast.success("Amico rimosso con successo");
       } catch (error) {
         console.error("Errore rimozione amico:", error);
         toast.error("Errore durante la rimozione dell'amico");
       }
     },
-    [removeFriend]
+    [removeFriend, selectedUser, updateAppState]
   );
 
   const handleBlockUser = useCallback(
@@ -180,8 +221,19 @@ const Friends = ({
   );
 
   const filteredFriends = useMemo(() => {
-    if (!searchQuery) return friendsWithNames;
-    return friendsWithNames.filter((friend) =>
+    // Filtra prima gli amici rimossi
+    const activeAndValidFriends = friendsWithNames.filter((friend) => {
+      if (!friend || friend.status === "removed") {
+        console.log("Amico rimosso, filtrato da filteredFriends:", friend?.pub);
+        return false;
+      }
+      return true;
+    });
+
+    // Poi applica il filtro di ricerca
+    if (!searchQuery) return activeAndValidFriends;
+
+    return activeAndValidFriends.filter((friend) =>
       friend.username?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [friendsWithNames, searchQuery]);

@@ -11,6 +11,9 @@ const FriendItem = ({
 }) => {
   const [avatar, setAvatar] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [isUnblocking, setIsUnblocking] = useState(false);
 
   useEffect(() => {
     const loadAvatar = async () => {
@@ -24,6 +27,39 @@ const FriendItem = ({
 
     loadAvatar();
   }, [friend.pub]);
+
+  const handleRemove = async (e) => {
+    e.stopPropagation();
+    setIsRemoving(true);
+    try {
+      await onRemove(friend.pub);
+    } finally {
+      setIsRemoving(false);
+      setShowMenu(false);
+    }
+  };
+
+  const handleBlock = async (e) => {
+    e.stopPropagation();
+    setIsBlocking(true);
+    try {
+      await onBlock(friend.pub);
+    } finally {
+      setIsBlocking(false);
+      setShowMenu(false);
+    }
+  };
+
+  const handleUnblock = async (e) => {
+    e.stopPropagation();
+    setIsUnblocking(true);
+    try {
+      await onUnblock(friend.pub);
+    } finally {
+      setIsUnblocking(false);
+      setShowMenu(false);
+    }
+  };
 
   return (
     <div
@@ -62,6 +98,7 @@ const FriendItem = ({
             setShowMenu(!showMenu);
           }}
           className="p-1 text-gray-400 hover:text-gray-300 transition-colors relative"
+          disabled={isRemoving || isBlocking || isUnblocking}
         >
           <svg
             className="w-5 h-5"
@@ -81,36 +118,105 @@ const FriendItem = ({
               <div className="py-1" role="menu">
                 {friend.isBlocked ? (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUnblock(friend.pub);
-                      setShowMenu(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white"
+                    onClick={handleUnblock}
+                    disabled={isUnblocking}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Sblocca utente
+                    {isUnblocking ? (
+                      <span className="flex items-center">
+                        <svg
+                          className="animate-spin -ml-1 mr-2 h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Sbloccando...
+                      </span>
+                    ) : (
+                      "Sblocca utente"
+                    )}
                   </button>
                 ) : (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onBlock(friend.pub);
-                      setShowMenu(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white"
+                    onClick={handleBlock}
+                    disabled={isBlocking}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-[#4A4F76] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Blocca utente
+                    {isBlocking ? (
+                      <span className="flex items-center">
+                        <svg
+                          className="animate-spin -ml-1 mr-2 h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Bloccando...
+                      </span>
+                    ) : (
+                      "Blocca utente"
+                    )}
                   </button>
                 )}
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(friend.pub);
-                    setShowMenu(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-[#4A4F76] hover:text-red-300"
+                  onClick={handleRemove}
+                  disabled={isRemoving}
+                  className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-[#4A4F76] hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Rimuovi amico
+                  {isRemoving ? (
+                    <span className="flex items-center">
+                      <svg
+                        className="animate-spin -ml-1 mr-2 h-4 w-4"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                      Rimuovendo...
+                    </span>
+                  ) : (
+                    "Rimuovi amico"
+                  )}
                 </button>
               </div>
             </div>

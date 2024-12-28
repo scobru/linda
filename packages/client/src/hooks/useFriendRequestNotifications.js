@@ -60,7 +60,7 @@ export const useFriendRequestNotifications = () => {
     gun
       .get(`${DAPP_NAME}/all_friend_requests`)
       .map()
-      .once((request, requestId) => {
+      .once(async (request, requestId) => {
         if (!request || !requestId || requestId === "_") return;
         console.log("Richiesta esistente trovata:", { request, requestId });
 
@@ -68,10 +68,23 @@ export const useFriendRequestNotifications = () => {
           request.to === user.is.pub &&
           (!request.status || request.status === "pending")
         ) {
+          // Carica l'alias dell'utente che ha inviato la richiesta
+          const senderAlias = await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get("users")
+              .get(request.from)
+              .get("alias")
+              .once((alias) => {
+                resolve(alias || request.from);
+              });
+          });
+
           setPendingRequests((prev) => {
             const newRequest = {
               id: requestId,
               ...request,
+              displayName: senderAlias,
               timestamp: request.timestamp || Date.now(),
             };
             const existing = prev.find((r) => r.id === requestId);

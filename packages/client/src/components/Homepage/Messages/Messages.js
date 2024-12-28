@@ -446,18 +446,49 @@ export default function Messages({ isMobileView = false, onBack }) {
 
   // Funzione per uscire dal canale
   const handleLeaveChannel = async () => {
-    if (!selected?.roomId || !selected?.type === "channel") return;
+    if (!selected?.roomId || selected?.type !== "channel") return;
+
     try {
-      await channelsV2.leave(selected.roomId, (response) => {
-        if (response.success) {
-          toast.success("Hai lasciato il canale");
-        } else {
-          throw new Error(response.error);
-        }
+      // Rimuovi l'utente dai membri del canale
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(selected.roomId)
+        .get("members")
+        .get(user.is.pub)
+        .put(null);
+
+      // Aggiungi un messaggio di sistema
+      const messageId = `system_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(selected.roomId)
+        .get("messages")
+        .get(messageId)
+        .put({
+          id: messageId,
+          type: "system",
+          content: `👋 ${
+            appState.user.is.alias || "Utente"
+          } ha lasciato il canale`,
+          sender: "system",
+          timestamp: Date.now(),
+        });
+
+      // Rimuovi il canale dalla lista dei canali dell'utente
+      await gun.user().get("channels").get(selected.roomId).put(null);
+
+      toast.success("Hai lasciato il canale");
+      updateAppState({
+        ...appState,
+        selected: null,
       });
     } catch (error) {
       console.error("Errore nell'uscita dal canale:", error);
-      toast.error("Errore nell'uscita dal canale");
+      toast.error(error.message || "Errore nell'uscita dal canale");
     }
   };
 

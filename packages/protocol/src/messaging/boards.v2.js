@@ -21,9 +21,24 @@ const boardExists = async (name) => {
 };
 
 // Funzione per formattare il nome utente
-const formatUserName = (pub) => {
-  const alias = user.is.alias || 'Utente';
-  return pub === user.is.pub ? `${alias} (tu)` : alias;
+const formatUserName = async (pub) => {
+  if (pub === user.is.pub) {
+    return `${user.is.alias || 'Utente'} (tu)`;
+  }
+
+  // Recupera l'alias dell'utente dal database
+  const alias = await new Promise((resolve) => {
+    gun
+      .get(DAPP_NAME)
+      .get('users')
+      .get(pub)
+      .get('alias')
+      .once((alias) => {
+        resolve(alias || 'Utente');
+      });
+  });
+
+  return alias;
 };
 
 export const boardsV2 = {
@@ -72,7 +87,7 @@ export const boardsV2 = {
         .get(DAPP_NAME)
         .get('boards')
         .get(boardId)
-        .put(board, (ack) => {
+        .put(board, async (ack) => {
           if (ack.err) {
             callback({ success: false, error: ack.err });
             return;
@@ -81,12 +96,11 @@ export const boardsV2 = {
           const messageId = `system_${Date.now()}_${Math.random()
             .toString(36)
             .substr(2, 9)}`;
+          const userName = await formatUserName(user.is.pub);
           const systemMessage = {
             id: messageId,
             type: 'system',
-            content: `📌 Board "${boardData.name}" creata da ${formatUserName(
-              user.is.pub
-            )}`,
+            content: `📌 Board "${boardData.name}" creata da ${userName}`,
             sender: 'system',
             timestamp: Date.now(),
           };
@@ -191,6 +205,7 @@ export const boardsV2 = {
         });
 
       const messageId = `system_${Date.now()}`;
+      const userName = await formatUserName(userPub);
       gun
         .get(DAPP_NAME)
         .get('boards')
@@ -200,9 +215,7 @@ export const boardsV2 = {
         .put({
           id: messageId,
           type: 'system',
-          content: `👑 ${formatUserName(
-            userPub
-          )} è stato promosso ad amministratore`,
+          content: `👑 ${userName} è stato promosso ad amministratore`,
           sender: 'system',
           timestamp: Date.now(),
         });
@@ -241,6 +254,7 @@ export const boardsV2 = {
         .put(null);
 
       const messageId = `system_${Date.now()}`;
+      const userName = await formatUserName(userPub);
       gun
         .get(DAPP_NAME)
         .get('boards')
@@ -250,7 +264,7 @@ export const boardsV2 = {
         .put({
           id: messageId,
           type: 'system',
-          content: `👋 ${formatUserName(userPub)} non è più amministratore`,
+          content: `👋 ${userName} non è più amministratore`,
           sender: 'system',
           timestamp: Date.now(),
         });

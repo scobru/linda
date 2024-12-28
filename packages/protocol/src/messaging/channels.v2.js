@@ -272,46 +272,66 @@ export const channelsV2 = {
 
       if (!channel) throw new Error('Canale non trovato');
 
+      // Recupera l'alias dell'utente
+      const userAlias = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get('users')
+          .get(user.is.pub)
+          .get('alias')
+          .once((alias) => {
+            resolve(alias || 'Utente');
+          });
+      });
+
       // Rimuovi l'utente dai membri del canale
-      await gun
-        .get(DAPP_NAME)
-        .get('channels')
-        .get(channelId)
-        .get('members')
-        .map()
-        .once((member, key) => {
-          if (member && member.pub === user.is.pub) {
-            gun
-              .get(DAPP_NAME)
-              .get('channels')
-              .get(channelId)
-              .get('members')
-              .get(key)
-              .put(null);
-          }
-        });
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('channels')
+          .get(channelId)
+          .get('members')
+          .get(user.is.pub)
+          .put(null, (ack) => {
+            if (ack.err) reject(new Error(ack.err));
+            else resolve();
+          });
+      });
 
       // Rimuovi il canale dalla lista dei canali dell'utente
-      await gun.user().get('channels').get(channelId).put(null);
+      await new Promise((resolve, reject) => {
+        gun
+          .user()
+          .get('channels')
+          .get(channelId)
+          .put(null, (ack) => {
+            if (ack.err) reject(new Error(ack.err));
+            else resolve();
+          });
+      });
 
-      // Notifica gli altri membri
-      await gun
+      // Aggiungi un messaggio di sistema per l'uscita
+      const messageId = `system_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      gun
         .get(DAPP_NAME)
         .get('channels')
         .get(channelId)
         .get('messages')
-        .set({
-          id: `system_${Date.now()}`,
+        .get(messageId)
+        .put({
+          id: messageId,
           type: 'system',
-          content: `👋 ${formatUserName(user.is.pub)} ha lasciato il canale`,
-          timestamp: Date.now(),
+          content: `👋 ${userAlias} ha lasciato il canale`,
           sender: 'system',
+          timestamp: Date.now(),
         });
 
-      return callback({ success: true });
+      callback({ success: true });
     } catch (error) {
       console.error('Errore uscita dal canale:', error);
-      return callback({ success: false, error: error.message });
+      callback({ success: false, error: error.message });
     }
   },
 

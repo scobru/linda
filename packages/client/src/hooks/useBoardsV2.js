@@ -219,6 +219,18 @@ export const useBoardsV2 = () => {
         setLoading(true);
         console.log("Inizio processo di uscita dalla board:", boardId);
 
+        // Recupera l'alias dell'utente
+        const userAlias = await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(appState.user.is.pub)
+            .get("alias")
+            .once((alias) => {
+              resolve(alias || "Utente");
+            });
+        });
+
         // 1. Rimuoviamo completamente il nodo del membro
         await new Promise((resolve, reject) => {
           gun
@@ -233,6 +245,24 @@ export const useBoardsV2 = () => {
               else resolve();
             });
         });
+
+        // Aggiungi il messaggio di sistema con l'alias corretto
+        const messageId = `system_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        gun
+          .get(DAPP_NAME)
+          .get("boards")
+          .get(boardId)
+          .get("messages")
+          .get(messageId)
+          .put({
+            id: messageId,
+            type: "system",
+            content: `${userAlias} ha lasciato la board`,
+            sender: "system",
+            timestamp: Date.now(),
+          });
 
         // 2. Verifichiamo che il membro sia stato rimosso
         const memberData = await new Promise((resolve) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { messaging } from "linda-protocol";
+import { messaging, gun, DAPP_NAME } from "linda-protocol";
 import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 import AudioPlayer from "./AudioPlayer";
 
@@ -22,8 +22,25 @@ const MessageBox = ({
       if (!message.sender) return;
 
       try {
-        const username = await getUserUsername(message.sender);
-        setSenderName(isOwnMessage ? "Tu" : username || "Utente sconosciuto");
+        // Prima prova a recuperare l'alias dal database
+        const alias = await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("users")
+            .get(message.sender)
+            .get("alias")
+            .once((alias) => {
+              resolve(alias);
+            });
+        });
+
+        if (alias) {
+          setSenderName(isOwnMessage ? "Tu" : alias);
+        } else {
+          // Se non trova l'alias, usa il nome utente come fallback
+          const username = await getUserUsername(message.sender);
+          setSenderName(isOwnMessage ? "Tu" : username || "Utente sconosciuto");
+        }
 
         const avatar = await getUserAvatar(message.sender);
         setSenderAvatar(avatar);
@@ -39,7 +56,35 @@ const MessageBox = ({
     const decryptMessage = async () => {
       try {
         if (message.type === "system") {
-          setDecryptedContent(message.content);
+          // Se è un messaggio di sistema, cerca di sostituire le chiavi pubbliche con gli alias
+          if (message.content) {
+            // Modifica l'espressione regolare per catturare sia le chiavi che iniziano con - che quelle senza
+            const pubKeys =
+              message.content.match(/(?:\s|^)([a-zA-Z0-9_-]{43,})(?:\s|$)/g) ||
+              [];
+            let updatedContent = message.content;
+
+            for (const pubKey of pubKeys) {
+              const cleanPubKey = pubKey.trim(); // Rimuove spazi iniziali e finali
+              const alias = await new Promise((resolve) => {
+                gun
+                  .get(DAPP_NAME)
+                  .get("users")
+                  .get(cleanPubKey)
+                  .get("alias")
+                  .once((alias) => {
+                    resolve(alias || cleanPubKey);
+                  });
+              });
+              updatedContent = updatedContent.replace(cleanPubKey, alias);
+            }
+            console.log("Contenuto originale:", message.content);
+            console.log("Chiavi pubbliche trovate:", pubKeys);
+            console.log("Contenuto aggiornato:", updatedContent);
+            setDecryptedContent(updatedContent);
+          } else {
+            setDecryptedContent(message.content);
+          }
           return;
         }
 
@@ -211,22 +256,24 @@ const MessageBox = ({
       <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
         <div
           className={`max-w-[70%] rounded-lg p-3 ${
-            isOwnMessage
-              ? "bg-blue-500 text-white rounded-br-none"
-              : "bg-[#2D325A] text-white rounded-bl-none"
+            message.type === "system"
+              ? "bg-[#1E2235] text-gray-300 italic"
+              : isOwnMessage
+              ? "bg-[#4A90E2] text-white rounded-br-none"
+              : "bg-[#373B5C] text-white rounded-bl-none"
           }`}
         >
           <div className="flex flex-col">
             {renderContent()}
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-gray-300">
+              <span className="text-xs text-gray-200">
                 {new Date(message.timestamp).toLocaleTimeString()}
               </span>
               <div className="flex space-x-2">
                 {showDeleteButton && (
                   <button
                     onClick={() => onDelete(message.id)}
-                    className="text-xs text-red-400 hover:text-red-300"
+                    className="text-xs text-red-300 hover:text-red-200"
                   >
                     Elimina
                   </button>
@@ -234,7 +281,7 @@ const MessageBox = ({
                 {showRemoveMember && (
                   <button
                     onClick={() => onRemoveMember(message.sender)}
-                    className="text-xs text-yellow-400 hover:text-yellow-300"
+                    className="text-xs text-yellow-300 hover:text-yellow-200"
                   >
                     Rimuovi membro
                   </button>
@@ -248,4 +295,4 @@ const MessageBox = ({
   );
 };
 
-export default MessageBox;
+export default React.memo(MessageBox);
