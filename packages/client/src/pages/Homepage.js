@@ -6,17 +6,12 @@ import Header from "../components/Header";
 import Friends from "../components/Homepage/Friends/Friends";
 import Boards from "../components/Homepage/Boards/Boards";
 import { useMobileView } from "../hooks/useMobileView";
-import { useChannels } from "../hooks/useChannels";
-import { useBoards } from "../hooks/useBoards";
-import { useMessages } from "../hooks/useMessages";
+import { channelsV2, boardsV2, messaging } from "linda-protocol";
 
 export default function Homepage() {
   const { appState, currentView, setCurrentView, updateAppState } =
     useAppState();
   const { isMobileView, showSidebar, setShowSidebar } = useMobileView();
-  const channelService = useChannels();
-  const boardService = useBoards();
-  const messageService = useMessages();
 
   if (!appState.isAuthenticated) {
     return (
@@ -106,9 +101,9 @@ export default function Homepage() {
     const isChannel = appState.selected.type !== "friend";
     const messageHandler = isChannel
       ? appState.selected.type === "channel"
-        ? channelService
-        : boardService
-      : messageService;
+        ? channelsV2
+        : boardsV2
+      : messaging;
 
     return (
       <Messages
