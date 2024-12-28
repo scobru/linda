@@ -184,8 +184,16 @@ const sendMessage = async (
     console.log('Message encrypted successfully');
 
     // Cripta l'anteprima
-    const previewContent =
-      content.substring(0, 50) + (content.length > 50 ? '...' : '');
+    let previewContent;
+    if (typeof content === 'string') {
+      previewContent =
+        content.substring(0, 50) + (content.length > 50 ? '...' : '');
+    } else if (content.type === 'voice') {
+      previewContent = '[Messaggio vocale]';
+    } else {
+      previewContent = '[Contenuto non testuale]';
+    }
+
     const encryptedPreview = await messageList.encryptMessage(
       previewContent,
       recipientPub

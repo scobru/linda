@@ -14,16 +14,17 @@ import { gun, DAPP_NAME } from "linda-protocol";
 import { getUserUsername } from "../../../utils/userUtils";
 
 const Friends = ({
-  onSelect,
   selectedUser,
   pendingRequests = [],
   loading = false,
   onRequestProcessed,
+  onMobileSelect,
 }) => {
-  const { appState } = useAppState();
+  const { appState, updateAppState } = useAppState();
   const { friends, removeFriend, blockUser, unblockUser } = useFriends();
   const [searchQuery, setSearchQuery] = useState("");
   const [friendsWithNames, setFriendsWithNames] = useState([]);
+  const isMobile = window.innerWidth <= 768;
 
   // Gestione richieste di amicizia
   const handleRequestProcessed = useCallback(
@@ -63,12 +64,13 @@ const Friends = ({
   // Carica i nomi degli amici
   useEffect(() => {
     const loadFriendsInfo = async () => {
-      if (!friends) return;
+      if (!friends || !appState.user?.is?.pub) return;
 
       const friendsInfo = await Promise.all(
         friends.map(async (friend) => {
           try {
             const displayName = await getUserUsername(friend.pub);
+            const roomId = [friend.pub, appState.user.is.pub].sort().join("_");
             return {
               ...friend,
               displayName:
@@ -76,18 +78,19 @@ const Friends = ({
                 friend.nickname ||
                 friend.username ||
                 `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
-              roomId: [friend.pub, appState.pub].sort().join("_"),
+              roomId,
               type: "friend",
             };
           } catch (error) {
             console.warn("Errore caricamento info amico:", error);
+            const roomId = [friend.pub, appState.user.is.pub].sort().join("_");
             return {
               ...friend,
               displayName:
                 friend.nickname ||
                 friend.username ||
                 `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
-              roomId: [friend.pub, appState.pub].sort().join("_"),
+              roomId,
               type: "friend",
             };
           }
@@ -98,7 +101,7 @@ const Friends = ({
     };
 
     loadFriendsInfo();
-  }, [friends, appState.pub]);
+  }, [friends, appState.user?.is?.pub]);
 
   const handleSelectFriend = useCallback(
     (friend) => {
@@ -106,9 +109,38 @@ const Friends = ({
         toast.error("Non puoi chattare con un utente bloccato");
         return;
       }
-      onSelect(friend);
+
+      console.log("Selezionando amico:", friend);
+
+      // Usa il chatId come roomId se disponibile
+      const roomId =
+        friend.chatId || [friend.pub, appState.user.is.pub].sort().join("_");
+
+      // Aggiorna lo stato globale
+      updateAppState({
+        selected: {
+          ...friend,
+          roomId,
+        },
+        currentChat: {
+          ...friend,
+          roomId,
+        },
+        activeChat: {
+          id: roomId,
+          type: "friend",
+          name: friend.displayName,
+          pub: friend.pub,
+          isGroup: false,
+        },
+      });
+
+      // Se siamo in modalità mobile, mostra la chat
+      if (isMobile) {
+        onMobileSelect?.(true);
+      }
     },
-    [onSelect]
+    [updateAppState, isMobile, onMobileSelect, appState.user?.is?.pub]
   );
 
   const handleRemoveFriend = useCallback(

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import Context from "../../../contexts/context";
+import { useAppState } from "../../../context/AppContext";
 import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
 import { messaging, blocking } from "linda-protocol";
@@ -18,8 +18,9 @@ import { useFriends } from "../../../hooks/useFriends";
 import { useMessageNotifications } from "../../../hooks/useMessageNotifications";
 
 const { userBlocking } = blocking;
-const { channels, messageList } = messaging;
+const { channels } = messaging;
 const { chat } = messaging;
+const { messageList } = messaging.messages;
 
 // Componente per l'area di input
 const InputArea = ({
@@ -131,9 +132,15 @@ const InputArea = ({
 };
 
 export default function Messages({ chatData, isMobileView = false, onBack }) {
-  const { selected, setCurrentChat } = React.useContext(Context);
+  const { appState } = useAppState();
+  const selected = appState.selected;
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const { unblockUser } = useFriends();
+
+  // Log per debug
+  console.log("Messages - AppState:", appState);
+  console.log("Messages - Selected:", selected);
+  console.log("Messages - ChatData:", chatData);
 
   // Utilizzo dei custom hooks
   const {
@@ -159,16 +166,20 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     handleDeleteAllMessages,
     handleVoiceMessage,
     messageTracking,
-  } = useMessageSending(selected, messages, updateMessages);
+  } = useMessageSending(selected);
 
   const { currentIsMobileView } = useMobileView(isMobileView);
 
   // Effetto per caricare i messaggi quando cambia la chat
   useEffect(() => {
-    if (selected?.roomId || selected?.id) {
+    console.log(
+      "Messages - Caricamento messaggi per roomId:",
+      selected?.roomId
+    );
+    if (selected?.roomId) {
       loadMessages();
     }
-  }, [selected?.roomId, selected?.id, loadMessages]);
+  }, [selected?.roomId, loadMessages]);
 
   // Effetto per scrollare in basso quando arrivano nuovi messaggi
   useEffect(() => {
@@ -179,6 +190,16 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       }
     }
   }, [messages]);
+
+  // Log per debug invio messaggi
+  useEffect(() => {
+    console.log("Messages - Stato invio:", {
+      canWrite,
+      isBlocked,
+      selected,
+      messages: messages.length,
+    });
+  }, [canWrite, isBlocked, selected, messages]);
 
   // Renderizza i messaggi
   const renderMessages = () => {
@@ -268,8 +289,35 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     if (!selected?.roomId && !selected?.id) return;
 
     try {
-      // Usa clearMessages dal hook useMessages
-      await clearMessages();
+      // Usa gun direttamente per cancellare i messaggi
+      const messagesRef = gun
+        .get(DAPP_NAME)
+        .get("chats")
+        .get(selected.roomId)
+        .get("messages");
+
+      await new Promise((resolve) => {
+        const unsubscribe = messagesRef.map().once((msg, msgId) => {
+          if (msg) {
+            messagesRef.get(msgId).put(null);
+          }
+        });
+
+        // Assicurati che la sottoscrizione venga pulita
+        setTimeout(() => {
+          if (typeof unsubscribe === "function") {
+            unsubscribe();
+          }
+          resolve(true);
+        }, 500);
+      });
+
+      // Cancella anche il nodo dei messaggi
+      await new Promise((resolve) => {
+        messagesRef.put(null, (ack) => {
+          resolve(!ack.err);
+        });
+      });
 
       toast.success("Chat cancellata con successo");
     } catch (error) {

@@ -1,13 +1,12 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, SEA, DAPP_NAME } from '../useGun.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 import { messageNotifications } from '../notifications/index.js';
-import { blocking } from '../index.js';
+import { userBlocking } from '../blocking/index.js';
 import { messageIntegrity } from './messageIntegrity.js';
 import { channelsV2 } from './channels.v2.js';
 import { boardsV2 } from './boards.v2.js';
 import { messageList } from './messageList.js';
-
-const { userBlocking } = blocking;
+import sendVoiceMessage from './sendVoiceMessage.js';
 
 /**
  * Servizio unificato per la messaggistica
@@ -262,6 +261,15 @@ export const messaging = {
    * Servizio per le board
    */
   boards: boardsV2,
+
+  /**
+   * Servizio per i messaggi vocali
+   */
+  voice: {
+    send: sendVoiceMessage,
+  },
 };
 
+// Esporta i servizi V2 individualmente
+export { channelsV2, boardsV2 };
 export default messaging;

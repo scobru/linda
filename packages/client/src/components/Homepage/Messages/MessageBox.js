@@ -10,15 +10,6 @@ const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
   const [senderAvatar, setSenderAvatar] = useState(null);
 
   useEffect(() => {
-    console.log("MessageBox - Messaggio ricevuto:", {
-      type: message.type,
-      content: message.content?.substring(0, 100) + "...",
-      isVoice: message.type === "voice",
-      isAudio: message.content?.startsWith("data:audio"),
-    });
-  }, [message]);
-
-  useEffect(() => {
     const loadUserInfo = async () => {
       if (!message.sender) return;
 
@@ -48,6 +39,12 @@ const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
     : "Data non disponibile";
 
   const isRead = messageTracking?.[message.id]?.read;
+
+  // Verifica se il messaggio è vocale
+  const isVoiceMessage =
+    typeof message.content === "string" &&
+    message.content.startsWith("[VOICE]");
+  const audioUrl = isVoiceMessage ? message.content.substring(7) : null;
 
   return (
     <div className="mb-4 px-4">
@@ -114,15 +111,8 @@ const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
           }`}
         >
           <div className="flex flex-col">
-            {message.type === "voice" ||
-            message.content?.startsWith("data:audio") ? (
-              <>
-                {console.log("Rendering AudioPlayer con:", {
-                  type: message.type,
-                  contentStart: message.content?.substring(0, 100),
-                })}
-                <AudioPlayer audioUrl={message.content} />
-              </>
+            {isVoiceMessage ? (
+              <AudioPlayer audioUrl={audioUrl} />
             ) : (
               <div className="break-words">
                 {typeof message.content === "string"

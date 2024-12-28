@@ -1,16 +1,9 @@
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useContext,
-} from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
 import { friendsService } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
-import Context from "../contexts/context";
 import { useChat } from "../hooks/useChat";
 import { useFriendRequestNotifications } from "../hooks/useFriendRequestNotifications";
 import { Observable } from "rxjs";
@@ -19,26 +12,22 @@ import { Observable } from "rxjs";
 import Friends from "../components/Homepage/Friends/Friends";
 import Messages from "../components/Homepage/Messages/Messages";
 import Header from "../components/Header";
+import ChannelList from "../components/Homepage/Channels/ChannelList";
+import BoardList from "../components/Homepage/Boards/BoardList";
+import CreateChannel from "../components/Homepage/Channels/CreateChannel";
+import CreateBoard from "../components/Homepage/Boards/CreateBoard";
 
 export default function Homepage() {
   const navigate = useNavigate();
-  const { appState, updateAppState } = useAppState();
-  const {
-    setFriends: setOldFriends,
-    setSelected: setOldSelected,
-    selected: oldSelected,
-    friends: oldFriends,
-    setConnectionState,
-    currentView,
-    setCurrentView,
-  } = useContext(Context);
+  const { appState, updateAppState, currentView, setCurrentView } =
+    useAppState();
 
   // Stati locali
   const [loading, setLoading] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
-  const [activeView, setActiveView] = useState("chats");
   const [chatRoomId, setChatRoomId] = useState(null);
   const [isMobileView, setIsMobileView] = useState(window.innerWidth <= 768);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Integrazione useChat e notifiche
   const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
@@ -73,7 +62,7 @@ export default function Homepage() {
 
         if (mounted) {
           await loadInitialData();
-          setConnectionState("online");
+          updateAppState({ connectionState: "online" });
           subscribeFriendships();
         }
       } catch (error) {
@@ -128,7 +117,9 @@ export default function Homepage() {
             : friendship.user1;
 
         // Verifica se l'amico è già presente
-        const existingFriend = oldFriends.find((f) => f.pub === friendPub);
+        const existingFriend = appState.friends.find(
+          (f) => f.pub === friendPub
+        );
         if (existingFriend) return;
 
         try {
@@ -162,7 +153,9 @@ export default function Homepage() {
               chatId: [friendPub, appState.user.is.pub].sort().join("_"),
             };
 
-            setOldFriends((prev) => [...prev, newFriend]);
+            updateAppState((prev) => ({
+              friends: [...prev.friends, newFriend],
+            }));
           }
         } catch (error) {
           console.error("Errore caricamento dati amico:", error);
@@ -190,7 +183,7 @@ export default function Homepage() {
           ...friend,
           chatId: [friend.pub, appState.user.is.pub].sort().join("_"),
         }));
-        setOldFriends(friendsWithChatId);
+        updateAppState({ friends: friendsWithChatId });
         friendsRef.current = new Set(friendsWithChatId.map((f) => f.pub));
       }
     } catch (error) {
@@ -214,23 +207,44 @@ export default function Homepage() {
     }
   };
 
-  // Gestione cambio vista
-  const handleViewChange = (view) => {
-    setActiveView(view);
-    setCurrentView(view);
-  };
-
   // Effetto per gestire il cambio di chat selezionata
   useEffect(() => {
-    if (oldSelected && oldSelected.pub) {
-      const roomId = [appState.user.is.pub, oldSelected.pub].sort().join("_");
-      setChatRoomId(roomId);
-    } else if (oldSelected && oldSelected.roomId) {
-      setChatRoomId(oldSelected.roomId);
+    console.log("Cambio selezione:", {
+      selected: appState.selected,
+      user: appState.user?.is,
+    });
+
+    if (!appState.user?.is?.pub) {
+      console.log("Utente non autenticato");
+      return;
+    }
+
+    if (appState.selected) {
+      console.log("Chat selezionata:", appState.selected);
+
+      if (appState.selected.pub) {
+        const roomId = [appState.user.is.pub, appState.selected.pub]
+          .sort()
+          .join("_");
+        console.log("Impostazione roomId per chat privata:", roomId);
+        setChatRoomId(roomId);
+      } else if (appState.selected.roomId) {
+        console.log(
+          "Impostazione roomId per gruppo:",
+          appState.selected.roomId
+        );
+        setChatRoomId(appState.selected.roomId);
+      }
     } else {
+      console.log("Nessuna chat selezionata");
       setChatRoomId(null);
     }
-  }, [oldSelected, appState.user.is.pub]);
+  }, [appState.selected, appState.user?.is?.pub]);
+
+  // Effetto per monitorare il chatRoomId
+  useEffect(() => {
+    console.log("ChatRoomId aggiornato:", chatRoomId);
+  }, [chatRoomId]);
 
   // Effetto per gestire il resize della finestra
   useEffect(() => {
@@ -246,137 +260,124 @@ export default function Homepage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Gestione selezione canale/chat
-  const handleSelect = useCallback(
-    (selected) => {
-      console.log("Selezione:", selected);
-
-      // Aggiorna il vecchio contesto
-      setOldSelected(selected.item);
-
-      // Aggiorna il nuovo contesto
-      updateAppState({
-        selected: selected.item,
-        currentChat: {
-          ...selected.item,
-          type: selected.type,
-          isGroup: true,
-        },
-        activeChat: {
-          id: selected.item.roomId || selected.item.pub,
-          type: selected.type,
-          name: selected.item.name,
-          pub: selected.item.pub,
-          isGroup: true,
-          members: selected.item.members,
-          creator: selected.item.creator,
-          settings: selected.item.settings,
-        },
-      });
-
-      // Gestione vista mobile
-      if (isMobileView) {
-        setShowMobileChat(true);
-      }
-    },
-    [setOldSelected, updateAppState, isMobileView]
-  );
-
-  // Gestione ritorno alla lista in vista mobile
-  const handleBackToList = useCallback(() => {
-    setShowMobileChat(false);
-  }, []);
-
-  // Gestione richieste di amicizia processate
-  const handleRequestProcessed = useCallback(
-    async (requestId, action) => {
-      // Se la richiesta è già stata processata, ignora
-      if (processedRequestsRef.current.has(requestId)) {
-        console.log(`Richiesta ${requestId} già processata, ignoro`);
-        return;
-      }
-
-      console.log(
-        `Homepage: Richiesta ${requestId} processata con azione ${action}`
-      );
-
-      // Marca la richiesta come processata
-      processedRequestsRef.current.add(requestId);
-
-      // Rimuovi immediatamente la richiesta dalla lista delle pendenti
-      removeRequest(requestId);
-
-      // Se la richiesta è stata accettata, aggiorna la lista amici
-      if (action === "accept") {
-        try {
-          await loadInitialData();
-          toast.success("Richiesta di amicizia accettata");
-        } catch (error) {
-          console.error("Errore nell'aggiornamento della lista amici:", error);
-          toast.error("Errore nell'aggiornamento della lista amici");
-        }
-      } else {
-        toast.success("Richiesta di amicizia rifiutata");
-      }
-    },
-    [removeRequest, loadInitialData]
-  );
-
-  // Reset del ref quando cambia l'utente
-  useEffect(() => {
-    processedRequestsRef.current.clear();
-  }, [appState.user?.is?.pub]);
-
   return (
-    <div className="flex flex-col h-screen max-h-screen">
-      <Header />
+    <div className="flex h-screen bg-[#1E2140]">
+      <div
+        className={`w-full md:w-80 bg-[#1E2140] border-r border-[#2D325A] flex flex-col ${
+          showMobileChat ? "hidden md:flex" : "flex"
+        }`}
+      >
+        <Header />
 
-      {/* Container principale */}
-      <div className="flex flex-1 min-h-0 bg-[#373B5C]">
-        {/* Sidebar */}
-        <div
-          className={`${
-            isMobileView && showMobileChat ? "hidden" : "flex"
-          } w-full md:w-[320px] lg:w-[380px] flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
-        >
-          {/* Lista chat */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <Friends
-              onSelect={(friend) =>
-                handleSelect({ item: friend, type: "chat" })
-              }
-              pendingRequests={pendingRequests}
-              loading={loading}
-              selectedUser={oldSelected}
-              friends={oldFriends}
-              onRequestProcessed={handleRequestProcessed}
-            />
-          </div>
+        {/* Navigation Buttons */}
+        <div className="p-4 flex space-x-2">
+          <button
+            onClick={() => setCurrentView("chats")}
+            className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              currentView === "chats"
+                ? "bg-blue-600 text-white"
+                : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
+            }`}
+          >
+            Chat
+          </button>
+          <button
+            onClick={() => setCurrentView("channels")}
+            className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              currentView === "channels"
+                ? "bg-blue-600 text-white"
+                : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
+            }`}
+          >
+            Canali
+          </button>
+          <button
+            onClick={() => setCurrentView("boards")}
+            className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              currentView === "boards"
+                ? "bg-blue-600 text-white"
+                : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
+            }`}
+          >
+            Board
+          </button>
         </div>
 
-        {/* Area chat */}
-        <div
-          className={`${
-            isMobileView && !showMobileChat ? "hidden" : "flex"
-          } flex-1 flex-col min-h-0 bg-[#424874]`}
-        >
-          {oldSelected ? (
-            <Messages
-              key={oldSelected.pub || oldSelected.roomId || oldSelected.id}
-              chatData={oldSelected}
-              messages={messages}
-              loading={chatLoading}
-              onSendMessage={sendMessage}
-              isMobileView={isMobileView}
-              onBack={handleBackToList}
+        {/* Create Button for Channels and Boards */}
+        {(currentView === "channels" || currentView === "boards") && (
+          <div className="px-4 mb-4">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              {currentView === "channels" ? "Nuovo Canale" : "Nuova Board"}
+            </button>
+          </div>
+        )}
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          {currentView === "chats" && (
+            <Friends
+              selectedUser={appState.selected}
+              pendingRequests={pendingRequests}
+              loading={loading || requestsLoading}
+              onRequestProcessed={removeRequest}
+              onMobileSelect={setShowMobileChat}
             />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-gray-300">Seleziona un amico per chattare</p>
-            </div>
           )}
+          {currentView === "channels" && <ChannelList />}
+          {currentView === "boards" && <BoardList />}
         </div>
       </div>
+
+      {/* Chat Area */}
+      <div
+        className={`flex-1 ${!showMobileChat ? "hidden md:block" : "block"}`}
+      >
+        <Messages
+          messages={messages}
+          loading={chatLoading}
+          onSend={sendMessage}
+          selected={appState.selected}
+          showBackButton={isMobileView}
+          onBack={() => setShowMobileChat(false)}
+        />
+      </div>
+
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#2D325A] rounded-lg w-full max-w-md">
+            <div className="flex justify-between items-center p-4 border-b border-[#4A4F76]">
+              <h2 className="text-xl font-bold text-white">
+                {currentView === "channels" ? "Nuovo Canale" : "Nuova Board"}
+              </h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4">
+              {currentView === "channels" ? (
+                <CreateChannel
+                  onChannelCreated={() => {
+                    setShowCreateModal(false);
+                  }}
+                />
+              ) : (
+                <CreateBoard
+                  onBoardCreated={() => {
+                    setShowCreateModal(false);
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

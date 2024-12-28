@@ -1,61 +1,67 @@
 import { useState, useCallback } from "react";
-import { useMessages } from "./useMessages";
-import { useGroupMessages } from "./useGroupMessages";
+import { messaging, gun, DAPP_NAME } from "linda-protocol";
 import { toast } from "react-hot-toast";
+
+const { chat } = messaging;
 
 export const useMessageSending = (selected) => {
   const [newMessage, setNewMessage] = useState("");
 
-  // Usa l'hook appropriato in base al tipo di chat
-  const {
-    sendMessage: sendPrivateMessage,
-    deleteMessage: deletePrivateMessage,
-  } = useMessages(selected.type === "friend" ? selected : null);
-
-  const { sendMessage: sendGroupMessage, deleteMessage: deleteGroupMessage } =
-    useGroupMessages(
-      selected.type !== "friend" ? selected.id : null,
-      selected.type
-    );
-
   const sendMessage = useCallback(async () => {
+    if (!selected) {
+      toast.error("Nessuna chat selezionata");
+      return;
+    }
+
     if (!newMessage.trim()) return;
+
+    console.log("Tentativo invio messaggio:", {
+      selected,
+      content: newMessage.trim(),
+    });
 
     const messageContent = newMessage.trim();
     setNewMessage("");
 
     try {
-      // Usa la funzione appropriata in base al tipo di chat
-      const success =
-        selected.type === "friend"
-          ? await sendPrivateMessage(messageContent)
-          : await sendGroupMessage(messageContent);
-
-      if (!success) {
-        setNewMessage(messageContent);
-      }
+      // Usa la funzione sendMessage con callback
+      return new Promise((resolve, reject) => {
+        chat.sendMessage(
+          selected.roomId,
+          selected.pub,
+          messageContent,
+          (result) => {
+            if (result.success) {
+              console.log("Messaggio inviato con successo:", result);
+              resolve(true);
+            } else {
+              console.error("Errore invio messaggio:", result.errMessage);
+              setNewMessage(messageContent);
+              reject(new Error(result.errMessage));
+            }
+          }
+        );
+      });
     } catch (error) {
       console.error("Errore invio messaggio:", error);
       toast.error("Errore nell'invio del messaggio");
       setNewMessage(messageContent);
+      return false;
     }
-  }, [newMessage, sendPrivateMessage, sendGroupMessage, selected.type]);
-
-  const deleteMessage = useCallback(
-    (messageId) => {
-      return selected.type === "friend"
-        ? deletePrivateMessage(messageId)
-        : deleteGroupMessage(messageId);
-    },
-    [deletePrivateMessage, deleteGroupMessage, selected.type]
-  );
+  }, [newMessage, selected]);
 
   const handleVoiceMessage = useCallback(
     async (audioBlob) => {
+      if (!selected) {
+        toast.error("Nessuna chat selezionata");
+        return;
+      }
+
       if (!audioBlob) return;
 
       try {
         console.log("Preparazione messaggio vocale:", {
+          selected,
           blobType: audioBlob.type,
           blobSize: audioBlob.size,
         });
@@ -63,48 +69,61 @@ export const useMessageSending = (selected) => {
         // Converti il blob in base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
+
         reader.onloadend = async () => {
           const audioUrl = reader.result;
           console.log("Audio convertito in URL data");
 
-          // Crea il messaggio vocale
-          const messageData = {
-            content: audioUrl,
-            type: "voice",
-            timestamp: Date.now(),
-            metadata: {
-              duration: audioBlob.duration || 0,
-              size: audioBlob.size || 0,
-              mimeType: audioBlob.type || "audio/webm",
-            },
-          };
+          // Invia il messaggio vocale come stringa
+          const messageContent = `[VOICE]${audioUrl}`;
 
-          console.log("Invio messaggio vocale");
-          // Usa la funzione appropriata in base al tipo di chat
-          const success =
-            selected.type === "friend"
-              ? await sendPrivateMessage(messageData)
-              : await sendGroupMessage(messageData);
-
-          if (success) {
-            toast.success("Messaggio vocale inviato");
-          } else {
-            toast.error("Errore nell'invio del messaggio vocale");
-          }
+          chat.sendMessage(
+            selected.roomId,
+            selected.pub,
+            messageContent,
+            (result) => {
+              if (result.success) {
+                console.log("Messaggio vocale inviato con successo:", result);
+                toast.success("Messaggio vocale inviato");
+              } else {
+                console.error(
+                  "Errore invio messaggio vocale:",
+                  result.errMessage
+                );
+                toast.error("Errore nell'invio del messaggio vocale");
+              }
+            }
+          );
         };
       } catch (error) {
         console.error("Errore invio messaggio vocale:", error);
         toast.error("Errore nell'invio del messaggio vocale");
       }
     },
-    [sendPrivateMessage, sendGroupMessage, selected.type]
+    [selected]
+  );
+
+  const handleDeleteMessage = useCallback(
+    (messageId) => {
+      if (!selected?.roomId || !messageId) return;
+
+      try {
+        // Usa la funzione deleteMessage di messaging.chat
+        chat.deleteMessage(selected.roomId, messageId);
+        toast.success("Messaggio eliminato");
+      } catch (error) {
+        console.error("Errore eliminazione messaggio:", error);
+        toast.error("Errore nell'eliminazione del messaggio");
+      }
+    },
+    [selected]
   );
 
   return {
     newMessage,
     setNewMessage,
     sendMessage,
-    deleteMessage,
+    handleDeleteMessage,
     handleVoiceMessage,
   };
 };

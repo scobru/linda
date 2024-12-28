@@ -26,6 +26,24 @@ import {
 } from './utils/userUtils.js';
 import { sessionManager } from './authentication/sessionManager.js';
 
+// Importa i servizi V2 prima degli altri moduli
+import {
+  channelsV2,
+  boardsV2,
+  messaging as messagingService,
+} from './messaging/index.js';
+
+// Poi importa gli altri moduli che potrebbero dipendere da useGun
+import * as authentication from './authentication/index.js';
+import * as blocking from './blocking/index.js';
+import * as friends from './friends/index.js';
+import * as notes from './notes/index.js';
+import * as notifications from './notifications/index.js';
+import * as security from './security/index.js';
+import * as system from './system/index.js';
+import * as todos from './todos/index.js';
+import * as posts from './posts/index.js';
+
 // Esporta le funzionalità di base
 export {
   gun,
@@ -40,26 +58,18 @@ export {
   getPeers,
   walletService,
   sessionManager,
+  channelsV2,
+  boardsV2,
 };
 
-// Poi importa gli altri moduli che potrebbero dipendere da useGun
-import * as authentication from './authentication/index.js';
-import * as blocking from './blocking/index.js';
-import * as friends from './friends/index.js';
-import * as messaging from './messaging/index.js';
-import * as notes from './notes/index.js';
-import * as notifications from './notifications/index.js';
-import * as security from './security/index.js';
-import * as system from './system/index.js';
-import * as todos from './todos/index.js';
-import * as posts from './posts/index.js';
+// Rinomina messagingService come messaging per l'esportazione
+export const messaging = messagingService;
 
 // Esporta i moduli completi
 export {
   authentication,
   blocking,
   friends,
-  messaging,
   notes,
   notifications,
   security,
@@ -89,10 +99,6 @@ export const {
   removeFriend,
   friendsService,
 } = friends;
-
-// Esporta le funzionalità di messaggistica
-export const { createChat, messageList, sendMessage, sendVoiceMessage } =
-  messaging;
 
 // Esporta le funzionalità delle note
 export const { createNote, deleteNote, getNote, updateNote, getUserNotes } =
@@ -200,7 +206,6 @@ export default {
   authentication,
   blocking,
   friends,
-  messaging,
   notes,
   notifications,
   security,
