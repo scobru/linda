@@ -278,24 +278,31 @@ export const useMessages = (selected) => {
         const id = selected.type === "friend" ? selected.roomId : selected.id;
         const recipientPub = selected.type === "friend" ? selected.pub : null;
 
-        if (selected.type === "friend" && !recipientPub) {
-          throw new Error("Destinatario non specificato per messaggio privato");
-        }
-
-        console.log("Invio messaggio:", {
+        console.log("useMessages - Preparazione invio messaggio:", {
+          content:
+            typeof content === "string" ? content.substring(0, 100) : "object",
+          type,
+          isObject: typeof content === "object",
+          hasType: content?.type,
           path,
           id,
-          content,
-          type,
-          recipientPub,
-          selected,
         });
+
+        if (typeof content === "object" && content.type) {
+          // Se riceviamo un oggetto messaggio completo, usiamo quello
+          console.log("Invio messaggio con oggetto completo:", {
+            type: content.type,
+            contentPreview: content.content?.substring(0, 100),
+          });
+
+          const result = await chat.messageList.sendMessage(path, id, content);
+          return result;
+        }
 
         // Per messaggi privati, verifica e crea i certificati se necessario
         if (selected.type === "friend") {
           try {
             await ensureCertificates(recipientPub);
-            console.log("Certificati verificati con successo");
           } catch (error) {
             console.error("Errore verifica certificati:", error);
             throw new Error("Impossibile verificare i permessi di chat");
@@ -304,7 +311,6 @@ export const useMessages = (selected) => {
           const result = await new Promise((resolve, reject) => {
             chat.sendMessage(id, recipientPub, content, (result) => {
               if (result.success) {
-                // Aggiungi il messaggio alla lista locale immediatamente
                 const newMessage = {
                   id: result.messageId,
                   content: content,
@@ -313,6 +319,14 @@ export const useMessages = (selected) => {
                   timestamp: Date.now(),
                   type: type,
                 };
+
+                console.log("Messaggio privato inviato:", {
+                  type: newMessage.type,
+                  contentPreview:
+                    typeof newMessage.content === "string"
+                      ? newMessage.content.substring(0, 100)
+                      : "object",
+                });
 
                 setMessages((prev) =>
                   [...prev, newMessage].sort(
@@ -333,14 +347,27 @@ export const useMessages = (selected) => {
 
           return result;
         }
-        // Per canali e bacheche, usa il servizio appropriato
+        // Per canali e bacheche
         else {
           const service = selected.type === "channel" ? channels : chat;
+          const messageData = {
+            content,
+            type,
+            timestamp: Date.now(),
+          };
+
+          console.log("Invio messaggio a canale/bacheca:", {
+            type: messageData.type,
+            contentPreview:
+              typeof messageData.content === "string"
+                ? messageData.content.substring(0, 100)
+                : "object",
+          });
+
           const result = await service.messageList.sendMessage(
             path,
             id,
-            content,
-            type
+            messageData
           );
 
           if (!result || !result.success) {
@@ -349,24 +376,10 @@ export const useMessages = (selected) => {
             );
           }
 
-          // Aggiungi il messaggio alla lista locale immediatamente
-          const newMessage = {
-            id: result.messageId,
-            content: content,
-            sender: user.is.pub,
-            timestamp: Date.now(),
-            type: type,
-          };
-
-          setMessages((prev) =>
-            [...prev, newMessage].sort((a, b) => a.timestamp - b.timestamp)
-          );
-
           return result;
         }
       } catch (error) {
         console.error("Errore invio messaggio:", error);
-        toast.error(error.message || "Errore nell'invio del messaggio");
         throw error;
       }
     },

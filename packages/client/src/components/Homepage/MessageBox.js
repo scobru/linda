@@ -3,10 +3,20 @@ import { formatDistanceToNow } from "date-fns";
 import { it } from "date-fns/locale";
 import { user } from "linda-protocol";
 import { getUserUsername, getUserAvatar } from "../../utils/userUtils";
+import AudioPlayer from "./AudioPlayer";
 
 const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
   const [senderName, setSenderName] = useState(isOwnMessage ? "Tu" : "...");
   const [senderAvatar, setSenderAvatar] = useState(null);
+
+  useEffect(() => {
+    console.log("MessageBox - Messaggio ricevuto:", {
+      type: message.type,
+      content: message.content?.substring(0, 100) + "...",
+      isVoice: message.type === "voice",
+      isAudio: message.content?.startsWith("data:audio"),
+    });
+  }, [message]);
 
   useEffect(() => {
     const loadUserInfo = async () => {
@@ -104,7 +114,22 @@ const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {
           }`}
         >
           <div className="flex flex-col">
-            <div className="break-words">{message.content}</div>
+            {message.type === "voice" ||
+            message.content?.startsWith("data:audio") ? (
+              <>
+                {console.log("Rendering AudioPlayer con:", {
+                  type: message.type,
+                  contentStart: message.content?.substring(0, 100),
+                })}
+                <AudioPlayer audioUrl={message.content} />
+              </>
+            ) : (
+              <div className="break-words">
+                {typeof message.content === "string"
+                  ? message.content
+                  : "[Invalid message]"}
+              </div>
+            )}
             <div className="flex items-center justify-end mt-1 space-x-1">
               <span className="text-xs opacity-75">{formattedTime}</span>
               {isOwnMessage && (

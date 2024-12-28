@@ -30,12 +30,31 @@ export const useMessageSending = (selected) => {
       if (!audioBlob) return;
 
       try {
+        console.log("Preparazione messaggio vocale:", {
+          blobType: audioBlob.type,
+          blobSize: audioBlob.size,
+        });
+
         // Converti il blob in base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result;
-          const success = await sendMessageToGun(base64Audio, "voice");
+          console.log("Audio convertito in base64:", {
+            length: base64Audio.length,
+            preview: base64Audio.substring(0, 100) + "...",
+          });
+
+          // Crea il messaggio con tipo esplicito
+          const messageData = {
+            content: base64Audio,
+            type: "voice",
+            timestamp: Date.now(),
+          };
+
+          console.log("Invio messaggio vocale:", messageData);
+          const success = await sendMessageToGun(messageData);
+
           if (success) {
             toast.success("Messaggio vocale inviato");
           }
