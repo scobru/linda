@@ -2,49 +2,92 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { messaging, gun, DAPP_NAME } from "linda-protocol";
 import { toast } from "react-hot-toast";
 
+const { messageList } = messaging.messages;
+
 export const useMessages = (selected) => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [authorizedMembers, setAuthorizedMembers] = useState({});
   const subscriptionRef = useRef(null);
+
+  // Carica la lista dei membri autorizzati per la board
+  const loadAuthorizedMembers = useCallback(async () => {
+    if (!selected?.roomId || selected.type !== "board") return;
+
+    try {
+      gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(selected.roomId)
+        .get("members")
+        .map()
+        .once((data, key) => {
+          if (data) {
+            setAuthorizedMembers((prev) => ({ ...prev, [key]: data }));
+          }
+        });
+    } catch (error) {
+      console.error("Errore caricamento membri autorizzati:", error);
+    }
+  }, [selected]);
+
+  // Verifica se un utente è autorizzato a scrivere nella board
+  const isAuthorizedMember = useCallback(
+    (userPub) => {
+      if (selected?.type !== "board") return true;
+      if (selected?.creator === userPub) return true; // Il creatore è sempre autorizzato
+      return authorizedMembers[userPub] === true;
+    },
+    [selected, authorizedMembers]
+  );
 
   const loadMessages = useCallback(async () => {
     if (!selected?.roomId) return;
 
     setLoading(true);
     try {
-      // Ottieni i messaggi in base al tipo di chat
-      const path =
-        selected.type === "channel"
-          ? "channels"
-          : selected.type === "board"
-          ? "boards"
-          : "chats";
+      // Carica i membri autorizzati se è una board
+      if (selected.type === "board") {
+        await loadAuthorizedMembers();
+      }
 
-      const messagesRef = gun
-        .get(DAPP_NAME)
-        .get(path)
-        .get(selected.roomId)
-        .get("messages");
+      if (selected.type === "chat") {
+        // Per le chat private, usa messageList.getMessages
+        const privateMessages = await messageList.getMessages(selected.pub);
+        setMessages(privateMessages.sort((a, b) => a.timestamp - b.timestamp));
+      } else {
+        const path =
+          selected.type === "channel"
+            ? "channels"
+            : selected.type === "board"
+            ? "boards"
+            : "chats";
 
-      // Sottoscrizione ai messaggi
-      const subscription = messagesRef.map().once((data, id) => {
-        if (data) {
-          setMessages((prev) => {
-            // Evita duplicati
-            const exists = prev.some((msg) => msg.id === id);
-            if (!exists) {
-              return [...prev, { ...data, id }].sort(
-                (a, b) => a.timestamp - b.timestamp
-              );
-            }
-            return prev;
-          });
-        }
-      });
+        const messagesRef = gun
+          .get(DAPP_NAME)
+          .get(path)
+          .get(selected.roomId)
+          .get("messages");
 
-      // Salva il riferimento alla sottoscrizione
-      subscriptionRef.current = subscription;
+        // Sottoscrizione ai messaggi
+        const subscription = messagesRef.map().once((data, id) => {
+          if (data) {
+            setMessages((prev) => {
+              // Evita duplicati
+              const exists = prev.some((msg) => msg.id === id);
+              if (!exists) {
+                return [...prev, { ...data, id }].sort(
+                  (a, b) => a.timestamp - b.timestamp
+                );
+              }
+              return prev;
+            });
+          }
+        });
+
+        subscriptionRef.current = subscription;
+      }
     } catch (error) {
       console.error("Errore caricamento messaggi:", error);
       setError(error);
@@ -52,7 +95,7 @@ export const useMessages = (selected) => {
     } finally {
       setLoading(false);
     }
-  }, [selected]);
+  }, [selected, loadAuthorizedMembers]);
 
   // Cleanup quando cambia la selezione
   useEffect(() => {
@@ -63,6 +106,7 @@ export const useMessages = (selected) => {
         subscriptionRef.current.off();
       }
       setMessages([]);
+      setAuthorizedMembers({});
     };
   }, [selected?.roomId, loadMessages]);
 
@@ -71,5 +115,7 @@ export const useMessages = (selected) => {
     loading,
     error,
     loadMessages,
+    isAuthorizedMember,
+    authorizedMembers,
   };
 };

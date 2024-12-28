@@ -1,21 +1,21 @@
 import React, { useState, useEffect } from "react";
-import { formatDistanceToNow } from "date-fns";
-import { it } from "date-fns/locale";
-import { user } from "linda-protocol";
+import { messaging } from "linda-protocol";
 import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 import AudioPlayer from "./AudioPlayer";
 
-export default function MessageBox({
+const MessageBox = ({
   message,
   isOwnMessage,
   onDelete,
-  messageTracking,
   showDeleteButton,
   showRemoveMember,
   onRemoveMember,
-}) {
+  isVoiceMessage,
+}) => {
+  const [decryptedContent, setDecryptedContent] = useState("");
   const [senderName, setSenderName] = useState(isOwnMessage ? "Tu" : "...");
   const [senderAvatar, setSenderAvatar] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
 
   useEffect(() => {
     const loadUserInfo = async () => {
@@ -35,96 +35,169 @@ export default function MessageBox({
     loadUserInfo();
   }, [message.sender, isOwnMessage]);
 
-  if (!message) {
-    return null;
-  }
+  useEffect(() => {
+    const decryptMessage = async () => {
+      try {
+        if (message.type === "system") {
+          setDecryptedContent(message.content);
+          return;
+        }
 
-  const formattedTime = message.timestamp
-    ? formatDistanceToNow(new Date(message.timestamp), {
-        addSuffix: true,
-        locale: it,
-      })
-    : "Data non disponibile";
+        const recipientPub = isOwnMessage ? message.recipient : message.sender;
+        const decrypted = await messaging.messages.decrypt(
+          message,
+          recipientPub
+        );
+        let content = decrypted.content || message.content;
 
-  const isRead = messageTracking?.[message.id]?.read;
+        // Verifica se è un messaggio vocale
+        const isVoice =
+          message.type === "voice" ||
+          content.startsWith("[VOICE]") ||
+          content.startsWith("data:audio");
 
-  // Verifica se il messaggio è vocale
-  const isVoiceMessage =
-    typeof message.content === "string" &&
-    message.content.startsWith("[VOICE]");
-  const audioUrl = isVoiceMessage ? message.content.substring(7) : null;
+        if (isVoice) {
+          // Rimuovi il prefisso [VOICE] se presente
+          if (content.startsWith("[VOICE]")) {
+            content = content.replace("[VOICE]", "");
+          }
+
+          // Verifica che sia un URL audio valido
+          if (content.startsWith("data:audio")) {
+            setAudioUrl(content);
+            setDecryptedContent(null); // Non mostrare il contenuto testuale per i messaggi vocali
+          } else {
+            console.error(
+              "Formato audio non valido:",
+              content.substring(0, 100)
+            );
+            setDecryptedContent("Errore nel caricamento del messaggio vocale");
+            setAudioUrl(null);
+          }
+        } else {
+          setDecryptedContent(content);
+          setAudioUrl(null);
+        }
+      } catch (error) {
+        console.error("Errore decrittazione messaggio:", error);
+        setDecryptedContent("Errore nella decrittazione del messaggio");
+        setAudioUrl(null);
+      }
+    };
+
+    decryptMessage();
+  }, [message, isOwnMessage]);
+
+  const renderContent = () => {
+    if (audioUrl) {
+      return <AudioPlayer audioUrl={audioUrl} />;
+    }
+
+    if (decryptedContent) {
+      return <div className="break-words">{decryptedContent}</div>;
+    }
+
+    return (
+      <p className="text-red-400 text-sm">
+        Errore nel caricamento del messaggio
+      </p>
+    );
+  };
 
   return (
-    <div
-      className={`p-4 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
-    >
+    <div className="mb-4 px-4">
       <div
-        className={`max-w-[70%] ${
-          isOwnMessage ? "bg-blue-500" : "bg-[#2D325A]"
-        } rounded-lg p-3 relative group`}
+        className={`flex items-center mb-1 ${
+          isOwnMessage ? "justify-end" : "justify-start"
+        }`}
       >
-        <div className="flex items-start space-x-2">
-          <div className="flex-1">
-            <div className="text-gray-300 text-sm mb-1">
-              {message.senderAlias || "Utente"}
+        {!isOwnMessage && (
+          <>
+            <div className="w-8 h-8 rounded-full flex-shrink-0">
+              {senderAvatar ? (
+                <img
+                  className="w-full h-full rounded-full object-cover"
+                  src={senderAvatar}
+                  alt="Avatar"
+                />
+              ) : (
+                <img
+                  className="w-full h-full rounded-full"
+                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${senderName}&backgroundColor=b6e3f4`}
+                  alt="Avatar predefinito"
+                />
+              )}
             </div>
-            <div className="text-white break-words">{message.content}</div>
-            <div className="text-gray-400 text-xs mt-1">
-              {new Date(message.timestamp).toLocaleTimeString()}
+            <div className="ml-2 flex flex-col">
+              <span className="text-sm text-white font-medium break-words">
+                {senderName}
+              </span>
             </div>
-          </div>
-          <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            {showDeleteButton && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="p-1 hover:bg-[#4A4F76] rounded-full text-gray-400 hover:text-white"
-                title="Elimina messaggio"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-              </button>
-            )}
-            {showRemoveMember && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemoveMember();
-                }}
-                className="p-1 hover:bg-[#4A4F76] rounded-full text-gray-400 hover:text-white"
-                title="Rimuovi membro dalla board"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6"
-                  />
-                </svg>
-              </button>
-            )}
+          </>
+        )}
+        {isOwnMessage && (
+          <>
+            <div className="mr-2 flex flex-col items-end">
+              <span className="text-sm text-white font-medium break-words">
+                {senderName}
+              </span>
+            </div>
+            <div className="w-8 h-8 rounded-full flex-shrink-0">
+              {senderAvatar ? (
+                <img
+                  className="w-full h-full rounded-full object-cover"
+                  src={senderAvatar}
+                  alt="Avatar"
+                />
+              ) : (
+                <img
+                  className="w-full h-full rounded-full"
+                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${senderName}&backgroundColor=b6e3f4`}
+                  alt="Avatar predefinito"
+                />
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`max-w-[70%] rounded-lg p-3 ${
+            isOwnMessage
+              ? "bg-blue-500 text-white rounded-br-none"
+              : "bg-[#2D325A] text-white rounded-bl-none"
+          }`}
+        >
+          <div className="flex flex-col">
+            {renderContent()}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-gray-300">
+                {new Date(message.timestamp).toLocaleTimeString()}
+              </span>
+              <div className="flex space-x-2">
+                {showDeleteButton && (
+                  <button
+                    onClick={() => onDelete(message.id)}
+                    className="text-xs text-red-400 hover:text-red-300"
+                  >
+                    Elimina
+                  </button>
+                )}
+                {showRemoveMember && (
+                  <button
+                    onClick={() => onRemoveMember(message.sender)}
+                    className="text-xs text-yellow-400 hover:text-yellow-300"
+                  >
+                    Rimuovi membro
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default MessageBox;

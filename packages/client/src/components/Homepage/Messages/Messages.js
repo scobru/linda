@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
-import { messaging, blocking, channelsV2, boardsV2 } from "linda-protocol";
+import { messaging, blocking } from "linda-protocol";
 import { gun, user, DAPP_NAME } from "linda-protocol";
 import { walletService } from "linda-protocol";
 import { formatEther, parseEther } from "ethers";
@@ -19,9 +19,8 @@ import { useMessageNotifications } from "../../../hooks/useMessageNotifications"
 import { useWallet } from "../../../hooks/useWallet";
 
 const { userBlocking } = blocking;
-const { channels } = messaging;
+const { channels, channelsV2, messageList } = messaging;
 const { chat } = messaging;
-const { messageList } = messaging.messages;
 
 // Componente per l'area di input
 const InputArea = ({
@@ -137,6 +136,7 @@ export default function Messages({ isMobileView = false, onBack }) {
   const selected = appState.selected;
   const [newMessage, setNewMessage] = useState("");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [messageStates, setMessageStates] = useState({});
   const { unblockUser } = useFriends();
   const { walletService } = useWallet();
 
@@ -155,21 +155,11 @@ export default function Messages({ isMobileView = false, onBack }) {
     loadMoreMessages,
     sendMessage: updateMessages,
     clearMessages,
+    isAuthorizedMember,
   } = useMessages(selected);
 
   const { chatUserInfo, chatUserAvatar } = useChatUser(selected);
   const { canWrite, isBlocked, blockStatus } = useChatPermissions(selected);
-
-  // Usiamo useMessageSending solo per chat private e canali
-  const {
-    newMessage: privateMessage,
-    setNewMessage: setPrivateMessage,
-    sendMessage: sendPrivateMessage,
-    handleDeleteMessage,
-    handleVoiceMessage,
-    messageTracking,
-  } = useMessageSending(selected);
-
   const { currentIsMobileView } = useMobileView(isMobileView);
 
   // Funzione per inviare messaggi
@@ -177,33 +167,80 @@ export default function Messages({ isMobileView = false, onBack }) {
     if (!newMessage.trim()) return;
 
     try {
-      if (selected.type === "board" || selected.type === "channel") {
-        // Gestione messaggi board e canali usando Gun
+      if (selected.type === "board") {
+        // Verifica se l'utente è autorizzato a scrivere nella board
+        if (!isAuthorizedMember(appState.user.is.pub)) {
+          toast.error("Non sei autorizzato a scrivere in questa board");
+          return;
+        }
+
+        // Gestione messaggi board usando Gun
         const messageId = `msg_${Date.now()}_${Math.random()
           .toString(36)
           .substr(2, 9)}`;
         const message = {
           id: messageId,
           content: newMessage,
-          sender: appState.pub,
-          senderAlias: appState.alias,
+          sender: appState.user.is.pub,
+          senderAlias: appState.user.is.alias,
           timestamp: Date.now(),
           type: "text",
         };
 
         await gun
           .get(DAPP_NAME)
-          .get(selected.type === "board" ? "boards" : "channels")
+          .get("boards")
           .get(selected.roomId)
           .get("messages")
           .get(messageId)
           .put(message);
 
-        // Resetta il campo di input
+        setNewMessage("");
+      } else if (selected.type === "channel") {
+        // Per i canali
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        const messageData = {
+          id: messageId,
+          content: newMessage,
+          sender: appState.user.is.pub,
+          timestamp: Date.now(),
+          type: "text",
+        };
+        await channelsV2.sendMessage(selected.roomId, messageData);
         setNewMessage("");
       } else {
-        // Solo per le chat private usiamo il hook esistente
-        await sendPrivateMessage();
+        // Per le chat private
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        const messageData = {
+          id: messageId,
+          content: newMessage,
+          sender: appState.user.is.pub,
+          timestamp: Date.now(),
+          type: "text",
+        };
+
+        await new Promise((resolve, reject) => {
+          chat.sendMessage(
+            selected.chatId,
+            selected.pub,
+            newMessage,
+            (result) => {
+              if (result.success) {
+                resolve(result);
+              } else {
+                reject(
+                  new Error(result.errMessage || "Errore invio messaggio")
+                );
+              }
+            }
+          );
+        });
+
+        setNewMessage("");
       }
     } catch (error) {
       console.error("Errore invio messaggio:", error);
@@ -395,13 +432,35 @@ export default function Messages({ isMobileView = false, onBack }) {
       return;
 
     try {
+      // Rimuovi il membro dalla lista dei membri autorizzati
       await gun
         .get(DAPP_NAME)
         .get("boards")
         .get(selected.roomId)
         .get("members")
         .get(memberPub)
-        .put(null);
+        .put(false); // Impostiamo a false invece di null per mantenere traccia dei membri rimossi
+
+      // Aggiungi un messaggio di sistema
+      const messageId = `system_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const message = {
+        id: messageId,
+        content: `${appState.alias} ha rimosso un membro dalla board`,
+        sender: appState.pub,
+        senderAlias: "Sistema",
+        timestamp: Date.now(),
+        type: "system",
+      };
+
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(selected.roomId)
+        .get("messages")
+        .get(messageId)
+        .put(message);
 
       toast.success("Membro rimosso dalla board");
     } catch (error) {
@@ -432,6 +491,106 @@ export default function Messages({ isMobileView = false, onBack }) {
     } catch (error) {
       console.error("Errore cancellazione messaggio:", error);
       toast.error("Errore durante la cancellazione del messaggio");
+    }
+  };
+
+  // Funzione per gestire i messaggi vocali
+  const handleVoiceMessage = async (audioBlob) => {
+    if (!selected?.roomId) return;
+
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+
+      reader.onloadend = async () => {
+        const audioUrl = reader.result;
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        const message = {
+          id: messageId,
+          content: `[VOICE]${audioUrl}`,
+          sender: appState.user.is.pub,
+          senderAlias: appState.user.is.alias,
+          timestamp: Date.now(),
+          type: "voice",
+        };
+
+        try {
+          if (selected.type === "board") {
+            await gun
+              .get(DAPP_NAME)
+              .get("boards")
+              .get(selected.roomId)
+              .get("messages")
+              .get(messageId)
+              .put(message);
+          } else if (selected.type === "channel") {
+            await channelsV2.sendMessage(selected.roomId, message);
+          } else {
+            // Per le chat private
+            await new Promise((resolve, reject) => {
+              chat.sendMessage(
+                selected.chatId,
+                selected.pub,
+                `[VOICE]${audioUrl}`,
+                (result) => {
+                  if (result.success) {
+                    resolve(result);
+                  } else {
+                    reject(
+                      new Error(
+                        result.errMessage || "Errore invio messaggio vocale"
+                      )
+                    );
+                  }
+                }
+              );
+            });
+          }
+
+          toast.success("Messaggio vocale inviato");
+        } catch (error) {
+          console.error("Errore invio messaggio:", error);
+          toast.error("Errore nell'invio del messaggio");
+        }
+      };
+    } catch (error) {
+      console.error("Errore invio messaggio vocale:", error);
+      toast.error("Errore nell'invio del messaggio vocale");
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    if (!selected?.roomId) return;
+
+    try {
+      if (selected.type === "board") {
+        await gun
+          .get(DAPP_NAME)
+          .get("boards")
+          .get(selected.roomId)
+          .get("messages")
+          .get(messageId)
+          .put(null);
+      } else if (selected.type === "channel") {
+        await channelsV2.deleteMessage(selected.roomId, messageId);
+      } else {
+        // Per le chat private
+        await gun
+          .get(DAPP_NAME)
+          .get("chats")
+          .get(selected.roomId)
+          .get("messages")
+          .get(messageId)
+          .put(null);
+      }
+
+      toast.success("Messaggio eliminato con successo");
+      loadMessages(); // Ricarica i messaggi
+    } catch (error) {
+      console.error("Errore eliminazione messaggio:", error);
+      toast.error("Errore durante l'eliminazione del messaggio");
     }
   };
 
@@ -610,6 +769,25 @@ export default function Messages({ isMobileView = false, onBack }) {
                   />
                 </svg>
               </button>
+              <button
+                onClick={handleClearChat}
+                className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+                title="Cancella messaggi"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
               {isBlocked && (
                 <button
                   onClick={handleUnblock}
@@ -650,23 +828,25 @@ export default function Messages({ isMobileView = false, onBack }) {
             <MessageBox
               key={message.id}
               message={message}
-              isOwnMessage={message.sender === appState.pub}
-              onDelete={() =>
-                selected.type === "board" && selected.creator === appState.pub
-                  ? handleDeleteBoardMessage(message.id)
-                  : handleDeleteMessage(message.id)
-              }
-              messageTracking={messageTracking}
+              isOwnMessage={message.sender === appState.user.is.pub}
+              onDelete={handleDeleteMessage}
+              messageStates={messageStates}
               showDeleteButton={
-                message.sender === appState.pub ||
-                (selected.type === "board" && selected.creator === appState.pub)
+                message.sender === appState.user.is.pub ||
+                (selected.type === "board" &&
+                  selected.creator === appState.user.is.pub)
               }
               showRemoveMember={
                 selected.type === "board" &&
-                selected.creator === appState.pub &&
-                message.sender !== appState.pub
+                selected.creator === appState.user.is.pub &&
+                message.sender !== appState.user.is.pub
               }
-              onRemoveMember={() => handleRemoveMember(message.sender)}
+              onRemoveMember={handleRemoveMember}
+              isVoiceMessage={
+                message.type === "voice" ||
+                message.content?.startsWith("[VOICE]") ||
+                message.content?.startsWith("data:audio")
+              }
             />
           ))
         )}
@@ -676,10 +856,8 @@ export default function Messages({ isMobileView = false, onBack }) {
       {canWrite ? (
         <InputArea
           canWrite={canWrite}
-          newMessage={selected.type === "board" ? newMessage : privateMessage}
-          setNewMessage={
-            selected.type === "board" ? setNewMessage : setPrivateMessage
-          }
+          newMessage={newMessage}
+          setNewMessage={setNewMessage}
           sendMessage={handleSendMessage}
           handleVoiceMessage={handleVoiceMessage}
           selected={selected}
