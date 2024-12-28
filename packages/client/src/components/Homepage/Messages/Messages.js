@@ -381,8 +381,14 @@ export default function Messages({ isMobileView = false, onBack }) {
     try {
       await unblockUser(selected.pub);
       toast.success("Utente sbloccato con successo");
-      // Ricarica lo stato dei permessi
-      window.location.reload();
+      // Aggiorna lo stato dell'app per riflettere lo sblocco
+      updateAppState({
+        ...appState,
+        selected: {
+          ...selected,
+          isBlocked: false,
+        },
+      });
     } catch (error) {
       console.error("Errore sblocco utente:", error);
       toast.error("Errore durante lo sblocco dell'utente");
