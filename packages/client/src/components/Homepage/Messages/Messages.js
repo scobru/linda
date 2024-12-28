@@ -177,18 +177,32 @@ export default function Messages({ isMobileView = false, onBack }) {
     if (!newMessage.trim()) return;
 
     try {
-      if (selected.type === "board") {
-        // Gestione messaggi board
-        await boardsV2.sendMessage(selected.roomId, {
+      if (selected.type === "board" || selected.type === "channel") {
+        // Gestione messaggi board e canali usando Gun
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        const message = {
+          id: messageId,
           content: newMessage,
-          timestamp: Date.now(),
           sender: appState.pub,
+          senderAlias: appState.alias,
+          timestamp: Date.now(),
           type: "text",
-        });
+        };
+
+        await gun
+          .get(DAPP_NAME)
+          .get(selected.type === "board" ? "boards" : "channels")
+          .get(selected.roomId)
+          .get("messages")
+          .get(messageId)
+          .put(message);
+
+        // Resetta il campo di input
         setNewMessage("");
-        loadMessages();
       } else {
-        // Per chat private e canali usiamo il hook esistente
+        // Solo per le chat private usiamo il hook esistente
         await sendPrivateMessage();
       }
     } catch (error) {
@@ -368,6 +382,56 @@ export default function Messages({ isMobileView = false, onBack }) {
     } catch (error) {
       console.error("Errore nell'eliminazione del canale:", error);
       toast.error("Errore nell'eliminazione del canale");
+    }
+  };
+
+  // Funzione per rimuovere un membro dalla board
+  const handleRemoveMember = async (memberPub) => {
+    if (
+      !selected?.roomId ||
+      !selected?.type === "board" ||
+      selected.creator !== appState.pub
+    )
+      return;
+
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(selected.roomId)
+        .get("members")
+        .get(memberPub)
+        .put(null);
+
+      toast.success("Membro rimosso dalla board");
+    } catch (error) {
+      console.error("Errore rimozione membro:", error);
+      toast.error("Errore durante la rimozione del membro");
+    }
+  };
+
+  // Funzione per cancellare un messaggio (per il creatore)
+  const handleDeleteBoardMessage = async (messageId) => {
+    if (
+      !selected?.roomId ||
+      !selected?.type === "board" ||
+      selected.creator !== appState.pub
+    )
+      return;
+
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(selected.roomId)
+        .get("messages")
+        .get(messageId)
+        .put(null);
+
+      toast.success("Messaggio cancellato");
+    } catch (error) {
+      console.error("Errore cancellazione messaggio:", error);
+      toast.error("Errore durante la cancellazione del messaggio");
     }
   };
 
@@ -586,9 +650,23 @@ export default function Messages({ isMobileView = false, onBack }) {
             <MessageBox
               key={message.id}
               message={message}
-              isOwnMessage={message.sender === appState.user?.is?.pub}
-              onDelete={() => handleDeleteMessage(message.id)}
+              isOwnMessage={message.sender === appState.pub}
+              onDelete={() =>
+                selected.type === "board" && selected.creator === appState.pub
+                  ? handleDeleteBoardMessage(message.id)
+                  : handleDeleteMessage(message.id)
+              }
               messageTracking={messageTracking}
+              showDeleteButton={
+                message.sender === appState.pub ||
+                (selected.type === "board" && selected.creator === appState.pub)
+              }
+              showRemoveMember={
+                selected.type === "board" &&
+                selected.creator === appState.pub &&
+                message.sender !== appState.pub
+              }
+              onRemoveMember={() => handleRemoveMember(message.sender)}
             />
           ))
         )}
