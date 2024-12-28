@@ -9,6 +9,7 @@ export const useMessages = (selected) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [authorizedMembers, setAuthorizedMembers] = useState({});
+  const [memberCount, setMemberCount] = useState(0);
   const subscriptionRef = useRef(null);
 
   // Carica la lista dei membri autorizzati per la board
@@ -16,6 +17,7 @@ export const useMessages = (selected) => {
     if (!selected?.roomId || selected.type !== "board") return;
 
     try {
+      let count = 0;
       gun
         .get(DAPP_NAME)
         .get("boards")
@@ -23,8 +25,13 @@ export const useMessages = (selected) => {
         .get("members")
         .map()
         .once((data, key) => {
-          if (data) {
+          if (
+            data &&
+            (data.canWrite === true || data.permissions?.write === true)
+          ) {
             setAuthorizedMembers((prev) => ({ ...prev, [key]: data }));
+            count++;
+            setMemberCount(count);
           }
         });
     } catch (error) {
@@ -124,5 +131,6 @@ export const useMessages = (selected) => {
     loadMessages,
     isAuthorizedMember,
     authorizedMembers,
+    memberCount,
   };
 };

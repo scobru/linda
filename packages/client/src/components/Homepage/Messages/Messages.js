@@ -132,19 +132,20 @@ const InputArea = ({
 };
 
 export default function Messages({ isMobileView = false, onBack }) {
-  const { appState, currentView } = useAppState();
-  const selected = appState.selected;
+  const { appState, updateAppState } = useAppState();
+  const { currentView } = appState;
+  const { selected } = appState;
   const [newMessage, setNewMessage] = useState("");
-  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
   const [messageStates, setMessageStates] = useState({});
-  const { unblockUser } = useFriends();
-  const { walletService } = useWallet();
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const messageEndRef = useRef(null);
+  const audioRef = useRef(null);
+  const recordingInterval = useRef(null);
 
-  // Log per debug
-  console.log("Messages - AppState:", appState);
-  console.log("Messages - Selected:", selected);
-
-  // Utilizzo dei custom hooks
   const {
     messages,
     loading,
@@ -156,11 +157,17 @@ export default function Messages({ isMobileView = false, onBack }) {
     sendMessage: updateMessages,
     clearMessages,
     isAuthorizedMember,
+    authorizedMembers,
   } = useMessages(selected);
+
+  // Log per debug
+  console.log("Messages - AppState:", appState);
+  console.log("Messages - Selected:", selected);
 
   const { chatUserInfo, chatUserAvatar } = useChatUser(selected);
   const { canWrite, isBlocked, blockStatus } = useChatPermissions(selected);
   const { currentIsMobileView } = useMobileView(isMobileView);
+  const { unblockUser } = useFriends();
 
   // Funzione per inviare messaggi
   const handleSendMessage = async () => {
@@ -374,6 +381,8 @@ export default function Messages({ isMobileView = false, onBack }) {
     try {
       await unblockUser(selected.pub);
       toast.success("Utente sbloccato con successo");
+      // Ricarica lo stato dei permessi
+      window.location.reload();
     } catch (error) {
       console.error("Errore sblocco utente:", error);
       toast.error("Errore durante lo sblocco dell'utente");
@@ -727,11 +736,20 @@ export default function Messages({ isMobileView = false, onBack }) {
                 : chatUserInfo.displayName}
             </p>
             {selected.type === "board" && (
-              <p className="text-gray-300 text-sm">
-                Creata da:{" "}
-                {selected.creator === appState.user.is.pub
-                  ? "Te"
-                  : selected.creatorAlias || "Sconosciuto"}
+              <p className="text-gray-300 text-sm flex items-center gap-2">
+                <span>
+                  Creata da:{" "}
+                  {selected.creator === appState.user.is.pub
+                    ? "Te"
+                    : selected.creatorAlias || "Sconosciuto"}
+                </span>
+                <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                <span title="Numero di membri">
+                  {Object.keys(authorizedMembers).length}{" "}
+                  {Object.keys(authorizedMembers).length === 1
+                    ? "membro"
+                    : "membri"}
+                </span>
               </p>
             )}
             {selected.type !== "channel" &&

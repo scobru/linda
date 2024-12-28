@@ -5,6 +5,7 @@ import { channelsV2 } from "linda-protocol";
 
 export default function Channels() {
   const { appState, updateAppState } = useAppState();
+  const { currentView } = appState;
   const [channels, setChannels] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -24,6 +25,7 @@ export default function Channels() {
   // Carica i canali dell'utente
   const loadChannels = async () => {
     console.log("Loading channels...");
+    setLoading(true);
     try {
       await channelsV2.list((response) => {
         console.log("Channels loaded:", response);
@@ -411,7 +413,9 @@ export default function Channels() {
                   className="w-full px-3 py-2 bg-[#373B5C] text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="public">Pubblico</option>
-                  <option value="private">Privato</option>
+                  <option value="private" disabled>
+                    Privato (Comming Soon)
+                  </option>
                 </select>
               </div>
 
