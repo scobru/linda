@@ -5,9 +5,18 @@ import Messages from "../components/Homepage/Messages/Messages";
 import Header from "../components/Header";
 import Friends from "../components/Homepage/Friends/Friends";
 import Boards from "../components/Homepage/Boards/Boards";
+import { useMobileView } from "../hooks/useMobileView";
+import { useChannels } from "../hooks/useChannels";
+import { useBoards } from "../hooks/useBoards";
+import { useMessages } from "../hooks/useMessages";
 
 export default function Homepage() {
-  const { appState, currentView, setCurrentView } = useAppState();
+  const { appState, currentView, setCurrentView, updateAppState } =
+    useAppState();
+  const { isMobileView, showSidebar, setShowSidebar } = useMobileView();
+  const channelService = useChannels();
+  const boardService = useBoards();
+  const messageService = useMessages();
 
   if (!appState.isAuthenticated) {
     return (
@@ -20,16 +29,126 @@ export default function Homepage() {
     );
   }
 
+  const handleBack = () => {
+    setShowSidebar(true);
+    updateAppState({
+      ...appState,
+      selected: null,
+    });
+  };
+
+  const handleSelect = (item) => {
+    const type =
+      currentView === "chats"
+        ? "friend"
+        : currentView === "channels"
+        ? "channel"
+        : "board";
+
+    const roomId =
+      type === "friend"
+        ? [item.pub, appState.user.is.pub].sort().join("_")
+        : item.id || item.roomId;
+
+    const updatedItem = {
+      ...item,
+      type,
+      roomId,
+    };
+
+    if (type === "friend") {
+      updateAppState({
+        ...appState,
+        selected: updatedItem,
+        currentChat: {
+          ...updatedItem,
+          roomId,
+        },
+        currentChannel: null,
+        currentBoard: null,
+      });
+    } else if (type === "channel") {
+      updateAppState({
+        ...appState,
+        selected: updatedItem,
+        currentChat: null,
+        currentChannel: updatedItem,
+        currentBoard: null,
+      });
+    } else {
+      updateAppState({
+        ...appState,
+        selected: updatedItem,
+        currentChat: null,
+        currentChannel: null,
+        currentBoard: updatedItem,
+      });
+    }
+
+    if (isMobileView) {
+      setShowSidebar(false);
+    }
+  };
+
+  // Determina se mostrare l'header
+  const shouldShowHeader =
+    !isMobileView || (isMobileView && (!appState.selected || showSidebar));
+
+  const renderMainContent = () => {
+    if (!appState.selected) {
+      return (
+        <div className="flex items-center justify-center h-full text-gray-400">
+          Seleziona una conversazione
+        </div>
+      );
+    }
+
+    const isChannel = appState.selected.type !== "friend";
+    const messageHandler = isChannel
+      ? appState.selected.type === "channel"
+        ? channelService
+        : boardService
+      : messageService;
+
+    return (
+      <Messages
+        isMobileView={isMobileView}
+        onBack={handleBack}
+        isChannel={isChannel}
+        selectedChannel={isChannel ? appState.selected : null}
+        currentChat={appState.currentChat}
+        currentChannel={appState.currentChannel}
+        messageService={messageHandler}
+      />
+    );
+  };
+
   return (
-    <div className="flex flex-col h-screen">
-      <Header />
-      <div className="flex flex-1 bg-[#1E2142] overflow-hidden">
-        <div className="w-1/4 border-r border-[#4A4F76] flex flex-col">
+    <div className="flex flex-col h-screen bg-[#1E2142]">
+      {shouldShowHeader && (
+        <div className="sticky top-0 z-50">
+          <Header />
+        </div>
+      )}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Sidebar */}
+        <div
+          className={`${
+            isMobileView
+              ? showSidebar
+                ? "w-full absolute inset-0 z-30"
+                : "hidden"
+              : "w-80"
+          } flex flex-col bg-[#1E2142] border-r border-[#4A4F76]`}
+        >
           {/* Navigation Buttons */}
-          <div className="p-4 flex space-x-2">
+          <div className="p-2 flex space-x-2 bg-[#1E2142] sticky top-0 z-10">
             <button
-              onClick={() => setCurrentView("chats")}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              onClick={() => {
+                setCurrentView("chats");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "chats"
                   ? "bg-blue-600 text-white"
                   : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
@@ -38,8 +157,11 @@ export default function Homepage() {
               Chat
             </button>
             <button
-              onClick={() => setCurrentView("channels")}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              onClick={() => {
+                setCurrentView("channels");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "channels"
                   ? "bg-blue-600 text-white"
                   : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
@@ -48,8 +170,11 @@ export default function Homepage() {
               Canali
             </button>
             <button
-              onClick={() => setCurrentView("boards")}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+              onClick={() => {
+                setCurrentView("boards");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "boards"
                   ? "bg-blue-600 text-white"
                   : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
@@ -60,20 +185,20 @@ export default function Homepage() {
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-y-auto">
-            {currentView === "chats" && (
-              <Friends
-                selectedUser={appState.selected}
-                pendingRequests={[]}
-                loading={false}
-              />
-            )}
-            {currentView === "channels" && <Channels />}
-            {currentView === "boards" && <Boards />}
+          <div className="flex-1 overflow-hidden">
+            {currentView === "chats" && <Friends onSelect={handleSelect} />}
+            {currentView === "channels" && <Channels onSelect={handleSelect} />}
+            {currentView === "boards" && <Boards onSelect={handleSelect} />}
           </div>
         </div>
-        <div className="flex-1">
-          <Messages />
+
+        {/* Main Content */}
+        <div
+          className={`${
+            isMobileView ? (showSidebar ? "hidden" : "w-full") : "flex-1"
+          } flex flex-col`}
+        >
+          {renderMainContent()}
         </div>
       </div>
     </div>

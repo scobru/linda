@@ -31,6 +31,7 @@ const InputArea = ({
   handleVoiceMessage,
   handleImageMessage,
   selected,
+  isMobileView,
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -93,7 +94,11 @@ const InputArea = ({
   };
 
   return (
-    <div className="p-3 bg-[#373B5C] border-t border-[#4A4F76]">
+    <div
+      className={`p-3 bg-[#373B5C] border-t border-[#4A4F76] ${
+        isMobileView ? "fixed bottom-0 left-0 right-0" : ""
+      }`}
+    >
       <div className="flex items-center space-x-2 bg-[#2D325A] rounded-full px-4 py-2">
         <input
           type="text"
@@ -819,9 +824,9 @@ export default function Messages({ isMobileView = false, onBack }) {
   return (
     <div className="flex flex-col h-full w-full max-w-full bg-[#424874]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76]">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76] sticky top-0 z-10">
         <div className="flex items-center">
-          {currentIsMobileView && (
+          {isMobileView && (
             <button
               onClick={onBack}
               className="mr-2 p-1.5 hover:bg-[#4A4F76] rounded-full"
@@ -1075,7 +1080,11 @@ export default function Messages({ isMobileView = false, onBack }) {
       </div>
 
       {/* Area messaggi */}
-      <div className="flex-1 overflow-y-auto message-container">
+      <div
+        className={`flex-1 overflow-y-auto message-container ${
+          isMobileView ? "pb-20" : ""
+        }`}
+      >
         {loading && messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
@@ -1123,9 +1132,14 @@ export default function Messages({ isMobileView = false, onBack }) {
           handleVoiceMessage={handleVoiceMessage}
           handleImageMessage={handleImageMessage}
           selected={selected}
+          isMobileView={isMobileView}
         />
       ) : (
-        <div className="p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76]">
+        <div
+          className={`p-4 bg-[#373B5C] text-center text-gray-400 border-t border-[#4A4F76] ${
+            isMobileView ? "fixed bottom-0 left-0 right-0" : ""
+          }`}
+        >
           Non hai i permessi per scrivere qui
         </div>
       )}
