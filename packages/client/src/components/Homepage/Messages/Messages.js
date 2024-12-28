@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
-import { messaging, blocking } from "linda-protocol";
+import { messaging, blocking, channelsV2, boardsV2 } from "linda-protocol";
 import { gun, user, DAPP_NAME } from "linda-protocol";
 import { walletService } from "linda-protocol";
 import { formatEther, parseEther } from "ethers";
@@ -135,6 +135,7 @@ const InputArea = ({
 export default function Messages({ isMobileView = false, onBack }) {
   const { appState, currentView } = useAppState();
   const selected = appState.selected;
+  const [newMessage, setNewMessage] = useState("");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const { unblockUser } = useFriends();
   const { walletService } = useWallet();
@@ -159,16 +160,42 @@ export default function Messages({ isMobileView = false, onBack }) {
   const { chatUserInfo, chatUserAvatar } = useChatUser(selected);
   const { canWrite, isBlocked, blockStatus } = useChatPermissions(selected);
 
+  // Usiamo useMessageSending solo per chat private e canali
   const {
-    newMessage,
-    setNewMessage,
-    sendMessage,
+    newMessage: privateMessage,
+    setNewMessage: setPrivateMessage,
+    sendMessage: sendPrivateMessage,
     handleDeleteMessage,
     handleVoiceMessage,
     messageTracking,
   } = useMessageSending(selected);
 
   const { currentIsMobileView } = useMobileView(isMobileView);
+
+  // Funzione per inviare messaggi
+  const handleSendMessage = async () => {
+    if (!newMessage.trim()) return;
+
+    try {
+      if (selected.type === "board") {
+        // Gestione messaggi board
+        await boardsV2.sendMessage(selected.roomId, {
+          content: newMessage,
+          timestamp: Date.now(),
+          sender: appState.pub,
+          type: "text",
+        });
+        setNewMessage("");
+        loadMessages();
+      } else {
+        // Per chat private e canali usiamo il hook esistente
+        await sendPrivateMessage();
+      }
+    } catch (error) {
+      console.error("Errore invio messaggio:", error);
+      toast.error("Errore nell'invio del messaggio");
+    }
+  };
 
   // Handler per l'invio di mance
   const handleSendTip = async (amount, isStealthMode = false) => {
@@ -229,11 +256,64 @@ export default function Messages({ isMobileView = false, onBack }) {
   const handleClearChat = async () => {
     if (!selected?.roomId) return;
     try {
-      await clearMessages();
-      toast.success("Chat cancellata con successo");
+      if (selected.type === "channel") {
+        // Per i canali, usa la funzione clearMessages di channelsV2
+        await channelsV2.clearMessages(selected.roomId, (response) => {
+          if (response.success) {
+            toast.success("Messaggi cancellati con successo");
+            loadMessages(); // Ricarica i messaggi
+          } else {
+            throw new Error(response.error);
+          }
+        });
+      } else {
+        // Per le chat private, mantieni il comportamento esistente
+        const messages = await new Promise((resolve) => {
+          const msgs = [];
+          gun
+            .get(DAPP_NAME)
+            .get("chats")
+            .get(selected.roomId)
+            .get("messages")
+            .map()
+            .once((msg, id) => {
+              if (msg) {
+                msgs.push({ ...msg, id });
+              }
+            });
+          setTimeout(() => resolve(msgs), 500);
+        });
+
+        await Promise.all(
+          messages.map(
+            (msg) =>
+              new Promise((resolve) => {
+                gun
+                  .get(DAPP_NAME)
+                  .get("chats")
+                  .get(selected.roomId)
+                  .get("messages")
+                  .get(msg.id)
+                  .put(null, (ack) => resolve(!ack.err));
+              })
+          )
+        );
+
+        await new Promise((resolve) => {
+          gun
+            .get(DAPP_NAME)
+            .get("chats")
+            .get(selected.roomId)
+            .get("lastMessage")
+            .put(null, (ack) => resolve(!ack.err));
+        });
+
+        toast.success("Chat cancellata con successo");
+        loadMessages();
+      }
     } catch (error) {
-      console.error("Errore durante la cancellazione della chat:", error);
-      toast.error("Errore durante la cancellazione della chat");
+      console.error("Errore durante la cancellazione:", error);
+      toast.error(error.message || "Errore durante la cancellazione");
     }
   };
 
@@ -246,6 +326,48 @@ export default function Messages({ isMobileView = false, onBack }) {
     } catch (error) {
       console.error("Errore sblocco utente:", error);
       toast.error("Errore durante lo sblocco dell'utente");
+    }
+  };
+
+  // Funzione per uscire dal canale
+  const handleLeaveChannel = async () => {
+    if (!selected?.roomId || !selected?.type === "channel") return;
+    try {
+      await channelsV2.leave(selected.roomId, (response) => {
+        if (response.success) {
+          toast.success("Hai lasciato il canale");
+        } else {
+          throw new Error(response.error);
+        }
+      });
+    } catch (error) {
+      console.error("Errore nell'uscita dal canale:", error);
+      toast.error("Errore nell'uscita dal canale");
+    }
+  };
+
+  // Funzione per eliminare il canale
+  const handleDeleteChannel = async () => {
+    if (!selected?.roomId || !selected?.type === "channel") return;
+    try {
+      await channelsV2.delete(selected.roomId, (response) => {
+        if (response.success) {
+          toast.success("Canale eliminato con successo");
+          // Resetta la selezione corrente
+          updateAppState({
+            ...appState,
+            selected: null,
+            currentView: "channels",
+          });
+          // Forza il ricaricamento dei canali nel componente Channels
+          window.dispatchEvent(new CustomEvent("channelDeleted"));
+        } else {
+          throw new Error(response.error);
+        }
+      });
+    } catch (error) {
+      console.error("Errore nell'eliminazione del canale:", error);
+      toast.error("Errore nell'eliminazione del canale");
     }
   };
 
@@ -338,7 +460,73 @@ export default function Messages({ isMobileView = false, onBack }) {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {selected.type !== "channel" && (
+          {selected.type === "channel" ? (
+            <>
+              {selected.creator === appState.user.is.pub && (
+                <>
+                  <button
+                    onClick={handleDeleteChannel}
+                    className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76]"
+                    title="Elimina canale"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={handleClearChat}
+                    className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+                    title="Cancella messaggi"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </>
+              )}
+              {selected.creator !== appState.user.is.pub && (
+                <button
+                  onClick={handleLeaveChannel}
+                  className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+                  title="Esci dal canale"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    />
+                  </svg>
+                </button>
+              )}
+            </>
+          ) : (
             <>
               <button
                 onClick={() => setIsWalletModalOpen(true)}
@@ -380,24 +568,6 @@ export default function Messages({ isMobileView = false, onBack }) {
               )}
             </>
           )}
-          <button
-            onClick={handleClearChat}
-            className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -428,9 +598,11 @@ export default function Messages({ isMobileView = false, onBack }) {
       {canWrite ? (
         <InputArea
           canWrite={canWrite}
-          newMessage={newMessage}
-          setNewMessage={setNewMessage}
-          sendMessage={sendMessage}
+          newMessage={selected.type === "board" ? newMessage : privateMessage}
+          setNewMessage={
+            selected.type === "board" ? setNewMessage : setPrivateMessage
+          }
+          sendMessage={handleSendMessage}
           handleVoiceMessage={handleVoiceMessage}
           selected={selected}
         />

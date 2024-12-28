@@ -1,10 +1,10 @@
 import React from "react";
 import { useAppState } from "../context/AppContext";
-import Channels from "../components/Homepage/Channels";
+import Channels from "../components/Homepage/Channels/Channels";
 import Messages from "../components/Homepage/Messages/Messages";
 import Header from "../components/Header";
 import Friends from "../components/Homepage/Friends/Friends";
-import BoardList from "../components/Homepage/Boards/BoardList";
+import Boards from "../components/Homepage/Boards/Boards";
 
 export default function Homepage() {
   const { appState, currentView, setCurrentView } = useAppState();
@@ -69,7 +69,7 @@ export default function Homepage() {
               />
             )}
             {currentView === "channels" && <Channels />}
-            {currentView === "boards" && <BoardList />}
+            {currentView === "boards" && <Boards />}
           </div>
         </div>
         <div className="flex-1">
