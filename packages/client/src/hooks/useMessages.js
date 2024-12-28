@@ -88,7 +88,7 @@ export const useMessages = (selected) => {
           : "boards";
       const id = selected.type === "friend" ? selected.roomId : selected.id;
 
-      const loadedMessages = await messaging.messages.loadMessages(path, id);
+      const loadedMessages = await messaging.chat.loadMessages(path, id);
 
       // Decrittazione messaggi privati
       const processedMsgs = await Promise.all(
@@ -99,10 +99,7 @@ export const useMessages = (selected) => {
             msg.content.startsWith("SEA{")
           ) {
             try {
-              const decrypted = await messaging.messages.decrypt(
-                msg,
-                selected.pub
-              );
+              const decrypted = await messaging.chat.decrypt(msg, selected.pub);
               return { ...msg, content: decrypted.content };
             } catch (error) {
               console.warn("Errore decrittazione:", error);
@@ -142,7 +139,7 @@ export const useMessages = (selected) => {
       const id = selected.type === "friend" ? selected.roomId : selected.id;
       const oldestMessage = messages[0];
 
-      const olderMessages = await messaging.messages.loadMessages(
+      const olderMessages = await messaging.chat.loadMessages(
         path,
         id,
         null,
@@ -163,10 +160,7 @@ export const useMessages = (selected) => {
             msg.content.startsWith("SEA{")
           ) {
             try {
-              const decrypted = await messaging.messages.decrypt(
-                msg,
-                selected.pub
-              );
+              const decrypted = await messaging.chat.decrypt(msg, selected.pub);
               return { ...msg, content: decrypted.content };
             } catch (error) {
               console.warn("Errore decrittazione:", error);
@@ -400,6 +394,32 @@ export const useMessages = (selected) => {
     [selected]
   );
 
+  const clearMessages = useCallback(async () => {
+    if (!selected?.roomId && !selected?.id) return;
+
+    try {
+      const path =
+        selected.type === "friend"
+          ? "chats"
+          : selected.type === "channel"
+          ? "channels"
+          : "boards";
+      const id = selected.type === "friend" ? selected.roomId : selected.id;
+
+      // Rimuovi i messaggi dal database
+      await gun.get(DAPP_NAME).get(path).get(id).get("messages").put(null);
+
+      // Pulisci lo stato locale
+      setMessages([]);
+      setHasMoreMessages(false);
+
+      return true;
+    } catch (error) {
+      console.error("Errore durante la cancellazione dei messaggi:", error);
+      throw error;
+    }
+  }, [selected]);
+
   return {
     messages,
     loading,
@@ -408,5 +428,6 @@ export const useMessages = (selected) => {
     loadMoreMessages,
     sendMessage,
     loadMessages,
+    clearMessages,
   };
 };

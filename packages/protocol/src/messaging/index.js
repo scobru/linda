@@ -5,6 +5,7 @@ import { blocking } from '../index.js';
 import { messageIntegrity } from './messageIntegrity.js';
 import { channelsV2 } from './channels.v2.js';
 import { boardsV2 } from './boards.v2.js';
+import { messageList } from './messageList.js';
 
 const { userBlocking } = blocking;
 
@@ -16,6 +17,11 @@ export const messaging = {
    * Servizio per le chat private
    */
   chat: {
+    /**
+     * Carica i messaggi di una chat
+     */
+    loadMessages: messageList.loadMessages,
+
     /**
      * Crea una nuova chat privata
      */

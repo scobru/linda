@@ -145,6 +145,7 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     loadMessages,
     loadMoreMessages,
     sendMessage: updateMessages,
+    clearMessages,
   } = useMessages(selected);
 
   const { chatUserInfo, chatUserAvatar } = useChatUser(selected);
@@ -264,47 +265,13 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
   };
 
   const handleClearChat = async () => {
-    if (!selected?.roomId) return;
+    if (!selected?.roomId && !selected?.id) return;
 
     try {
-      // Ottieni tutti i messaggi della chat
-      const chatRef = gun
-        .get(DAPP_NAME)
-        .get("chats")
-        .get(selected.roomId)
-        .get("messages");
+      // Usa clearMessages dal hook useMessages
+      await clearMessages();
 
-      // Prima ottieni tutti gli ID dei messaggi
-      const messageIds = await new Promise((resolve) => {
-        const ids = [];
-        chatRef.map().once((msg, id) => {
-          if (msg) {
-            ids.push(id);
-          }
-        });
-        setTimeout(() => resolve(ids), 1000);
-      });
-
-      console.log("Messaggi da cancellare:", messageIds.length);
-
-      // Cancella ogni messaggio individualmente
-      for (const id of messageIds) {
-        await new Promise((resolve) => {
-          chatRef.get(id).put(null, (ack) => {
-            if (ack.err) {
-              console.error("Errore cancellazione messaggio:", id, ack.err);
-            }
-            resolve();
-          });
-        });
-      }
-
-      // Pulisci lo stato locale
-      setMessages([]);
-
-      toast.success(
-        `Chat cancellata con successo (${messageIds.length} messaggi)`
-      );
+      toast.success("Chat cancellata con successo");
     } catch (error) {
       console.error("Errore durante la cancellazione della chat:", error);
       toast.error("Errore durante la cancellazione della chat");

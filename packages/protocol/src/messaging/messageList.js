@@ -32,7 +32,7 @@ const messageCache = new LRUCache({
   ttl: 1000 * 60 * 5, // 5 minuti
 });
 
-const messageList = {
+export const messageList = {
   decryptMessage: async (message, recipientPub) => {
     if (!message?.content || !recipientPub) {
       console.warn('Messaggio o recipientPub mancante:', {
