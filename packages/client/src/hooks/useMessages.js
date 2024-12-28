@@ -362,6 +362,13 @@ export const useMessages = (selected) => {
         }
         // Per bacheche
         else if (selected.type === "board") {
+          console.log("Invio messaggio per bacheca:", {
+            content,
+            type,
+            timestamp: Date.now(),
+            sender: user.is.pub,
+          });
+
           const messageData = {
             content,
             type,
@@ -375,34 +382,36 @@ export const useMessages = (selected) => {
             .substr(2, 9)}`;
 
           // Usa il metodo specifico per le board
-          return new Promise((resolve, reject) => {
-            gun
-              .get(DAPP_NAME)
-              .get(path)
-              .get(id)
-              .get("messages")
-              .get(messageId)
-              .put(messageData, (ack) => {
-                if (ack.err) {
-                  console.error("Errore salvataggio messaggio:", ack.err);
-                  reject(new Error(ack.err));
-                  return;
-                }
+          const ack = gun
+            .get(DAPP_NAME)
+            .get(path)
+            .get(id)
+            .get("messages")
+            .get(messageId)
+            .put(messageData);
 
-                const newMessage = {
-                  ...messageData,
-                  id: messageId,
-                };
+          if (ack.err) {
+            console.error("Errore salvataggio messaggio:", ack.err);
+            throw new Error(ack.err);
+          }
 
-                setMessages((prev) =>
-                  [...prev, newMessage].sort(
-                    (a, b) => a.timestamp - b.timestamp
-                  )
-                );
 
-                resolve({ success: true, messageId });
-              });
-          });
+          console.log("Ack:", ack);
+
+          const newMessage = {
+            ...messageData,
+            id: messageId,
+          };
+
+          setMessages((prev) =>
+            [...prev, newMessage].sort(
+              (a, b) => a.timestamp - b.timestamp
+            )
+          );
+
+          console.log("Messaggio inviato:", newMessage);
+
+          return { success: true, messageId };
         } else {
           throw new Error(`Tipo di chat non supportato: ${selected.type}`);
         }
