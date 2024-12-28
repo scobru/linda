@@ -1,74 +1,47 @@
 import React, { useState, useEffect } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast } from "react-hot-toast";
-import { boardsV2 } from "linda-protocol";
+import { useBoardsV2 } from "../../../hooks/useBoardsV2";
 
 export default function Boards() {
   const { appState, updateAppState } = useAppState();
-  const [boards, setBoards] = useState([]);
+  const {
+    boards,
+    loading: boardsLoading,
+    joinBoard,
+    leaveBoard,
+    createBoard,
+    searchBoards,
+    loadBoards,
+  } = useBoardsV2();
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  console.log("Rendering Boards component", {
-    boards,
-    searchQuery,
-    searchResults,
-    isSearching,
-    loading,
-    showCreateModal,
-  });
-
-  // Carica le board
-  const loadBoards = async () => {
-    console.log("Loading boards...");
-    try {
-      await boardsV2.list((response) => {
-        console.log("Boards loaded:", response);
-        if (response.success) {
-          setBoards(response.boards || []);
-        } else {
-          throw new Error(response.error);
-        }
-      });
-    } catch (error) {
-      console.error("Errore caricamento board:", error);
-      toast.error("Errore nel caricamento delle board");
-    } finally {
-      setLoading(false);
-    }
+  // Funzione di utilità per verificare se un utente è membro di una board
+  const isMemberOfBoard = (board, userId) => {
+    if (!board.members) return false;
+    if (Array.isArray(board.members)) return board.members.includes(userId);
+    if (typeof board.members === "object") return userId in board.members;
+    return false;
   };
 
-  // Cerca board
-  const searchBoards = async (query) => {
-    console.log("Searching boards:", query);
-    if (!query.trim()) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-
+  const handleSearch = async (query) => {
     setIsSearching(true);
     try {
-      await boardsV2.search(query, (response) => {
-        console.log("Search results:", response);
-        if (response.success) {
-          setSearchResults(response.boards || []);
-        } else {
-          throw new Error(response.error);
-        }
-      });
+      const results = await searchBoards(query);
+      setSearchResults(results || []);
     } catch (error) {
       console.error("Errore ricerca board:", error);
       toast.error("Errore nella ricerca delle board");
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  // Gestisce la selezione di una board
   const handleSelect = async (board) => {
-    console.log("Selezionando board:", board);
     updateAppState({
       ...appState,
       selected: {
@@ -79,46 +52,94 @@ export default function Boards() {
         isBoard: true,
         admins: board.admins || {},
         description: board.description,
+        members: board.members || [],
+        canWrite: true,
+        isMember: true,
       },
       currentView: "boards",
     });
   };
 
-  // Crea una nuova board
-  const handleCreateBoard = async (boardData) => {
+  const handleLeaveBoard = async (boardId) => {
     try {
-      await boardsV2.create(boardData, (response) => {
-        if (response.success) {
-          toast.success("Board creata con successo");
-          setShowCreateModal(false);
-          loadBoards();
-        } else {
-          throw new Error(response.error);
-        }
-      });
+      await leaveBoard(boardId);
+      if (appState.selected?.roomId === boardId) {
+        updateAppState({
+          ...appState,
+          selected: null,
+        });
+      }
     } catch (error) {
-      console.error("Errore creazione board:", error);
-      toast.error(error.message || "Errore durante la creazione della board");
+      console.error("Errore nell'uscita dalla board:", error);
     }
   };
 
-  // Effetti
+  const handleCreateBoard = async (boardData) => {
+    try {
+      await createBoard(boardData);
+      setShowCreateModal(false);
+    } catch (error) {
+      console.error("Errore creazione board:", error);
+    }
+  };
+
+  const handleJoinBoard = async (board) => {
+    try {
+      await joinBoard(board.id);
+      handleSelect(board);
+    } catch (error) {
+      console.error("Errore nell'unirsi alla board:", error);
+    }
+  };
+
   useEffect(() => {
-    loadBoards();
+    const handleBoardLeave = (event) => {
+      if (event.detail?.boardId) {
+        handleLeaveBoard(event.detail.boardId);
+      }
+    };
+
+    window.addEventListener("boardLeave", handleBoardLeave);
+    return () => window.removeEventListener("boardLeave", handleBoardLeave);
   }, []);
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      searchBoards(searchQuery);
-    }, 500);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery]);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header con pulsante nuova board */}
-      <div className="p-4 bg-[#373B5C] border-b border-[#4A4F76]">
+      <div className="p-4 space-y-2">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (e.target.value.trim()) {
+                handleSearch(e.target.value);
+              } else {
+                setSearchResults([]);
+              }
+            }}
+            placeholder="Cerca board..."
+            className="w-full px-4 py-2 bg-[#2D325A] text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setSearchResults([]);
+              }}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+
         <button
           onClick={() => setShowCreateModal(true)}
           className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2"
@@ -140,223 +161,106 @@ export default function Boards() {
         </button>
       </div>
 
-      {/* Area di ricerca e griglia board */}
-      <div className="flex-1 overflow-hidden">
-        {/* Barra di ricerca fissa */}
-        <div className="sticky top-0 p-4 bg-[#424874] shadow-md z-10">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg
-                className="h-5 w-5 text-gray-400"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cerca board..."
-              className="w-full pl-10 pr-10 py-2 bg-[#2D325A] text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white"
-              >
-                <svg
-                  className="h-5 w-5"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
-          {isSearching && (
-            <div className="mt-2 text-sm text-gray-400 text-center">
-              Ricerca in corso...
-            </div>
-          )}
-        </div>
-
-        {/* Griglia board scrollabile */}
-        <div className="overflow-y-auto h-full p-4">
-          {loading ? (
+      <div className="flex-1 overflow-y-auto">
+        <div className="space-y-1 px-2">
+          {boardsLoading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
             </div>
+          ) : searchQuery ? (
+            isSearching ? (
+              <div className="text-center text-gray-400 py-4">
+                Ricerca in corso...
+              </div>
+            ) : searchResults.length > 0 ? (
+              searchResults.map((board) => {
+                const isMember = isMemberOfBoard(board, appState.user.is.pub);
+                return (
+                  <div
+                    key={board.id}
+                    className="flex items-center space-x-3 p-2 rounded-md hover:bg-[#373B5C] group"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold text-white">
+                        {board.name?.charAt(0).toUpperCase() || "B"}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-white text-sm font-medium truncate">
+                          {board.name || "Board senza nome"}
+                        </h3>
+                        <div className="flex items-center space-x-2">
+                          {board.creator === appState.user.is.pub && (
+                            <span className="text-xs text-blue-400 bg-[#2D325A] px-2 py-0.5 rounded-full">
+                              Creatore
+                            </span>
+                          )}
+                          {!isMember && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleJoinBoard(board);
+                              }}
+                              className="text-xs text-white bg-blue-500 px-2 py-0.5 rounded-full hover:bg-blue-600 transition-colors"
+                            >
+                              Unisciti
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-400 truncate">
+                        {board.description || "Nessuna descrizione"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center text-gray-400 py-4">
+                Nessuna board trovata
+              </div>
+            )
+          ) : boards.length > 0 ? (
+            boards.map((board) => (
+              <div
+                key={board.id}
+                onClick={() => handleSelect(board)}
+                className="flex items-center space-x-3 p-2 rounded-md hover:bg-[#373B5C] cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-sm font-bold text-white">
+                    {board.name?.charAt(0).toUpperCase() || "B"}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-white text-sm font-medium truncate">
+                      {board.name || "Board senza nome"}
+                    </h3>
+                    {board.creator === appState.user.is.pub && (
+                      <span className="text-xs text-blue-400 bg-[#2D325A] px-2 py-0.5 rounded-full opacity-0 group-hover:opacity-100">
+                        Creatore
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
           ) : (
-            <>
-              {/* Board disponibili */}
-              {!isSearching && boards.length > 0 && (
-                <div>
-                  <h3 className="text-white font-medium mb-4">
-                    Boards Disponibili
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {boards.map((board) => (
-                      <div
-                        key={board.id}
-                        onClick={() => handleSelect(board)}
-                        className="bg-[#2D325A] rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-all cursor-pointer hover:transform hover:scale-105"
-                      >
-                        <div className="h-32 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                          <span className="text-white text-4xl font-bold">
-                            {board.name?.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-white font-semibold text-lg">
-                              {board.name}
-                            </h4>
-                            {board.creator === appState.user.is.pub && (
-                              <span className="text-xs text-blue-400 px-2 py-1 rounded-full bg-[#373B5C]">
-                                Creatore
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-gray-400 text-sm line-clamp-2">
-                            {board.description || "Nessuna descrizione"}
-                          </p>
-                          <div className="mt-4 flex items-center text-xs text-gray-400">
-                            <svg
-                              className="w-4 h-4 mr-1"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            Creato il{" "}
-                            {new Date(board.createdAt).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Risultati ricerca */}
-              {isSearching && searchResults.length > 0 && (
-                <div>
-                  <h3 className="text-white font-medium mb-4">
-                    Risultati ricerca
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {searchResults.map((board) => (
-                      <div
-                        key={board.id}
-                        onClick={() => handleSelect(board)}
-                        className="bg-[#2D325A] rounded-lg overflow-hidden shadow-lg hover:shadow-xl transition-all cursor-pointer hover:transform hover:scale-105"
-                      >
-                        <div className="h-32 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                          <span className="text-white text-4xl font-bold">
-                            {board.name?.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-white font-semibold text-lg">
-                              {board.name}
-                            </h4>
-                          </div>
-                          <p className="text-gray-400 text-sm line-clamp-2">
-                            {board.description || "Nessuna descrizione"}
-                          </p>
-                          <div className="mt-4 flex items-center text-xs text-gray-400">
-                            <svg
-                              className="w-4 h-4 mr-1"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            Creato il{" "}
-                            {new Date(board.createdAt).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Nessun risultato */}
-              {!loading && boards.length === 0 && !isSearching && (
-                <div className="text-center text-gray-400 mt-8">
-                  <svg
-                    className="w-16 h-16 mx-auto mb-4 text-gray-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                    />
-                  </svg>
-                  <p>Non ci sono board disponibili</p>
-                  <button
-                    onClick={() => setShowCreateModal(true)}
-                    className="mt-4 text-blue-400 hover:text-blue-300"
-                  >
-                    Crea la prima board
-                  </button>
-                </div>
-              )}
-              {isSearching && searchResults.length === 0 && (
-                <div className="text-center text-gray-400 mt-8">
-                  <svg
-                    className="w-16 h-16 mx-auto mb-4 text-gray-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                  <p>Nessuna board trovata</p>
-                </div>
-              )}
-            </>
+            <div className="text-center text-gray-400 mt-8">
+              <p>Non ci sono board disponibili</p>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="mt-4 text-blue-400 hover:text-blue-300"
+              >
+                Crea la prima board
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Modale creazione board */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-[#2D325A] rounded-lg p-6 w-full max-w-md">

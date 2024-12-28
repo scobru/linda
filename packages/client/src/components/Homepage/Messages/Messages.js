@@ -612,6 +612,49 @@ export default function Messages({ isMobileView = false, onBack }) {
 
   useMessageNotifications(messages, selected?.type);
 
+  // Aggiungi questa funzione per gestire l'uscita dalla board
+  const handleLeaveBoard = async (boardId) => {
+    if (!boardId) return;
+
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("members")
+        .get(appState.user.is.pub)
+        .put(false);
+
+      // Aggiungi un messaggio di sistema
+      const messageId = `system_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const message = {
+        id: messageId,
+        content: `${appState.user.is.alias} ha lasciato la board`,
+        sender: appState.user.is.pub,
+        senderAlias: "Sistema",
+        timestamp: Date.now(),
+        type: "system",
+      };
+
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("messages")
+        .get(messageId)
+        .put(message);
+
+      toast.success("Hai lasciato la board");
+      // Resetta la selezione corrente
+      window.location.reload();
+    } catch (error) {
+      console.error("Errore nell'uscita dalla board:", error);
+      toast.error("Errore nell'uscita dalla board");
+    }
+  };
+
   if (!selected?.roomId) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -653,7 +696,11 @@ export default function Messages({ isMobileView = false, onBack }) {
             </button>
           )}
           <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
-            {selected.type === "channel" ? (
+            {selected.type === "board" ? (
+              <span className="text-white text-lg font-semibold">
+                {selected.name?.charAt(0).toUpperCase()}
+              </span>
+            ) : selected.type === "channel" ? (
               <span className="text-white text-lg font-semibold">
                 {selected.name?.charAt(0).toUpperCase()}
               </span>
@@ -673,17 +720,75 @@ export default function Messages({ isMobileView = false, onBack }) {
           </div>
           <div className="ml-3">
             <p className="text-white font-medium">
-              {selected.type === "channel"
+              {selected.type === "board"
+                ? selected.name || "Board"
+                : selected.type === "channel"
                 ? selected.name
                 : chatUserInfo.displayName}
             </p>
-            {selected.type !== "channel" && chatUserInfo.username && (
-              <p className="text-gray-300 text-sm">@{chatUserInfo.username}</p>
+            {selected.type === "board" && (
+              <p className="text-gray-300 text-sm">
+                Creata da:{" "}
+                {selected.creator === appState.user.is.pub
+                  ? "Te"
+                  : selected.creatorAlias || "Sconosciuto"}
+              </p>
             )}
+            {selected.type !== "channel" &&
+              selected.type !== "board" &&
+              chatUserInfo.username && (
+                <p className="text-gray-300 text-sm">
+                  @{chatUserInfo.username}
+                </p>
+              )}
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {selected.type === "channel" ? (
+          {selected.type === "board" ? (
+            <>
+              {selected.creator === appState.user.is.pub ? (
+                <button
+                  onClick={handleDeleteChannel}
+                  className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76]"
+                  title="Elimina board"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleLeaveBoard(selected.roomId)}
+                  className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+                  title="Lascia board"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    />
+                  </svg>
+                </button>
+              )}
+            </>
+          ) : selected.type === "channel" ? (
             <>
               {selected.creator === appState.user.is.pub && (
                 <>

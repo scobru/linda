@@ -37,7 +37,14 @@ export const useMessages = (selected) => {
     (userPub) => {
       if (selected?.type !== "board") return true;
       if (selected?.creator === userPub) return true; // Il creatore è sempre autorizzato
-      return authorizedMembers[userPub] === true;
+
+      const memberData = authorizedMembers[userPub];
+      if (!memberData) return false;
+
+      // Verifica sia canWrite che i permessi di scrittura
+      return (
+        memberData.canWrite === true || memberData.permissions?.write === true
+      );
     },
     [selected, authorizedMembers]
   );
