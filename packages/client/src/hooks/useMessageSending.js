@@ -16,7 +16,7 @@ export const useMessageSending = (selected) => {
     try {
       const success = await sendMessageToGun(messageContent);
       if (!success) {
-        setNewMessage(messageContent); // Ripristina il messaggio in caso di errore
+        setNewMessage(messageContent);
       }
     } catch (error) {
       console.error("Errore invio messaggio:", error);
@@ -39,24 +39,29 @@ export const useMessageSending = (selected) => {
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
-          const base64Audio = reader.result;
-          console.log("Audio convertito in base64:", {
-            length: base64Audio.length,
-            preview: base64Audio.substring(0, 100) + "...",
-          });
+          // Mantieni l'intero URL data:audio
+          const audioUrl = reader.result;
+          console.log("Audio convertito in URL data");
 
-          // Crea il messaggio con tipo esplicito
+          // Crea il messaggio vocale
           const messageData = {
-            content: base64Audio,
+            content: audioUrl,
             type: "voice",
             timestamp: Date.now(),
+            metadata: {
+              duration: audioBlob.duration || 0,
+              size: audioBlob.size || 0,
+              mimeType: audioBlob.type || "audio/webm",
+            },
           };
 
-          console.log("Invio messaggio vocale:", messageData);
+          console.log("Invio messaggio vocale");
           const success = await sendMessageToGun(messageData);
 
           if (success) {
             toast.success("Messaggio vocale inviato");
+          } else {
+            toast.error("Errore nell'invio del messaggio vocale");
           }
         };
       } catch (error) {

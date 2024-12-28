@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { getUserAvatar } from "../../utils/userUtils";
+import { getUserAvatar } from "../../../utils/userUtils";
 
 const FriendItem = ({
   friend,

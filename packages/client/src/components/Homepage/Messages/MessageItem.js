@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { user } from "linda-protocol";
-import { MessageStatus } from "./MessageStatus";
+import { MessageStatus } from "../MessageStatus";
 import { VoiceMessage } from "./VoiceMessage";
-import AudioPlayer from "./AudioPlayer";
-import { getUserUsername, getUserAvatar } from "../../utils/userUtils";
+import AudioPlayer from "../AudioPlayer";
+import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 
 export const MessageItem = ({
   message,

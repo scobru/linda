@@ -5,13 +5,13 @@ import React, {
   useEffect,
   useRef,
 } from "react";
-import { useAppState } from "../../context/AppContext";
+import { useAppState } from "../../../context/AppContext";
 import FriendItem from "./FriendItem";
 import FriendRequest from "./FriendRequest";
-import { useFriends } from "../../hooks/useFriends";
+import { useFriends } from "../../../hooks/useFriends";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
-import { getUserUsername } from "../../utils/userUtils";
+import { getUserUsername } from "../../../utils/userUtils";
 
 const Friends = ({
   onSelect,

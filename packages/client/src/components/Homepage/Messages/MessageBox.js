@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { it } from "date-fns/locale";
 import { user } from "linda-protocol";
-import { getUserUsername, getUserAvatar } from "../../utils/userUtils";
+import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 import AudioPlayer from "./AudioPlayer";
 
 const MessageBox = ({ message, isOwnMessage, onDelete, messageTracking }) => {

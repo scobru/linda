@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { sessionManager, user } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
 import Profile from "./Homepage/Profile";
-import AddFriend from "./Homepage/AddFriend";
+import AddFriend from "./Homepage/Friends/AddFriend";
 import GlobalWalletModal from "./Homepage/GlobalWalletModal";
 import TransactionModal from "./Homepage/TransactionModal";
 

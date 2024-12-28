@@ -263,7 +263,7 @@ export const useMessages = (selected) => {
   ]);
 
   const sendMessage = useCallback(
-    async (content, type = "text") => {
+    async (content) => {
       if (!selected?.roomId && !selected?.id) {
         throw new Error("Chat non selezionata");
       }
@@ -278,27 +278,6 @@ export const useMessages = (selected) => {
         const id = selected.type === "friend" ? selected.roomId : selected.id;
         const recipientPub = selected.type === "friend" ? selected.pub : null;
 
-        console.log("useMessages - Preparazione invio messaggio:", {
-          content:
-            typeof content === "string" ? content.substring(0, 100) : "object",
-          type,
-          isObject: typeof content === "object",
-          hasType: content?.type,
-          path,
-          id,
-        });
-
-        if (typeof content === "object" && content.type) {
-          // Se riceviamo un oggetto messaggio completo, usiamo quello
-          console.log("Invio messaggio con oggetto completo:", {
-            type: content.type,
-            contentPreview: content.content?.substring(0, 100),
-          });
-
-          const result = await chat.messageList.sendMessage(path, id, content);
-          return result;
-        }
-
         // Per messaggi privati, verifica e crea i certificati se necessario
         if (selected.type === "friend") {
           try {
@@ -308,16 +287,38 @@ export const useMessages = (selected) => {
             throw new Error("Impossibile verificare i permessi di chat");
           }
 
-          const result = await new Promise((resolve, reject) => {
-            chat.sendMessage(id, recipientPub, content, (result) => {
+          return await new Promise((resolve, reject) => {
+            // Prepara il messaggio in base al tipo
+            let messageToSend;
+            let previewText;
+
+            if (typeof content === "object" && content.type === "voice") {
+              // Se è un messaggio vocale, usa l'URL data:audio completo
+              messageToSend = content.content;
+              previewText = "Messaggio vocale";
+            } else {
+              // Se è un messaggio testuale, usa il contenuto direttamente
+              messageToSend = content;
+              previewText =
+                content.length > 50
+                  ? content.substring(0, 50) + "..."
+                  : content;
+            }
+
+            chat.sendMessage(id, recipientPub, messageToSend, (result) => {
               if (result.success) {
                 const newMessage = {
                   id: result.messageId,
-                  content: content,
+                  content: messageToSend,
+                  type: typeof content === "object" ? content.type : "text",
                   sender: user.is.pub,
                   recipient: recipientPub,
-                  timestamp: Date.now(),
-                  type: type,
+                  timestamp:
+                    typeof content === "object"
+                      ? content.timestamp
+                      : Date.now(),
+                  preview: previewText,
+                  ...(content.metadata && { metadata: content.metadata }),
                 };
 
                 setMessages((prev) =>
@@ -326,7 +327,7 @@ export const useMessages = (selected) => {
                   )
                 );
 
-                resolve(result);
+                resolve(true);
               } else {
                 reject(
                   new Error(
@@ -336,84 +337,50 @@ export const useMessages = (selected) => {
               }
             });
           });
-
-          return result;
         }
-        // Per canali
-        else if (selected.type === "channel") {
-          const messageData = {
-            content,
-            type,
-            timestamp: Date.now(),
-            sender: user.is.pub,
-          };
+        // Per canali e bacheche
+        else {
+          const messageToSend =
+            typeof content === "object"
+              ? content
+              : {
+                  content: content,
+                  type: "text",
+                  timestamp: Date.now(),
+                };
 
-          const result = await channels.sendMessage(id, messageData);
+          if (selected.type === "channel") {
+            return await channels.sendMessage(id, messageToSend);
+          } else {
+            const messageId = `${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}`;
 
-          if (result && result.success) {
+            const ack = await gun
+              .get(DAPP_NAME)
+              .get(path)
+              .get(id)
+              .get("messages")
+              .get(messageId)
+              .put({
+                ...messageToSend,
+                id: messageId,
+                sender: user.is.pub,
+              });
+
+            if (ack.err) {
+              throw new Error(ack.err);
+            }
+
             setMessages((prev) =>
-              [...prev, { ...messageData, id: result.messageId }].sort(
-                (a, b) => a.timestamp - b.timestamp
-              )
+              [
+                ...prev,
+                { ...messageToSend, id: messageId, sender: user.is.pub },
+              ].sort((a, b) => a.timestamp - b.timestamp)
             );
+
+            return true;
           }
-
-          return result;
-        }
-        // Per bacheche
-        else if (selected.type === "board") {
-          console.log("Invio messaggio per bacheca:", {
-            content,
-            type,
-            timestamp: Date.now(),
-            sender: user.is.pub,
-          });
-
-          const messageData = {
-            content,
-            type,
-            timestamp: Date.now(),
-            sender: user.is.pub,
-          };
-
-          // Genera un ID unico per il messaggio
-          const messageId = `${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-
-          // Usa il metodo specifico per le board
-          const ack = gun
-            .get(DAPP_NAME)
-            .get(path)
-            .get(id)
-            .get("messages")
-            .get(messageId)
-            .put(messageData);
-
-          if (ack.err) {
-            console.error("Errore salvataggio messaggio:", ack.err);
-            throw new Error(ack.err);
-          }
-
-
-          console.log("Ack:", ack);
-
-          const newMessage = {
-            ...messageData,
-            id: messageId,
-          };
-
-          setMessages((prev) =>
-            [...prev, newMessage].sort(
-              (a, b) => a.timestamp - b.timestamp
-            )
-          );
-
-          console.log("Messaggio inviato:", newMessage);
-
-          return { success: true, messageId };
-        } else {
-          throw new Error(`Tipo di chat non supportato: ${selected.type}`);
         }
       } catch (error) {
         console.error("Errore invio messaggio:", error);

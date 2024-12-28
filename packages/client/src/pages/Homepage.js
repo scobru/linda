@@ -16,15 +16,9 @@ import { useFriendRequestNotifications } from "../hooks/useFriendRequestNotifica
 import { Observable } from "rxjs";
 
 // Components
-import Friends from "../components/Homepage/Friends";
-import Profile from "../components/Homepage/Profile";
-import AddFriend from "../components/Homepage/AddFriend";
-import Messages from "../components/Homepage/Messages";
-import AppStatus from "../components/AppStatus";
+import Friends from "../components/Homepage/Friends/Friends";
+import Messages from "../components/Homepage/Messages/Messages";
 import Channels from "../components/Homepage/Channels";
-import TransactionHistory from "../components/Homepage/TransactionHistory";
-import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
-import TransactionModal from "../components/Homepage/TransactionModal";
 import Header from "../components/Header";
 
 export default function Homepage() {
