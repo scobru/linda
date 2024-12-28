@@ -227,6 +227,14 @@ const friendsService = {
           );
       });
 
+      // Forza la sincronizzazione
+      gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .once(() => {
+          console.log('Sincronizzazione richieste forzata');
+        });
+
       return {
         success: true,
         message: 'Richiesta di amicizia inviata con successo',

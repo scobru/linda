@@ -105,16 +105,33 @@ class FriendRequestNotificationService extends BaseNotificationService {
         .on(async (request, id) => {
           if (id === '_' || !request) return; // Ignora le chiavi speciali di Gun
 
+          console.log('Richiesta ricevuta:', { request, id });
+
           // Verifica che la richiesta sia per l'utente corrente
           if (request.to === user.is.pub) {
-            await this.processRequest(user.is.pub, { ...request, id });
+            try {
+              await this.processRequest(user.is.pub, { ...request, id });
+              console.log('Richiesta processata:', { request, id });
 
-            subscriber.next({
-              ...request,
-              id,
-              status: request.status || 'pending',
-            });
+              subscriber.next({
+                data: {
+                  ...request,
+                  id,
+                  status: request.status || 'pending',
+                },
+              });
+            } catch (error) {
+              console.error('Errore nel processare la richiesta:', error);
+            }
           }
+        });
+
+      // Forza un check iniziale
+      gun
+        .get(DAPP_NAME)
+        .get('all_friend_requests')
+        .once(() => {
+          console.log('Check iniziale richieste completato');
         });
 
       return () => {

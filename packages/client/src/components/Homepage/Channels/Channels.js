@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast } from "react-hot-toast";
 import { channelsV2 } from "linda-protocol";
@@ -14,6 +14,7 @@ export default function Channels() {
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   console.log("Rendering Channels component", {
+    currentView,
     channels,
     searchQuery,
     searchResults,
@@ -23,32 +24,43 @@ export default function Channels() {
   });
 
   // Carica i canali dell'utente
-  const loadChannels = async () => {
+  const loadChannels = useCallback(async () => {
     console.log("Loading channels...");
     setLoading(true);
+
+    // Aggiungi un timeout di sicurezza
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+      setChannels([]);
+    }, 5000); // 5 secondi di timeout
+
     try {
       await channelsV2.list((response) => {
         console.log("Channels loaded:", response);
+        clearTimeout(timeoutId); // Cancella il timeout se la risposta arriva
+
         if (response.success) {
-          // Marca tutti i canali nella lista come canali di cui siamo membri
           const channelsWithMembership = (response.channels || []).map(
             (channel) => ({
               ...channel,
-              isMember: true, // Questi sono i nostri canali, quindi siamo membri
+              isMember: true,
             })
           );
           setChannels(channelsWithMembership);
         } else {
-          throw new Error(response.error);
+          console.error("Errore risposta canali:", response.error);
+          setChannels([]);
         }
+        setLoading(false);
       });
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error("Errore caricamento canali:", error);
       toast.error("Errore nel caricamento dei canali");
-    } finally {
+      setChannels([]);
       setLoading(false);
     }
-  };
+  }, []);
 
   // Cerca canali pubblici
   const searchChannels = async (query) => {
@@ -63,20 +75,22 @@ export default function Channels() {
     try {
       await channelsV2.search(query, (response) => {
         console.log("Search results:", response);
-        if (response.success) {
-          // Filtra i risultati per rimuovere i canali che sono già nella lista dei nostri canali
-          const filteredResults = (response.channels || []).filter(
-            (searchResult) =>
-              !channels.some((myChannel) => myChannel.id === searchResult.id)
-          );
-          setSearchResults(filteredResults);
-        } else {
+        if (!response.success) {
           throw new Error(response.error);
         }
+
+        // Filtra i risultati escludendo i canali di cui siamo già membri
+        const filteredResults = (response.channels || []).filter(
+          (searchResult) =>
+            !channels.find((myChannel) => myChannel.id === searchResult.id)
+        );
+
+        setSearchResults(filteredResults);
       });
     } catch (error) {
       console.error("Errore ricerca canali:", error);
       toast.error("Errore nella ricerca dei canali");
+      setSearchResults([]);
     }
   };
 
@@ -164,7 +178,7 @@ export default function Channels() {
     return () => {
       window.removeEventListener("channelDeleted", handleChannelDeleted);
     };
-  }, []);
+  }, [loadChannels]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {

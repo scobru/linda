@@ -19,7 +19,10 @@ export const useFriendRequestNotifications = () => {
 
     // Sottoscrizione alle richieste di amicizia usando friendsService
     const subscription = friendsService.observeFriendRequests().subscribe({
-      next: ({ data: request }) => {
+      next: (response) => {
+        console.log("Nuova richiesta ricevuta:", response);
+        const request = response.data;
+
         if (!request.status || request.status === "pending") {
           setPendingRequests((prev) => {
             const existing = prev.find((r) => r.id === request.id);
@@ -35,6 +38,7 @@ export const useFriendRequestNotifications = () => {
                 ...request,
                 timestamp: request.timestamp || Date.now(),
               };
+              console.log("Aggiunta nuova richiesta:", newRequest);
               return [...prev, newRequest].sort(
                 (a, b) => b.timestamp - a.timestamp
               );
@@ -58,6 +62,7 @@ export const useFriendRequestNotifications = () => {
       .map()
       .once((request, requestId) => {
         if (!request || !requestId || requestId === "_") return;
+        console.log("Richiesta esistente trovata:", { request, requestId });
 
         if (
           request.to === user.is.pub &&
@@ -71,6 +76,7 @@ export const useFriendRequestNotifications = () => {
             };
             const existing = prev.find((r) => r.id === requestId);
             if (existing) return prev;
+            console.log("Aggiunta richiesta esistente:", newRequest);
             return [...prev, newRequest].sort(
               (a, b) => b.timestamp - a.timestamp
             );

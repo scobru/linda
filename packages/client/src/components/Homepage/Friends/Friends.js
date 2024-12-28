@@ -9,19 +9,23 @@ import { useAppState } from "../../../context/AppContext";
 import FriendItem from "./FriendItem";
 import FriendRequest from "./FriendRequest";
 import { useFriends } from "../../../hooks/useFriends";
+import { useFriendRequestNotifications } from "../../../hooks/useFriendRequestNotifications";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "linda-protocol";
 import { getUserUsername } from "../../../utils/userUtils";
 
 const Friends = ({
   selectedUser,
-  pendingRequests = [],
-  loading = false,
-  onRequestProcessed,
   onMobileSelect,
 }) => {
   const { appState, updateAppState } = useAppState();
   const { friends, removeFriend, blockUser, unblockUser } = useFriends();
+  const {
+    pendingRequests,
+    loading: requestsLoading,
+    acceptRequest,
+    removeRequest,
+  } = useFriendRequestNotifications();
   const [searchQuery, setSearchQuery] = useState("");
   const [friendsWithNames, setFriendsWithNames] = useState([]);
   const isMobile = window.innerWidth <= 768;
@@ -36,24 +40,17 @@ const Friends = ({
       );
 
       try {
-        // Notifica il componente padre prima di aggiornare Gun
-        onRequestProcessed?.(requestId, action);
-
-        // Aggiorna lo stato della richiesta in Gun
-        await gun
-          .get(DAPP_NAME)
-          .get("all_friend_requests")
-          .get(requestId)
-          .put({
-            status: action === "accept" ? "accepted" : "rejected",
-            processedAt: Date.now(),
-          });
+        if (action === "accept") {
+          await acceptRequest(requestId);
+        } else {
+          await removeRequest(requestId);
+        }
       } catch (error) {
-        console.error("Errore nell'aggiornamento della richiesta:", error);
+        console.error("Errore nell'elaborazione della richiesta:", error);
         toast.error("Errore nell'elaborazione della richiesta");
       }
     },
-    [onRequestProcessed]
+    [acceptRequest, removeRequest]
   );
 
   // Effetto per gestire gli aggiornamenti delle richieste pendenti
@@ -183,11 +180,18 @@ const Friends = ({
   );
 
   const filteredFriends = useMemo(() => {
-    const searchLower = searchQuery.toLowerCase();
+    if (!searchQuery) return friendsWithNames;
     return friendsWithNames.filter((friend) =>
-      friend.displayName.toLowerCase().includes(searchLower)
+      friend.username?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [friendsWithNames, searchQuery]);
+
+  const filteredRequests = useMemo(() => {
+    if (!searchQuery) return pendingRequests;
+    return pendingRequests.filter((request) =>
+      request.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [pendingRequests, searchQuery]);
 
   return (
     <div className="flex flex-col h-full">
@@ -195,57 +199,48 @@ const Friends = ({
         <input
           type="text"
           placeholder="Cerca amici..."
+          className="w-full p-2 rounded-lg bg-gray-100 dark:bg-gray-700"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2 bg-[#2D325A] border border-[#4A4F76] rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* Richieste di amicizia pendenti */}
-        {pendingRequests.length > 0 && (
-          <div className="mb-4">
-            <h3 className="px-4 py-2 text-sm font-medium text-gray-400">
-              Richieste di amicizia ({pendingRequests.length})
-            </h3>
-            <div className="space-y-2 px-4">
-              {pendingRequests
-                .filter(
-                  (request) => !request.status || request.status === "pending"
-                )
-                .map((request) => (
-                  <FriendRequest
-                    key={request.id}
-                    request={request}
-                    onRequestProcessed={handleRequestProcessed}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
-
-        {/* Lista amici */}
-        <div>
-          <h3 className="px-4 py-2 text-sm font-medium text-gray-400">
-            Amici ({filteredFriends.length})
+      {/* Richieste di amicizia in sospeso */}
+      {!requestsLoading && filteredRequests.length > 0 && (
+        <div className="mb-4">
+          <h3 className="px-4 py-2 text-sm font-semibold text-gray-500 dark:text-gray-400">
+            Richieste di amicizia
           </h3>
-          {filteredFriends.length > 0 ? (
-            filteredFriends.map((friend) => (
-              <FriendItem
-                key={friend.pub}
-                friend={friend}
-                isSelected={selectedUser?.pub === friend.pub}
-                onSelect={() => handleSelectFriend(friend)}
-                onRemove={handleRemoveFriend}
-                onBlock={handleBlockUser}
-                onUnblock={handleUnblockUser}
+          <div className="space-y-1">
+            {filteredRequests.map((request) => (
+              <FriendRequest
+                key={request.id}
+                request={request}
+                onProcess={handleRequestProcessed}
               />
-            ))
-          ) : (
-            <div className="px-4 py-2 text-gray-400 text-sm">
-              {searchQuery ? "Nessun amico trovato" : "Nessun amico"}
-            </div>
-          )}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lista amici */}
+      <div className="flex-1 overflow-y-auto">
+        <h3 className="px-4 py-2 text-sm font-semibold text-gray-500 dark:text-gray-400">
+          Amici
+        </h3>
+        <div className="space-y-1">
+          {filteredFriends.map((friend) => (
+            <FriendItem
+              key={friend.pub}
+              friend={friend}
+              selected={selectedUser?.pub === friend.pub}
+              onSelect={() => handleSelectFriend(friend)}
+              onRemove={() => handleRemoveFriend(friend.pub)}
+              onBlock={() => handleBlockUser(friend.pub)}
+              onUnblock={() => handleUnblockUser(friend.pub)}
+              isBlocked={friend.isBlocked}
+            />
+          ))}
         </div>
       </div>
     </div>

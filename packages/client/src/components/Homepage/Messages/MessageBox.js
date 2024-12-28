@@ -50,22 +50,17 @@ const MessageBox = ({
         );
         let content = decrypted.content || message.content;
 
-        // Verifica se è un messaggio vocale
-        const isVoice =
-          message.type === "voice" ||
-          content.startsWith("[VOICE]") ||
-          content.startsWith("data:audio");
-
-        if (isVoice) {
-          // Rimuovi il prefisso [VOICE] se presente
-          if (content.startsWith("[VOICE]")) {
-            content = content.replace("[VOICE]", "");
-          }
-
-          // Verifica che sia un URL audio valido
+        // Gestione dei diversi tipi di messaggio
+        if (message.type === "image" || content.startsWith("[IMAGE]")) {
+          // Rimuovi il prefisso [IMAGE] se presente
+          content = content.replace("[IMAGE]", "");
+          setDecryptedContent(content);
+        } else if (message.type === "voice" || content.startsWith("[VOICE]")) {
+          // Gestione messaggi vocali
+          content = content.replace("[VOICE]", "");
           if (content.startsWith("data:audio")) {
             setAudioUrl(content);
-            setDecryptedContent(null); // Non mostrare il contenuto testuale per i messaggi vocali
+            setDecryptedContent(null);
           } else {
             console.error(
               "Formato audio non valido:",
@@ -75,6 +70,7 @@ const MessageBox = ({
             setAudioUrl(null);
           }
         } else {
+          // Messaggi di testo normali
           setDecryptedContent(content);
           setAudioUrl(null);
         }
@@ -89,6 +85,24 @@ const MessageBox = ({
   }, [message, isOwnMessage]);
 
   const renderContent = () => {
+    if (message.type === "system") {
+      return <span className="text-gray-400 italic">{message.content}</span>;
+    }
+
+    if (
+      message.type === "image" ||
+      decryptedContent?.startsWith("data:image")
+    ) {
+      return (
+        <img
+          src={decryptedContent}
+          alt="Immagine inviata"
+          className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => window.open(decryptedContent, "_blank")}
+        />
+      );
+    }
+
     if (audioUrl) {
       return <AudioPlayer audioUrl={audioUrl} />;
     }
@@ -102,6 +116,40 @@ const MessageBox = ({
         Errore nel caricamento del messaggio
       </p>
     );
+  };
+
+  const renderMessageContent = () => {
+    if (message.type === "system") {
+      return <span className="text-gray-400 italic">{message.content}</span>;
+    } else if (
+      message.type === "voice" ||
+      message.content?.startsWith("[VOICE]")
+    ) {
+      const audioUrl =
+        message.content?.replace("[VOICE]", "") || message.content;
+      return (
+        <audio controls className="max-w-[200px]">
+          <source src={audioUrl} type="audio/webm" />
+          Il tuo browser non supporta l'elemento audio.
+        </audio>
+      );
+    } else if (
+      message.type === "image" ||
+      message.content?.startsWith("[IMAGE]")
+    ) {
+      const imageUrl =
+        message.content?.replace("[IMAGE]", "") || message.content;
+      return (
+        <img
+          src={imageUrl}
+          alt="Immagine inviata"
+          className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => window.open(imageUrl, "_blank")}
+        />
+      );
+    } else {
+      return message.content;
+    }
   };
 
   return (

@@ -54,7 +54,7 @@ const Header = () => {
             to="/community"
             className="text-gray-600 hover:text-blue-500 transition-colors"
           >
-            Community
+            Kubrick 1.0.0
           </Link>
           <h1 className="text-white font-bold text-xl">linda</h1>
           <span className="text-green-400 text-sm">• Online</span>

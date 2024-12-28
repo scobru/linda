@@ -151,42 +151,47 @@ export const channelsV2 = {
     if (!user?.is) throw new Error('Utente non autenticato');
 
     try {
-      const channels = [];
-      const userChannels = await new Promise((resolve) => {
+      // Recupera i canali dell'utente e i loro dettagli in un'unica Promise
+      const channels = await new Promise((resolve) => {
         const result = [];
+        let pendingChannels = 0;
+        let hasStartedLoading = false;
+
         gun
           .user()
           .get('channels')
           .map()
-          .once((data, id) => {
-            if (data) {
-              result.push({ id, ...data });
-            }
-          });
-        setTimeout(() => resolve(result), 1000);
-      });
+          .once(async (data, id) => {
+            hasStartedLoading = true;
+            if (!data) return;
 
-      // Recupera i dettagli completi dei canali
-      await Promise.all(
-        userChannels.map(async (userChannel) => {
-          const channel = await new Promise((resolve) => {
+            pendingChannels++;
+
             gun
               .get(DAPP_NAME)
               .get('channels')
-              .get(userChannel.id)
-              .once((data) => {
-                if (data) {
-                  resolve({ ...data, id: userChannel.id });
-                } else {
-                  resolve(null);
+              .get(id)
+              .once((channelData) => {
+                if (channelData) {
+                  result.push({ ...channelData, id });
+                }
+                pendingChannels--;
+                if (pendingChannels === 0) {
+                  resolve(result);
                 }
               });
           });
-          if (channel) {
-            channels.push(channel);
+
+        // Se dopo 1 secondo non abbiamo trovato canali, risolvi con array vuoto
+        setTimeout(() => {
+          if (
+            !hasStartedLoading ||
+            (hasStartedLoading && pendingChannels === 0)
+          ) {
+            resolve(result);
           }
-        })
-      );
+        }, 1000);
+      });
 
       return callback({ success: true, channels });
     } catch (error) {
@@ -202,29 +207,25 @@ export const channelsV2 = {
     if (!user?.is) throw new Error('Utente non autenticato');
 
     try {
-      const results = [];
       const searchQuery = query.toLowerCase();
-
-      await new Promise((resolve) => {
+      const results = await new Promise((resolve) => {
+        const channels = [];
         gun
           .get(DAPP_NAME)
           .get('channels')
           .map()
           .once((channel, id) => {
             if (
-              channel &&
-              channel.type === 'public' &&
-              channel.name &&
-              channel.name.toLowerCase().includes(searchQuery)
+              channel?.type === 'public' &&
+              channel?.name?.toLowerCase().includes(searchQuery)
             ) {
-              // Verifica se l'utente è già membro
               const isMember =
                 channel.members &&
                 Object.values(channel.members).some(
-                  (member) => member && member.pub === user.is.pub
+                  (member) => member?.pub === user.is.pub
                 );
 
-              results.push({
+              channels.push({
                 ...channel,
                 id,
                 isMember,
@@ -232,24 +233,25 @@ export const channelsV2 = {
             }
           });
 
-        setTimeout(resolve, 1000);
+        setTimeout(() => resolve(channels), 500);
       });
 
-      // Ordina i risultati: prima i canali non iscritti, poi per nome
-      results.sort((a, b) => {
-        if (a.isMember === b.isMember) {
-          return a.name.localeCompare(b.name);
-        }
-        return a.isMember ? 1 : -1;
-      });
+      // Ordina: non membri prima, poi per nome
+      results.sort((a, b) =>
+        a.isMember === b.isMember
+          ? a.name.localeCompare(b.name)
+          : a.isMember
+          ? 1
+          : -1
+      );
 
-      return callback({
+      callback({
         success: true,
         channels: results,
       });
     } catch (error) {
       console.error('Errore ricerca canali:', error);
-      return callback({ success: false, error: error.message });
+      callback({ success: false, error: error.message });
     }
   },
 
