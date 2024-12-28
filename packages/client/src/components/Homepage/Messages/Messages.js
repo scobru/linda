@@ -16,6 +16,7 @@ import { useMessageSending } from "../../../hooks/useMessageSending";
 import { useMobileView } from "../../../hooks/useMobileView";
 import { useFriends } from "../../../hooks/useFriends";
 import { useMessageNotifications } from "../../../hooks/useMessageNotifications";
+import { useWallet } from "../../../hooks/useWallet";
 
 const { userBlocking } = blocking;
 const { channels } = messaging;
@@ -131,16 +132,16 @@ const InputArea = ({
   );
 };
 
-export default function Messages({ chatData, isMobileView = false, onBack }) {
-  const { appState } = useAppState();
+export default function Messages({ isMobileView = false, onBack }) {
+  const { appState, currentView } = useAppState();
   const selected = appState.selected;
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const { unblockUser } = useFriends();
+  const { walletService } = useWallet();
 
   // Log per debug
   console.log("Messages - AppState:", appState);
   console.log("Messages - Selected:", selected);
-  console.log("Messages - ChatData:", chatData);
 
   // Utilizzo dei custom hooks
   const {
@@ -163,72 +164,11 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     setNewMessage,
     sendMessage,
     handleDeleteMessage,
-    handleDeleteAllMessages,
     handleVoiceMessage,
     messageTracking,
   } = useMessageSending(selected);
 
   const { currentIsMobileView } = useMobileView(isMobileView);
-
-  // Effetto per caricare i messaggi quando cambia la chat
-  useEffect(() => {
-    console.log(
-      "Messages - Caricamento messaggi per roomId:",
-      selected?.roomId
-    );
-    if (selected?.roomId) {
-      loadMessages();
-    }
-  }, [selected?.roomId, loadMessages]);
-
-  // Effetto per scrollare in basso quando arrivano nuovi messaggi
-  useEffect(() => {
-    if (messages.length > 0) {
-      const messageContainer = document.querySelector(".message-container");
-      if (messageContainer) {
-        messageContainer.scrollTop = messageContainer.scrollHeight;
-      }
-    }
-  }, [messages]);
-
-  // Log per debug invio messaggi
-  useEffect(() => {
-    console.log("Messages - Stato invio:", {
-      canWrite,
-      isBlocked,
-      selected,
-      messages: messages.length,
-    });
-  }, [canWrite, isBlocked, selected, messages]);
-
-  // Renderizza i messaggi
-  const renderMessages = () => {
-    if (loading && messages.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      );
-    }
-
-    if (messages.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-full text-gray-500">
-          Nessun messaggio
-        </div>
-      );
-    }
-
-    return messages.map((message) => (
-      <MessageBox
-        key={message.id}
-        message={message}
-        isOwnMessage={message.sender === user.is.pub}
-        onDelete={() => handleDeleteMessage(message.id)}
-        messageTracking={messageTracking}
-      />
-    ));
-  };
 
   // Handler per l'invio di mance
   const handleSendTip = async (amount, isStealthMode = false) => {
@@ -265,7 +205,7 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
         content: `Ha inviato una mancia di ${amount} ETH${
           isStealthMode ? " (modalità stealth)" : ""
         }`,
-        sender: user.is.pub,
+        sender: appState.user.is.pub,
         timestamp: Date.now(),
         type: "system",
       };
@@ -278,47 +218,18 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
         .get(messageId)
         .put(messageData);
 
-      setMessages((prev) => [...prev, messageData]);
+      updateMessages(messageData);
     } catch (error) {
       console.error("Errore invio mancia:", error);
       toast.error(error.message || "Errore durante l'invio della mancia");
     }
   };
 
+  // Funzione per cancellare la chat
   const handleClearChat = async () => {
-    if (!selected?.roomId && !selected?.id) return;
-
+    if (!selected?.roomId) return;
     try {
-      // Usa gun direttamente per cancellare i messaggi
-      const messagesRef = gun
-        .get(DAPP_NAME)
-        .get("chats")
-        .get(selected.roomId)
-        .get("messages");
-
-      await new Promise((resolve) => {
-        const unsubscribe = messagesRef.map().once((msg, msgId) => {
-          if (msg) {
-            messagesRef.get(msgId).put(null);
-          }
-        });
-
-        // Assicurati che la sottoscrizione venga pulita
-        setTimeout(() => {
-          if (typeof unsubscribe === "function") {
-            unsubscribe();
-          }
-          resolve(true);
-        }, 500);
-      });
-
-      // Cancella anche il nodo dei messaggi
-      await new Promise((resolve) => {
-        messagesRef.put(null, (ack) => {
-          resolve(!ack.err);
-        });
-      });
-
+      await clearMessages();
       toast.success("Chat cancellata con successo");
     } catch (error) {
       console.error("Errore durante la cancellazione della chat:", error);
@@ -326,26 +237,46 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
     }
   };
 
+  // Funzione per sbloccare un utente
   const handleUnblock = async () => {
     if (!selected?.pub) return;
-
     try {
-      const result = await unblockUser(selected.pub);
-      if (result.success) {
-        toast.success("Utente sbloccato con successo");
-      }
+      await unblockUser(selected.pub);
+      toast.success("Utente sbloccato con successo");
     } catch (error) {
       console.error("Errore sblocco utente:", error);
-      toast.error(error.message || "Errore durante lo sblocco dell'utente");
+      toast.error("Errore durante lo sblocco dell'utente");
     }
   };
 
-  useMessageNotifications(messages, chatData?.type);
+  // Effetti
+  useEffect(() => {
+    if (selected?.roomId) {
+      loadMessages();
+    }
+  }, [selected?.roomId, loadMessages]);
 
-  if (!selected?.pub) {
+  useEffect(() => {
+    if (messages.length > 0) {
+      const messageContainer = document.querySelector(".message-container");
+      if (messageContainer) {
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+      }
+    }
+  }, [messages]);
+
+  useMessageNotifications(messages, selected?.type);
+
+  if (!selected?.roomId) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Seleziona un amico per chattare</p>
+        <p className="text-gray-500">
+          {currentView === "chats"
+            ? "Seleziona un amico per chattare"
+            : currentView === "channels"
+            ? "Seleziona un canale"
+            : "Seleziona una board"}
+        </p>
       </div>
     );
   }
@@ -355,7 +286,7 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76]">
         <div className="flex items-center">
-          {isMobileView && (
+          {currentIsMobileView && (
             <button
               onClick={onBack}
               className="mr-2 p-1.5 hover:bg-[#4A4F76] rounded-full"
@@ -376,8 +307,12 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
               </svg>
             </button>
           )}
-          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-            {chatUserAvatar ? (
+          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+            {selected.type === "channel" ? (
+              <span className="text-white text-lg font-semibold">
+                {selected.name?.charAt(0).toUpperCase()}
+              </span>
+            ) : chatUserAvatar ? (
               <img
                 className="w-full h-full rounded-full object-cover"
                 src={chatUserAvatar}
@@ -392,38 +327,22 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
             )}
           </div>
           <div className="ml-3">
-            <p className="text-white font-medium">{chatUserInfo.displayName}</p>
-            {chatUserInfo.username && (
+            <p className="text-white font-medium">
+              {selected.type === "channel"
+                ? selected.name
+                : chatUserInfo.displayName}
+            </p>
+            {selected.type !== "channel" && chatUserInfo.username && (
               <p className="text-gray-300 text-sm">@{chatUserInfo.username}</p>
             )}
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          <button
-            onClick={handleClearChat}
-            className="p-2 hover:bg-[#4A4F76] rounded-full text-gray-300 hover:text-white transition-colors"
-            title="Cancella chat"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
-          </button>
-          {chatData &&
-            chatData.type !== "channel" &&
-            chatData.type !== "board" && (
+          {selected.type !== "channel" && (
+            <>
               <button
                 onClick={() => setIsWalletModalOpen(true)}
-                className="text-white hover:bg-[#4A4F76] p-2 rounded-full"
+                className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
               >
                 <svg
                   className="w-5 h-5"
@@ -439,7 +358,46 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
                   />
                 </svg>
               </button>
-            )}
+              {isBlocked && (
+                <button
+                  onClick={handleUnblock}
+                  className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                    />
+                  </svg>
+                </button>
+              )}
+            </>
+          )}
+          <button
+            onClick={handleClearChat}
+            className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -458,8 +416,8 @@ export default function Messages({ chatData, isMobileView = false, onBack }) {
             <MessageBox
               key={message.id}
               message={message}
-              isOwnMessage={message.sender === user.is.pub}
-              onDelete={handleDeleteMessage}
+              isOwnMessage={message.sender === appState.user?.is?.pub}
+              onDelete={() => handleDeleteMessage(message.id)}
               messageTracking={messageTracking}
             />
           ))

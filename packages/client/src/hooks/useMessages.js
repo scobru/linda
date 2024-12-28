@@ -24,7 +24,7 @@ export const useMessages = (selected) => {
       // Carica i messaggi dal nodo appropriato
       const messagesRef = gun
         .get(DAPP_NAME)
-        .get("chats")
+        .get(selected.type === "channel" ? "channels" : "chats")
         .get(selected.roomId)
         .get("messages");
 
@@ -113,7 +113,7 @@ export const useMessages = (selected) => {
     // Sottoscrivi ai nuovi messaggi
     const messagesRef = gun
       .get(DAPP_NAME)
-      .get("chats")
+      .get(selected.type === "channel" ? "channels" : "chats")
       .get(selected.roomId)
       .get("messages");
 

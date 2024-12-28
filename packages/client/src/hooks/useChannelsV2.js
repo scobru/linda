@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { toast } from "react-hot-toast";
-import { messaging } from "linda-protocol";
+import { channelsV2 } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
+import { toast } from "react-hot-toast";
 
 export const useChannelsV2 = () => {
   const { appState } = useAppState();
@@ -17,34 +17,14 @@ export const useChannelsV2 = () => {
       setLoading(true);
       setError(null);
 
-      // Ottieni i canali dell'utente
-      const userChannels = await new Promise((resolve) => {
-        const results = [];
-        gun
-          .user()
-          .get("channels")
-          .map()
-          .once((data, channelId) => {
-            if (data) {
-              results.push({ ...data, id: channelId });
-            }
-          });
-        setTimeout(() => resolve(results), 500);
+      await channelsV2.list((response) => {
+        if (response.success) {
+          setChannels(response.channels.sort((a, b) => b.created - a.created));
+        } else {
+          setError(response.error || "Errore nel caricamento dei canali");
+          toast.error(response.error || "Errore nel caricamento dei canali");
+        }
       });
-
-      // Ottieni i metadata per ogni canale
-      const channelsWithMetadata = await Promise.all(
-        userChannels.map(async (channel) => {
-          const metadata = await messaging.channels.getMetadata(channel.id);
-          return {
-            ...metadata,
-            joined: channel.joined,
-            role: channel.role,
-          };
-        })
-      );
-
-      setChannels(channelsWithMetadata.sort((a, b) => b.created - a.created));
     } catch (error) {
       console.error("Errore caricamento canali:", error);
       setError(error.message);
@@ -59,16 +39,26 @@ export const useChannelsV2 = () => {
     async (channelData) => {
       try {
         setLoading(true);
-        const result = await messaging.channels.create(channelData);
-        await loadChannels(); // Ricarica la lista
-        toast.success("Canale creato con successo");
-        return result;
+        return new Promise((resolve, reject) => {
+          channelsV2.create(channelData, (response) => {
+            if (response.success) {
+              loadChannels();
+              toast.success("Canale creato con successo");
+              resolve(true);
+            } else {
+              toast.error(
+                response.error || "Errore nella creazione del canale"
+              );
+              resolve(false);
+            }
+            setLoading(false);
+          });
+        });
       } catch (error) {
         console.error("Errore creazione canale:", error);
-        toast.error(error.message);
-        throw error;
-      } finally {
+        toast.error(error.message || "Errore nella creazione del canale");
         setLoading(false);
+        return false;
       }
     },
     [loadChannels]
@@ -79,13 +69,17 @@ export const useChannelsV2 = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await messaging.channels.join(channelId);
-        await loadChannels(); // Ricarica la lista
-        toast.success("Ti sei unito al canale");
+        await channelsV2.join(channelId, (response) => {
+          if (response.success) {
+            loadChannels();
+            toast.success("Ti sei unito al canale");
+          } else {
+            toast.error(response.error || "Errore nell'unirsi al canale");
+          }
+        });
       } catch (error) {
         console.error("Errore partecipazione canale:", error);
-        toast.error(error.message);
-        throw error;
+        toast.error(error.message || "Errore nell'unirsi al canale");
       } finally {
         setLoading(false);
       }
@@ -98,13 +92,17 @@ export const useChannelsV2 = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await messaging.channels.leave(channelId);
-        await loadChannels(); // Ricarica la lista
-        toast.success("Hai lasciato il canale");
+        await channelsV2.leave(channelId, (response) => {
+          if (response.success) {
+            loadChannels();
+            toast.success("Hai lasciato il canale");
+          } else {
+            toast.error(response.error || "Errore nel lasciare il canale");
+          }
+        });
       } catch (error) {
         console.error("Errore abbandono canale:", error);
-        toast.error(error.message);
-        throw error;
+        toast.error(error.message || "Errore nel lasciare il canale");
       } finally {
         setLoading(false);
       }
@@ -117,13 +115,19 @@ export const useChannelsV2 = () => {
     async (channelId) => {
       try {
         setLoading(true);
-        await messaging.channels.delete(channelId);
-        await loadChannels(); // Ricarica la lista
-        toast.success("Canale eliminato");
+        await channelsV2.delete(channelId, (response) => {
+          if (response.success) {
+            loadChannels();
+            toast.success("Canale eliminato con successo");
+          } else {
+            toast.error(
+              response.error || "Errore nell'eliminazione del canale"
+            );
+          }
+        });
       } catch (error) {
         console.error("Errore eliminazione canale:", error);
-        toast.error(error.message);
-        throw error;
+        toast.error(error.message || "Errore nell'eliminazione del canale");
       } finally {
         setLoading(false);
       }
@@ -132,17 +136,25 @@ export const useChannelsV2 = () => {
   );
 
   // Cerca canali
-  const searchChannels = useCallback(async (query, options = {}) => {
+  const searchChannels = useCallback(async (query) => {
     try {
       setLoading(true);
-      const results = await messaging.channels.search(query, options);
-      return results;
+      return new Promise((resolve) => {
+        channelsV2.search(query, (response) => {
+          if (response.success) {
+            resolve(response.channels || []);
+          } else {
+            toast.error(response.error || "Errore nella ricerca dei canali");
+            resolve([]);
+          }
+          setLoading(false);
+        });
+      });
     } catch (error) {
       console.error("Errore ricerca canali:", error);
-      toast.error("Errore nella ricerca");
-      throw error;
-    } finally {
+      toast.error(error.message || "Errore nella ricerca dei canali");
       setLoading(false);
+      return [];
     }
   }, []);
 

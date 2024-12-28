@@ -67,20 +67,6 @@ const CreateChannel = ({ onChannelCreated }) => {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Tipo
-          </label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          >
-            <option value="public">Pubblico</option>
-            <option value="private">Privato</option>
-          </select>
-        </div>
-
         {error && <div className="text-red-500 text-sm">{error}</div>}
 
         <button

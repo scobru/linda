@@ -60,8 +60,8 @@ export const channelsV2 = {
       });
 
       if (!channel) throw new Error('Canale non trovato');
-      if (channel.type === 'private') throw new Error('Canale privato');
 
+      // Aggiungi l'utente ai membri del canale
       await gun
         .get(DAPP_NAME)
         .get('channels')
@@ -71,6 +71,27 @@ export const channelsV2 = {
           pub: user.is.pub,
           role: 'member',
           joined: Date.now(),
+        });
+
+      // Aggiungi il canale alla lista dei canali dell'utente
+      await gun.user().get('channels').get(channelId).put({
+        id: channelId,
+        joined: Date.now(),
+        role: 'member',
+      });
+
+      // Notifica gli altri membri
+      await gun
+        .get(DAPP_NAME)
+        .get('channels')
+        .get(channelId)
+        .get('messages')
+        .set({
+          id: `system_${Date.now()}`,
+          type: 'system',
+          content: `${user.is.alias || user.is.pub} si è unito al canale`,
+          timestamp: Date.now(),
+          sender: 'system',
         });
 
       return callback({ success: true });
