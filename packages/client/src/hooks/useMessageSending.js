@@ -1,11 +1,22 @@
 import { useState, useCallback } from "react";
 import { useMessages } from "./useMessages";
+import { useGroupMessages } from "./useGroupMessages";
 import { toast } from "react-hot-toast";
 
 export const useMessageSending = (selected) => {
   const [newMessage, setNewMessage] = useState("");
-  const { sendMessage: sendMessageToGun, deleteMessage } =
-    useMessages(selected);
+
+  // Usa l'hook appropriato in base al tipo di chat
+  const {
+    sendMessage: sendPrivateMessage,
+    deleteMessage: deletePrivateMessage,
+  } = useMessages(selected.type === "friend" ? selected : null);
+
+  const { sendMessage: sendGroupMessage, deleteMessage: deleteGroupMessage } =
+    useGroupMessages(
+      selected.type !== "friend" ? selected.id : null,
+      selected.type
+    );
 
   const sendMessage = useCallback(async () => {
     if (!newMessage.trim()) return;
@@ -14,7 +25,12 @@ export const useMessageSending = (selected) => {
     setNewMessage("");
 
     try {
-      const success = await sendMessageToGun(messageContent);
+      // Usa la funzione appropriata in base al tipo di chat
+      const success =
+        selected.type === "friend"
+          ? await sendPrivateMessage(messageContent)
+          : await sendGroupMessage(messageContent);
+
       if (!success) {
         setNewMessage(messageContent);
       }
@@ -23,7 +39,16 @@ export const useMessageSending = (selected) => {
       toast.error("Errore nell'invio del messaggio");
       setNewMessage(messageContent);
     }
-  }, [newMessage, sendMessageToGun]);
+  }, [newMessage, sendPrivateMessage, sendGroupMessage, selected.type]);
+
+  const deleteMessage = useCallback(
+    (messageId) => {
+      return selected.type === "friend"
+        ? deletePrivateMessage(messageId)
+        : deleteGroupMessage(messageId);
+    },
+    [deletePrivateMessage, deleteGroupMessage, selected.type]
+  );
 
   const handleVoiceMessage = useCallback(
     async (audioBlob) => {
@@ -39,7 +64,6 @@ export const useMessageSending = (selected) => {
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
-          // Mantieni l'intero URL data:audio
           const audioUrl = reader.result;
           console.log("Audio convertito in URL data");
 
@@ -56,7 +80,11 @@ export const useMessageSending = (selected) => {
           };
 
           console.log("Invio messaggio vocale");
-          const success = await sendMessageToGun(messageData);
+          // Usa la funzione appropriata in base al tipo di chat
+          const success =
+            selected.type === "friend"
+              ? await sendPrivateMessage(messageData)
+              : await sendGroupMessage(messageData);
 
           if (success) {
             toast.success("Messaggio vocale inviato");
@@ -69,7 +97,7 @@ export const useMessageSending = (selected) => {
         toast.error("Errore nell'invio del messaggio vocale");
       }
     },
-    [sendMessageToGun]
+    [sendPrivateMessage, sendGroupMessage, selected.type]
   );
 
   return {

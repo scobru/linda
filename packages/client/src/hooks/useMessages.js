@@ -1,10 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { messaging, user, security } from "linda-protocol";
-import { gun, DAPP_NAME } from "linda-protocol";
+import {
+  messaging as messagingModule,
+  user,
+  security,
+  gun,
+  DAPP_NAME,
+} from "linda-protocol";
 import { toast } from "react-hot-toast";
 
-const { chat, channels } = messaging;
 const { createChatsCertificate, createMessagesCertificate } = security;
+const messaging = messagingModule.default;
 
 // Funzione helper per verificare e creare i certificati
 const ensureCertificates = async (recipientPub) => {
@@ -83,7 +88,7 @@ export const useMessages = (selected) => {
           : "boards";
       const id = selected.type === "friend" ? selected.roomId : selected.id;
 
-      const loadedMessages = await chat.messageList.loadMessages(path, id);
+      const loadedMessages = await messaging.messages.loadMessages(path, id);
 
       // Decrittazione messaggi privati
       const processedMsgs = await Promise.all(
@@ -94,7 +99,7 @@ export const useMessages = (selected) => {
             msg.content.startsWith("SEA{")
           ) {
             try {
-              const decrypted = await chat.messageList.decryptMessage(
+              const decrypted = await messaging.messages.decrypt(
                 msg,
                 selected.pub
               );
@@ -137,7 +142,7 @@ export const useMessages = (selected) => {
       const id = selected.type === "friend" ? selected.roomId : selected.id;
       const oldestMessage = messages[0];
 
-      const olderMessages = await chat.messageList.loadMessages(
+      const olderMessages = await messaging.messages.loadMessages(
         path,
         id,
         null,
@@ -158,7 +163,7 @@ export const useMessages = (selected) => {
             msg.content.startsWith("SEA{")
           ) {
             try {
-              const decrypted = await chat.messageList.decryptMessage(
+              const decrypted = await messaging.messages.decrypt(
                 msg,
                 selected.pub
               );
@@ -221,7 +226,7 @@ export const useMessages = (selected) => {
             msg.content.startsWith("SEA{")
           ) {
             try {
-              const decrypted = await chat.messageList.decryptMessage(
+              const decrypted = await messaging.messages.decrypt(
                 msg,
                 selected.pub
               );
@@ -305,37 +310,42 @@ export const useMessages = (selected) => {
                   : content;
             }
 
-            chat.sendMessage(id, recipientPub, messageToSend, (result) => {
-              if (result.success) {
-                const newMessage = {
-                  id: result.messageId,
-                  content: messageToSend,
-                  type: typeof content === "object" ? content.type : "text",
-                  sender: user.is.pub,
-                  recipient: recipientPub,
-                  timestamp:
-                    typeof content === "object"
-                      ? content.timestamp
-                      : Date.now(),
-                  preview: previewText,
-                  ...(content.metadata && { metadata: content.metadata }),
-                };
+            messaging.chat.sendMessage(
+              id,
+              recipientPub,
+              messageToSend,
+              (result) => {
+                if (result.success) {
+                  const newMessage = {
+                    id: result.messageId,
+                    content: messageToSend,
+                    type: typeof content === "object" ? content.type : "text",
+                    sender: user.is.pub,
+                    recipient: recipientPub,
+                    timestamp:
+                      typeof content === "object"
+                        ? content.timestamp
+                        : Date.now(),
+                    preview: previewText,
+                    ...(content.metadata && { metadata: content.metadata }),
+                  };
 
-                setMessages((prev) =>
-                  [...prev, newMessage].sort(
-                    (a, b) => a.timestamp - b.timestamp
-                  )
-                );
+                  setMessages((prev) =>
+                    [...prev, newMessage].sort(
+                      (a, b) => a.timestamp - b.timestamp
+                    )
+                  );
 
-                resolve(true);
-              } else {
-                reject(
-                  new Error(
-                    result.errMessage || "Errore nell'invio del messaggio"
-                  )
-                );
+                  resolve(true);
+                } else {
+                  reject(
+                    new Error(
+                      result.errMessage || "Errore nell'invio del messaggio"
+                    )
+                  );
+                }
               }
-            });
+            );
           });
         }
         // Per canali e bacheche
@@ -350,7 +360,7 @@ export const useMessages = (selected) => {
                 };
 
           if (selected.type === "channel") {
-            return await channels.sendMessage(id, messageToSend);
+            return await messaging.chat.sendMessage(id, messageToSend);
           } else {
             const messageId = `${Date.now()}_${Math.random()
               .toString(36)

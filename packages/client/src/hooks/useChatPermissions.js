@@ -15,7 +15,10 @@ export const useChatPermissions = (selected, chatData) => {
 
   useEffect(() => {
     const checkPermissions = async () => {
+      console.log("Verifica permessi per:", selected);
+
       if (!selected || !user?.is) {
+        console.log("Nessuna chat selezionata o utente non autenticato");
         setCanWrite(false);
         return;
       }
@@ -23,49 +26,66 @@ export const useChatPermissions = (selected, chatData) => {
       try {
         // Per le bacheche, tutti possono scrivere
         if (selected.type === "board") {
+          console.log("Chat di tipo bacheca - permesso di scrittura concesso");
           setCanWrite(true);
           return;
         }
 
         // Per i canali, solo il creatore può scrivere
         if (selected.type === "channel") {
-          setCanWrite(selected.creator === user.is.pub);
+          const hasPermission = selected.creator === user.is.pub;
+          console.log(
+            "Chat di tipo canale - permesso di scrittura:",
+            hasPermission
+          );
+          setCanWrite(hasPermission);
           return;
         }
 
         // Per le chat private
         if (selected.type === "friend" || selected.type === "chat") {
+          console.log("Verifica permessi per chat privata");
+
           // Verifica lo stato di blocco
           const blockStatus = await userBlocking.getBlockStatus(selected.pub);
+          console.log("Stato blocco:", blockStatus);
+
           setBlockStatus({
             blockedByMe: blockStatus.blocked,
             blockedByOther: blockStatus.blockedBy,
           });
 
           if (blockStatus.blocked || blockStatus.blockedBy) {
+            console.log("Chat bloccata - permesso negato");
             setCanWrite(false);
             setIsBlocked(true);
             return;
           }
 
-          // Verifica il certificato
-          const cert = await gun
-            .get(DAPP_NAME)
-            .get("certificates")
-            .get(selected.pub)
-            .get("messages")
-            .then();
+          try {
+            // Verifica il certificato
+            const cert = await gun
+              .get(DAPP_NAME)
+              .get("certificates")
+              .get(selected.pub)
+              .get("messages")
+              .then();
 
-          if (!cert) {
-            try {
+            console.log("Certificato esistente:", cert);
+
+            if (!cert) {
+              console.log("Creazione nuovo certificato...");
               const newCert = await createMessagesCertificate(selected.pub);
-              setCanWrite(!!newCert);
-            } catch (error) {
-              console.warn("Errore creazione certificato:", error);
-              setCanWrite(false);
+              const hasPermission = !!newCert;
+              console.log("Nuovo certificato creato:", hasPermission);
+              setCanWrite(hasPermission);
+            } else {
+              console.log("Certificato valido - permesso concesso");
+              setCanWrite(true);
             }
-          } else {
-            setCanWrite(true);
+          } catch (error) {
+            console.error("Errore gestione certificato:", error);
+            setCanWrite(false);
           }
         }
       } catch (error) {

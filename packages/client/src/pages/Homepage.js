@@ -18,7 +18,6 @@ import { Observable } from "rxjs";
 // Components
 import Friends from "../components/Homepage/Friends/Friends";
 import Messages from "../components/Homepage/Messages/Messages";
-import Channels from "../components/Homepage/Channels";
 import Header from "../components/Header";
 
 export default function Homepage() {
@@ -340,45 +339,18 @@ export default function Homepage() {
             isMobileView && showMobileChat ? "hidden" : "flex"
           } w-full md:w-[320px] lg:w-[380px] flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
         >
-          {/* Tab di navigazione */}
-          <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
-            <button
-              onClick={() => handleViewChange("chats")}
-              className={`flex-1 py-3 text-sm font-medium ${
-                activeView === "chats"
-                  ? "text-white border-b-2 border-white"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => handleViewChange("channels")}
-              className={`flex-1 py-3 text-sm font-medium ${
-                activeView === "channels"
-                  ? "text-white border-b-2 border-white"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Boards and Channels
-            </button>
-          </div>
-
-          {/* Lista chat/canali */}
+          {/* Lista chat */}
           <div className="flex-1 overflow-y-auto min-h-0">
-            {activeView === "chats" && (
-              <Friends
-                onSelect={(friend) =>
-                  handleSelect({ item: friend, type: "chat" })
-                }
-                pendingRequests={pendingRequests}
-                loading={loading}
-                selectedUser={oldSelected}
-                friends={oldFriends}
-                onRequestProcessed={handleRequestProcessed}
-              />
-            )}
-            {activeView === "channels" && <Channels onSelect={handleSelect} />}
+            <Friends
+              onSelect={(friend) =>
+                handleSelect({ item: friend, type: "chat" })
+              }
+              pendingRequests={pendingRequests}
+              loading={loading}
+              selectedUser={oldSelected}
+              friends={oldFriends}
+              onRequestProcessed={handleRequestProcessed}
+            />
           </div>
         </div>
 
@@ -400,11 +372,7 @@ export default function Homepage() {
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-gray-300">
-                {activeView === "chats"
-                  ? "Seleziona un amico per chattare"
-                  : "Seleziona una bacheca o un canale"}
-              </p>
+              <p className="text-gray-300">Seleziona un amico per chattare</p>
             </div>
           )}
         </div>
