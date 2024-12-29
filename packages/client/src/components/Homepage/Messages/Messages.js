@@ -887,7 +887,7 @@ export default function Messages({ isMobileView = false, onBack }) {
 
   if (!selected?.roomId) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full bg-[#424874]">
         <p className="text-gray-500">
           {currentView === "chats"
             ? "Seleziona un amico per chattare"
@@ -900,7 +900,11 @@ export default function Messages({ isMobileView = false, onBack }) {
   }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-full bg-[#424874]">
+    <div
+      className={`flex flex-col h-full w-full max-w-full bg-[#424874] ${
+        isMobileView ? "fixed inset-0 z-50" : ""
+      }`}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#373B5C] border-b border-[#4A4F76] sticky top-0 z-10">
         <div className="flex items-center">

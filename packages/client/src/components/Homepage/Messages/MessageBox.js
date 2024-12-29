@@ -250,20 +250,24 @@ const MessageBox = ({
       </div>
 
       {/* Contenitore reazioni */}
-      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`flex ${
+          isOwnMessage ? "justify-end" : "justify-start"
+        } mt-1`}
+      >
         <div
-          className={`flex items-center ${
-            isOwnMessage ? "mr-12" : "ml-12"
-          } mt-2 mb-1`}
+          className={`flex items-center ${isOwnMessage ? "mr-14" : "ml-14"}`}
         >
-          <ReactionsContainer
-            contentId={message.id}
-            contentType={contentType}
-            onAddReaction={addReaction}
-            onRemoveReaction={removeReaction}
-            getReactions={getReactions}
-            currentUserPub={currentUserPub}
-          />
+          <div className="bg-[#2D325A] rounded-lg p-1">
+            <ReactionsContainer
+              contentId={message.id}
+              contentType={contentType}
+              onAddReaction={addReaction}
+              onRemoveReaction={removeReaction}
+              getReactions={getReactions}
+              currentUserPub={currentUserPub}
+            />
+          </div>
         </div>
       </div>
     </div>
