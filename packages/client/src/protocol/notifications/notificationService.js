@@ -1,5 +1,6 @@
-import { gun, user, DAPP_NAME, SEA } from '../useGun.js';
-import { Observable } from 'rxjs';
+import { gun, user, DAPP_NAME, SEA } from "../useGun.js";
+import { Observable } from "rxjs";
+import { messaging } from "../index.js";
 
 /**
  * Servizio per la gestione delle notifiche
@@ -12,7 +13,7 @@ const notificationService = {
    */
   notifyUser: async (targetPub, notification) => {
     if (!user?.is) {
-      throw new Error('Utente non autenticato');
+      throw new Error("Utente non autenticato");
     }
 
     try {
@@ -27,14 +28,14 @@ const notificationService = {
         from: user.is.pub,
         timestamp: Date.now(),
         data: notification.data,
-        status: 'unread',
+        status: "unread",
       };
 
       // Salva la notifica nel nodo dell'utente destinatario
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
-          .get('notifications')
+          .get("notifications")
           .get(targetPub)
           .get(notificationId)
           .put(notificationData, (ack) => {
@@ -48,7 +49,7 @@ const notificationService = {
         notificationId,
       };
     } catch (error) {
-      console.error('Errore invio notifica:', error);
+      console.error("Errore invio notifica:", error);
       return {
         success: false,
         error: error.message,
@@ -63,7 +64,7 @@ const notificationService = {
   observeNotifications: () => {
     return new Observable((subscriber) => {
       if (!user?.is) {
-        subscriber.error(new Error('Utente non autenticato'));
+        subscriber.error(new Error("Utente non autenticato"));
         return;
       }
 
@@ -71,35 +72,53 @@ const notificationService = {
 
       const notificationHandler = gun
         .get(DAPP_NAME)
-        .get('notifications')
+        .get("notifications")
         .get(user.is.pub)
         .map()
         .on(async (notification, id) => {
           if (!notification || processedNotifications.has(id)) return;
 
-          // Verifica la firma se presente
-          if (notification.data && typeof notification.data === 'string') {
-            try {
-              const verified = await SEA.verify(
+          try {
+            // Decrittazione del contenuto della notifica se presente
+            if (notification.data && notification.data.content) {
+              const recipientPub = notification.from;
+              const decrypted = await messaging.messages.decrypt(
                 notification.data,
-                notification.from
+                recipientPub
               );
-              if (verified) {
-                notification.data = verified;
-              }
-            } catch (error) {
-              console.error('Errore verifica firma notifica:', error);
-              return;
+              notification.data.content =
+                decrypted.content || notification.data.content;
             }
-          }
 
-          processedNotifications.add(id);
-          subscriber.next(notification);
+            // Verifica della firma se presente
+            if (notification.data && typeof notification.data === "string") {
+              try {
+                const verified = await SEA.verify(
+                  notification.data,
+                  notification.from
+                );
+                if (verified) {
+                  notification.data = verified;
+                }
+              } catch (error) {
+                console.error("Errore verifica firma notifica:", error);
+                return;
+              }
+            }
+
+            processedNotifications.add(id);
+            subscriber.next(notification);
+          } catch (error) {
+            console.error("Errore decrittazione notifica:", error);
+            notification.data.content = "[Errore decrittazione]";
+            processedNotifications.add(id);
+            subscriber.next(notification);
+          }
         });
 
       // Cleanup function
       return () => {
-        if (typeof notificationHandler === 'function') {
+        if (typeof notificationHandler === "function") {
           notificationHandler();
         }
         processedNotifications.clear();
@@ -113,21 +132,21 @@ const notificationService = {
    */
   markAsRead: async (notificationId) => {
     if (!user?.is) {
-      throw new Error('Utente non autenticato');
+      throw new Error("Utente non autenticato");
     }
 
     try {
       await gun
         .get(DAPP_NAME)
-        .get('notifications')
+        .get("notifications")
         .get(user.is.pub)
         .get(notificationId)
-        .get('status')
-        .put('read');
+        .get("status")
+        .put("read");
 
       return true;
     } catch (error) {
-      console.error('Errore aggiornamento stato notifica:', error);
+      console.error("Errore aggiornamento stato notifica:", error);
       return false;
     }
   },
@@ -138,20 +157,20 @@ const notificationService = {
    */
   removeNotification: async (notificationId) => {
     if (!user?.is) {
-      throw new Error('Utente non autenticato');
+      throw new Error("Utente non autenticato");
     }
 
     try {
       await gun
         .get(DAPP_NAME)
-        .get('notifications')
+        .get("notifications")
         .get(user.is.pub)
         .get(notificationId)
         .put(null);
 
       return true;
     } catch (error) {
-      console.error('Errore rimozione notifica:', error);
+      console.error("Errore rimozione notifica:", error);
       return false;
     }
   },
