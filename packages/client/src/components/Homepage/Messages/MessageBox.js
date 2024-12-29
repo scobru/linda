@@ -22,7 +22,11 @@ const MessageBox = ({
       if (!message.sender) return;
 
       try {
-        // Prima prova a recuperare l'alias dal database
+        // Carica l'avatar dell'utente
+        const avatar = await getUserAvatar(message.sender);
+        setSenderAvatar(avatar);
+
+        // Carica il nome dell'utente
         const alias = await new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
@@ -37,15 +41,13 @@ const MessageBox = ({
         if (alias) {
           setSenderName(isOwnMessage ? "Tu" : alias);
         } else {
-          // Se non trova l'alias, usa il nome utente come fallback
           const username = await getUserUsername(message.sender);
-          setSenderName(isOwnMessage ? "Tu" : username || "Utente sconosciuto");
+          setSenderName(isOwnMessage ? "Tu" : username || "Utente");
         }
-
-        const avatar = await getUserAvatar(message.sender);
-        setSenderAvatar(avatar);
       } catch (error) {
         console.error("Errore caricamento info utente:", error);
+        // In caso di errore, usa comunque un avatar predefinito
+        setSenderName(isOwnMessage ? "Tu" : "Utente");
       }
     };
 
@@ -56,35 +58,7 @@ const MessageBox = ({
     const decryptMessage = async () => {
       try {
         if (message.type === "system") {
-          // Se è un messaggio di sistema, cerca di sostituire le chiavi pubbliche con gli alias
-          if (message.content) {
-            // Modifica l'espressione regolare per catturare sia le chiavi che iniziano con - che quelle senza
-            const pubKeys =
-              message.content.match(/(?:\s|^)([a-zA-Z0-9_-]{43,})(?:\s|$)/g) ||
-              [];
-            let updatedContent = message.content;
-
-            for (const pubKey of pubKeys) {
-              const cleanPubKey = pubKey.trim(); // Rimuove spazi iniziali e finali
-              const alias = await new Promise((resolve) => {
-                gun
-                  .get(DAPP_NAME)
-                  .get("users")
-                  .get(cleanPubKey)
-                  .get("alias")
-                  .once((alias) => {
-                    resolve(alias || cleanPubKey);
-                  });
-              });
-              updatedContent = updatedContent.replace(cleanPubKey, alias);
-            }
-            console.log("Contenuto originale:", message.content);
-            console.log("Chiavi pubbliche trovate:", pubKeys);
-            console.log("Contenuto aggiornato:", updatedContent);
-            setDecryptedContent(updatedContent);
-          } else {
-            setDecryptedContent(message.content);
-          }
+          setDecryptedContent(message.content);
           return;
         }
 
@@ -97,31 +71,24 @@ const MessageBox = ({
 
         // Gestione dei diversi tipi di messaggio
         if (message.type === "image" || content.startsWith("[IMAGE]")) {
-          // Rimuovi il prefisso [IMAGE] se presente
           content = content.replace("[IMAGE]", "");
           setDecryptedContent(content);
         } else if (message.type === "voice" || content.startsWith("[VOICE]")) {
-          // Gestione messaggi vocali
           content = content.replace("[VOICE]", "");
           if (content.startsWith("data:audio")) {
             setAudioUrl(content);
             setDecryptedContent(null);
           } else {
-            console.error(
-              "Formato audio non valido:",
-              content.substring(0, 100)
-            );
-            setDecryptedContent("Errore nel caricamento del messaggio vocale");
+            setDecryptedContent("[Errore decrittazione]");
             setAudioUrl(null);
           }
         } else {
-          // Messaggi di testo normali
           setDecryptedContent(content);
           setAudioUrl(null);
         }
       } catch (error) {
-        console.error("Errore decrittazione messaggio:", error);
-        setDecryptedContent("Errore nella decrittazione del messaggio");
+        console.error("Errore decrittazione:", error);
+        setDecryptedContent("[Errore decrittazione]");
         setAudioUrl(null);
       }
     };
