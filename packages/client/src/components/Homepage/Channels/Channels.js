@@ -274,7 +274,7 @@ export default function Channels({ onSelect }) {
                 onClick={() => onSelect(channel)}
                 className="flex items-center space-x-3 p-3 rounded-lg hover:bg-[#4A4F76] cursor-pointer transition-colors"
               >
-                <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <div className="flex-shrink-0 w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
                   {channel.avatar ? (
                     <img
                       src={channel.avatar}
@@ -288,7 +288,7 @@ export default function Channels({ onSelect }) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-medium truncate">
+                  <h3 className="text-white font-medium text-base truncate">
                     {channel.name}
                   </h3>
                   <p className="text-gray-400 text-sm truncate">

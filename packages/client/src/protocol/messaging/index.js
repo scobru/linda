@@ -7,6 +7,12 @@ import { channelsV2 } from "./channels.v2.js";
 import { boardsV2 } from "./boards.v2.js";
 import { messageList } from "./messageList.js";
 import sendVoiceMessage from "./sendVoiceMessage.js";
+import {
+  addReaction,
+  removeReaction,
+  getReactions,
+  CONTENT_TYPES,
+} from "../reactions/reactions";
 
 /**
  * Servizio unificato per la messaggistica
@@ -273,6 +279,86 @@ export const messaging = {
   voice: {
     send: sendVoiceMessage,
   },
+};
+
+export const addMessageReaction = async (messageId, reaction, userPub) => {
+  return await addReaction(
+    CONTENT_TYPES.PRIVATE_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeMessageReaction = async (messageId, reaction, userPub) => {
+  return await removeReaction(
+    CONTENT_TYPES.PRIVATE_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.PRIVATE_MESSAGE, messageId);
+};
+
+// Funzioni per le reazioni nei canali
+export const addChannelMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await addReaction(
+    CONTENT_TYPES.CHANNEL_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeChannelMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await removeReaction(
+    CONTENT_TYPES.CHANNEL_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getChannelMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.CHANNEL_MESSAGE, messageId);
+};
+
+// Funzioni per le reazioni nelle board
+export const addBoardMessageReaction = async (messageId, reaction, userPub) => {
+  return await addReaction(
+    CONTENT_TYPES.BOARD_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeBoardMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await removeReaction(
+    CONTENT_TYPES.BOARD_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getBoardMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.BOARD_MESSAGE, messageId);
 };
 
 // Esporta i servizi V2 individualmente

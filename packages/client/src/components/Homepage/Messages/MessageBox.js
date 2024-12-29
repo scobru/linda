@@ -1,21 +1,33 @@
 import React, { useState, useEffect } from "react";
 import { messaging, gun, DAPP_NAME } from "#protocol";
 import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
+import { ReactionsContainer } from "../../Reactions";
+import {
+  addReaction,
+  removeReaction,
+  getReactions,
+  CONTENT_TYPES,
+} from "../../../protocol/reactions/reactions";
+import { useAppState } from "../../../context/AppContext";
 import AudioPlayer from "./AudioPlayer";
 
 const MessageBox = ({
   message,
   isOwnMessage,
   onDelete,
+  messageStates,
   showDeleteButton,
   showRemoveMember,
   onRemoveMember,
   isVoiceMessage,
+  messageType = "private", // Può essere 'private', 'channel', o 'board'
 }) => {
   const [decryptedContent, setDecryptedContent] = useState("");
   const [senderName, setSenderName] = useState(isOwnMessage ? "Tu" : "...");
   const [senderAvatar, setSenderAvatar] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
+  const { appState } = useAppState();
+  const currentUserPub = appState.user.is.pub;
 
   useEffect(() => {
     const loadUserInfo = async () => {
@@ -46,7 +58,6 @@ const MessageBox = ({
         }
       } catch (error) {
         console.error("Errore caricamento info utente:", error);
-        // In caso di errore, usa comunque un avatar predefinito
         setSenderName(isOwnMessage ? "Tu" : "Utente");
       }
     };
@@ -69,7 +80,6 @@ const MessageBox = ({
         );
         let content = decrypted.content || message.content;
 
-        // Gestione dei diversi tipi di messaggio
         if (message.type === "image" || content.startsWith("[IMAGE]")) {
           content = content.replace("[IMAGE]", "");
           setDecryptedContent(content);
@@ -95,6 +105,20 @@ const MessageBox = ({
 
     decryptMessage();
   }, [message, isOwnMessage]);
+
+  // Seleziona il tipo di contenuto appropriato in base al tipo di messaggio
+  const getContentType = () => {
+    switch (messageType) {
+      case "channel":
+        return CONTENT_TYPES.CHANNEL_MESSAGE;
+      case "board":
+        return CONTENT_TYPES.BOARD_MESSAGE;
+      default:
+        return CONTENT_TYPES.PRIVATE_MESSAGE;
+    }
+  };
+
+  const contentType = getContentType();
 
   const renderContent = () => {
     if (message.type === "system") {
@@ -130,40 +154,6 @@ const MessageBox = ({
     );
   };
 
-  const renderMessageContent = () => {
-    if (message.type === "system") {
-      return <span className="text-gray-400 italic">{message.content}</span>;
-    } else if (
-      message.type === "voice" ||
-      message.content?.startsWith("[VOICE]")
-    ) {
-      const audioUrl =
-        message.content?.replace("[VOICE]", "") || message.content;
-      return (
-        <audio controls className="max-w-[200px]">
-          <source src={audioUrl} type="audio/webm" />
-          Il tuo browser non supporta l'elemento audio.
-        </audio>
-      );
-    } else if (
-      message.type === "image" ||
-      message.content?.startsWith("[IMAGE]")
-    ) {
-      const imageUrl =
-        message.content?.replace("[IMAGE]", "") || message.content;
-      return (
-        <img
-          src={imageUrl}
-          alt="Immagine inviata"
-          className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => window.open(imageUrl, "_blank")}
-        />
-      );
-    } else {
-      return message.content;
-    }
-  };
-
   return (
     <div className="mb-4 px-4">
       <div
@@ -173,7 +163,7 @@ const MessageBox = ({
       >
         {!isOwnMessage && (
           <>
-            <div className="w-8 h-8 rounded-full flex-shrink-0">
+            <div className="w-12 h-12 rounded-full flex-shrink-0">
               {senderAvatar ? (
                 <img
                   className="w-full h-full rounded-full object-cover"
@@ -188,8 +178,8 @@ const MessageBox = ({
                 />
               )}
             </div>
-            <div className="ml-2 flex flex-col">
-              <span className="text-sm text-white font-medium break-words">
+            <div className="ml-3 flex flex-col">
+              <span className="text-base text-white font-medium break-words">
                 {senderName}
               </span>
             </div>
@@ -197,12 +187,12 @@ const MessageBox = ({
         )}
         {isOwnMessage && (
           <>
-            <div className="mr-2 flex flex-col items-end">
-              <span className="text-sm text-white font-medium break-words">
+            <div className="mr-3 flex flex-col items-end">
+              <span className="text-base text-white font-medium break-words">
                 {senderName}
               </span>
             </div>
-            <div className="w-8 h-8 rounded-full flex-shrink-0">
+            <div className="w-12 h-12 rounded-full flex-shrink-0">
               {senderAvatar ? (
                 <img
                   className="w-full h-full rounded-full object-cover"
@@ -256,6 +246,23 @@ const MessageBox = ({
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Contenitore reazioni */}
+      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`flex items-center ${isOwnMessage ? "mr-12" : "ml-12"}`}
+          style={{ marginTop: "-8px" }}
+        >
+          <ReactionsContainer
+            contentId={message.id}
+            contentType={contentType}
+            onAddReaction={addReaction}
+            onRemoveReaction={removeReaction}
+            getReactions={getReactions}
+            currentUserPub={currentUserPub}
+          />
         </div>
       </div>
     </div>

@@ -1244,6 +1244,7 @@ export default function Messages({ isMobileView = false, onBack }) {
                 message.content?.startsWith("[VOICE]") ||
                 message.content?.startsWith("data:audio")
               }
+              messageType={selected.type || "private"}
             />
           ))
         )}

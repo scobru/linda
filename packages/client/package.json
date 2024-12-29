@@ -4,6 +4,7 @@
   "private": false,
   "dependencies": {
     "@headlessui/react": "^2.2.0",
+    "@mui/material": "^6.3.0",
     "@rainbow-me/rainbowkit": "^1.0.11",
     "@scobru/gun-eth": "^1.0.0",
     "@tailwindcss/forms": "^0.5.9",

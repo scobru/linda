@@ -202,67 +202,68 @@ export default function Boards({ onSelect }) {
                       : "hover:bg-[#2D325A]"
                   }`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-[#2D325A] flex items-center justify-center mr-3">
-                    <span className="text-white text-lg font-semibold">
-                      {board.name?.charAt(0).toUpperCase() || "B"}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0 flex items-center">
-                    <div>
-                      <h3 className="text-white font-medium truncate">
-                        {board.name || "Board senza nome"}
-                      </h3>
-                      <p className="text-gray-400 text-sm truncate">
-                        {board.members?.length || 0} membri
-                      </p>
-                    </div>
-                    {board.creator === appState.user?.is?.pub && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "image/*";
-                          input.onchange = async (e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                              if (file.size > 2 * 1024 * 1024) {
-                                toast.error(
-                                  "L'immagine non può superare i 2MB"
-                                );
-                                return;
-                              }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                handleUpdateBoardAvatar(
-                                  board.id,
-                                  reader.result
-                                );
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          };
-                          input.click();
-                        }}
-                        className="ml-2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-                        title="Cambia avatar della board"
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                      </button>
+                  <div className="flex-shrink-0 w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                    {board.avatar ? (
+                      <img
+                        src={board.avatar}
+                        alt={board.name}
+                        className="w-full h-full rounded-lg object-cover"
+                      />
+                    ) : (
+                      <span className="text-white font-medium text-lg">
+                        {board.name?.charAt(0).toUpperCase()}
+                      </span>
                     )}
                   </div>
+                  <div className="flex-1 min-w-0 ml-2">
+                    <h3 className="text-white font-medium text-base truncate">
+                      {board.name}
+                    </h3>
+                    <p className="text-gray-400 text-sm truncate">
+                      {board.members?.length || 0} membri
+                    </p>
+                  </div>
+                  {board.creator === appState.user?.is?.pub && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = async (e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            if (file.size > 2 * 1024 * 1024) {
+                              toast.error("L'immagine non può superare i 2MB");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              handleUpdateBoardAvatar(board.id, reader.result);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="ml-2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+                      title="Cambia avatar della board"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </button>
+                  )}
                   {board.creator !== appState.user?.is?.pub && (
                     <button
                       onClick={(e) => {
@@ -307,100 +308,93 @@ export default function Boards({ onSelect }) {
                     : "hover:bg-[#2D325A]"
                 }`}
               >
-                <div className="w-10 h-10 rounded-full bg-[#2D325A] flex items-center justify-center mr-3">
+                <div className="flex-shrink-0 w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
                   {board.avatar ? (
                     <img
                       src={board.avatar}
                       alt={board.name}
-                      className="w-full h-full rounded-full object-cover"
+                      className="w-full h-full rounded-lg object-cover"
                     />
                   ) : (
-                    <span className="text-white text-lg font-semibold">
-                      {board.name?.charAt(0).toUpperCase() || "B"}
+                    <span className="text-white font-medium text-lg">
+                      {board.name?.charAt(0).toUpperCase()}
                     </span>
                   )}
                 </div>
-                <div className="flex-1 min-w-0 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-medium truncate">
-                      {board.name || "Board senza nome"}
-                    </h3>
-                    <p className="text-gray-400 text-sm truncate">
-                      {board.members?.length || 0} membri
-                    </p>
-                  </div>
-                  <div className="flex items-center">
-                    {board.creator === appState.user?.is?.pub && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "image/*";
-                          input.onchange = async (e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                              if (file.size > 2 * 1024 * 1024) {
-                                toast.error(
-                                  "L'immagine non può superare i 2MB"
-                                );
-                                return;
-                              }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                handleUpdateBoardAvatar(
-                                  board.id,
-                                  reader.result
-                                );
-                              };
-                              reader.readAsDataURL(file);
+                <div className="flex-1 min-w-0 ml-2">
+                  <h3 className="text-white font-medium text-base truncate">
+                    {board.name}
+                  </h3>
+                  <p className="text-gray-400 text-sm truncate">
+                    {board.members?.length || 0} membri
+                  </p>
+                </div>
+                <div className="flex items-center">
+                  {board.creator === appState.user?.is?.pub && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = async (e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            if (file.size > 2 * 1024 * 1024) {
+                              toast.error("L'immagine non può superare i 2MB");
+                              return;
                             }
-                          };
-                          input.click();
-                        }}
-                        className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-                        title="Cambia avatar della board"
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              handleUpdateBoardAvatar(board.id, reader.result);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+                      title="Cambia avatar della board"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                      </button>
-                    )}
-                    {board.creator !== appState.user?.is?.pub && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleLeaveBoard(board.id);
-                        }}
-                        className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
-                        title="Esci dalla board"
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                  {board.creator !== appState.user?.is?.pub && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLeaveBoard(board.id);
+                      }}
+                      className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
+                      title="Esci dalla board"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                          />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                        />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
