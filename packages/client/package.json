@@ -13,6 +13,7 @@
     "@testing-library/react": "^13.2.0",
     "@testing-library/user-event": "^13.5.0",
     "autoprefixer": "^10.4.7",
+    "cross-env": "^7.0.3",
     "ethers": "^6.13.4",
     "gun": "^0.2020.1240",
     "gun-eth": "^3.0.2",
@@ -24,6 +25,7 @@
     "react-icons": "^4.4.0",
     "react-router-dom": "^6.3.0",
     "react-scripts": "5.0.1",
+    "save-dev": "^0.0.1-security",
     "tailwindcss": "^3.1.6",
     "url": "^0.11.4",
     "viem": "^1.19.11",
@@ -32,6 +34,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:network": "cross-env HOST=192.168.1.5 PORT=3000 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -49,7 +52,8 @@
     ]
   },
   "devDependencies": {
-    "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "cross-env": "^7.0.3"
   },
   "eslintConfig": {
     "extends": [

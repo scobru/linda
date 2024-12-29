@@ -4,6 +4,7 @@ import { useMobileView } from "../../../hooks/useMobileView";
 import { useChannelsV2 } from "../../../hooks/useChannelsV2";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "#protocol";
+import { ManagementMenu } from "../Management";
 
 export default function Channels({ onSelect }) {
   const { appState } = useAppState();
@@ -21,6 +22,9 @@ export default function Channels({ onSelect }) {
     searchChannels,
     joinChannel,
     leaveChannel,
+    deleteChannel,
+    updateName,
+    updateDescription,
   } = useChannelsV2();
 
   useEffect(() => {
@@ -107,6 +111,38 @@ export default function Channels({ onSelect }) {
     }
   };
 
+  const handleDeleteChannel = async (channelId) => {
+    try {
+      await deleteChannel(channelId);
+      toast.success("Canale eliminato con successo");
+    } catch (error) {
+      console.error("Errore eliminazione canale:", error);
+      toast.error(error.message || "Errore durante l'eliminazione del canale");
+    }
+  };
+
+  const handleUpdateChannelName = async (channelId, newName) => {
+    try {
+      await updateName(channelId, newName);
+      toast.success("Nome del canale aggiornato");
+    } catch (error) {
+      console.error("Errore aggiornamento nome canale:", error);
+      toast.error(error.message || "Errore durante l'aggiornamento del nome");
+    }
+  };
+
+  const handleUpdateChannelDescription = async (channelId, newDescription) => {
+    try {
+      await updateDescription(channelId, newDescription);
+      toast.success("Descrizione del canale aggiornata");
+    } catch (error) {
+      console.error("Errore aggiornamento descrizione canale:", error);
+      toast.error(
+        error.message || "Errore durante l'aggiornamento della descrizione"
+      );
+    }
+  };
+
   const displayedChannels = searchQuery ? searchResults : channels;
 
   const renderChannelActions = (channel) => {
@@ -114,97 +150,23 @@ export default function Channels({ onSelect }) {
 
     if (isCreator) {
       return (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = "image/*";
-            input.onchange = async (e) => {
-              const file = e.target.files[0];
-              if (file) {
-                if (file.size > 2 * 1024 * 1024) {
-                  toast.error("L'immagine non può superare i 2MB");
-                  return;
-                }
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  handleUpdateChannelAvatar(channel.id, reader.result);
-                };
-                reader.readAsDataURL(file);
-              }
-            };
-            input.click();
-          }}
-          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-          title="Cambia avatar del canale"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-        </button>
-      );
-    } else if (channel.isMember) {
-      return (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleLeaveChannel(channel.id);
-          }}
-          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-          title="Esci dal canale"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-            />
-          </svg>
-        </button>
-      );
-    } else {
-      return (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleJoinChannel(channel);
-          }}
-          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-          title="Unisciti al canale"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
+        <ManagementMenu
+          type="channel"
+          item={channel}
+          isCreator={isCreator}
+          onUpdateAvatar={(avatar) =>
+            handleUpdateChannelAvatar(channel.id, avatar)
+          }
+          onDelete={() => handleDeleteChannel(channel.id)}
+          onUpdateName={(name) => handleUpdateChannelName(channel.id, name)}
+          onUpdateDescription={(desc) =>
+            handleUpdateChannelDescription(channel.id, desc)
+          }
+        />
       );
     }
+
+    return null;
   };
 
   return (
@@ -288,14 +250,16 @@ export default function Channels({ onSelect }) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-medium text-base truncate">
-                    {channel.name}
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-white font-medium text-base truncate">
+                      {channel.name}
+                    </h3>
+                    {renderChannelActions(channel)}
+                  </div>
                   <p className="text-gray-400 text-sm truncate">
                     {Object.keys(channel.members || {}).length} membri
                   </p>
                 </div>
-                {renderChannelActions(channel)}
               </div>
             ))}
           </div>

@@ -4,6 +4,7 @@ import { toast } from "react-hot-toast";
 import { useBoardsV2 } from "../../../hooks/useBoardsV2";
 import { useMobileView } from "../../../hooks/useMobileView";
 import { gun, DAPP_NAME } from "#protocol";
+import { ManagementMenu } from "../Management";
 
 export default function Boards({ onSelect }) {
   const { appState, updateAppState } = useAppState();
@@ -16,6 +17,7 @@ export default function Boards({ onSelect }) {
     createBoard,
     searchBoards,
     loadBoards,
+    deleteBoard,
   } = useBoardsV2();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -111,6 +113,78 @@ export default function Boards({ onSelect }) {
     } catch (error) {
       console.error("Errore nell'unirsi alla board:", error);
     }
+  };
+
+  const handleDeleteBoard = async (boardId) => {
+    try {
+      await deleteBoard(boardId);
+      toast.success("Board eliminata con successo");
+      if (appState.selected?.roomId === boardId) {
+        updateAppState({
+          ...appState,
+          selected: null,
+        });
+      }
+    } catch (error) {
+      console.error("Errore eliminazione board:", error);
+      toast.error(error.message || "Errore durante l'eliminazione della board");
+    }
+  };
+
+  const handleUpdateBoardName = async (boardId, newName) => {
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("name")
+        .put(newName);
+      toast.success("Nome della board aggiornato");
+      loadBoards();
+    } catch (error) {
+      console.error("Errore aggiornamento nome board:", error);
+      toast.error(error.message || "Errore durante l'aggiornamento del nome");
+    }
+  };
+
+  const handleUpdateBoardDescription = async (boardId, newDescription) => {
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("description")
+        .put(newDescription);
+      toast.success("Descrizione della board aggiornata");
+      loadBoards();
+    } catch (error) {
+      console.error("Errore aggiornamento descrizione board:", error);
+      toast.error(
+        error.message || "Errore durante l'aggiornamento della descrizione"
+      );
+    }
+  };
+
+  const renderBoardActions = (board) => {
+    const isCreator = board.creator === appState.user?.is?.pub;
+
+    if (isCreator) {
+      return (
+        <ManagementMenu
+          type="board"
+          item={board}
+          isCreator={isCreator}
+          onUpdateAvatar={(avatar) => handleUpdateBoardAvatar(board.id, avatar)}
+          onDelete={() => handleDeleteBoard(board.id)}
+          onUpdateName={(name) => handleUpdateBoardName(board.id, name)}
+          onUpdateDescription={(desc) =>
+            handleUpdateBoardDescription(board.id, desc)
+          }
+        />
+      );
+    }
+
+    return null;
   };
 
   useEffect(() => {
@@ -216,78 +290,55 @@ export default function Boards({ onSelect }) {
                     )}
                   </div>
                   <div className="flex-1 min-w-0 ml-2">
-                    <h3 className="text-white font-medium text-base truncate">
-                      {board.name}
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-white font-medium text-base truncate">
+                        {board.name}
+                      </h3>
+                      {board.creator === appState.user?.is?.pub ? (
+                        <ManagementMenu
+                          type="board"
+                          item={board}
+                          isCreator={true}
+                          onUpdateAvatar={(avatar) =>
+                            handleUpdateBoardAvatar(board.id, avatar)
+                          }
+                          onDelete={() => handleDeleteBoard(board.id)}
+                          onUpdateName={(name) =>
+                            handleUpdateBoardName(board.id, name)
+                          }
+                          onUpdateDescription={(desc) =>
+                            handleUpdateBoardDescription(board.id, desc)
+                          }
+                        />
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleJoinBoard(board);
+                          }}
+                          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
+                          title="Unisciti alla board"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 4v16m8-8H4"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                     <p className="text-gray-400 text-sm truncate">
                       {board.members?.length || 0} membri
                     </p>
                   </div>
-                  {board.creator === appState.user?.is?.pub && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = "image/*";
-                        input.onchange = async (e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            if (file.size > 2 * 1024 * 1024) {
-                              toast.error("L'immagine non può superare i 2MB");
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              handleUpdateBoardAvatar(board.id, reader.result);
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        };
-                        input.click();
-                      }}
-                      className="ml-2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-                      title="Cambia avatar della board"
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </button>
-                  )}
-                  {board.creator !== appState.user?.is?.pub && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleJoinBoard(board);
-                      }}
-                      className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
-                      title="Unisciti alla board"
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 4v16m8-8H4"
-                        />
-                      </svg>
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
@@ -322,55 +373,56 @@ export default function Boards({ onSelect }) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0 ml-2">
-                  <h3 className="text-white font-medium text-base truncate">
-                    {board.name}
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-white font-medium text-base truncate">
+                      {board.name}
+                    </h3>
+                    {board.creator === appState.user?.is?.pub ? (
+                      <ManagementMenu
+                        type="board"
+                        item={board}
+                        isCreator={true}
+                        onUpdateAvatar={(avatar) =>
+                          handleUpdateBoardAvatar(board.id, avatar)
+                        }
+                        onDelete={() => handleDeleteBoard(board.id)}
+                        onUpdateName={(name) =>
+                          handleUpdateBoardName(board.id, name)
+                        }
+                        onUpdateDescription={(desc) =>
+                          handleUpdateBoardDescription(board.id, desc)
+                        }
+                      />
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleJoinBoard(board);
+                        }}
+                        className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
+                        title="Unisciti alla board"
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                   <p className="text-gray-400 text-sm truncate">
                     {board.members?.length || 0} membri
                   </p>
                 </div>
                 <div className="flex items-center">
-                  {board.creator === appState.user?.is?.pub && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = "image/*";
-                        input.onchange = async (e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            if (file.size > 2 * 1024 * 1024) {
-                              toast.error("L'immagine non può superare i 2MB");
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              handleUpdateBoardAvatar(board.id, reader.result);
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        };
-                        input.click();
-                      }}
-                      className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-                      title="Cambia avatar della board"
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </button>
-                  )}
                   {board.creator !== appState.user?.is?.pub && (
                     <button
                       onClick={(e) => {

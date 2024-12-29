@@ -355,6 +355,72 @@ export const useBoardsV2 = () => {
     }
   }, []);
 
+  // Elimina una board
+  const deleteBoard = useCallback(
+    async (boardId) => {
+      try {
+        setLoading(true);
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get("boards")
+            .get(boardId)
+            .once((board) => {
+              if (!board) {
+                reject(new Error("Board non trovata"));
+                return;
+              }
+              if (board.creator !== appState.user.is.pub) {
+                reject(new Error("Solo il creatore può eliminare la board"));
+                return;
+              }
+
+              // Elimina tutti i messaggi
+              gun
+                .get(DAPP_NAME)
+                .get("boards")
+                .get(boardId)
+                .get("messages")
+                .map()
+                .once((msg, key) => {
+                  if (msg) {
+                    gun
+                      .get(DAPP_NAME)
+                      .get("boards")
+                      .get(boardId)
+                      .get("messages")
+                      .get(key)
+                      .put(null);
+                  }
+                });
+
+              // Elimina la board
+              gun
+                .get(DAPP_NAME)
+                .get("boards")
+                .get(boardId)
+                .put(null, (ack) => {
+                  if (ack.err) reject(new Error(ack.err));
+                  else resolve();
+                });
+            });
+        });
+
+        // Rimuovi la board dalla lista locale
+        setBoards((prevBoards) => prevBoards.filter((b) => b.id !== boardId));
+
+        // Forza un unsubscribe dal nodo della board
+        gun.get(DAPP_NAME).get("boards").get(boardId).off();
+      } catch (error) {
+        console.error("Errore eliminazione board:", error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [appState.user.is.pub]
+  );
+
   // Carica le board all'avvio
   useEffect(() => {
     if (appState.isAuthenticated) {
@@ -371,5 +437,6 @@ export const useBoardsV2 = () => {
     leaveBoard,
     searchBoards,
     loadBoards,
+    deleteBoard,
   };
 };
