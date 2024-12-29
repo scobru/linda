@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 import { useAppState } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 

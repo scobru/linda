@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { ethers } from "ethers";
-import { walletService } from "linda-protocol";
-import { gun, user, DAPP_NAME } from "linda-protocol";
+import { walletService } from "#protocol";
+import { gun, user, DAPP_NAME } from "#protocol";
 
 const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [amount, setAmount] = useState("");

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "react-hot-toast";
-import { gun, user, DAPP_NAME } from "linda-protocol";
+import { gun, user, DAPP_NAME } from "#protocol";
 import { useAppState } from "../context/AppContext";
 
 export const useBoardsV2 = () => {
@@ -28,6 +28,21 @@ export const useBoardsV2 = () => {
             console.log(`Analisi board ${id}:`, data);
 
             if (data && data.name) {
+              // Se sono il creatore, aggiungo la board indipendentemente dallo stato di membro
+              const isCreator = data.creator === appState.user.is.pub;
+
+              if (isCreator) {
+                results.push({
+                  ...data,
+                  id,
+                  avatar: data.avatar || null,
+                  isMember: true,
+                  isCreator,
+                  canWrite: true,
+                });
+                return;
+              }
+
               // Verifica se l'utente è membro leggendo direttamente il nodo del membro
               const memberData = await new Promise((resolveMember) => {
                 gun
@@ -48,7 +63,6 @@ export const useBoardsV2 = () => {
                 return;
               }
 
-              const isCreator = data.creator === appState.user.is.pub;
               const canWrite =
                 memberData.canWrite === true ||
                 memberData.permissions?.write === true;
@@ -62,6 +76,7 @@ export const useBoardsV2 = () => {
               results.push({
                 ...data,
                 id,
+                avatar: data.avatar || null,
                 isMember: true,
                 isCreator,
                 canWrite,

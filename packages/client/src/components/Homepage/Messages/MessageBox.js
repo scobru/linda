@@ -1,28 +1,44 @@
 import React, { useState, useEffect } from "react";
-import { messaging, gun, DAPP_NAME } from "linda-protocol";
+import { messaging, gun, DAPP_NAME } from "#protocol";
 import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
+import { ReactionsContainer } from "../../Reactions";
+import {
+  addReaction,
+  removeReaction,
+  getReactions,
+  CONTENT_TYPES,
+} from "../../../protocol/reactions/reactions";
+import { useAppState } from "../../../context/AppContext";
 import AudioPlayer from "./AudioPlayer";
 
 const MessageBox = ({
   message,
   isOwnMessage,
   onDelete,
+  messageStates,
   showDeleteButton,
   showRemoveMember,
   onRemoveMember,
   isVoiceMessage,
+  messageType = "private", // Può essere 'private', 'channel', o 'board'
 }) => {
   const [decryptedContent, setDecryptedContent] = useState("");
   const [senderName, setSenderName] = useState(isOwnMessage ? "Tu" : "...");
   const [senderAvatar, setSenderAvatar] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
+  const { appState } = useAppState();
+  const currentUserPub = appState.user.is.pub;
 
   useEffect(() => {
     const loadUserInfo = async () => {
       if (!message.sender) return;
 
       try {
-        // Prima prova a recuperare l'alias dal database
+        // Carica l'avatar dell'utente
+        const avatar = await getUserAvatar(message.sender);
+        setSenderAvatar(avatar);
+
+        // Carica il nome dell'utente
         const alias = await new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
@@ -37,15 +53,12 @@ const MessageBox = ({
         if (alias) {
           setSenderName(isOwnMessage ? "Tu" : alias);
         } else {
-          // Se non trova l'alias, usa il nome utente come fallback
           const username = await getUserUsername(message.sender);
-          setSenderName(isOwnMessage ? "Tu" : username || "Utente sconosciuto");
+          setSenderName(isOwnMessage ? "Tu" : username || "Utente");
         }
-
-        const avatar = await getUserAvatar(message.sender);
-        setSenderAvatar(avatar);
       } catch (error) {
         console.error("Errore caricamento info utente:", error);
+        setSenderName(isOwnMessage ? "Tu" : "Utente");
       }
     };
 
@@ -56,35 +69,7 @@ const MessageBox = ({
     const decryptMessage = async () => {
       try {
         if (message.type === "system") {
-          // Se è un messaggio di sistema, cerca di sostituire le chiavi pubbliche con gli alias
-          if (message.content) {
-            // Modifica l'espressione regolare per catturare sia le chiavi che iniziano con - che quelle senza
-            const pubKeys =
-              message.content.match(/(?:\s|^)([a-zA-Z0-9_-]{43,})(?:\s|$)/g) ||
-              [];
-            let updatedContent = message.content;
-
-            for (const pubKey of pubKeys) {
-              const cleanPubKey = pubKey.trim(); // Rimuove spazi iniziali e finali
-              const alias = await new Promise((resolve) => {
-                gun
-                  .get(DAPP_NAME)
-                  .get("users")
-                  .get(cleanPubKey)
-                  .get("alias")
-                  .once((alias) => {
-                    resolve(alias || cleanPubKey);
-                  });
-              });
-              updatedContent = updatedContent.replace(cleanPubKey, alias);
-            }
-            console.log("Contenuto originale:", message.content);
-            console.log("Chiavi pubbliche trovate:", pubKeys);
-            console.log("Contenuto aggiornato:", updatedContent);
-            setDecryptedContent(updatedContent);
-          } else {
-            setDecryptedContent(message.content);
-          }
+          setDecryptedContent(message.content);
           return;
         }
 
@@ -95,39 +80,45 @@ const MessageBox = ({
         );
         let content = decrypted.content || message.content;
 
-        // Gestione dei diversi tipi di messaggio
         if (message.type === "image" || content.startsWith("[IMAGE]")) {
-          // Rimuovi il prefisso [IMAGE] se presente
           content = content.replace("[IMAGE]", "");
           setDecryptedContent(content);
         } else if (message.type === "voice" || content.startsWith("[VOICE]")) {
-          // Gestione messaggi vocali
           content = content.replace("[VOICE]", "");
           if (content.startsWith("data:audio")) {
             setAudioUrl(content);
             setDecryptedContent(null);
           } else {
-            console.error(
-              "Formato audio non valido:",
-              content.substring(0, 100)
-            );
-            setDecryptedContent("Errore nel caricamento del messaggio vocale");
+            setDecryptedContent("[Errore decrittazione]");
             setAudioUrl(null);
           }
         } else {
-          // Messaggi di testo normali
           setDecryptedContent(content);
           setAudioUrl(null);
         }
       } catch (error) {
-        console.error("Errore decrittazione messaggio:", error);
-        setDecryptedContent("Errore nella decrittazione del messaggio");
+        console.error("Errore decrittazione:", error);
+        setDecryptedContent("[Errore decrittazione]");
         setAudioUrl(null);
       }
     };
 
     decryptMessage();
   }, [message, isOwnMessage]);
+
+  // Seleziona il tipo di contenuto appropriato in base al tipo di messaggio
+  const getContentType = () => {
+    switch (messageType) {
+      case "channel":
+        return CONTENT_TYPES.CHANNEL_MESSAGE;
+      case "board":
+        return CONTENT_TYPES.BOARD_MESSAGE;
+      default:
+        return CONTENT_TYPES.PRIVATE_MESSAGE;
+    }
+  };
+
+  const contentType = getContentType();
 
   const renderContent = () => {
     if (message.type === "system") {
@@ -163,40 +154,6 @@ const MessageBox = ({
     );
   };
 
-  const renderMessageContent = () => {
-    if (message.type === "system") {
-      return <span className="text-gray-400 italic">{message.content}</span>;
-    } else if (
-      message.type === "voice" ||
-      message.content?.startsWith("[VOICE]")
-    ) {
-      const audioUrl =
-        message.content?.replace("[VOICE]", "") || message.content;
-      return (
-        <audio controls className="max-w-[200px]">
-          <source src={audioUrl} type="audio/webm" />
-          Il tuo browser non supporta l'elemento audio.
-        </audio>
-      );
-    } else if (
-      message.type === "image" ||
-      message.content?.startsWith("[IMAGE]")
-    ) {
-      const imageUrl =
-        message.content?.replace("[IMAGE]", "") || message.content;
-      return (
-        <img
-          src={imageUrl}
-          alt="Immagine inviata"
-          className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => window.open(imageUrl, "_blank")}
-        />
-      );
-    } else {
-      return message.content;
-    }
-  };
-
   return (
     <div className="mb-4 px-4">
       <div
@@ -206,7 +163,7 @@ const MessageBox = ({
       >
         {!isOwnMessage && (
           <>
-            <div className="w-8 h-8 rounded-full flex-shrink-0">
+            <div className="w-12 h-12 rounded-full flex-shrink-0">
               {senderAvatar ? (
                 <img
                   className="w-full h-full rounded-full object-cover"
@@ -221,8 +178,8 @@ const MessageBox = ({
                 />
               )}
             </div>
-            <div className="ml-2 flex flex-col">
-              <span className="text-sm text-white font-medium break-words">
+            <div className="ml-3 flex flex-col">
+              <span className="text-base text-white font-medium break-words">
                 {senderName}
               </span>
             </div>
@@ -230,12 +187,12 @@ const MessageBox = ({
         )}
         {isOwnMessage && (
           <>
-            <div className="mr-2 flex flex-col items-end">
-              <span className="text-sm text-white font-medium break-words">
+            <div className="mr-3 flex flex-col items-end">
+              <span className="text-base text-white font-medium break-words">
                 {senderName}
               </span>
             </div>
-            <div className="w-8 h-8 rounded-full flex-shrink-0">
+            <div className="w-12 h-12 rounded-full flex-shrink-0">
               {senderAvatar ? (
                 <img
                   className="w-full h-full rounded-full object-cover"
@@ -289,6 +246,24 @@ const MessageBox = ({
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Contenitore reazioni */}
+      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`flex items-center ${
+            isOwnMessage ? "mr-12" : "ml-12"
+          } mt-2 mb-1`}
+        >
+          <ReactionsContainer
+            contentId={message.id}
+            contentType={contentType}
+            onAddReaction={addReaction}
+            onRemoveReaction={removeReaction}
+            getReactions={getReactions}
+            currentUserPub={currentUserPub}
+          />
         </div>
       </div>
     </div>

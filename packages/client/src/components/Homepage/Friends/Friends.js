@@ -5,8 +5,8 @@ import FriendRequest from "./FriendRequest";
 import { useFriends } from "../../../hooks/useFriends";
 import { useFriendRequestNotifications } from "../../../hooks/useFriendRequestNotifications";
 import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME } from "linda-protocol";
-import { getUserUsername } from "../../../utils/userUtils";
+import { gun, DAPP_NAME } from "#protocol";
+import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 import { useMobileView } from "../../../hooks/useMobileView";
 
 const Friends = ({ onSelect }) => {
@@ -55,6 +55,7 @@ const Friends = ({ onSelect }) => {
         activeFriends.map(async (friend) => {
           try {
             const displayName = await getUserUsername(friend.pub);
+            const avatar = await getUserAvatar(friend.pub);
             const roomId = [friend.pub, appState.user.is.pub].sort().join("_");
             return {
               ...friend,
@@ -63,6 +64,7 @@ const Friends = ({ onSelect }) => {
                 friend.nickname ||
                 friend.username ||
                 `${friend.pub.slice(0, 6)}...${friend.pub.slice(-4)}`,
+              avatar,
               roomId,
               type: "friend",
             };

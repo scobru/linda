@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { channelsV2 } from "linda-protocol";
+import { channelsV2 } from "#protocol";
 import { useAppState } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 

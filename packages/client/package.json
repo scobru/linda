@@ -4,7 +4,9 @@
   "private": false,
   "dependencies": {
     "@headlessui/react": "^2.2.0",
+    "@mui/material": "^6.3.0",
     "@rainbow-me/rainbowkit": "^1.0.11",
+    "@scobru/gun-eth": "^1.0.0",
     "@tailwindcss/forms": "^0.5.9",
     "@tanstack/react-query": "^5.60.5",
     "@testing-library/jest-dom": "^5.16.4",
@@ -14,7 +16,6 @@
     "ethers": "^6.13.4",
     "gun": "^0.2020.1240",
     "gun-eth": "^3.0.2",
-    "linda-protocol": "link:../protocol",
     "lru-cache": "^11.0.2",
     "postcss": "^8.4.14",
     "react": "^18.1.0",
@@ -49,5 +50,15 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "imports": {
+    "#protocol": "./src/protocol",
+    "#protocol/*": "./src/protocol/*"
   }
 }

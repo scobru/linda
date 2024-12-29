@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { boardsService } from "linda-protocol";
+import { boardsService } from "#protocol";
 import { toast } from "react-hot-toast";
 
 export const useBoards = () => {

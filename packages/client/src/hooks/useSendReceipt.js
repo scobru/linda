@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { gun, user, DAPP_NAME } from "linda-protocol";
+import { gun, user, DAPP_NAME } from "#protocol";
 import { Observable } from "rxjs";
 import { toast } from "react-hot-toast";
 

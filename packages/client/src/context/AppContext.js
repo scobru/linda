@@ -5,7 +5,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 
 const AppContext = createContext();
 
@@ -71,6 +71,7 @@ const initialState = {
     creator: null,
     members: [],
     messages: [],
+    avatar: null,
     settings: {
       isPublic: true,
       canWrite: true,

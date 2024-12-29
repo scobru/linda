@@ -1,12 +1,18 @@
-import { gun, user, SEA, DAPP_NAME } from '../useGun.js';
-import { updateGlobalMetrics } from '../system/systemService.js';
-import { messageNotifications } from '../notifications/index.js';
-import { userBlocking } from '../blocking/index.js';
-import { messageIntegrity } from './messageIntegrity.js';
-import { channelsV2 } from './channels.v2.js';
-import { boardsV2 } from './boards.v2.js';
-import { messageList } from './messageList.js';
-import sendVoiceMessage from './sendVoiceMessage.js';
+import { gun, user, SEA, DAPP_NAME } from "../useGun.js";
+import { updateGlobalMetrics } from "../system/systemService.js";
+import { messageNotifications } from "../notifications/index.js";
+import { userBlocking } from "../blocking/index.js";
+import { messageIntegrity } from "./messageIntegrity.js";
+import { channelsV2 } from "./channels.v2.js";
+import { boardsV2 } from "./boards.v2.js";
+import { messageList } from "./messageList.js";
+import sendVoiceMessage from "./sendVoiceMessage.js";
+import {
+  addReaction,
+  removeReaction,
+  getReactions,
+  CONTENT_TYPES,
+} from "../reactions/reactions";
 
 /**
  * Servizio unificato per la messaggistica
@@ -25,16 +31,16 @@ export const messaging = {
      * Crea una nuova chat privata
      */
     create: async (recipientPub, callback = () => {}) => {
-      if (!user?.is) throw new Error('Utente non autenticato');
+      if (!user?.is) throw new Error("Utente non autenticato");
 
       try {
-        const chatId = [user.is.pub, recipientPub].sort().join('_');
+        const chatId = [user.is.pub, recipientPub].sort().join("_");
 
         // Verifica se la chat esiste già
         const existingChat = await new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
-            .get('chats')
+            .get("chats")
             .get(chatId)
             .once((chat) => resolve(chat));
         });
@@ -56,20 +62,20 @@ export const messaging = {
           user1: user.is.pub,
           user2: recipientPub,
           created: Date.now(),
-          status: 'active',
+          status: "active",
           messages: {},
         };
 
-        await gun.get(DAPP_NAME).get('chats').get(chatId).put(chatData);
+        await gun.get(DAPP_NAME).get("chats").get(chatId).put(chatData);
 
         // Aggiungi riferimenti per entrambi gli utenti
         await Promise.all([
-          gun.user().get(DAPP_NAME).get('my_chats').set({
+          gun.user().get(DAPP_NAME).get("my_chats").set({
             chatId,
             with: recipientPub,
             created: Date.now(),
           }),
-          gun.get(`~${recipientPub}`).get(DAPP_NAME).get('my_chats').set({
+          gun.get(`~${recipientPub}`).get(DAPP_NAME).get("my_chats").set({
             chatId,
             with: user.is.pub,
             created: Date.now(),
@@ -86,10 +92,10 @@ export const messaging = {
           },
         });
       } catch (error) {
-        console.error('Errore creazione chat:', error);
+        console.error("Errore creazione chat:", error);
         return callback({
           success: false,
-          errMessage: error.message || 'Errore creazione chat',
+          errMessage: error.message || "Errore creazione chat",
         });
       }
     },
@@ -98,13 +104,13 @@ export const messaging = {
      * Invia un messaggio in una chat
      */
     sendMessage: async (chatId, recipientPub, content, callback = () => {}) => {
-      if (!user?.is) throw new Error('Utente non autenticato');
+      if (!user?.is) throw new Error("Utente non autenticato");
 
       try {
         // Verifica blocchi
         const blockStatus = await userBlocking.getBlockStatus(recipientPub);
         if (blockStatus.blocked || blockStatus.blockedBy) {
-          throw new Error('Utente bloccato o sei stato bloccato');
+          throw new Error("Utente bloccato o sei stato bloccato");
         }
 
         // Genera ID messaggio
@@ -118,7 +124,7 @@ export const messaging = {
           recipientPub
         );
         const previewContent =
-          content.substring(0, 50) + (content.length > 50 ? '...' : '');
+          content.substring(0, 50) + (content.length > 50 ? "..." : "");
         const encryptedPreview = await messaging.messages.encrypt(
           previewContent,
           recipientPub
@@ -132,24 +138,24 @@ export const messaging = {
           id: messageId,
           content: encryptedContent,
           preview: encryptedPreview,
-          status: 'sent',
+          status: "sent",
         };
 
         // Salva il messaggio
         await gun
           .get(DAPP_NAME)
-          .get('chats')
+          .get("chats")
           .get(chatId)
-          .get('messages')
+          .get("messages")
           .get(messageId)
           .put(messageData);
 
         // Aggiorna lastMessage
         await gun
           .get(DAPP_NAME)
-          .get('chats')
+          .get("chats")
           .get(chatId)
-          .get('lastMessage')
+          .get("lastMessage")
           .put({
             content: encryptedPreview,
             sender: user.is.pub,
@@ -157,7 +163,7 @@ export const messaging = {
           });
 
         // Aggiorna metriche
-        await updateGlobalMetrics('totalMessagesSent', 1);
+        await updateGlobalMetrics("totalMessagesSent", 1);
 
         return callback({
           success: true,
@@ -165,10 +171,10 @@ export const messaging = {
           message: messageData,
         });
       } catch (error) {
-        console.error('Errore invio messaggio:', error);
+        console.error("Errore invio messaggio:", error);
         return callback({
           success: false,
-          errMessage: error.message || 'Errore invio messaggio',
+          errMessage: error.message || "Errore invio messaggio",
         });
       }
     },
@@ -177,14 +183,14 @@ export const messaging = {
      * Elimina una chat
      */
     delete: async (chatId) => {
-      if (!user?.is) throw new Error('Utente non autenticato');
+      if (!user?.is) throw new Error("Utente non autenticato");
 
       try {
-        await gun.get(DAPP_NAME).get('chats').get(chatId).put(null);
-        await gun.user().get(DAPP_NAME).get('my_chats').get(chatId).put(null);
+        await gun.get(DAPP_NAME).get("chats").get(chatId).put(null);
+        await gun.user().get(DAPP_NAME).get("my_chats").get(chatId).put(null);
         return { success: true };
       } catch (error) {
-        console.error('Errore eliminazione chat:', error);
+        console.error("Errore eliminazione chat:", error);
         throw error;
       }
     },
@@ -204,14 +210,14 @@ export const messaging = {
         });
 
         if (!recipientEpub)
-          throw new Error('Chiave di crittografia non trovata');
+          throw new Error("Chiave di crittografia non trovata");
 
         const secret = await SEA.secret(recipientEpub, user.pair());
         const encrypted = await SEA.encrypt(content, secret);
 
         return encrypted;
       } catch (error) {
-        console.error('Errore crittografia:', error);
+        console.error("Errore crittografia:", error);
         throw error;
       }
     },
@@ -221,27 +227,27 @@ export const messaging = {
      */
     decrypt: async (message, recipientPub) => {
       try {
-        if (!message?.content?.startsWith('SEA{')) return message;
+        if (!message?.content?.startsWith("SEA{")) return message;
 
         const recipientEpub = await new Promise((resolve) => {
           gun.user(recipientPub).once((data) => resolve(data?.epub));
         });
 
         if (!recipientEpub)
-          throw new Error('Chiave di decrittazione non trovata');
+          throw new Error("Chiave di decrittazione non trovata");
 
         const secret = await SEA.secret(recipientEpub, user.pair());
         const decrypted = await SEA.decrypt(message.content, secret);
 
         return {
           ...message,
-          content: decrypted || '[Messaggio non decifrabile]',
+          content: decrypted || "[Messaggio non decifrabile]",
         };
       } catch (error) {
-        console.error('Errore decrittazione:', error);
+        console.error("Errore decrittazione:", error);
         return {
           ...message,
-          content: '[Errore decrittazione]',
+          content: "[Errore decrittazione]",
         };
       }
     },
@@ -255,7 +261,12 @@ export const messaging = {
   /**
    * Servizio per i canali
    */
-  channels: channelsV2,
+  channels: {
+    ...channelsV2,
+    sendMessage: channelsV2.sendMessage,
+    sendVoiceMessage: channelsV2.sendVoiceMessage,
+    sendImageMessage: channelsV2.sendImageMessage,
+  },
 
   /**
    * Servizio per le board
@@ -268,6 +279,86 @@ export const messaging = {
   voice: {
     send: sendVoiceMessage,
   },
+};
+
+export const addMessageReaction = async (messageId, reaction, userPub) => {
+  return await addReaction(
+    CONTENT_TYPES.PRIVATE_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeMessageReaction = async (messageId, reaction, userPub) => {
+  return await removeReaction(
+    CONTENT_TYPES.PRIVATE_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.PRIVATE_MESSAGE, messageId);
+};
+
+// Funzioni per le reazioni nei canali
+export const addChannelMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await addReaction(
+    CONTENT_TYPES.CHANNEL_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeChannelMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await removeReaction(
+    CONTENT_TYPES.CHANNEL_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getChannelMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.CHANNEL_MESSAGE, messageId);
+};
+
+// Funzioni per le reazioni nelle board
+export const addBoardMessageReaction = async (messageId, reaction, userPub) => {
+  return await addReaction(
+    CONTENT_TYPES.BOARD_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const removeBoardMessageReaction = async (
+  messageId,
+  reaction,
+  userPub
+) => {
+  return await removeReaction(
+    CONTENT_TYPES.BOARD_MESSAGE,
+    messageId,
+    reaction,
+    userPub
+  );
+};
+
+export const getBoardMessageReactions = async (messageId) => {
+  return await getReactions(CONTENT_TYPES.BOARD_MESSAGE, messageId);
 };
 
 // Esporta i servizi V2 individualmente

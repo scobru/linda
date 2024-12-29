@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 
 export default function UserInfoModal({ isOpen, onClose, userPub }) {
   const [userInfo, setUserInfo] = useState({

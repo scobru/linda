@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../context/AppContext";
-import { friendsService, userBlocking } from "linda-protocol";
-import { gun, DAPP_NAME } from "linda-protocol";
-import { userUtils } from "linda-protocol";
+import { friendsService, userBlocking } from "#protocol";
+import { gun, DAPP_NAME } from "#protocol";
+import { userUtils } from "#protocol";
 
 export const useFriends = () => {
   const [friends, setFriends] = useState([]);

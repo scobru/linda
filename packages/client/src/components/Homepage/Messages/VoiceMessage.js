@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { messaging } from "linda-protocol";
+import { messaging } from "#protocol";
 
 export const VoiceMessage = ({ content, isOwnMessage, selected }) => {
   const audioRef = useRef(null);

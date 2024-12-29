@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { blocking } from "linda-protocol";
+import { blocking } from "#protocol";
 import { toast } from "react-hot-toast";
 
 const { userBlocking } = blocking;

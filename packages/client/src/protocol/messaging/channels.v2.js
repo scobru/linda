@@ -1,17 +1,17 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from "../useGun.js";
 
 export const channelsV2 = {
   /**
    * Crea un nuovo canale
    */
   create: async (channelData, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       if (!channelData.name) {
         callback({
           success: false,
-          error: 'Il nome del canale è obbligatorio',
+          error: "Il nome del canale è obbligatorio",
         });
         return;
       }
@@ -21,7 +21,7 @@ export const channelsV2 = {
       if (exists) {
         callback({
           success: false,
-          error: 'Esiste già un canale con questo nome',
+          error: "Esiste già un canale con questo nome",
         });
         return;
       }
@@ -35,12 +35,12 @@ export const channelsV2 = {
       const channel = {
         id: channelId,
         name: channelData.name,
-        description: channelData.description || '',
-        type: channelData.type || 'public',
+        description: channelData.description || "",
+        type: channelData.type || "public",
         creator: user.is.pub,
         members: {
           [user.is.pub]: {
-            role: 'creator',
+            role: "creator",
             joinedAt: Date.now(),
           },
         },
@@ -48,41 +48,62 @@ export const channelsV2 = {
       };
 
       // Salva il canale
-      gun
-        .get(DAPP_NAME)
-        .get('channels')
-        .get(channelId)
-        .put(channel, (ack) => {
-          if (ack.err) {
-            callback({ success: false, error: ack.err });
-            return;
-          }
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get("channels")
+          .get(channelId)
+          .put(channel, (ack) => {
+            if (ack.err) {
+              reject(ack.err);
+            } else {
+              resolve();
+            }
+          });
+      });
 
-          // Aggiungi un messaggio di sistema per la creazione del canale
-          const messageId = `system_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-          const systemMessage = {
-            id: messageId,
-            type: 'system',
-            content: `✨ Canale "${
-              channelData.name
-            }" creato da ${formatUserName(user.is.pub)}`,
-            sender: 'system',
-            timestamp: Date.now(),
-          };
+      // Aggiungi il canale alla lista dei canali dell'utente
+      await new Promise((resolve, reject) => {
+        gun
+          .user()
+          .get("channels")
+          .get(channelId)
+          .put({ joined: Date.now() }, (ack) => {
+            if (ack.err) {
+              reject(ack.err);
+            } else {
+              resolve();
+            }
+          });
+      });
 
-          gun
-            .get(DAPP_NAME)
-            .get('channels')
-            .get(channelId)
-            .get('messages')
-            .get(messageId)
-            .put(systemMessage);
+      // Aggiungi un messaggio di sistema per la creazione del canale
+      const messageId = `system_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const systemMessage = {
+        id: messageId,
+        type: "system",
+        content: `✨ Canale "${channelData.name}" creato da ${formatUserName(
+          user.is.pub
+        )}`,
+        sender: "system",
+        timestamp: Date.now(),
+      };
 
-          callback({ success: true, channel });
-        });
+      await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("channels")
+          .get(channelId)
+          .get("messages")
+          .get(messageId)
+          .put(systemMessage, () => resolve());
+      });
+
+      callback({ success: true, channel });
     } catch (error) {
+      console.error("Errore creazione canale:", error);
       callback({ success: false, error: error.message });
     }
   },
@@ -91,55 +112,55 @@ export const channelsV2 = {
    * Unisciti a un canale
    */
   join: async (channelId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const channel = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .get(channelId)
           .once((data) => resolve(data));
       });
 
-      if (!channel) throw new Error('Canale non trovato');
+      if (!channel) throw new Error("Canale non trovato");
 
       // Aggiungi l'utente ai membri del canale
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('members')
+        .get("members")
         .set({
           pub: user.is.pub,
-          role: 'member',
+          role: "member",
           joined: Date.now(),
         });
 
       // Aggiungi il canale alla lista dei canali dell'utente
-      await gun.user().get('channels').get(channelId).put({
+      await gun.user().get("channels").get(channelId).put({
         id: channelId,
         joined: Date.now(),
-        role: 'member',
+        role: "member",
       });
 
       // Notifica gli altri membri
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('messages')
+        .get("messages")
         .set({
           id: `system_${Date.now()}`,
-          type: 'system',
-          content: `👋 ${formatUserName(user.is.pub)} si è unito al canale`,
+          type: "system",
+          content: `🧹 ${formatUserName(user.is.pub)} si è unito al canale`,
           timestamp: Date.now(),
-          sender: 'system',
+          sender: "system",
         });
 
       return callback({ success: true });
     } catch (error) {
-      console.error('Errore partecipazione al canale:', error);
+      console.error("Errore partecipazione al canale:", error);
       return callback({ success: false, error: error.message });
     }
   },
@@ -148,7 +169,7 @@ export const channelsV2 = {
    * Lista solo i canali a cui l'utente è iscritto
    */
   list: async (callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       // Recupera i canali dell'utente e i loro dettagli in un'unica Promise
@@ -159,7 +180,7 @@ export const channelsV2 = {
 
         gun
           .user()
-          .get('channels')
+          .get("channels")
           .map()
           .once(async (data, id) => {
             hasStartedLoading = true;
@@ -169,7 +190,7 @@ export const channelsV2 = {
 
             gun
               .get(DAPP_NAME)
-              .get('channels')
+              .get("channels")
               .get(id)
               .once((channelData) => {
                 if (channelData) {
@@ -195,7 +216,7 @@ export const channelsV2 = {
 
       return callback({ success: true, channels });
     } catch (error) {
-      console.error('Errore lista canali:', error);
+      console.error("Errore lista canali:", error);
       return callback({ success: false, error: error.message });
     }
   },
@@ -203,8 +224,8 @@ export const channelsV2 = {
   /**
    * Cerca canali pubblici per nome
    */
-  search: async (query = '', callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+  search: async (query = "", callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const searchQuery = query.toLowerCase();
@@ -212,11 +233,11 @@ export const channelsV2 = {
         const channels = [];
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .map()
           .once((channel, id) => {
             if (
-              channel?.type === 'public' &&
+              channel?.type === "public" &&
               channel?.name?.toLowerCase().includes(searchQuery)
             ) {
               const isMember =
@@ -250,7 +271,7 @@ export const channelsV2 = {
         channels: results,
       });
     } catch (error) {
-      console.error('Errore ricerca canali:', error);
+      console.error("Errore ricerca canali:", error);
       callback({ success: false, error: error.message });
     }
   },
@@ -259,28 +280,28 @@ export const channelsV2 = {
    * Lascia un canale
    */
   leave: async (channelId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const channel = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .get(channelId)
           .once((data) => resolve(data));
       });
 
-      if (!channel) throw new Error('Canale non trovato');
+      if (!channel) throw new Error("Canale non trovato");
 
       // Recupera l'alias dell'utente
       const userAlias = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .get(user.is.pub)
-          .get('alias')
+          .get("alias")
           .once((alias) => {
-            resolve(alias || 'Utente');
+            resolve(alias || "Utente");
           });
       });
 
@@ -288,9 +309,9 @@ export const channelsV2 = {
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .get(channelId)
-          .get('members')
+          .get("members")
           .get(user.is.pub)
           .put(null, (ack) => {
             if (ack.err) reject(new Error(ack.err));
@@ -302,7 +323,7 @@ export const channelsV2 = {
       await new Promise((resolve, reject) => {
         gun
           .user()
-          .get('channels')
+          .get("channels")
           .get(channelId)
           .put(null, (ack) => {
             if (ack.err) reject(new Error(ack.err));
@@ -316,21 +337,21 @@ export const channelsV2 = {
         .substr(2, 9)}`;
       gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('messages')
+        .get("messages")
         .get(messageId)
         .put({
           id: messageId,
-          type: 'system',
+          type: "system",
           content: `👋 ${userAlias} ha lasciato il canale`,
-          sender: 'system',
+          sender: "system",
           timestamp: Date.now(),
         });
 
       callback({ success: true });
     } catch (error) {
-      console.error('Errore uscita dal canale:', error);
+      console.error("Errore uscita dal canale:", error);
       callback({ success: false, error: error.message });
     }
   },
@@ -339,36 +360,36 @@ export const channelsV2 = {
    * Elimina un canale (solo il creatore può farlo)
    */
   delete: async (channelId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const channel = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .get(channelId)
           .once((data) => resolve(data));
       });
 
-      if (!channel) throw new Error('Canale non trovato');
+      if (!channel) throw new Error("Canale non trovato");
       if (channel.creator !== user.is.pub) {
-        throw new Error('Solo il creatore può eliminare il canale');
+        throw new Error("Solo il creatore può eliminare il canale");
       }
 
       // Rimuovi tutti i messaggi
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('messages')
+        .get("messages")
         .map()
         .once((msg, key) => {
           if (msg) {
             gun
               .get(DAPP_NAME)
-              .get('channels')
+              .get("channels")
               .get(channelId)
-              .get('messages')
+              .get("messages")
               .get(key)
               .put(null);
           }
@@ -377,28 +398,28 @@ export const channelsV2 = {
       // Rimuovi tutti i membri
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('members')
+        .get("members")
         .map()
         .once((member, key) => {
           if (member) {
             gun
               .get(DAPP_NAME)
-              .get('channels')
+              .get("channels")
               .get(channelId)
-              .get('members')
+              .get("members")
               .get(key)
               .put(null);
           }
         });
 
       // Rimuovi il canale
-      await gun.get(DAPP_NAME).get('channels').get(channelId).put(null);
+      await gun.get(DAPP_NAME).get("channels").get(channelId).put(null);
 
       return callback({ success: true });
     } catch (error) {
-      console.error('Errore eliminazione canale:', error);
+      console.error("Errore eliminazione canale:", error);
       return callback({ success: false, error: error.message });
     }
   },
@@ -407,40 +428,40 @@ export const channelsV2 = {
    * Cancella i messaggi di un canale (solo il creatore può farlo)
    */
   clearMessages: async (channelId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const channel = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('channels')
+          .get("channels")
           .get(channelId)
           .once((data) => resolve(data));
       });
 
-      if (!channel) throw new Error('Canale non trovato');
+      if (!channel) throw new Error("Canale non trovato");
 
       // Verifica che l'utente sia il creatore
       if (channel.creator !== user.is.pub) {
         throw new Error(
-          'Solo il creatore può cancellare i messaggi del canale'
+          "Solo il creatore può cancellare i messaggi del canale"
         );
       }
 
       // Cancella tutti i messaggi
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('messages')
+        .get("messages")
         .map()
         .once((msg, key) => {
           if (msg) {
             gun
               .get(DAPP_NAME)
-              .get('channels')
+              .get("channels")
               .get(channelId)
-              .get('messages')
+              .get("messages")
               .get(key)
               .put(null);
           }
@@ -449,23 +470,186 @@ export const channelsV2 = {
       // Aggiungi messaggio di sistema
       await gun
         .get(DAPP_NAME)
-        .get('channels')
+        .get("channels")
         .get(channelId)
-        .get('messages')
+        .get("messages")
         .set({
           id: `system_${Date.now()}`,
-          type: 'system',
+          type: "system",
           content: `🧹 ${formatUserName(
             user.is.pub
           )} ha cancellato tutti i messaggi`,
           timestamp: Date.now(),
-          sender: 'system',
+          sender: "system",
         });
 
       return callback({ success: true });
     } catch (error) {
-      console.error('Errore cancellazione messaggi:', error);
+      console.error("Errore cancellazione messaggi:", error);
       return callback({ success: false, error: error.message });
+    }
+  },
+
+  /**
+   * Invia un messaggio in un canale
+   */
+  sendMessage: async (channelId, content, callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
+
+    try {
+      const channel = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("channels")
+          .get(channelId)
+          .once((data) => resolve(data));
+      });
+
+      if (!channel) throw new Error("Canale non trovato");
+
+      // Verifica che l'utente sia membro del canale
+      const isMember =
+        channel.members &&
+        Object.values(channel.members).some(
+          (member) => member?.pub === user.is.pub
+        );
+
+      if (!isMember) {
+        throw new Error("Non sei membro di questo canale");
+      }
+
+      // Genera ID messaggio
+      const messageId = `msg_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+
+      // Prepara il messaggio
+      const messageData = {
+        id: messageId,
+        content,
+        sender: user.is.pub,
+        senderAlias: user.is.alias || "Unknown",
+        timestamp: Date.now(),
+        type: typeof content === "string" ? "text" : content.type || "text",
+      };
+
+      // Salva il messaggio
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get("channels")
+          .get(channelId)
+          .get("messages")
+          .get(messageId)
+          .put(messageData, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve();
+            }
+          });
+      });
+
+      return callback({
+        success: true,
+        messageId,
+        message: messageData,
+      });
+    } catch (error) {
+      console.error("Errore invio messaggio:", error);
+      return callback({
+        success: false,
+        error: error.message,
+      });
+    }
+  },
+
+  /**
+   * Invia un messaggio vocale in un canale
+   */
+  sendVoiceMessage: async (channelId, audioBlob, callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
+
+    try {
+      // Converti l'audio in base64
+      const base64Audio = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(audioBlob);
+      });
+
+      const messageId = `msg_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const messageData = {
+        id: messageId,
+        content: base64Audio,
+        sender: user.is.pub,
+        senderAlias: user.is.alias || "Unknown",
+        timestamp: Date.now(),
+        type: "voice",
+      };
+
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(channelId)
+        .get("messages")
+        .get(messageId)
+        .put(messageData);
+
+      return callback({
+        success: true,
+        messageId,
+        message: messageData,
+      });
+    } catch (error) {
+      console.error("Errore invio messaggio vocale:", error);
+      return callback({
+        success: false,
+        error: error.message,
+      });
+    }
+  },
+
+  /**
+   * Invia un'immagine in un canale
+   */
+  sendImageMessage: async (channelId, imageData, callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
+
+    try {
+      const messageId = `msg_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      const messageData = {
+        id: messageId,
+        content: imageData,
+        sender: user.is.pub,
+        senderAlias: user.is.alias || "Unknown",
+        timestamp: Date.now(),
+        type: "image",
+      };
+
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(channelId)
+        .get("messages")
+        .get(messageId)
+        .put(messageData);
+
+      return callback({
+        success: true,
+        messageId,
+        message: messageData,
+      });
+    } catch (error) {
+      console.error("Errore invio immagine:", error);
+      return callback({
+        success: false,
+        error: error.message,
+      });
     }
   },
 };
@@ -475,7 +659,7 @@ const channelExists = async (name) => {
   return new Promise((resolve) => {
     gun
       .get(DAPP_NAME)
-      .get('channels')
+      .get("channels")
       .map()
       .once((channel, id) => {
         if (
@@ -496,7 +680,7 @@ const getChannelIdByName = async (name) => {
   return new Promise((resolve) => {
     gun
       .get(DAPP_NAME)
-      .get('channels')
+      .get("channels")
       .map()
       .once((channel, id) => {
         if (
@@ -514,6 +698,6 @@ const getChannelIdByName = async (name) => {
 
 // Funzione per formattare il nome utente in modo leggibile
 const formatUserName = (pub) => {
-  const alias = user.is.alias || 'Utente';
+  const alias = user.is.alias || "Utente";
   return pub === user.is.pub ? `${alias} (tu)` : alias;
 };

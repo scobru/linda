@@ -5,11 +5,29 @@ import {
   gun,
   user,
   sessionManager,
-} from "linda-protocol";
+} from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
 import { useAccount } from "../config/wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+
+// Funzione per aggiornare il toast durante la registrazione
+const updateToast = (status, message, progress = "") => {
+  toast.loading(
+    <div>
+      <div className="font-medium">{message}</div>
+      {progress && (
+        <div className="mt-1 w-full bg-gray-200 rounded-full h-2.5">
+          <div
+            className="bg-blue-600 h-2.5 rounded-full"
+            style={{ width: progress }}
+          ></div>
+        </div>
+      )}
+    </div>,
+    { id: "registration-toast" }
+  );
+};
 
 // Funzione per verificare la connessione Gun con retry
 const checkGunConnectionWithRetry = async (maxRetries = 3) => {
@@ -82,88 +100,69 @@ export default function Register() {
         new Promise((resolve, reject) => {
           let hasShownToast = false;
 
+          // Funzione per gestire il caso di username già esistente
+          const handleUsernameExists = () => {
+            if (hasShownToast)
+              return resolve({
+                success: false,
+                status: "username-esistente",
+              });
+
+            hasShownToast = true;
+            setIsLoading(false);
+            toast.dismiss(toastId);
+            toast.error(
+              <div className="flex flex-col gap-2 p-2">
+                <div className="font-medium">Username già registrato</div>
+                <div className="text-sm text-gray-600 mb-2">
+                  Questo username è già in uso. Puoi:
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Link
+                    to="/signin"
+                    state={{ username: username.trim() }}
+                    className="text-blue-500 hover:text-blue-700 font-semibold"
+                  >
+                    Accedi con questo username →
+                  </Link>
+                  <button
+                    onClick={() => {
+                      setUsername("");
+                      toast.dismiss();
+                      setIsLoading(false);
+                    }}
+                    className="text-gray-500 hover:text-gray-700 text-sm"
+                  >
+                    Prova con un altro username
+                  </button>
+                </div>
+              </div>,
+              {
+                duration: 10000,
+                style: {
+                  background: "#fff",
+                  color: "#000",
+                  padding: "16px",
+                  borderRadius: "8px",
+                  maxWidth: "320px",
+                },
+              }
+            );
+            return resolve({
+              success: false,
+              status: "username-esistente",
+            });
+          };
+
           const registerCallback = async (response) => {
             try {
-              // Funzione per gestire il caso di username già esistente
-              const handleUsernameExists = () => {
-                if (hasShownToast)
-                  return resolve({
-                    success: false,
-                    status: "username-esistente",
-                  });
-
-                hasShownToast = true;
-                setIsLoading(false);
-                toast.dismiss(toastId);
-                toast.error(
-                  <div className="flex flex-col gap-2 p-2">
-                    <div className="font-medium">Username già registrato</div>
-                    <div className="text-sm text-gray-600 mb-2">
-                      Questo username è già in uso. Puoi:
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Link
-                        to="/signin"
-                        state={{ username: username.trim() }}
-                        className="text-blue-500 hover:text-blue-700 font-semibold"
-                      >
-                        Accedi con questo username →
-                      </Link>
-                      <button
-                        onClick={() => {
-                          setUsername("");
-                          toast.dismiss();
-                          setIsLoading(false);
-                        }}
-                        className="text-gray-500 hover:text-gray-700 text-sm"
-                      >
-                        Prova con un altro username
-                      </button>
-                    </div>
-                  </div>,
-                  {
-                    duration: 10000,
-                    style: {
-                      background: "#fff",
-                      color: "#000",
-                      padding: "16px",
-                      borderRadius: "8px",
-                      maxWidth: "320px",
-                    },
-                  }
-                );
-                return resolve({
-                  success: false,
-                  status: "username-esistente",
-                });
-              };
-
               // Se lo username è già in uso, gestisci subito
               if (
                 response.status === "username-esistente" ||
                 response.errMessage?.includes("già in uso") ||
                 response.error?.message?.includes("già in uso")
               ) {
-                setIsLoading(false);
-                toast.dismiss(toastId);
-
-                // Mostra il toast di reindirizzamento
-                toast.success(
-                  <div className="flex flex-col gap-2">
-                    <div className="font-medium">Username già registrato</div>
-                    <div className="text-sm text-gray-500">
-                      Reindirizzamento al login...
-                    </div>
-                  </div>,
-                  { duration: 1500 }
-                );
-
-                // Reindirizza immediatamente al login con l'username pre-compilato
-                navigate("/signin", {
-                  replace: true,
-                  state: { username: response.username || username.trim() },
-                });
-                return;
+                return handleUsernameExists();
               }
 
               // Procedi con la registrazione

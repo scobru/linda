@@ -1,13 +1,14 @@
-import Gun from 'gun';
-import SEA from 'gun/sea.js';
+import Gun from "gun";
+import SEA from "gun/sea.js";
 // import GunEthModule from './gun-eth.mjs';
-import GunEthModule from '@scobru/gun-eth';
+
+import GunEthModule from "@scobru/gun-eth";
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ['https://gun-relay.scobrudot.dev/gun'];
+const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
 
 let isConnected = false;
 
@@ -25,7 +26,7 @@ const gunOptions = {
   multicast: false,
   // Configurazione WebSocket migliorata
   ws: {
-    protocols: ['gun'],
+    protocols: ["gun"],
     reconnect: true,
     pingTimeout: 45000,
     pingInterval: 30000,
@@ -41,8 +42,8 @@ export const gun = GunEth.initializeGun(gunOptions);
 export const user = gun.user().recall({ sessionStorage: true });
 
 // Gestione errori di connessione
-gun.on('error', (err) => {
-  console.error('Gun error:', err);
+gun.on("error", (err) => {
+  console.error("Gun error:", err);
 });
 
 // Gestione riconnessione
@@ -50,8 +51,8 @@ let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;
 let isReconnecting = false;
 
-gun.on('disconnected', async (peer) => {
-  console.log('Disconnesso dal peer:', peer);
+gun.on("disconnected", async (peer) => {
+  console.log("Disconnesso dal peer:", peer);
 
   if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
     isReconnecting = true;
@@ -67,18 +68,18 @@ gun.on('disconnected', async (peer) => {
       isReconnecting = false;
     }, delay);
   } else if (reconnectAttempts >= maxReconnectAttempts) {
-    console.error('Numero massimo di tentativi di riconnessione raggiunto');
+    console.error("Numero massimo di tentativi di riconnessione raggiunto");
   }
 });
 
-gun.on('connected', (peer) => {
-  console.log('Connesso al peer:', peer);
+gun.on("connected", (peer) => {
+  console.log("Connesso al peer:", peer);
   reconnectAttempts = 0;
   isReconnecting = false;
 });
 
 // Costanti
-export const DAPP_NAME = 'linda-messenger';
+export const DAPP_NAME = "linda-messenger";
 let dappName = DAPP_NAME;
 
 export const setDappName = (name) => {
@@ -106,11 +107,11 @@ export const getPeers = () => {
 export const checkConnection = () => {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      console.log('Timeout verifica connessione');
+      console.log("Timeout verifica connessione");
       resolve(false);
     }, 5000);
 
-    gun.on('hi', () => {
+    gun.on("hi", () => {
       clearTimeout(timeout);
       resolve(true);
     });
@@ -119,7 +120,7 @@ export const checkConnection = () => {
 
 // Riconnessione forzata
 export const reconnect = async () => {
-  console.log('Tentativo di riconnessione forzata...');
+  console.log("Tentativo di riconnessione forzata...");
   gun.off();
   reconnectAttempts = 0;
   isReconnecting = false;
@@ -136,7 +137,7 @@ export const reconnect = async () => {
 
   // Verifica la connessione
   const isConnected = await checkConnection();
-  console.log('Stato connessione dopo riconnessione:', isConnected);
+  console.log("Stato connessione dopo riconnessione:", isConnected);
 
   return isConnected;
 };
@@ -148,7 +149,7 @@ export { SEA };
 export const clearLocalCache = () => {
   const keys = Object.keys(localStorage);
   keys.forEach((key) => {
-    if (key.startsWith('gun/')) {
+    if (key.startsWith("gun/")) {
       localStorage.removeItem(key);
     }
   });
@@ -159,7 +160,7 @@ export const getLocalCacheSize = () => {
   let size = 0;
   const keys = Object.keys(localStorage);
   keys.forEach((key) => {
-    if (key.startsWith('gun/')) {
+    if (key.startsWith("gun/")) {
       size += localStorage.getItem(key).length;
     }
   });

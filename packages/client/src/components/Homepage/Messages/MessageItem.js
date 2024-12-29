@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { user } from "linda-protocol";
+import { user } from "#protocol";
 import { MessageStatus } from "../MessageStatus";
 import { VoiceMessage } from "./VoiceMessage";
 import AudioPlayer from "../AudioPlayer";

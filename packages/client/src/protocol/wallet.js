@@ -1,5 +1,19 @@
-import { gun, user, DAPP_NAME, SEA } from './useGun.js';
-import { ethers } from 'ethers';
+import { gun, user, DAPP_NAME, SEA } from "./useGun.js";
+import { ethers, JsonRpcProvider } from "ethers";
+import Gun from "gun";
+
+// Funzione di utilità per gestire i BigInt in modo sicuro
+const safeBigInt = (value) => {
+  try {
+    // Usa il costruttore Number come fallback se BigInt non è disponibile
+    return typeof window !== "undefined" && window.BigInt
+      ? window.BigInt(value)
+      : Number(value);
+  } catch (e) {
+    console.warn("Fallback to Number:", e);
+    return Number(value);
+  }
+};
 
 // Estendi Gun con funzionalità GunEth
 Object.assign(Gun.chain);
@@ -7,26 +21,26 @@ Object.assign(Gun.chain);
 // Chain configurations
 const SUPPORTED_CHAINS = {
   OPTIMISM_SEPOLIA: {
-    name: 'Optimism Sepolia',
+    name: "Optimism Sepolia",
     chainId: 11155420,
     rpcUrl:
-      'https://spring-serene-snow.optimism-sepolia.quiknode.pro/d02b30b94d9d8e89cee0b2a694d5e1a5c6d87d9f',
-    blockExplorer: 'https://sepolia-optimism.etherscan.io/',
+      "https://spring-serene-snow.optimism-sepolia.quiknode.pro/d02b30b94d9d8e89cee0b2a694d5e1a5c6d87d9f",
+    blockExplorer: "https://sepolia-optimism.etherscan.io/",
     nativeCurrency: {
-      name: 'ETH',
-      symbol: 'ETH',
+      name: "ETH",
+      symbol: "ETH",
       decimals: 18,
     },
   },
   POLYGON_MAINNET: {
-    name: 'Polygon',
+    name: "Polygon",
     chainId: 137,
     rpcUrl:
-      'https://polygon-mainnet.g.alchemy.com/v2/yjhjIoJ3o_at8ALT7nCJtFtjdqFpiBdx',
-    blockExplorer: 'https://polygonscan.com/',
+      "https://polygon-mainnet.g.alchemy.com/v2/yjhjIoJ3o_at8ALT7nCJtFtjdqFpiBdx",
+    blockExplorer: "https://polygonscan.com/",
     nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
+      name: "MATIC",
+      symbol: "MATIC",
       decimals: 18,
     },
   },
@@ -46,25 +60,21 @@ const getUserChainState = () => {
     const state = JSON.parse(savedState);
     return {
       currentChain: SUPPORTED_CHAINS[state.chainKey],
-      provider: new ethers.JsonRpcProvider(
-        SUPPORTED_CHAINS[state.chainKey].rpcUrl
-      ),
+      provider: new JsonRpcProvider(SUPPORTED_CHAINS[state.chainKey].rpcUrl),
     };
   }
 
   // Se non esiste, crea un nuovo stato
   const initialState = {
     currentChain: SUPPORTED_CHAINS.OPTIMISM_SEPOLIA,
-    provider: new ethers.JsonRpcProvider(
-      SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.rpcUrl
-    ),
+    provider: new JsonRpcProvider(SUPPORTED_CHAINS.OPTIMISM_SEPOLIA.rpcUrl),
   };
 
   // Salva lo stato iniziale
   localStorage.setItem(
     `chainState_${userPub}`,
     JSON.stringify({
-      chainKey: 'OPTIMISM_SEPOLIA',
+      chainKey: "OPTIMISM_SEPOLIA",
     })
   );
 
@@ -128,7 +138,7 @@ export const walletService = {
     }
 
     const userPub = user?.is?.pub;
-    if (!userPub) throw new Error('Utente non autenticato');
+    if (!userPub) throw new Error("Utente non autenticato");
 
     // Salva la nuova chain nel localStorage
     localStorage.setItem(
@@ -140,7 +150,7 @@ export const walletService = {
 
     // Aggiorna lo stato corrente
     const state = getUserChainState();
-    if (!state) throw new Error('Utente non autenticato');
+    if (!state) throw new Error("Utente non autenticato");
 
     return state.currentChain;
   },
@@ -148,7 +158,7 @@ export const walletService = {
   getCurrentWallet: async (userPub) => {
     try {
       if (!userPub) {
-        throw new Error('userPub è richiesto per getCurrentWallet');
+        throw new Error("userPub è richiesto per getCurrentWallet");
       }
 
       // Prima controlla nel localStorage
@@ -156,20 +166,20 @@ export const walletService = {
       if (localWallet) {
         try {
           const walletData = JSON.parse(localWallet);
-          console.log('Wallet data from localStorage:', walletData);
+          console.log("Wallet data from localStorage:", walletData);
 
           if (
             !walletData.internalWalletAddress ||
             !walletData.internalWalletPk
           ) {
             console.log(
-              'Wallet data incompleto nel localStorage, provo su Gun'
+              "Wallet data incompleto nel localStorage, provo su Gun"
             );
           } else {
             return normalizeWalletData(walletData);
           }
         } catch (error) {
-          console.error('Error parsing localStorage wallet:', error);
+          console.error("Error parsing localStorage wallet:", error);
         }
       }
 
@@ -177,24 +187,25 @@ export const walletService = {
       let userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .get(userPub)
           .once((data) => {
-            console.log('User data from Gun:', data);
+            console.log("User data from Gun:", data);
             resolve(data);
           });
       });
 
       if (!userData) {
+        const signer = await gun.getSigner();
         userData = await gun
           .get(DAPP_NAME)
-          .get('addresses')
+          .get("addresses")
           .get(signer.address.toLowerCase())
           .once();
       }
 
       if (!userData) {
-        throw new Error('Dati utente non trovati');
+        throw new Error("Dati utente non trovati");
       }
 
       // Recupera le credenziali dal localStorage
@@ -206,7 +217,7 @@ export const walletService = {
       }
 
       if (!credentials?.password) {
-        throw new Error('Credenziali non trovate');
+        throw new Error("Credenziali non trovate");
       }
 
       // Verifica che i dati necessari siano presenti
@@ -215,8 +226,8 @@ export const walletService = {
         !userData.env_s_pair ||
         !userData.env_v_pair
       ) {
-        console.error('Dati mancanti:', { userData });
-        throw new Error('Dati di cifratura mancanti');
+        console.error("Dati mancanti:", { userData });
+        throw new Error("Dati di cifratura mancanti");
       }
 
       // Decifra le coppie di chiavi
@@ -252,11 +263,11 @@ export const walletService = {
 
         return normalizeWalletData(walletData);
       } catch (error) {
-        console.error('Error decrypting keys:', error);
-        throw new Error('Errore nella decifratura delle chiavi');
+        console.error("Error decrypting keys:", error);
+        throw new Error("Errore nella decifratura delle chiavi");
       }
     } catch (error) {
-      console.error('Error getting current wallet:', error);
+      console.error("Error getting current wallet:", error);
       throw error;
     }
   },
@@ -267,7 +278,7 @@ export const walletService = {
       const userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .map()
           .once((data) => {
             if (data && data.pub === userPub) {
@@ -277,7 +288,7 @@ export const walletService = {
         setTimeout(() => resolve(null), 2000);
       });
 
-      console.log('Found user data:', userData);
+      console.log("Found user data:", userData);
 
       if (userData?.address) {
         return userData.address;
@@ -287,16 +298,16 @@ export const walletService = {
       const userProfile = await gun
         .user()
         .get(DAPP_NAME)
-        .get('profiles')
+        .get("profiles")
         .get(userPub)
         .once((data) => {
-          console.log('Found user profile:', data);
+          console.log("Found user profile:", data);
           return data.address;
         });
 
-      throw new Error('Indirizzo wallet non trovato per questo utente');
+      throw new Error("Indirizzo wallet non trovato per questo utente");
     } catch (error) {
-      console.error('Error getting user wallet address:', error);
+      console.error("Error getting user wallet address:", error);
       throw error;
     }
   },
@@ -309,41 +320,39 @@ export const walletService = {
 
       const senderPub = user?.is?.pub;
       if (!senderPub) {
-        throw new Error('Utente non autenticato');
+        throw new Error("Utente non autenticato");
       }
 
       // Ottieni il wallet del mittente
       const senderWallet = await walletService.getCurrentWallet(senderPub);
-      console.log('Sender wallet:', senderWallet); // Debug
+      console.log("Sender wallet:", senderWallet); // Debug
 
       if (!senderWallet?.hasValidAddress) {
-        throw new Error('Wallet mittente non valido');
+        throw new Error("Wallet mittente non valido");
       }
 
       const state = getUserChainState();
-      if (!state) throw new Error('Chain non inizializzata');
+      if (!state) throw new Error("Chain non inizializzata");
 
-      const provider = new ethers.JsonRpcProvider(state.currentChain.rpcUrl);
-      const signer = new ethers.Wallet(senderWallet.internalWalletPk).connect(
-        provider
-      );
+      const provider = new JsonRpcProvider(state.currentChain.rpcUrl);
+      const signer = new ethers.Wallet(senderWallet.internalWalletPk, provider);
 
       let tx;
       if (isStealthMode) {
         // Recupera i dati del destinatario
         const recipientData = await gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .get(recipientPub)
           .once();
 
-        console.log('Recipient data:', recipientData);
+        console.log("Recipient data:", recipientData);
 
         if (
           !recipientData?.viewingPublicKey ||
           !recipientData?.spendingPublicKey
         ) {
-          throw new Error('Chiavi pubbliche del destinatario non trovate');
+          throw new Error("Chiavi pubbliche del destinatario non trovate");
         }
 
         // Usa s_Pair invece di sPair
@@ -351,11 +360,11 @@ export const walletService = {
         const gunWalletData = JSON.parse(gunWallet);
         const s_Pair = gunWalletData.s_Pair;
         if (!s_Pair) {
-          console.error('Wallet data:', senderWallet); // Debug
-          throw new Error('Spending key pair (s_Pair) non trovata nel wallet');
+          console.error("Wallet data:", senderWallet); // Debug
+          throw new Error("Spending key pair (s_Pair) non trovata nel wallet");
         }
 
-        console.log('Using spending key pair:', s_Pair);
+        console.log("Using spending key pair:", s_Pair);
 
         // Genera l'indirizzo stealth usando la nuova implementazione
         const { stealthAddress, senderEphemeralPublicKey, sharedSecret } =
@@ -364,10 +373,10 @@ export const walletService = {
             recipientData.spendingPublicKey
           );
 
-        console.log('Generated stealth data:', {
+        console.log("Generated stealth data:", {
           stealthAddress,
           senderEphemeralPublicKey,
-          sharedSecret: '***hidden***',
+          sharedSecret: "***hidden***",
         });
 
         // Invia la transazione all'indirizzo stealth
@@ -395,7 +404,7 @@ export const walletService = {
           isStealthPayment: true,
         };
 
-        console.log('Saving stealth announcement:', fullAnnouncement);
+        console.log("Saving stealth announcement:", fullAnnouncement);
 
         // Salva l'annuncio sia nel percorso del mittente che in quello generale
         const announcementId = `stealth_${tx.hash}_${Date.now()}`;
@@ -403,16 +412,16 @@ export const walletService = {
         // 1. Salva nel percorso generale degli annunci
         await gun
           .get(DAPP_NAME)
-          .get('stealth-announcements')
+          .get("stealth-announcements")
           .get(announcementId)
           .put(fullAnnouncement);
 
         // 2. Salva anche nel percorso del destinatario per un accesso più rapido
         await gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .get(recipientPub)
-          .get('stealth-received')
+          .get("stealth-received")
           .get(announcementId)
           .put(fullAnnouncement);
 
@@ -430,7 +439,7 @@ export const walletService = {
             recipientPub
           );
           if (!recipientWallet) {
-            throw new Error('Indirizzo del destinatario non trovato');
+            throw new Error("Indirizzo del destinatario non trovato");
           }
           recipientAddress = recipientWallet;
         }
@@ -445,7 +454,7 @@ export const walletService = {
         await tx.wait();
 
         // Salva la transazione nel database
-        await gun.get(DAPP_NAME).get('transactions').set({
+        await gun.get(DAPP_NAME).get("transactions").set({
           from: senderPub,
           to: recipientPub,
           amount: amount,
@@ -458,7 +467,7 @@ export const walletService = {
         return tx;
       }
     } catch (error) {
-      console.error('Error sending tip:', error);
+      console.error("Error sending tip:", error);
       throw error;
     }
   },
@@ -466,19 +475,17 @@ export const walletService = {
   retrieveStealthPayments: async () => {
     try {
       const userPub = user?.is?.pub;
-      if (!userPub) throw new Error('Utente non autenticato');
+      if (!userPub) throw new Error("Utente non autenticato");
 
       // Ottieni il wallet corrente
       const currentWallet = await walletService.getCurrentWallet(userPub);
-      if (!currentWallet) throw new Error('Wallet non trovato');
+      if (!currentWallet) throw new Error("Wallet non trovato");
 
       const state = getUserChainState();
-      if (!state) throw new Error('Chain non inizializzata');
+      if (!state) throw new Error("Chain non inizializzata");
 
       // Crea il signer con la chiave privata corretta
-      const signer = new ethers.Wallet(currentWallet.internalWalletPk).connect(
-        state.provider
-      );
+      const signer = new ethers.Wallet(currentWallet.internalWalletPk, state.provider);
 
       const recoveredPayments = [];
 
@@ -487,7 +494,7 @@ export const walletService = {
         const results = [];
         gun
           .get(DAPP_NAME)
-          .get('stealth-announcements')
+          .get("stealth-announcements")
           .map()
           .once((announcement) => {
             if (announcement && announcement.to === userPub) {
@@ -508,7 +515,7 @@ export const walletService = {
             announcement.stealthAddress
           );
 
-          if (balance > 0) {
+          if (balance.gt(0)) {
             // Crea la transazione per recuperare i fondi
             const tx = {
               from: announcement.stealthAddress,
@@ -537,7 +544,7 @@ export const walletService = {
 
       return recoveredPayments;
     } catch (error) {
-      console.error('Errore nel recupero dei pagamenti stealth:', error);
+      console.error("Errore nel recupero dei pagamenti stealth:", error);
       throw error;
     }
   },
@@ -546,14 +553,12 @@ export const walletService = {
   claimStealthPayment: async (recoveredPayment) => {
     try {
       const userPub = user?.is?.pub;
-      if (!userPub) throw new Error('Utente non autenticato');
+      if (!userPub) throw new Error("Utente non autenticato");
 
       const currentWallet = await walletService.getCurrentWallet(userPub);
       const state = getUserChainState();
 
-      const signer = new ethers.Wallet(currentWallet.internalWalletPk).connect(
-        state.provider
-      );
+      const signer = new ethers.Wallet(currentWallet.internalWalletPk, state.provider);
 
       // Calcola la chiave privata stealth usando le chiavi del destinatario e del mittente
       const stealthPrivateKey = await gun.deriveStealthPrivateKey(
@@ -563,14 +568,12 @@ export const walletService = {
       );
 
       // Crea un wallet con la chiave privata stealth
-      const stealthWallet = new ethers.Wallet(stealthPrivateKey).connect(
-        state.provider
-      );
+      const stealthWallet = new ethers.Wallet(stealthPrivateKey, state.provider);
 
       // Calcola il gas necessario
-      const gasPrice = await state.provider.getFeeData();
-      const gasLimit = 21000; // transfer base cost
-      const gasCost = gasPrice.gasPrice * BigInt(gasLimit);
+      const feeData = await state.provider.getFeeData();
+      const gasLimit = 21000n; // transfer base cost
+      const gasCost = feeData.gasPrice * gasLimit;
 
       // Sottrai il costo del gas dal valore da trasferire
       const valueToSend = recoveredPayment.value - gasCost;
@@ -580,7 +583,7 @@ export const walletService = {
         to: currentWallet.internalWalletAddress,
         value: valueToSend,
         gasLimit: gasLimit,
-        gasPrice: gasPrice.gasPrice,
+        gasPrice: feeData.gasPrice,
         chainId: state.currentChain.chainId,
       });
 
@@ -589,13 +592,13 @@ export const walletService = {
       // Rimuovi l'annuncio da Gun dopo il claim
       gun
         .get(DAPP_NAME)
-        .get('stealth-announcements')
+        .get("stealth-announcements")
         .get(recoveredPayment.originalTx)
         .put(null);
 
       return tx;
     } catch (error) {
-      console.error('Errore nel riscatto del pagamento stealth:', error);
+      console.error("Errore nel riscatto del pagamento stealth:", error);
       throw error;
     }
   },
@@ -618,13 +621,11 @@ export const walletService = {
   sendTransaction: async (to, amount) => {
     try {
       const state = getUserChainState();
-      if (!state) throw new Error('User not authenticated');
+      if (!state) throw new Error("User not authenticated");
 
       // Get sender's wallet
       const senderWallet = await walletService.getCurrentWallet();
-      const signer = new ethers.Wallet(senderWallet.privateKey).connect(
-        state.provider
-      );
+      const signer = new ethers.Wallet(senderWallet.privateKey, state.provider);
 
       // Send transaction
       const tx = await signer.sendTransaction({
@@ -638,7 +639,7 @@ export const walletService = {
       // Save transaction record
       gun
         .get(DAPP_NAME)
-        .get('transactions')
+        .get("transactions")
         .set({
           from: user.is.pub,
           to: to,
@@ -650,7 +651,7 @@ export const walletService = {
 
       return tx;
     } catch (error) {
-      console.error('Error sending transaction:', error);
+      console.error("Error sending transaction:", error);
       throw error;
     }
   },
@@ -665,7 +666,7 @@ export const walletService = {
       await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('stealth-announcements')
+          .get("stealth-announcements")
           .get(announcementId)
           .put(announcement, (ack) => {
             if (ack.err) {
@@ -679,9 +680,9 @@ export const walletService = {
       await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('users')
+          .get("users")
           .get(userPub)
-          .get('stealth-received')
+          .get("stealth-received")
           .get(announcementId)
           .put(announcement, (ack) => {
             if (ack.err) {
@@ -714,7 +715,7 @@ export const walletService = {
       }
       return true;
     } catch (error) {
-      console.error('Errore nella pulizia della transazione:', error);
+      console.error("Errore nella pulizia della transazione:", error);
       throw error;
     }
   },

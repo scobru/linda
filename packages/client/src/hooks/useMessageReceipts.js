@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { notifications, user } from "linda-protocol";
+import { notifications, user } from "#protocol";
 import { toast } from "react-hot-toast";
 
 export const useMessageReceipts = (messageId, roomId) => {
