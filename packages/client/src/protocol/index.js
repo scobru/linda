@@ -24,6 +24,7 @@ export { walletService } from "./wallet";
 export { userUtils } from "./utils/userUtils";
 export { userBlocking } from "./blocking";
 export { cacheManager } from "./cache";
+export { avatarService } from "./utils/avatarService";
 
 // Security and Authentication
 export { sessionManager } from "./security";
@@ -53,3 +54,4 @@ export {
   observeAuthState,
 } from "./authentication/isAuthenticated";
 export { authentication } from "./authentication";
+export { default as registerUser } from "./authentication/register";

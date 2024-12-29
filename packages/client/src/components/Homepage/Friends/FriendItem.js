@@ -25,21 +25,14 @@ const FriendItem = ({
           isMobileView ? "w-8 h-8" : "w-10 h-10"
         } rounded-full bg-[#2D325A] flex items-center justify-center mr-3 flex-shrink-0`}
       >
-        {friend.avatar ? (
-          <img
-            src={friend.avatar}
-            alt={friend.displayName}
-            className="w-full h-full rounded-full object-cover"
-          />
-        ) : (
-          <span
-            className={`text-white ${
-              isMobileView ? "text-sm" : "text-base"
-            } font-semibold`}
-          >
-            {friend.displayName?.charAt(0).toUpperCase()}
-          </span>
-        )}
+        <img
+          src={
+            friend.avatar ||
+            `https://api.dicebear.com/7.x/bottts/svg?seed=${friend.displayName}&backgroundColor=b6e3f4`
+          }
+          alt={friend.displayName}
+          className="w-full h-full rounded-full object-cover"
+        />
       </div>
 
       {/* Info */}

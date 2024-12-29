@@ -255,7 +255,12 @@ export const messaging = {
   /**
    * Servizio per i canali
    */
-  channels: channelsV2,
+  channels: {
+    ...channelsV2,
+    sendMessage: channelsV2.sendMessage,
+    sendVoiceMessage: channelsV2.sendVoiceMessage,
+    sendImageMessage: channelsV2.sendImageMessage,
+  },
 
   /**
    * Servizio per le board

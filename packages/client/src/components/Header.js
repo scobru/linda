@@ -50,14 +50,7 @@ const Header = () => {
       <div className="flex justify-between items-center">
         {/* Logo e nome utente */}
         <div className="flex items-center space-x-4">
-          <Link
-            to="/community"
-            className="text-gray-600 hover:text-blue-500 transition-colors"
-          >
-            Kubrick 1.0.0
-          </Link>
           <h1 className="text-white font-bold text-xl">linda</h1>
-          <span className="text-green-400 text-sm">• Online</span>
         </div>
 
         {/* Pulsanti azioni */}

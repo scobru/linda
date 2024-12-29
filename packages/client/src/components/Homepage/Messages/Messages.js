@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast, Toaster } from "react-hot-toast";
 import { AiOutlineSend } from "react-icons/ai";
-import { messaging, blocking } from "#protocol";
+import { messaging, blocking, channelsV2 } from "#protocol";
 import { gun, user, DAPP_NAME } from "#protocol";
 import { walletService } from "#protocol";
 import { formatEther, parseEther } from "ethers";
@@ -19,8 +19,7 @@ import { useMessageNotifications } from "../../../hooks/useMessageNotifications"
 import { useWallet } from "../../../hooks/useWallet";
 
 const { userBlocking } = blocking;
-const { channels, channelsV2, messageList } = messaging;
-const { chat } = messaging;
+const { channels, chat } = messaging;
 
 // Componente per l'area di input
 const InputArea = ({
@@ -627,7 +626,20 @@ export default function Messages({ isMobileView = false, onBack }) {
               .get(messageId)
               .put(message);
           } else if (selected.type === "channel") {
-            await channelsV2.sendMessage(selected.roomId, message);
+            console.log("----- SENDING VOICE MESSAGE TO CHANNEL -----");
+            await channelsV2.sendVoiceMessage(
+              selected.roomId,
+              audioBlob,
+              (result) => {
+                if (result.success) {
+                  toast.success("Messaggio vocale inviato");
+                } else {
+                  throw new Error(
+                    result.error || "Errore invio messaggio vocale"
+                  );
+                }
+              }
+            );
           } else {
             // Per le chat private
             await new Promise((resolve, reject) => {
@@ -721,7 +733,18 @@ export default function Messages({ isMobileView = false, onBack }) {
           .get(messageId)
           .put(message);
       } else if (selected.type === "channel") {
-        await channelsV2.sendMessage(selected.roomId, message);
+        console.log("----- SENDING IMAGE MESSAGE TO CHANNEL -----");
+        await channelsV2.sendImageMessage(
+          selected.roomId,
+          imageData,
+          (result) => {
+            if (result.success) {
+              toast.success("Immagine inviata con successo");
+            } else {
+              throw new Error(result.error || "Errore invio immagine");
+            }
+          }
+        );
       } else {
         // Per le chat private
         await new Promise((resolve, reject) => {
@@ -976,27 +999,25 @@ export default function Messages({ isMobileView = false, onBack }) {
           {selected.type === "channel" && (
             <>
               {selected.creator === appState.user.is.pub ? (
-                <>
-                  <button
-                    onClick={handleDeleteChannel}
-                    className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76]"
-                    title="Elimina canale"
+                <button
+                  onClick={handleDeleteChannel}
+                  className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76]"
+                  title="Elimina canale"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                </button>
               ) : (
                 <button
                   onClick={handleLeaveChannel}
@@ -1020,24 +1041,27 @@ export default function Messages({ isMobileView = false, onBack }) {
               )}
             </>
           )}
-          <button
-            onClick={() => setIsWalletModalOpen(true)}
-            className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          {!selected.type && (
+            <button
+              onClick={() => setIsWalletModalOpen(true)}
+              className="p-2 rounded-full text-white hover:bg-[#4A4F76]"
+              title="Invia mancia"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </button>
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </button>
+          )}
           <button
             onClick={handleClearChat}
             className="p-2 rounded-full text-white hover:bg-[#4A4F76]"

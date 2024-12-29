@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAppState } from "../../../context/AppContext";
-import { useChannelsV2 } from "../../../hooks/useChannelsV2";
 import { useMobileView } from "../../../hooks/useMobileView";
+import { useChannelsV2 } from "../../../hooks/useChannelsV2";
 import { toast } from "react-hot-toast";
 
 export default function Channels({ onSelect }) {
@@ -10,22 +10,41 @@ export default function Channels({ onSelect }) {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const { channels, loading, createChannel } = useChannelsV2();
+  const { channels, loading, createChannel, error } = useChannelsV2();
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+    }
+  }, [error]);
 
   const handleCreateChannel = async () => {
+    if (!appState.isAuthenticated) {
+      toast.error("Devi essere autenticato per creare un canale");
+      return;
+    }
+
     if (!newChannelName.trim()) {
       toast.error("Inserisci un nome per il canale");
       return;
     }
 
     try {
-      await createChannel(newChannelName);
-      setNewChannelName("");
-      setShowCreateChannel(false);
-      toast.success("Canale creato con successo");
+      const channelData = {
+        name: newChannelName.trim(),
+        type: "public",
+        description: "",
+      };
+
+      const success = await createChannel(channelData);
+      if (success) {
+        setNewChannelName("");
+        setShowCreateChannel(false);
+        toast.success("Canale creato con successo");
+      }
     } catch (error) {
       console.error("Errore creazione canale:", error);
-      toast.error("Errore durante la creazione del canale");
+      toast.error(error.message || "Errore durante la creazione del canale");
     }
   };
 
@@ -42,6 +61,7 @@ export default function Channels({ onSelect }) {
           <button
             onClick={() => setShowCreateChannel(true)}
             className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            disabled={!appState.isAuthenticated}
           >
             <svg
               className="w-5 h-5"
@@ -69,33 +89,31 @@ export default function Channels({ onSelect }) {
         </div>
       </div>
 
-      {/* Channels List */}
-      <div className={`flex-1 overflow-y-auto ${isMobileView ? "pb-16" : ""}`}>
+      {/* Lista canali */}
+      <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          <div className="flex justify-center items-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
           </div>
         ) : filteredChannels.length === 0 ? (
-          <div className="text-center p-8 text-gray-400">
-            <p>Nessun canale trovato.</p>
-            <p className="mt-2">
-              Crea un nuovo canale usando il pulsante + in alto!
-            </p>
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p>Nessun canale trovato</p>
+            {appState.isAuthenticated && (
+              <p className="mt-2">
+                Crea un nuovo canale usando il pulsante + in alto!
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-1 p-2">
             {filteredChannels.map((channel) => (
               <div
                 key={channel.id}
-                onClick={() => onSelect && onSelect(channel)}
-                className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
-                  appState.selected?.id === channel.id
-                    ? "bg-blue-600"
-                    : "hover:bg-[#2D325A]"
-                }`}
+                onClick={() => onSelect(channel)}
+                className="flex items-center space-x-3 p-3 rounded-lg hover:bg-[#4A4F76] cursor-pointer transition-colors"
               >
-                <div className="w-10 h-10 rounded-full bg-[#2D325A] flex items-center justify-center mr-3">
-                  <span className="text-white text-lg font-semibold">
+                <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-medium text-lg">
                     {channel.name.charAt(0).toUpperCase()}
                   </span>
                 </div>
@@ -104,33 +122,9 @@ export default function Channels({ onSelect }) {
                     {channel.name}
                   </h3>
                   <p className="text-gray-400 text-sm truncate">
-                    {channel.members?.length || 0} membri
+                    {Object.keys(channel.members || {}).length} membri
                   </p>
                 </div>
-                {channel.creator !== appState.user.is.pub && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleLeaveChannel(channel.id);
-                    }}
-                    className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
-                    title="Esci dal canale"
-                  >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                      />
-                    </svg>
-                  </button>
-                )}
               </div>
             ))}
           </div>
