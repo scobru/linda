@@ -808,6 +808,28 @@ export default function Messages({ isMobileView = false, onBack }) {
     }
   };
 
+  // Funzione per eliminare una board
+  const handleDeleteBoard = async () => {
+    if (!selected?.roomId || selected?.type !== "board") return;
+
+    try {
+      await gun.get(DAPP_NAME).get("boards").get(selected.roomId).put(null);
+
+      toast.success("Board eliminata con successo");
+      // Resetta la selezione corrente
+      updateAppState({
+        ...appState,
+        selected: null,
+        currentView: "boards",
+      });
+      // Forza il ricaricamento delle board
+      window.dispatchEvent(new CustomEvent("boardDeleted"));
+    } catch (error) {
+      console.error("Errore nell'eliminazione della board:", error);
+      toast.error("Errore nell'eliminazione della board");
+    }
+  };
+
   if (!selected?.roomId) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -910,7 +932,7 @@ export default function Messages({ isMobileView = false, onBack }) {
             <>
               {selected.creator === appState.user.is.pub ? (
                 <button
-                  onClick={handleDeleteChannel}
+                  onClick={handleDeleteBoard}
                   className="p-2 rounded-full text-red-500 hover:bg-[#4A4F76]"
                   title="Elimina board"
                 >

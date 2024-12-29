@@ -2,9 +2,11 @@ import React, { useState, useEffect } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast } from "react-hot-toast";
 import { useBoardsV2 } from "../../../hooks/useBoardsV2";
+import { useMobileView } from "../../../hooks/useMobileView";
 
-export default function Boards() {
+export default function Boards({ onSelect }) {
   const { appState, updateAppState } = useAppState();
+  const { isMobileView } = useMobileView();
   const {
     boards,
     loading: boardsLoading,
@@ -20,14 +22,6 @@ export default function Boards() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Funzione di utilità per verificare se un utente è membro di una board
-  const isMemberOfBoard = (board, userId) => {
-    if (!board.members) return false;
-    if (Array.isArray(board.members)) return board.members.includes(userId);
-    if (typeof board.members === "object") return userId in board.members;
-    return false;
-  };
-
   const handleSearch = async (query) => {
     setIsSearching(true);
     try {
@@ -42,6 +36,9 @@ export default function Boards() {
   };
 
   const handleSelect = async (board) => {
+    if (onSelect) {
+      onSelect(board);
+    }
     updateAppState({
       ...appState,
       selected: {
@@ -92,20 +89,54 @@ export default function Boards() {
     }
   };
 
-  useEffect(() => {
-    const handleBoardLeave = (event) => {
-      if (event.detail?.boardId) {
-        handleLeaveBoard(event.detail.boardId);
-      }
-    };
-
-    window.addEventListener("boardLeave", handleBoardLeave);
-    return () => window.removeEventListener("boardLeave", handleBoardLeave);
-  }, []);
-
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 space-y-2">
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="p-4 bg-[#373B5C] border-b border-[#4A4F76] sticky top-0 z-10">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-white">Board</h2>
+          <div className="flex items-center space-x-2">
+            {appState.selected && appState.selected.type === "board" && (
+              <button
+                onClick={() => handleLeaveBoard(appState.selected.roomId)}
+                className="p-2 rounded-full text-white hover:bg-[#4A4F76] transition-colors"
+                title="Lascia board"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
         <div className="relative">
           <input
             type="text"
@@ -119,152 +150,125 @@ export default function Boards() {
               }
             }}
             placeholder="Cerca board..."
-            className="w-full px-4 py-2 bg-[#2D325A] text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+            className="w-full bg-[#2D325A] text-white placeholder-gray-400 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          {searchQuery && (
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setSearchResults([]);
-              }}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          )}
         </div>
-
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          <span>Nuova Board</span>
-        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="space-y-1 px-2">
-          {boardsLoading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+      {/* Board List */}
+      <div className={`flex-1 overflow-y-auto ${isMobileView ? "pb-0" : ""}`}>
+        {boardsLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : searchQuery ? (
+          isSearching ? (
+            <div className="text-center text-gray-400 py-4">
+              Ricerca in corso...
             </div>
-          ) : searchQuery ? (
-            isSearching ? (
-              <div className="text-center text-gray-400 py-4">
-                Ricerca in corso...
-              </div>
-            ) : searchResults.length > 0 ? (
-              searchResults.map((board) => {
-                const isMember = isMemberOfBoard(board, appState.user.is.pub);
-                return (
-                  <div
-                    key={board.id}
-                    className="flex items-center space-x-3 p-2 rounded-md hover:bg-[#373B5C] group"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-white">
-                        {board.name?.charAt(0).toUpperCase() || "B"}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-white text-sm font-medium truncate">
-                          {board.name || "Board senza nome"}
-                        </h3>
-                        <div className="flex items-center space-x-2">
-                          {board.creator === appState.user.is.pub && (
-                            <span className="text-xs text-blue-400 bg-[#2D325A] px-2 py-0.5 rounded-full">
-                              Creatore
-                            </span>
-                          )}
-                          {!isMember && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleJoinBoard(board);
-                              }}
-                              className="text-xs text-white bg-blue-500 px-2 py-0.5 rounded-full hover:bg-blue-600 transition-colors"
-                            >
-                              Unisciti
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-sm text-gray-400 truncate">
-                        {board.description || "Nessuna descrizione"}
-                      </p>
-                    </div>
+          ) : searchResults.length > 0 ? (
+            <div className="space-y-1 p-2">
+              {searchResults.map((board) => (
+                <div
+                  key={board.id}
+                  onClick={() => handleSelect(board)}
+                  className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
+                    appState.selected?.roomId === board.id
+                      ? "bg-blue-600"
+                      : "hover:bg-[#2D325A]"
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-full bg-[#2D325A] flex items-center justify-center mr-3">
+                    <span className="text-white text-lg font-semibold">
+                      {board.name?.charAt(0).toUpperCase() || "B"}
+                    </span>
                   </div>
-                );
-              })
-            ) : (
-              <div className="text-center text-gray-400 py-4">
-                Nessuna board trovata
-              </div>
-            )
-          ) : boards.length > 0 ? (
-            boards.map((board) => (
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-white font-medium truncate">
+                      {board.name || "Board senza nome"}
+                    </h3>
+                    <p className="text-gray-400 text-sm truncate">
+                      {board.members?.length || 0} membri
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center text-gray-400 py-4">
+              Nessuna board trovata
+            </div>
+          )
+        ) : boards.length > 0 ? (
+          <div className="space-y-1 p-2">
+            {boards.map((board) => (
               <div
                 key={board.id}
                 onClick={() => handleSelect(board)}
-                className="flex items-center space-x-3 p-2 rounded-md hover:bg-[#373B5C] cursor-pointer group"
+                className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
+                  appState.selected?.roomId === board.id
+                    ? "bg-blue-600"
+                    : "hover:bg-[#2D325A]"
+                }`}
               >
-                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
-                  <span className="text-sm font-bold text-white">
+                <div className="w-10 h-10 rounded-full bg-[#2D325A] flex items-center justify-center mr-3">
+                  <span className="text-white text-lg font-semibold">
                     {board.name?.charAt(0).toUpperCase() || "B"}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-white text-sm font-medium truncate">
-                      {board.name || "Board senza nome"}
-                    </h3>
-                    {board.creator === appState.user.is.pub && (
-                      <span className="text-xs text-blue-400 bg-[#2D325A] px-2 py-0.5 rounded-full opacity-0 group-hover:opacity-100">
-                        Creatore
-                      </span>
-                    )}
-                  </div>
+                  <h3 className="text-white font-medium truncate">
+                    {board.name || "Board senza nome"}
+                  </h3>
+                  <p className="text-gray-400 text-sm truncate">
+                    {board.members?.length || 0} membri
+                  </p>
                 </div>
+                {board.creator !== appState.user.is.pub && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLeaveBoard(board.id);
+                    }}
+                    className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
+                    title="Lascia board"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
-            ))
-          ) : (
-            <div className="text-center text-gray-400 mt-8">
-              <p>Non ci sono board disponibili</p>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="mt-4 text-blue-400 hover:text-blue-300"
-              >
-                Crea la prima board
-              </button>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center text-gray-400 py-8">
+            <p>Non ci sono board disponibili</p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="mt-4 text-blue-400 hover:text-blue-300"
+            >
+              Crea la prima board
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Create Board Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#2D325A] rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold text-white mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-[#373B5C] rounded-lg p-6 w-full max-w-md m-auto">
+            <h3 className="text-xl font-semibold text-white mb-6">
               Crea nuova board
             </h3>
             <form
@@ -276,10 +280,10 @@ export default function Boards() {
                   description: formData.get("description"),
                 });
               }}
-              className="space-y-4"
+              className="space-y-6"
             >
               <div>
-                <label className="block text-white mb-1">
+                <label className="block text-white mb-2">
                   Nome della board
                 </label>
                 <input
@@ -288,34 +292,34 @@ export default function Boards() {
                   required
                   maxLength={50}
                   placeholder="es. Annunci"
-                  className="w-full px-3 py-2 bg-[#373B5C] text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 bg-[#2D325A] text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-white mb-1">
+                <label className="block text-white mb-2">
                   Descrizione (opzionale)
                 </label>
                 <textarea
                   name="description"
                   maxLength={200}
-                  rows={3}
+                  rows={4}
                   placeholder="Descrivi la board..."
-                  className="w-full px-3 py-2 bg-[#373B5C] text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 bg-[#2D325A] text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
 
-              <div className="flex justify-end space-x-2 mt-6">
+              <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-white rounded hover:bg-[#4A4F76] transition-colors"
+                  className="px-6 py-2.5 text-white rounded-lg hover:bg-[#4A4F76] transition-colors"
                 >
                   Annulla
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                  className="px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                 >
                   Crea Board
                 </button>

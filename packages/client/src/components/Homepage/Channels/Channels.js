@@ -107,6 +107,30 @@ export default function Channels({ onSelect }) {
                     {channel.members?.length || 0} membri
                   </p>
                 </div>
+                {channel.creator !== appState.user.is.pub && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLeaveChannel(channel.id);
+                    }}
+                    className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
+                    title="Esci dal canale"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
             ))}
           </div>
