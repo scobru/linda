@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback } from "react";
 import { user, notifications } from "#protocol";
 import { toast } from "react-hot-toast";
+import { messaging } from "#protocol/messaging";
 
 const { messageNotifications } = notifications;
+const { decryptMessage } = messaging;
 
 // Supportiamo diversi formati audio per maggiore compatibilità
 const NOTIFICATION_SOUND = "/notification.mp3";
@@ -85,15 +87,33 @@ export const useMessageNotifications = (messages, chatId) => {
       }
 
       // Mostra notifica del browser se permesso
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Nuovo messaggio", {
-          body:
-            lastMessage.type === "voice"
-              ? "🎤 Messaggio vocale"
-              : lastMessage.content,
-          icon: "/app-icon.png",
-        });
-      }
+      const showNotification = async () => {
+        if ("Notification" in window && Notification.permission === "granted") {
+          try {
+            const decryptedContent =
+              lastMessage.type === "voice"
+                ? "🎤 Messaggio vocale"
+                : (await decryptMessage(lastMessage, user.is.pub)).content;
+
+            new Notification("Nuovo messaggio", {
+              body: decryptedContent,
+              icon: "/app-icon.png",
+            });
+          } catch (error) {
+            console.error(
+              "Errore durante la decriptazione del messaggio per la notifica:",
+              error
+            );
+            // Mostra una notifica generica in caso di errore
+            new Notification("Nuovo messaggio", {
+              body: "Hai ricevuto un nuovo messaggio",
+              icon: "/app-icon.png",
+            });
+          }
+        }
+      };
+
+      showNotification();
     }
   }, [messages, chatId]);
 

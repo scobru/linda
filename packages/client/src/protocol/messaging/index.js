@@ -13,6 +13,7 @@ import {
   getReactions,
   CONTENT_TYPES,
 } from "../reactions/reactions";
+import notificationService from "../notifications/notificationService.js";
 
 /**
  * Servizio unificato per la messaggistica
@@ -164,6 +165,26 @@ export const messaging = {
 
         // Aggiorna metriche
         await updateGlobalMetrics("totalMessagesSent", 1);
+
+        // Invia una notifica con il contenuto decrittato
+        const notificationData = {
+          type: "message",
+          sourceType: "private",
+          sourceName: user.is.alias || user.is.pub,
+          sourceId: chatId,
+          data: {
+            content: encryptedContent,
+            preview: encryptedPreview,
+            sender: user.is.pub,
+            recipient: recipientPub,
+          },
+        };
+
+        try {
+          await notificationService.notifyUser(recipientPub, notificationData);
+        } catch (error) {
+          console.error("Error sending notification:", error);
+        }
 
         return callback({
           success: true,

@@ -21,13 +21,45 @@ const notificationService = {
         .toString(36)
         .substr(2, 9)}`;
 
-      // Crea l'oggetto notifica
+      // Ottieni l'alias del mittente
+      const senderAlias = await new Promise((resolve) => {
+        gun
+          .user(user.is.pub)
+          .get("alias")
+          .once((alias) => {
+            resolve(alias || user.is.pub);
+          });
+      });
+
+      // Se il contenuto è criptato, lo decrittiamo prima di salvare la notifica
+      let notificationContent = notification.data?.content;
+      if (notificationContent && notificationContent.startsWith("SEA{")) {
+        try {
+          const decrypted = await messaging.messages.decrypt(
+            { content: notificationContent },
+            targetPub
+          );
+          notificationContent = decrypted.content || "[Errore decrittazione]";
+        } catch (error) {
+          console.error("Errore decrittazione contenuto notifica:", error);
+          notificationContent = "[Errore decrittazione]";
+        }
+      }
+
+      // Crea l'oggetto notifica con informazioni aggiuntive
       const notificationData = {
         id: notificationId,
-        type: notification.type,
+        type: notification.type, // 'private', 'group', 'channel'
         from: user.is.pub,
+        fromAlias: senderAlias,
+        sourceType: notification.sourceType, // 'private', 'group', 'channel'
+        sourceName: notification.sourceName, // nome del gruppo/canale se applicabile
+        sourceId: notification.sourceId, // ID del gruppo/canale/chat
         timestamp: Date.now(),
-        data: notification.data,
+        data: {
+          ...notification.data,
+          content: notificationContent,
+        },
         status: "unread",
       };
 
@@ -63,61 +95,163 @@ const notificationService = {
    */
   observeNotifications: () => {
     return new Observable((subscriber) => {
+      console.log(
+        "Inizializzazione observer notifiche per utente:",
+        user?.is?.pub
+      );
       if (!user?.is) {
+        console.error("Utente non autenticato per le notifiche");
         subscriber.error(new Error("Utente non autenticato"));
         return;
       }
 
       const processedNotifications = new Set();
 
+      // Verifica iniziale del nodo notifiche
+      gun
+        .get(DAPP_NAME)
+        .get("notifications")
+        .get(user.is.pub)
+        .once((data) => {
+          console.log("Verifica nodo notifiche:", data);
+        });
+
       const notificationHandler = gun
         .get(DAPP_NAME)
         .get("notifications")
         .get(user.is.pub)
         .map()
-        .on(async (notification, id) => {
-          if (!notification || processedNotifications.has(id)) return;
+        .on((notification, id) => {
+          console.log("Raw notification data:", { notification, id });
 
-          try {
-            // Decrittazione del contenuto della notifica se presente
-            if (notification.data && notification.data.content) {
-              const recipientPub = notification.from;
-              const decrypted = await messaging.messages.decrypt(
-                notification.data,
-                recipientPub
-              );
-              notification.data.content =
-                decrypted.content || notification.data.content;
-            }
-
-            // Verifica della firma se presente
-            if (notification.data && typeof notification.data === "string") {
-              try {
-                const verified = await SEA.verify(
-                  notification.data,
-                  notification.from
-                );
-                if (verified) {
-                  notification.data = verified;
-                }
-              } catch (error) {
-                console.error("Errore verifica firma notifica:", error);
-                return;
-              }
-            }
-
-            processedNotifications.add(id);
-            subscriber.next(notification);
-          } catch (error) {
-            console.error("Errore decrittazione notifica:", error);
-            notification.data.content = "[Errore decrittazione]";
-            processedNotifications.add(id);
-            subscriber.next(notification);
+          // Se la notifica è null, potrebbe essere stata cancellata
+          if (!notification) {
+            console.log("Notifica nulla ricevuta per id:", id);
+            return;
           }
+
+          // Se la notifica è già stata processata
+          if (processedNotifications.has(id)) {
+            console.log("Notifica già processata:", id);
+            return;
+          }
+
+          console.log("Processamento nuova notifica:", { notification, id });
+
+          (async () => {
+            try {
+              // Se manca l'alias del mittente, proviamo a recuperarlo
+              if (!notification.fromAlias && notification.from) {
+                notification.fromAlias = await new Promise((resolve) => {
+                  gun
+                    .user(notification.from)
+                    .get("alias")
+                    .once((alias) => {
+                      resolve(alias || notification.from);
+                    });
+                });
+              }
+
+              // Decrittazione del contenuto della notifica se presente
+              if (notification.data) {
+                console.log(
+                  "Elaborazione notifica con dati:",
+                  notification.data
+                );
+
+                // Se il contenuto è una stringa criptata
+                if (
+                  notification.data.content &&
+                  notification.data.content.startsWith("SEA{")
+                ) {
+                  console.log(
+                    "Tentativo decrittazione contenuto:",
+                    notification.data.content
+                  );
+                  try {
+                    // Ottieni la chiave pubblica del mittente
+                    const senderEpub = await new Promise((resolve) => {
+                      gun.user(notification.from).once((data) => {
+                        console.log("Chiave mittente trovata:", data?.epub);
+                        resolve(data?.epub);
+                      });
+                    });
+
+                    if (!senderEpub) {
+                      throw new Error("Chiave mittente non trovata");
+                    }
+
+                    // Genera il segreto condiviso
+                    const secret = await SEA.secret(senderEpub, user.pair());
+                    console.log("Segreto generato:", !!secret);
+
+                    // Decripta il contenuto
+                    const decrypted = await SEA.decrypt(
+                      notification.data.content,
+                      secret
+                    );
+                    console.log("Contenuto decrittato:", decrypted);
+
+                    if (!decrypted) {
+                      throw new Error("Decrittazione fallita");
+                    }
+
+                    notification.data.content = decrypted;
+                  } catch (error) {
+                    console.error("Errore decrittazione contenuto:", error);
+                    notification.data.content = "[Errore decrittazione]";
+                  }
+                }
+              }
+
+              // Formatta il titolo della notifica in base al tipo
+              let notificationTitle = "";
+              switch (notification.sourceType) {
+                case "private":
+                  notificationTitle = `Messaggio da ${notification.fromAlias}`;
+                  break;
+                case "group":
+                  notificationTitle = `${notification.fromAlias} in ${notification.sourceName}`;
+                  break;
+                case "channel":
+                  notificationTitle = `${notification.fromAlias} nel canale ${notification.sourceName}`;
+                  break;
+                default:
+                  notificationTitle = `Notifica da ${notification.fromAlias}`;
+              }
+              notification.title = notificationTitle;
+
+              // Mostra la notifica del browser dopo la decrittazione
+              if (
+                "Notification" in window &&
+                Notification.permission === "granted"
+              ) {
+                new Notification(notification.title, {
+                  body: notification.data.content,
+                  icon: "/app-icon.png",
+                });
+              }
+
+              processedNotifications.add(id);
+              console.log("Emissione notifica elaborata:", notification);
+              subscriber.next(notification);
+            } catch (error) {
+              console.error("Errore elaborazione notifica:", error);
+              if (notification.data && notification.data.content) {
+                notification.data.content = "[Errore elaborazione]";
+              }
+              processedNotifications.add(id);
+              subscriber.next(notification);
+            }
+          })();
         });
+
+      // Log per confermare che il listener è stato impostato
+      console.log("Listener notifiche impostato correttamente");
 
       // Cleanup function
       return () => {
+        console.log("Cleanup listener notifiche");
         if (typeof notificationHandler === "function") {
           notificationHandler();
         }
