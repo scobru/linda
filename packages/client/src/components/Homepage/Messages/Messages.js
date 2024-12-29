@@ -230,6 +230,7 @@ export default function Messages({ isMobileView = false, onBack }) {
 
     try {
       if (selected.type === "board") {
+        console.log("----- SENDING MESSAGE TO BOARD -----");
         // Verifica se l'utente è autorizzato a scrivere nella board
         if (!isAuthorizedMember(appState.user.is.pub)) {
           toast.error("Non sei autorizzato a scrivere in questa board");
@@ -259,6 +260,7 @@ export default function Messages({ isMobileView = false, onBack }) {
 
         setNewMessage("");
       } else if (selected.type === "channel") {
+        console.log("----- SENDING MESSAGE TO CHANNEL -----");
         // Per i canali
         const messageId = `msg_${Date.now()}_${Math.random()
           .toString(36)
@@ -271,18 +273,17 @@ export default function Messages({ isMobileView = false, onBack }) {
           type: "text",
         };
 
-        await new Promise((resolve, reject) => {
-          channelsV2.sendMessage(selected.roomId, messageData, (response) => {
-            if (response.success) {
-              resolve(response);
-            } else {
-              reject(new Error(response.error || "Errore invio messaggio"));
-            }
-          });
-        });
+        await gun
+          .get(DAPP_NAME)
+          .get("channels")
+          .get(selected.roomId)
+          .get("messages")
+          .get(messageId)
+          .put(messageData);
 
         setNewMessage("");
       } else {
+        console.log("----- SENDING MESSAGE TO FRIEND -----");
         // Per le chat private
         await new Promise((resolve, reject) => {
           chat.sendMessage(
