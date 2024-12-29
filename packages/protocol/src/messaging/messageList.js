@@ -3,12 +3,11 @@
  * @description Module for handling message lists and real-time message updates
  */
 
-import { gun, user, DAPP_NAME } from '../useGun.js';
-import SEA from 'gun/sea.js';
+import { gun, user, SEA, DAPP_NAME } from '../useGun.js';
+import { messageIntegrity } from './messageIntegrity.js';
+import { messageNotifications } from '../notifications/index.js';
+import { userBlocking } from '../blocking/userBlocking.js';
 import { LRUCache } from 'lru-cache';
-import { blocking } from '../index.js';
-
-const { userBlocking } = blocking;
 
 // Configurazione del limite messaggi
 const messageConfig = {
@@ -32,7 +31,7 @@ const messageCache = new LRUCache({
   ttl: 1000 * 60 * 5, // 5 minuti
 });
 
-const messageList = {
+export const messageList = {
   decryptMessage: async (message, recipientPub) => {
     if (!message?.content || !recipientPub) {
       console.warn('Messaggio o recipientPub mancante:', {

@@ -17,6 +17,7 @@ const gunOptions = {
   peers: DEFAULT_PEERS,
   localStorage: false,
   radisk: false,
+  radix: false,
   retry: 1500,
   file: false,
   web: false,

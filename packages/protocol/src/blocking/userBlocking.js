@@ -60,9 +60,8 @@ export const userBlocking = {
 
       // 2. Revoca tutti i certificati
       await Promise.all([
-        revokeChatsCertificate(targetPub),
-        revokeMessagesCertificate(targetPub),
-        friendsCertificates.revokeCertificate(targetPub),
+        new Promise((resolve) => revokeChatsCertificate(targetPub, resolve)),
+        new Promise((resolve) => revokeMessagesCertificate(targetPub, resolve)),
       ]);
 
       // 3. Rimuovi l'amicizia se esiste

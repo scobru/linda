@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
-import Context from "../../contexts/context";
-import { useMessageReceipts } from "../../hooks/useMessageReceipts";
-import { useSendReceipt } from "../../hooks/useSendReceipt";
+import Context from "../../../contexts/context";
+import { useMessageReceipts } from "../../../hooks/useMessageReceipts";
+import { useSendReceipt } from "../../../hooks/useSendReceipt";
 import { user } from "linda-protocol";
 
 export const MessageStatus = ({ message }) => {

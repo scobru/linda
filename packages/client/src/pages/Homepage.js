@@ -1,398 +1,197 @@
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useContext,
-} from "react";
-import { useNavigate } from "react-router-dom";
-import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME } from "linda-protocol";
-import { friendsService } from "linda-protocol";
+import React from "react";
 import { useAppState } from "../context/AppContext";
-import Context from "../contexts/context";
-import { useChat } from "../hooks/useChat";
-import { useFriendRequestNotifications } from "../hooks/useFriendRequestNotifications";
-
-// Components
-import Friends from "../components/Homepage/Friends";
-import Profile from "../components/Homepage/Profile";
-import AddFriend from "../components/Homepage/AddFriend";
-import Messages from "../components/Homepage/Messages";
-import AppStatus from "../components/AppStatus";
-import Channels from "../components/Homepage/Channels";
-import TransactionHistory from "../components/Homepage/TransactionHistory";
-import GlobalWalletModal from "../components/Homepage/GlobalWalletModal";
-import TransactionModal from "../components/Homepage/TransactionModal";
+import Channels from "../components/Homepage/Channels/Channels";
+import Messages from "../components/Homepage/Messages/Messages";
 import Header from "../components/Header";
+import Friends from "../components/Homepage/Friends/Friends";
+import Boards from "../components/Homepage/Boards/Boards";
+import { useMobileView } from "../hooks/useMobileView";
+import { useChannelsV2 } from "../hooks/useChannelsV2";
+import { messaging } from "linda-protocol";
 
 export default function Homepage() {
-  const navigate = useNavigate();
-  const { appState, updateAppState } = useAppState();
-  const {
-    setFriends: setOldFriends,
-    setSelected: setOldSelected,
-    selected: oldSelected,
-    friends: oldFriends,
-    setConnectionState,
-    currentView,
-    setCurrentView,
-  } = useContext(Context);
+  const { appState, currentView, setCurrentView, updateAppState } =
+    useAppState();
+  const { isMobileView, showSidebar, setShowSidebar } = useMobileView();
+  const channelService = useChannelsV2();
 
-  // Stati locali
-  const [loading, setLoading] = useState(false);
-  const [showMobileChat, setShowMobileChat] = useState(false);
-  const [activeView, setActiveView] = useState("chats");
-  const [chatRoomId, setChatRoomId] = useState(null);
-  const [isMobileView, setIsMobileView] = useState(window.innerWidth <= 768);
+  if (!appState.isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Accesso richiesto</h1>
+          <p>Per favore, effettua l'accesso per visualizzare questa pagina.</p>
+        </div>
+      </div>
+    );
+  }
 
-  // Integrazione useChat
-  const { messages, loading: chatLoading, sendMessage } = useChat(chatRoomId);
-
-  // Integrazione notifiche richieste di amicizia
-  const {
-    pendingRequests,
-    loading: requestsLoading,
-    markAsRead,
-    removeRequest,
-  } = useFriendRequestNotifications();
-
-  // Refs
-  const friendsRef = useRef(new Set());
-  const initializationRef = useRef(false);
-  const processedRequestsRef = useRef(new Set());
-
-  // Verifica autenticazione e inizializzazione
-  useEffect(() => {
-    let mounted = true;
-
-    const initializeHomepage = async () => {
-      if (!mounted || initializationRef.current) return;
-      if (!appState.isAuthenticated || !appState.user?.is) {
-        console.log("Homepage - Utente non autenticato");
-        return;
-      }
-
-      try {
-        setLoading(true);
-        initializationRef.current = true;
-        console.log("Homepage - Inizializzazione...");
-
-        // Carica i dati iniziali
-        if (mounted) {
-          await loadInitialData();
-          setConnectionState("online");
-        }
-      } catch (error) {
-        console.error("Homepage - Errore inizializzazione:", error);
-        if (mounted) {
-          toast.error("Errore durante il caricamento dei dati");
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    initializeHomepage();
-
-    // Sottoscrizione ai cambiamenti delle amicizie
-    const unsubFriendships = gun
-      .get(DAPP_NAME)
-      .get("friendships")
-      .map()
-      .on((friendship, id) => {
-        if (!mounted || !friendship) return;
-
-        // Verifica se l'amicizia coinvolge l'utente corrente
-        if (
-          friendship.user1 === appState.user?.is?.pub ||
-          friendship.user2 === appState.user?.is?.pub
-        ) {
-          // Aggiorna la lista amici solo se necessario
-          setOldFriends((prevFriends) => {
-            const friendPub =
-              friendship.user1 === appState.user?.is?.pub
-                ? friendship.user2
-                : friendship.user1;
-
-            // Verifica se l'amico è già presente
-            const existingFriend = prevFriends.find((f) => f.pub === friendPub);
-            if (!existingFriend) {
-              // Carica le informazioni dell'amico
-              gun
-                .get(DAPP_NAME)
-                .get("userList")
-                .get("users")
-                .map()
-                .once((userData) => {
-                  if (userData && userData.pub === friendPub) {
-                    const newFriend = {
-                      pub: friendPub,
-                      alias:
-                        userData.nickname ||
-                        userData.username ||
-                        `${friendPub.slice(0, 6)}...${friendPub.slice(-4)}`,
-                      displayName: userData.nickname,
-                      username: userData.username,
-                      avatarSeed: userData.avatarSeed,
-                      friendshipId: id,
-                      added: friendship.created,
-                      type: "friend",
-                      chatId: [friendPub, appState.user.is.pub]
-                        .sort()
-                        .join("_"),
-                    };
-                    return [...prevFriends, newFriend];
-                  }
-                  return prevFriends;
-                });
-            }
-            return prevFriends;
-          });
-        }
-      });
-
-    return () => {
-      mounted = false;
-      initializationRef.current = false;
-      if (typeof unsubFriendships === "function") {
-        unsubFriendships();
-      }
-    };
-  }, [appState.isAuthenticated, appState.user]);
-
-  // Caricamento dati iniziali
-  const loadInitialData = async () => {
-    try {
-      console.log("Caricamento dati iniziali...");
-
-      // Carica lista amici
-      const friendsList = await loadFriends();
-      if (friendsList && friendsList.length > 0) {
-        console.log("Amici caricati:", friendsList);
-        // Aggiungi chatId a ogni amico
-        const friendsWithChatId = friendsList.map((friend) => ({
-          ...friend,
-          chatId: [friend.pub, appState.user.is.pub].sort().join("_"),
-        }));
-        setOldFriends(friendsWithChatId);
-        friendsRef.current = new Set(friendsWithChatId.map((f) => f.pub));
-      }
-    } catch (error) {
-      console.error("Errore nel caricamento dati:", error);
-      throw error;
-    }
+  const handleBack = () => {
+    setShowSidebar(true);
+    updateAppState({
+      ...appState,
+      selected: null,
+    });
   };
 
-  // Caricamento amici
-  const loadFriends = async () => {
-    try {
-      console.log("Caricamento amici tramite getFriendsList...");
-      const friendsList = await friendsService.getFriendsList(
-        appState.user.is.pub
-      );
-      console.log("Lista amici ricevuta:", friendsList);
-      return friendsList;
-    } catch (error) {
-      console.error("Errore caricamento amici:", error);
-      return [];
-    }
-  };
+  const handleSelect = (item) => {
+    const type =
+      currentView === "chats"
+        ? "friend"
+        : currentView === "channels"
+        ? "channel"
+        : "board";
 
-  // Gestione cambio vista
-  const handleViewChange = (view) => {
-    setActiveView(view);
-    setCurrentView(view);
-  };
+    const roomId =
+      type === "friend"
+        ? [item.pub, appState.user.is.pub].sort().join("_")
+        : item.id || item.roomId;
 
-  // Effetto per gestire il cambio di chat selezionata
-  useEffect(() => {
-    if (oldSelected && oldSelected.pub) {
-      const roomId = [appState.user.is.pub, oldSelected.pub].sort().join("_");
-      setChatRoomId(roomId);
-    } else if (oldSelected && oldSelected.roomId) {
-      setChatRoomId(oldSelected.roomId);
-    } else {
-      setChatRoomId(null);
-    }
-  }, [oldSelected, appState.user.is.pub]);
-
-  // Effetto per gestire il resize della finestra
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobileView(mobile);
-      if (!mobile) {
-        setShowMobileChat(false);
-      }
+    const updatedItem = {
+      ...item,
+      type,
+      roomId,
     };
 
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Gestione selezione canale/chat
-  const handleSelect = useCallback(
-    (selected) => {
-      console.log("Selezione:", selected);
-
-      // Aggiorna il vecchio contesto
-      setOldSelected(selected.item);
-
-      // Aggiorna il nuovo contesto
+    if (type === "friend") {
       updateAppState({
-        selected: selected.item,
+        ...appState,
+        selected: updatedItem,
         currentChat: {
-          ...selected.item,
-          type: selected.type,
-          isGroup: true,
+          ...updatedItem,
+          roomId,
         },
-        activeChat: {
-          id: selected.item.roomId || selected.item.pub,
-          type: selected.type,
-          name: selected.item.name,
-          pub: selected.item.pub,
-          isGroup: true,
-          members: selected.item.members,
-          creator: selected.item.creator,
-          settings: selected.item.settings,
-        },
+        currentChannel: null,
+        currentBoard: null,
       });
+    } else if (type === "channel") {
+      updateAppState({
+        ...appState,
+        selected: updatedItem,
+        currentChat: null,
+        currentChannel: updatedItem,
+        currentBoard: null,
+      });
+    } else {
+      updateAppState({
+        ...appState,
+        selected: updatedItem,
+        currentChat: null,
+        currentChannel: null,
+        currentBoard: updatedItem,
+      });
+    }
 
-      // Gestione vista mobile
-      if (isMobileView) {
-        setShowMobileChat(true);
-      }
-    },
-    [setOldSelected, updateAppState, isMobileView]
-  );
+    if (isMobileView) {
+      setShowSidebar(false);
+    }
+  };
 
-  // Gestione ritorno alla lista in vista mobile
-  const handleBackToList = useCallback(() => {
-    setShowMobileChat(false);
-  }, []);
+  // Determina se mostrare l'header
+  const shouldShowHeader =
+    !isMobileView || (isMobileView && (!appState.selected || showSidebar));
 
-  // Gestione richieste di amicizia processate
-  const handleRequestProcessed = useCallback(
-    async (requestId, action) => {
-      // Se la richiesta è già stata processata, ignora
-      if (processedRequestsRef.current.has(requestId)) {
-        console.log(`Richiesta ${requestId} già processata, ignoro`);
-        return;
-      }
-
-      console.log(
-        `Homepage: Richiesta ${requestId} processata con azione ${action}`
+  const renderMainContent = () => {
+    if (!appState.selected) {
+      return (
+        <div className="flex items-center justify-center h-full text-gray-400">
+          Seleziona una conversazione
+        </div>
       );
+    }
 
-      // Marca la richiesta come processata
-      processedRequestsRef.current.add(requestId);
+    const isChannel = appState.selected.type !== "friend";
+    const messageHandler = isChannel ? channelService : messaging;
 
-      // Rimuovi immediatamente la richiesta dalla lista delle pendenti
-      removeRequest(requestId);
-
-      // Se la richiesta è stata accettata, aggiorna la lista amici
-      if (action === "accept") {
-        try {
-          await loadInitialData();
-          toast.success("Richiesta di amicizia accettata");
-        } catch (error) {
-          console.error("Errore nell'aggiornamento della lista amici:", error);
-          toast.error("Errore nell'aggiornamento della lista amici");
-        }
-      } else {
-        toast.success("Richiesta di amicizia rifiutata");
-      }
-    },
-    [removeRequest, loadInitialData]
-  );
-
-  // Reset del ref quando cambia l'utente
-  useEffect(() => {
-    processedRequestsRef.current.clear();
-  }, [appState.user?.is?.pub]);
+    return (
+      <Messages
+        isMobileView={isMobileView}
+        onBack={handleBack}
+        isChannel={isChannel}
+        selectedChannel={isChannel ? appState.selected : null}
+        currentChat={appState.currentChat}
+        currentChannel={appState.currentChannel}
+        messageService={messageHandler}
+      />
+    );
+  };
 
   return (
-    <div className="flex flex-col h-screen max-h-screen">
-      <Header />
-
-      {/* Container principale */}
-      <div className="flex flex-1 min-h-0 bg-[#373B5C]">
+    <div className="flex flex-col h-screen bg-[#1E2142]">
+      {shouldShowHeader && (
+        <div className="sticky top-0 z-50">
+          <Header />
+        </div>
+      )}
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Sidebar */}
         <div
           className={`${
-            isMobileView && showMobileChat ? "hidden" : "flex"
-          } w-full md:w-[320px] lg:w-[380px] flex-col min-h-0 bg-[#373B5C] border-r border-[#4A4F76]`}
+            isMobileView
+              ? showSidebar
+                ? "w-full absolute inset-0 z-30"
+                : "hidden"
+              : "w-80"
+          } flex flex-col bg-[#1E2142] border-r border-[#4A4F76]`}
         >
-          {/* Tab di navigazione */}
-          <div className="flex flex-shrink-0 border-b border-[#4A4F76] bg-[#373B5C]">
+          {/* Navigation Buttons */}
+          <div className="p-2 flex space-x-2 bg-[#1E2142] sticky top-0 z-10">
             <button
-              onClick={() => handleViewChange("chats")}
-              className={`flex-1 py-3 text-sm font-medium ${
-                activeView === "chats"
-                  ? "text-white border-b-2 border-white"
-                  : "text-gray-400 hover:text-white"
+              onClick={() => {
+                setCurrentView("chats");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "chats"
+                  ? "bg-blue-600 text-white"
+                  : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
               }`}
             >
               Chat
             </button>
             <button
-              onClick={() => handleViewChange("channels")}
-              className={`flex-1 py-3 text-sm font-medium ${
-                activeView === "channels"
-                  ? "text-white border-b-2 border-white"
-                  : "text-gray-400 hover:text-white"
+              onClick={() => {
+                setCurrentView("channels");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "channels"
+                  ? "bg-blue-600 text-white"
+                  : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
               }`}
             >
-              Boards and Channels
+              Canali
+            </button>
+            <button
+              onClick={() => {
+                setCurrentView("boards");
+                updateAppState({ ...appState, selected: null });
+              }}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "boards"
+                  ? "bg-blue-600 text-white"
+                  : "bg-[#2D325A] text-gray-300 hover:bg-[#4A4F76]"
+              }`}
+            >
+              Board
             </button>
           </div>
 
-          {/* Lista chat/canali */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {activeView === "chats" && (
-              <Friends
-                onSelect={(friend) =>
-                  handleSelect({ item: friend, type: "chat" })
-                }
-                pendingRequests={pendingRequests}
-                loading={loading}
-                selectedUser={oldSelected}
-                friends={oldFriends}
-                onRequestProcessed={handleRequestProcessed}
-              />
-            )}
-            {activeView === "channels" && <Channels onSelect={handleSelect} />}
+          {/* Content Area */}
+          <div className="flex-1 overflow-hidden">
+            {currentView === "chats" && <Friends onSelect={handleSelect} />}
+            {currentView === "channels" && <Channels onSelect={handleSelect} />}
+            {currentView === "boards" && <Boards onSelect={handleSelect} />}
           </div>
         </div>
 
-        {/* Area chat */}
+        {/* Main Content */}
         <div
           className={`${
-            isMobileView && !showMobileChat ? "hidden" : "flex"
-          } flex-1 flex-col min-h-0 bg-[#424874]`}
+            isMobileView ? (showSidebar ? "hidden" : "w-full") : "flex-1"
+          } flex flex-col`}
         >
-          {oldSelected ? (
-            <Messages
-              key={oldSelected.pub || oldSelected.roomId || oldSelected.id}
-              chatData={oldSelected}
-              messages={messages}
-              loading={chatLoading}
-              onSendMessage={sendMessage}
-              isMobileView={isMobileView}
-              onBack={handleBackToList}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-gray-300">
-                {activeView === "chats"
-                  ? "Seleziona un amico per chattare"
-                  : "Seleziona una bacheca o un canale"}
-              </p>
-            </div>
-          )}
+          {renderMainContent()}
         </div>
       </div>
     </div>

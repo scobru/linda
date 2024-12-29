@@ -9,47 +9,125 @@ import {
  * Crea un certificato per le richieste di amicizia
  */
 export const createFriendRequestCertificate = async () => {
-  if (!user?.is) return null;
+  if (!user?.is) {
+    console.error('Utente non autenticato');
+    return null;
+  }
 
   try {
+    // Verifica che l'utente abbia una chiave di firma valida
+    if (!user._.sea) {
+      console.error('Chiave di firma mancante');
+      return null;
+    }
+
+    // Genera una nuova coppia di chiavi per il certificato
     const certPair = await SEA.pair();
+    if (!certPair) {
+      console.error(
+        'Impossibile generare la coppia di chiavi per il certificato'
+      );
+      return null;
+    }
+
+    // Prepara i dati del certificato
     const certificate = {
       type: 'friendRequest',
-      pub: user?.is?.pub,
-      alias: user?.is?.alias,
+      pub: user.is.pub,
+      alias: user.is.alias || user.is.pub,
       timestamp: Date.now(),
       certKey: certPair.pub,
       permissions: ['send', 'receive'],
     };
 
-    const signedCert = await SEA.sign(certificate, user?._.sea);
+    // Verifica che tutti i campi necessari siano presenti
+    if (!certificate.pub || !certificate.certKey) {
+      console.error('Dati certificato incompleti');
+      return null;
+    }
+
+    // Firma il certificato
+    let signedCert;
+    try {
+      signedCert = await SEA.sign(JSON.stringify(certificate), user._.sea);
+    } catch (error) {
+      console.error('Errore durante la firma del certificato:', error);
+      return null;
+    }
+
+    if (!signedCert) {
+      console.error('Firma del certificato fallita');
+      return null;
+    }
+
+    // Verifica la firma
+    const verified = await SEA.verify(signedCert, user._.sea.pub);
+    if (!verified) {
+      console.error('Verifica firma fallita');
+      return null;
+    }
+
+    // Salva il certificato con retry
+    const saveCertificate = async (path, maxRetries = 3) => {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          await new Promise((resolve, reject) => {
+            path.put(signedCert, (ack) => {
+              if (ack.err) reject(new Error(ack.err));
+              else resolve(ack);
+            });
+          });
+          return true;
+        } catch (error) {
+          console.warn(`Tentativo ${i + 1} fallito:`, error);
+          if (i === maxRetries - 1) throw error;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+      return false;
+    };
 
     // Salva sia nella sezione pubblica che privata
-    await Promise.all([
-      // Certificato pubblico
-      new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
-          .get('certificates')
-          .get('friendRequests')
-          .put(signedCert, (ack) => {
-            resolve(ack);
-          });
-      }),
-      // Certificato privato
-      new Promise((resolve) => {
-        gun
-          .user()
-          .get(DAPP_NAME)
-          .get('private_certificates')
-          .get('friendRequests')
-          .put(signedCert, (ack) => {
-            resolve(ack);
-          });
-      }),
+    try {
+      await Promise.all([
+        saveCertificate(
+          gun.user().get(DAPP_NAME).get('certificates').get('friendRequests')
+        ),
+        saveCertificate(
+          gun
+            .user()
+            .get(DAPP_NAME)
+            .get('private_certificates')
+            .get('friendRequests')
+        ),
+      ]);
+    } catch (error) {
+      console.error('Errore durante il salvataggio dei certificati:', error);
+      return null;
+    }
+
+    // Verifica il salvataggio
+    const [publicCert, privateCert] = await Promise.all([
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('certificates')
+        .get('friendRequests')
+        .then(),
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get('private_certificates')
+        .get('friendRequests')
+        .then(),
     ]);
 
+    if (!publicCert || !privateCert) {
+      console.error('Verifica salvataggio certificati fallita');
+      return null;
+    }
+
+    console.log('Certificato creato e salvato con successo');
     return signedCert;
   } catch (error) {
     console.error('Errore creazione certificato richieste amicizia:', error);
@@ -86,32 +164,115 @@ export const generateAddFriendCertificate = async (targetPub) => {
  * Crea un certificato per le notifiche
  */
 export const createNotificationCertificate = async () => {
-  if (!user?.is) return null;
+  if (!user?.is) {
+    console.error('Utente non autenticato');
+    return null;
+  }
 
   try {
+    // Verifica che l'utente abbia una chiave di firma valida
+    if (!user._.sea) {
+      console.error('Chiave di firma mancante');
+      return null;
+    }
+
+    // Genera una nuova coppia di chiavi per il certificato
     const certPair = await SEA.pair();
+    if (!certPair) {
+      console.error(
+        'Impossibile generare la coppia di chiavi per il certificato'
+      );
+      return null;
+    }
+
+    // Prepara i dati del certificato
     const certificate = {
       type: 'notification',
-      pub: user?.is?.pub,
-      alias: user?.is?.alias,
+      pub: user.is.pub,
+      alias: user.is.alias || user.is.pub,
       timestamp: Date.now(),
       certKey: certPair.pub,
       permissions: ['receive'],
     };
 
-    const signedCert = await SEA.sign(certificate, user._.sea);
+    // Verifica che tutti i campi necessari siano presenti
+    if (!certificate.pub || !certificate.certKey) {
+      console.error('Dati certificato incompleti');
+      return null;
+    }
 
-    await new Promise((resolve) => {
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('certificates')
-        .get('notifications')
-        .put(signedCert, (ack) => {
-          resolve(ack);
-        });
-    });
+    // Firma il certificato
+    let signedCert;
+    try {
+      signedCert = await SEA.sign(JSON.stringify(certificate), user._.sea);
+    } catch (error) {
+      console.error('Errore durante la firma del certificato:', error);
+      return null;
+    }
 
+    if (!signedCert) {
+      console.error('Firma del certificato fallita');
+      return null;
+    }
+
+    // Verifica la firma
+    const verified = await SEA.verify(signedCert, user._.sea.pub);
+    if (!verified) {
+      console.error('Verifica firma fallita');
+      return null;
+    }
+
+    // Salva il certificato con retry
+    const saveCertificate = async (maxRetries = 3) => {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          await new Promise((resolve, reject) => {
+            gun
+              .user()
+              .get(DAPP_NAME)
+              .get('certificates')
+              .get('notifications')
+              .put(signedCert, (ack) => {
+                if (ack.err) reject(new Error(ack.err));
+                else resolve(ack);
+              });
+          });
+          return true;
+        } catch (error) {
+          console.warn(`Tentativo ${i + 1} fallito:`, error);
+          if (i === maxRetries - 1) throw error;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+      return false;
+    };
+
+    // Salva il certificato
+    try {
+      const saved = await saveCertificate();
+      if (!saved) {
+        console.error('Salvataggio certificato fallito');
+        return null;
+      }
+    } catch (error) {
+      console.error('Errore durante il salvataggio del certificato:', error);
+      return null;
+    }
+
+    // Verifica il salvataggio
+    const savedCert = await gun
+      .user()
+      .get(DAPP_NAME)
+      .get('certificates')
+      .get('notifications')
+      .then();
+
+    if (!savedCert) {
+      console.error('Verifica salvataggio certificato fallita');
+      return null;
+    }
+
+    console.log('Certificato notifiche creato e salvato con successo');
     return signedCert;
   } catch (error) {
     console.error('Errore creazione certificato notifiche:', error);

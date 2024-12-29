@@ -77,15 +77,17 @@ export default function SignIn() {
       console.log("handleLogin called");
 
       // Pulisci la sessione precedente
-      await sessionManager.clearSession();
+      sessionManager.clearSession();
       console.log("Pulizia stato precedente");
 
       // Verifica lo stato dell'utente
-      console.log("User.is:", user.is);
+      if (user.is) {
+        console.log("User.is:", user.is);
+      }
 
       const result = await authentication.loginUser({
-        username: username.trim(),
-        password: password.trim(),
+        username: username,
+        password: password,
       });
 
       if (result.success) {

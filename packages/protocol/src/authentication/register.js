@@ -554,10 +554,17 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
       updateStatus('preparazione-dati');
       // 4. Prepara i dati utente
       console.log('Preparazione dati utente...');
+      if (!user.is?.pub) {
+        console.log(
+          'Utente non autenticato durante la preparazione dei dati, tentativo di riautenticazione...'
+        );
+        await authenticateWithRetry();
+      }
+
       const userDataToSave = {
-        pub: user.is.pub,
-        address: userData?.internalWalletAddress || user.is.pub,
-        internalWalletAddress: userData?.internalWalletAddress || user.is.pub,
+        pub: user.is?.pub,
+        address: userData?.internalWalletAddress || user.is?.pub,
+        internalWalletAddress: userData?.internalWalletAddress || user.is?.pub,
         externalWalletAddress: null,
         username: credentials.username,
         nickname: credentials.username,
@@ -569,6 +576,12 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
         env_v_pair: userData?.env_v_pair || null,
         env_s_pair: userData?.env_s_pair || null,
       };
+
+      // Verifica che i dati essenziali siano presenti
+      if (!userDataToSave.pub || !userDataToSave.address) {
+        throw new Error('Dati utente incompleti: mancano pub o address');
+      }
+
       console.log('Dati utente preparati:', {
         ...userDataToSave,
         privateKeys: '***',
@@ -715,6 +728,21 @@ const registerUser = async (credentials = {}, callback = () => {}) => {
             );
 
             updateStatus('salvataggio', 'Profilo (66%)');
+            // Verifica che l'utente sia autenticato prima di salvare il profilo
+            if (!user.is?.pub) {
+              console.log(
+                'Utente non autenticato, tentativo di riautenticazione...'
+              );
+              updateStatus('riautenticazione');
+              await authenticateWithRetry();
+
+              if (!user.is?.pub) {
+                throw new Error(
+                  "Impossibile autenticare l'utente per il salvataggio del profilo"
+                );
+              }
+            }
+
             await saveSingleData(
               gun.user().get(DAPP_NAME).get('profiles').get(user.is.pub),
               userDataToSave,

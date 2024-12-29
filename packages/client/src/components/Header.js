@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { sessionManager, user } from "linda-protocol";
 import { useAppState } from "../context/AppContext";
 import Profile from "./Homepage/Profile";
-import AddFriend from "./Homepage/AddFriend";
+import AddFriend from "./Homepage/Friends/AddFriend";
 import GlobalWalletModal from "./Homepage/GlobalWalletModal";
 import TransactionModal from "./Homepage/TransactionModal";
 
@@ -50,6 +50,12 @@ const Header = () => {
       <div className="flex justify-between items-center">
         {/* Logo e nome utente */}
         <div className="flex items-center space-x-4">
+          <Link
+            to="/community"
+            className="text-gray-600 hover:text-blue-500 transition-colors"
+          >
+            Kubrick 1.0.0
+          </Link>
           <h1 className="text-white font-bold text-xl">linda</h1>
           <span className="text-green-400 text-sm">• Online</span>
         </div>

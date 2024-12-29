@@ -1,192 +1,136 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { messaging, gun, DAPP_NAME, user } from "linda-protocol";
+import { messaging, gun, DAPP_NAME } from "linda-protocol";
+import { toast } from "react-hot-toast";
 
-export const useMessages = (selected, chatData) => {
+const { messageList } = messaging.messages;
+
+export const useMessages = (selected) => {
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState(
-    Date.now()
-  );
-  const messageMap = useRef(new Map());
-  const gunRef = useRef(null);
-  const processedIds = useRef(new Set());
+  const [authorizedMembers, setAuthorizedMembers] = useState({});
+  const [memberCount, setMemberCount] = useState(0);
+  const subscriptionRef = useRef(null);
 
-  const processMessage = async (msg, selected) => {
-    if (!msg || !msg.content || !msg.id) return null;
+  // Carica la lista dei membri autorizzati per la board
+  const loadAuthorizedMembers = useCallback(async () => {
+    if (!selected?.roomId || selected.type !== "board") return;
 
-    // Evita duplicati
-    if (processedIds.current.has(msg.id)) return null;
-    processedIds.current.add(msg.id);
-
-    if (selected.type === "friend" && msg.content.startsWith("SEA{")) {
-      try {
-        const decrypted = await messaging.chat.messageList.decryptMessage(
-          msg,
-          selected.pub
-        );
-        return { ...msg, content: decrypted.content };
-      } catch (error) {
-        console.warn("Errore decrittazione:", error);
-        return { ...msg, content: "[Errore decrittazione]" };
-      }
+    try {
+      let count = 0;
+      gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(selected.roomId)
+        .get("members")
+        .map()
+        .once((data, key) => {
+          if (
+            data &&
+            (data.canWrite === true || data.permissions?.write === true)
+          ) {
+            setAuthorizedMembers((prev) => ({ ...prev, [key]: data }));
+            count++;
+            setMemberCount(count);
+          }
+        });
+    } catch (error) {
+      console.error("Errore caricamento membri autorizzati:", error);
     }
-    return msg;
-  };
+  }, [selected]);
 
-  const updateMessageList = useCallback(() => {
-    const sortedMessages = Array.from(messageMap.current.values())
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .filter((msg, index, self) => {
-        // Rimuovi duplicati basati su ID
-        return index === self.findIndex((m) => m.id === msg.id);
-      });
-    setMessages(sortedMessages);
-  }, []);
+  // Verifica se un utente è autorizzato a scrivere nella board
+  const isAuthorizedMember = useCallback(
+    (userPub) => {
+      if (selected?.type !== "board") return true;
+      if (selected?.creator === userPub) return true; // Il creatore è sempre autorizzato
 
-  const addMessage = useCallback(
-    async (msg, key) => {
-      if (!msg || !msg.content) return;
+      const memberData = authorizedMembers[userPub];
+      if (!memberData) return false;
 
-      const messageId =
-        key ||
-        msg.id ||
-        `msg_${msg.timestamp}_${Math.random().toString(36).substring(2, 15)}`;
-
-      // Evita duplicati
-      if (messageMap.current.has(messageId)) return;
-
-      const processedMsg = await processMessage(
-        { ...msg, id: messageId },
-        selected
+      // Verifica sia canWrite che i permessi di scrittura
+      return (
+        memberData.canWrite === true || memberData.permissions?.write === true
       );
-      if (processedMsg) {
-        messageMap.current.set(messageId, processedMsg);
-        updateMessageList();
-      }
     },
-    [selected, updateMessageList]
+    [selected, authorizedMembers]
   );
 
   const loadMessages = useCallback(async () => {
-    if (!selected?.roomId && !selected?.id) return;
+    if (!selected?.roomId) return;
 
+    setLoading(true);
     try {
-      setLoading(true);
-      messageMap.current.clear();
-      processedIds.current.clear();
-      setMessages([]);
-
-      const path =
-        selected.type === "friend"
-          ? "chats"
-          : selected.type === "channel"
-          ? "channels"
-          : "boards";
-      const id = selected.type === "friend" ? selected.roomId : selected.id;
-
-      // Rimuovi la vecchia sottoscrizione
-      if (gunRef.current) {
-        gunRef.current.off();
-        gunRef.current = null;
+      // Carica i membri autorizzati se è una board
+      if (selected.type === "board") {
+        await loadAuthorizedMembers();
       }
 
-      // Carica messaggi esistenti
-      const existingMessages = await messaging.chat.messageList.loadMessages(
-        path,
-        id,
-        null,
-        Date.now()
-      );
-      for (const msg of existingMessages) {
-        await addMessage(msg);
+      if (selected.type === "chat") {
+        // Per le chat private, usa messageList.getMessages
+        const privateMessages = await messageList.getMessages(selected.pub);
+        setMessages(privateMessages.sort((a, b) => a.timestamp - b.timestamp));
+      } else {
+        const path =
+          selected.type === "channel"
+            ? "channels"
+            : selected.type === "board"
+            ? "boards"
+            : "chats";
+
+        const messagesRef = gun
+          .get(DAPP_NAME)
+          .get(path)
+          .get(selected.roomId)
+          .get("messages");
+
+        // Sottoscrizione ai messaggi
+        const subscription = messagesRef.map().once((data, id) => {
+          if (data) {
+            setMessages((prev) => {
+              // Evita duplicati
+              const exists = prev.some((msg) => msg.id === id);
+              if (!exists) {
+                return [...prev, { ...data, id }].sort(
+                  (a, b) => a.timestamp - b.timestamp
+                );
+              }
+              return prev;
+            });
+          }
+        });
+
+        subscriptionRef.current = subscription;
       }
-
-      // Sottoscrizione per nuovi messaggi
-      gunRef.current = gun
-        .get(DAPP_NAME)
-        .get(path)
-        .get(id)
-        .get("messages")
-        .map();
-
-      gunRef.current.on(async (data, key) => {
-        if (!data) return;
-        await addMessage(data, key);
-      });
     } catch (error) {
       console.error("Errore caricamento messaggi:", error);
-      setError("Errore nel caricamento dei messaggi");
+      setError(error);
+      toast.error("Errore nel caricamento dei messaggi");
     } finally {
       setLoading(false);
     }
-  }, [selected, addMessage]);
+  }, [selected, loadAuthorizedMembers]);
 
+  // Cleanup quando cambia la selezione
   useEffect(() => {
     loadMessages();
+
     return () => {
-      if (gunRef.current) {
-        gunRef.current.off();
-        gunRef.current = null;
+      if (subscriptionRef.current) {
+        subscriptionRef.current.off();
       }
-      messageMap.current.clear();
-      processedIds.current.clear();
+      setMessages([]);
+      setAuthorizedMembers({});
     };
-  }, [loadMessages]);
-
-  const sendMessage = useCallback(
-    async (content, type = "text") => {
-      if (!selected?.roomId && !selected?.id) return;
-
-      const timestamp = Date.now();
-      const messageId = `msg_${timestamp}_${Math.random()
-        .toString(36)
-        .substring(2, 15)}`;
-
-      const message = {
-        content,
-        type,
-        sender: user.is.pub,
-        timestamp,
-        status: "sent",
-      };
-
-      try {
-        const path =
-          selected.type === "friend"
-            ? "chats"
-            : selected.type === "channel"
-            ? "channels"
-            : "boards";
-        const id = selected.type === "friend" ? selected.roomId : selected.id;
-
-        await gun
-          .get(DAPP_NAME)
-          .get(path)
-          .get(id)
-          .get("messages")
-          .get(messageId)
-          .put(message);
-
-        return true;
-      } catch (error) {
-        console.error("Errore invio messaggio:", error);
-        return false;
-      }
-    },
-    [selected]
-  );
+  }, [selected?.roomId, loadMessages]);
 
   return {
     messages,
     loading,
     error,
-    isLoadingMore,
-    hasMoreMessages,
     loadMessages,
-    loadMoreMessages: () => {}, // Implementare se necessario
-    sendMessage,
+    isAuthorizedMember,
+    authorizedMembers,
+    memberCount,
   };
 };

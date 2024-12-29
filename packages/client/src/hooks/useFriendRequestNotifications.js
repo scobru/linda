@@ -1,53 +1,12 @@
-import React, { useRef, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { gun, user, DAPP_NAME, friends } from "linda-protocol";
 import { toast } from "react-hot-toast";
-import {
-  gun,
-  user,
-  DAPP_NAME,
-  notifications,
-  friendsService,
-} from "linda-protocol";
-import debounce from "lodash/debounce";
 
-const { friendRequestNotifications } = notifications;
+const { friendsService, acceptFriendRequest, rejectFriendRequest } = friends;
 
 export const useFriendRequestNotifications = () => {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const processedRequestsRef = useRef(new Set());
-  const subscriptionRef = useRef(null);
-  const initialLoadDoneRef = useRef(false);
-
-  // Funzione per caricare i dati dell'utente
-  const loadUserData = useCallback(async (pub) => {
-    return new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("userList")
-        .get("users")
-        .map()
-        .once((userData) => {
-          if (userData && userData.pub === pub) {
-            resolve({
-              alias: userData.nickname || userData.username || pub,
-              displayName: userData.nickname,
-              username: userData.username,
-              avatarSeed: userData.avatarSeed,
-            });
-          }
-        });
-
-      // Timeout di sicurezza
-      setTimeout(() => resolve({ alias: pub }), 2000);
-    });
-  }, []);
-
-  const cleanupSubscription = useCallback(() => {
-    if (subscriptionRef.current) {
-      subscriptionRef.current();
-      subscriptionRef.current = null;
-    }
-  }, []);
 
   useEffect(() => {
     if (!user?.is?.pub) {
@@ -55,117 +14,171 @@ export const useFriendRequestNotifications = () => {
       return;
     }
 
-    console.debug("Inizializzazione sottoscrizione richieste di amicizia");
     setLoading(true);
-    processedRequestsRef.current.clear();
-    initialLoadDoneRef.current = false;
-    cleanupSubscription();
+    console.log("Inizializzazione monitoraggio richieste di amicizia");
 
-    const requests = new Map();
+    // Sottoscrizione alle richieste di amicizia usando friendsService
+    const subscription = friendsService.observeFriendRequests().subscribe({
+      next: (response) => {
+        console.log("Nuova richiesta ricevuta:", response);
+        const request = response.data;
 
-    // Funzione per aggiornare lo stato
-    const updateState = () => {
-      const pendingReqs = Array.from(requests.values())
-        .filter((req) => {
-          // Filtra le richieste pendenti e con un nome utente valido
-          const isValidUser = req.alias || req.username || req.displayName;
-          const isPending = !req.status || req.status === "pending";
-          return isPending && isValidUser;
-        })
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-      setPendingRequests(pendingReqs);
-    };
-
-    // Sottoscrizione alle richieste
-    const subscription = gun
-      .get(DAPP_NAME)
-      .get("all_friend_requests")
-      .map()
-      .on(async (request, id) => {
-        if (!request || id === "_") return;
-
-        // Se la richiesta non è per l'utente corrente, ignora
-        if (request.to !== user.is.pub) return;
-
-        console.debug(`Richiesta ricevuta [${id}]:`, request);
-
-        // Se la richiesta ha uno status diverso da pending, rimuovila
-        if (request.status && request.status !== "pending") {
-          requests.delete(id);
-          processedRequestsRef.current.add(id);
-        } else if (!processedRequestsRef.current.has(id)) {
-          // Carica i dati dell'utente se non sono presenti
-          if (!request.alias && !request.username) {
-            const userData = await loadUserData(request.from);
-            request = { ...request, ...userData };
-          }
-
-          // Aggiungi la richiesta solo se abbiamo informazioni valide sull'utente
-          if (request.alias || request.username || request.displayName) {
-            requests.set(id, {
-              ...request,
-              id,
-              displayName:
-                request.alias || request.username || request.displayName,
-            });
-
-            // Mostra notifica solo per nuove richieste
-            if (initialLoadDoneRef.current) {
-              toast.success(
-                `Nuova richiesta di amicizia da ${
-                  request.alias || request.username || request.displayName
-                }`
+        if (!request.status || request.status === "pending") {
+          setPendingRequests((prev) => {
+            const existing = prev.find((r) => r.id === request.id);
+            if (existing) {
+              return prev.map((r) =>
+                r.id === request.id ? { ...r, ...request } : r
+              );
+            } else {
+              const newRequest = {
+                id:
+                  request.id ||
+                  `${request.from}_${request.to}_${request.timestamp}`,
+                ...request,
+                timestamp: request.timestamp || Date.now(),
+              };
+              console.log("Aggiunta nuova richiesta:", newRequest);
+              return [...prev, newRequest].sort(
+                (a, b) => b.timestamp - a.timestamp
               );
             }
-          } else {
-            console.debug(`Richiesta ${id} ignorata: utente sconosciuto`);
-          }
+          });
+        } else {
+          // Rimuovi la richiesta se non è più pendente
+          setPendingRequests((prev) => prev.filter((r) => r.id !== request.id));
         }
+      },
+      error: (error) => {
+        console.error("Errore nel monitoraggio richieste:", error);
+        setLoading(false);
+        toast.error("Errore nel caricamento delle richieste");
+      },
+    });
 
-        updateState();
+    // Carica le richieste esistenti
+    gun
+      .get(`${DAPP_NAME}/all_friend_requests`)
+      .map()
+      .once(async (request, requestId) => {
+        if (!request || !requestId || requestId === "_") return;
+        console.log("Richiesta esistente trovata:", { request, requestId });
+
+        if (
+          request.to === user.is.pub &&
+          (!request.status || request.status === "pending")
+        ) {
+          // Carica l'alias dell'utente che ha inviato la richiesta
+          const senderAlias = await new Promise((resolve) => {
+            gun
+              .get(DAPP_NAME)
+              .get("users")
+              .get(request.from)
+              .get("alias")
+              .once((alias) => {
+                resolve(alias || request.from);
+              });
+          });
+
+          setPendingRequests((prev) => {
+            const newRequest = {
+              id: requestId,
+              ...request,
+              displayName: senderAlias,
+              timestamp: request.timestamp || Date.now(),
+            };
+            const existing = prev.find((r) => r.id === requestId);
+            if (existing) return prev;
+            console.log("Aggiunta richiesta esistente:", newRequest);
+            return [...prev, newRequest].sort(
+              (a, b) => b.timestamp - a.timestamp
+            );
+          });
+        }
       });
 
-    // Imposta il flag di caricamento completato dopo un breve delay
-    setTimeout(() => {
-      initialLoadDoneRef.current = true;
-      setLoading(false);
-    }, 500);
-
-    // Salva la funzione di cleanup
-    subscriptionRef.current = () => {
-      if (typeof subscription === "function") {
-        subscription();
-      }
-    };
+    setLoading(false);
 
     return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current();
+      if (subscription && typeof subscription.unsubscribe === "function") {
+        subscription.unsubscribe();
       }
     };
-  }, [user?.is?.pub, cleanupSubscription]);
+  }, [user?.is?.pub]);
 
-  const removeRequest = useCallback((requestId) => {
-    console.debug(`Rimozione richiesta ${requestId}`);
-    processedRequestsRef.current.add(requestId);
-    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+  const removeRequest = useCallback(
+    async (requestId) => {
+      if (!user?.is?.pub) return;
 
-    // Aggiorna anche lo stato in Gun
-    gun
-      .get(DAPP_NAME)
-      .get("all_friend_requests")
-      .get(requestId)
-      .put({ status: "removed", removedAt: Date.now() });
-  }, []);
+      try {
+        console.debug(`Rimozione richiesta ${requestId}`);
+        const request = pendingRequests.find((r) => r.id === requestId);
+        if (!request) {
+          throw new Error("Richiesta non trovata");
+        }
+
+        await rejectFriendRequest(request, (result) => {
+          if (result.success) {
+            setPendingRequests((prev) =>
+              prev.filter((r) => r.id !== requestId)
+            );
+            toast.success("Richiesta rimossa con successo");
+          } else {
+            toast.error(
+              result.errMessage || "Errore durante la rimozione della richiesta"
+            );
+          }
+        });
+      } catch (error) {
+        console.error("Errore durante la rimozione della richiesta:", error);
+        toast.error("Errore durante la rimozione della richiesta");
+      }
+    },
+    [pendingRequests]
+  );
+
+  const acceptRequest = useCallback(
+    async (requestId) => {
+      if (!user?.is?.pub) return;
+
+      try {
+        const request = pendingRequests.find((r) => r.id === requestId);
+        if (!request) {
+          throw new Error("Richiesta non trovata");
+        }
+
+        const result = await acceptFriendRequest(request);
+        if (result.success) {
+          setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+          toast.success(result.message || "Richiesta accettata con successo");
+          return true;
+        } else {
+          toast.error(
+            result.message || "Errore durante l'accettazione della richiesta"
+          );
+          return false;
+        }
+      } catch (error) {
+        console.error("Errore durante l'accettazione della richiesta:", error);
+        toast.error("Errore durante l'accettazione della richiesta");
+        return false;
+      }
+    },
+    [pendingRequests]
+  );
 
   const markAsRead = useCallback(async (requestId) => {
+    if (!user?.is?.pub) return false;
+
     try {
-      await friendRequestNotifications.markAsRead(requestId);
+      await gun
+        .get(`${DAPP_NAME}/all_friend_requests`)
+        .get(requestId)
+        .get("status")
+        .put("read");
+
       setPendingRequests((prev) =>
-        prev.map((req) =>
-          req.id === requestId ? { ...req, status: "read" } : req
-        )
+        prev.map((req) => (req.id === requestId ? { ...req, read: true } : req))
       );
       return true;
     } catch (error) {
@@ -178,6 +191,7 @@ export const useFriendRequestNotifications = () => {
     pendingRequests,
     loading,
     removeRequest,
+    acceptRequest,
     markAsRead,
   };
 };
