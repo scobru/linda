@@ -95,47 +95,24 @@ export default function Boards({ onSelect }) {
       <div className="p-4 bg-[#373B5C] border-b border-[#4A4F76] sticky top-0 z-10">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-white">Board</h2>
-          <div className="flex items-center space-x-2">
-            {appState.selected && appState.selected.type === "board" && (
-              <button
-                onClick={() => handleLeaveBoard(appState.selected.roomId)}
-                className="p-2 rounded-full text-white hover:bg-[#4A4F76] transition-colors"
-                title="Lascia board"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                  />
-                </svg>
-              </button>
-            )}
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-            </button>
-          </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </button>
         </div>
         <div className="relative">
           <input
@@ -156,7 +133,7 @@ export default function Boards({ onSelect }) {
       </div>
 
       {/* Board List */}
-      <div className={`flex-1 overflow-y-auto ${isMobileView ? "pb-0" : ""}`}>
+      <div className={`flex-1 overflow-y-auto ${isMobileView ? "pb-16" : ""}`}>
         {boardsLoading ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
@@ -231,7 +208,7 @@ export default function Boards({ onSelect }) {
                       handleLeaveBoard(board.id);
                     }}
                     className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
-                    title="Lascia board"
+                    title="Esci dalla board"
                   >
                     <svg
                       className="w-5 h-5"
