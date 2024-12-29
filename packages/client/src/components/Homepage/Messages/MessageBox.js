@@ -252,8 +252,9 @@ const MessageBox = ({
       {/* Contenitore reazioni */}
       <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
         <div
-          className={`flex items-center ${isOwnMessage ? "mr-12" : "ml-12"}`}
-          style={{ marginTop: "-8px" }}
+          className={`flex items-center ${
+            isOwnMessage ? "mr-12" : "ml-12"
+          } mt-2 mb-1`}
         >
           <ReactionsContainer
             contentId={message.id}

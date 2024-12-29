@@ -59,8 +59,8 @@ const ReactionsContainer = ({
   }
 
   return (
-    <div className="flex items-center space-x-1">
-      <div className="flex items-center space-x-1">
+    <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-2">
         {Object.entries(reactions).map(([emoji, users]) => (
           <ReactionButton
             key={emoji}
@@ -72,7 +72,7 @@ const ReactionsContainer = ({
           />
         ))}
       </div>
-      <div className="border-l border-[#373B5C] pl-1">
+      <div className="border-l-2 border-[#373B5C] pl-3">
         <ReactionPicker onSelectReaction={handleReactionSelect} />
       </div>
     </div>
