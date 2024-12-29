@@ -3,6 +3,7 @@ import { useAppState } from "../../../context/AppContext";
 import { useMobileView } from "../../../hooks/useMobileView";
 import { useChannelsV2 } from "../../../hooks/useChannelsV2";
 import { toast } from "react-hot-toast";
+import { gun ,DAPP_NAME } from "#protocol";
 
 export default function Channels({ onSelect }) {
   const { appState } = useAppState();
@@ -34,6 +35,8 @@ export default function Channels({ onSelect }) {
         name: newChannelName.trim(),
         type: "public",
         description: "",
+        creator: appState.user.is.pub,
+        avatar: null, // Avatar predefinito
       };
 
       const success = await createChannel(channelData);
@@ -45,6 +48,22 @@ export default function Channels({ onSelect }) {
     } catch (error) {
       console.error("Errore creazione canale:", error);
       toast.error(error.message || "Errore durante la creazione del canale");
+    }
+  };
+
+  // Funzione per aggiornare l'avatar del canale (solo per il creatore)
+  const handleUpdateChannelAvatar = async (channelId, avatar) => {
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(channelId)
+        .get("avatar")
+        .put(avatar);
+      toast.success("Avatar del canale aggiornato");
+    } catch (error) {
+      console.error("Errore aggiornamento avatar:", error);
+      toast.error("Errore durante l'aggiornamento dell'avatar");
     }
   };
 
@@ -113,9 +132,17 @@ export default function Channels({ onSelect }) {
                 className="flex items-center space-x-3 p-3 rounded-lg hover:bg-[#4A4F76] cursor-pointer transition-colors"
               >
                 <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-medium text-lg">
-                    {channel.name.charAt(0).toUpperCase()}
-                  </span>
+                  {channel.avatar ? (
+                    <img
+                      src={channel.avatar}
+                      alt={channel.name}
+                      className="w-full h-full rounded-lg object-cover"
+                    />
+                  ) : (
+                    <span className="text-white font-medium text-lg">
+                      {channel.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-white font-medium truncate">
@@ -125,6 +152,51 @@ export default function Channels({ onSelect }) {
                     {Object.keys(channel.members || {}).length} membri
                   </p>
                 </div>
+                {channel.creator === appState.user?.is?.pub && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Apri input file per selezionare avatar
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = "image/*";
+                      input.onchange = async (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) {
+                            toast.error("L'immagine non può superare i 2MB");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            handleUpdateChannelAvatar(
+                              channel.id,
+                              reader.result
+                            );
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                    className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+                    title="Cambia avatar del canale"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
             ))}
           </div>

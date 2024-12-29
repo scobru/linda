@@ -853,6 +853,38 @@ export default function Messages({ isMobileView = false, onBack }) {
     }
   };
 
+  // Funzione per aggiornare l'avatar del canale
+  const handleUpdateChannelAvatar = async (channelId, avatar) => {
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("channels")
+        .get(channelId)
+        .get("avatar")
+        .put(avatar);
+      toast.success("Avatar del canale aggiornato");
+    } catch (error) {
+      console.error("Errore aggiornamento avatar:", error);
+      toast.error("Errore durante l'aggiornamento dell'avatar");
+    }
+  };
+
+  // Funzione per aggiornare l'avatar della board
+  const handleUpdateBoardAvatar = async (boardId, avatar) => {
+    try {
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("avatar")
+        .put(avatar);
+      toast.success("Avatar della board aggiornato");
+    } catch (error) {
+      console.error("Errore aggiornamento avatar:", error);
+      toast.error("Errore durante l'aggiornamento dell'avatar");
+    }
+  };
+
   if (!selected?.roomId) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -895,13 +927,29 @@ export default function Messages({ isMobileView = false, onBack }) {
           )}
           <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
             {selected.type === "board" ? (
-              <span className="text-white text-lg font-semibold">
-                {selected.name?.charAt(0).toUpperCase()}
-              </span>
+              selected.avatar ? (
+                <img
+                  src={selected.avatar}
+                  alt={selected.name}
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <span className="text-white text-lg font-semibold">
+                  {selected.name?.charAt(0).toUpperCase()}
+                </span>
+              )
             ) : selected.type === "channel" ? (
-              <span className="text-white text-lg font-semibold">
-                {selected.name?.charAt(0).toUpperCase()}
-              </span>
+              selected.avatar ? (
+                <img
+                  src={selected.avatar}
+                  alt={selected.name}
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <span className="text-white text-lg font-semibold">
+                  {selected.name?.charAt(0).toUpperCase()}
+                </span>
+              )
             ) : chatUserAvatar ? (
               <img
                 className="w-full h-full rounded-full object-cover"
@@ -916,37 +964,91 @@ export default function Messages({ isMobileView = false, onBack }) {
               />
             )}
           </div>
-          <div className="ml-3">
-            <p className="text-white font-medium">
-              {selected.type === "board"
-                ? selected.name || "Board"
-                : selected.type === "channel"
-                ? selected.name
-                : chatUserInfo.displayName}
-            </p>
-            {selected.type === "board" && (
-              <p className="text-gray-300 text-sm flex items-center gap-2">
-                <span>
-                  Creata da:{" "}
-                  {selected.creator === appState.user.is.pub
-                    ? "Te"
-                    : selected.creatorAlias || "Sconosciuto"}
-                </span>
-                <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                <span title="Numero di membri">
-                  {Object.keys(authorizedMembers).length}{" "}
-                  {Object.keys(authorizedMembers).length === 1
-                    ? "membro"
-                    : "membri"}
-                </span>
+          <div className="ml-3 flex items-center">
+            <div>
+              <p className="text-white font-medium">
+                {selected.type === "board"
+                  ? selected.name || "Board"
+                  : selected.type === "channel"
+                  ? selected.name
+                  : chatUserInfo.displayName}
               </p>
-            )}
-            {selected.type !== "channel" &&
-              selected.type !== "board" &&
-              chatUserInfo.username && (
-                <p className="text-gray-300 text-sm">
-                  @{chatUserInfo.username}
+              {selected.type === "board" && (
+                <p className="text-gray-300 text-sm flex items-center gap-2">
+                  <span>
+                    Creata da:{" "}
+                    {selected.creator === appState.user.is.pub
+                      ? "Te"
+                      : selected.creatorAlias || "Sconosciuto"}
+                  </span>
+                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                  <span title="Numero di membri">
+                    {Object.keys(authorizedMembers).length}{" "}
+                    {Object.keys(authorizedMembers).length === 1
+                      ? "membro"
+                      : "membri"}
+                  </span>
                 </p>
+              )}
+              {selected.type !== "channel" &&
+                selected.type !== "board" &&
+                chatUserInfo.username && (
+                  <p className="text-gray-300 text-sm">
+                    @{chatUserInfo.username}
+                  </p>
+                )}
+            </div>
+            {(selected.type === "channel" || selected.type === "board") &&
+              selected.creator === appState.user.is.pub && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = "image/*";
+                    input.onchange = async (e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        if (file.size > 2 * 1024 * 1024) {
+                          toast.error("L'immagine non può superare i 2MB");
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          if (selected.type === "channel") {
+                            handleUpdateChannelAvatar(
+                              selected.roomId,
+                              reader.result
+                            );
+                          } else {
+                            handleUpdateBoardAvatar(
+                              selected.roomId,
+                              reader.result
+                            );
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    };
+                    input.click();
+                  }}
+                  className="ml-2 p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+                  title="Cambia avatar"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                </button>
               )}
           </div>
         </div>
@@ -1041,7 +1143,7 @@ export default function Messages({ isMobileView = false, onBack }) {
               )}
             </>
           )}
-          {!selected.type && (
+          {(!selected.type || selected.type === "global" || selected.pub) && (
             <button
               onClick={() => setIsWalletModalOpen(true)}
               className="p-2 rounded-full text-white hover:bg-[#4A4F76]"

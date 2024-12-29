@@ -28,6 +28,18 @@ export const useBoardsV2 = () => {
             console.log(`Analisi board ${id}:`, data);
 
             if (data && data.name) {
+              // Ottieni l'avatar della board
+              const avatar = await new Promise((resolveAvatar) => {
+                gun
+                  .get(DAPP_NAME)
+                  .get("boards")
+                  .get(id)
+                  .get("avatar")
+                  .once((avatarData) => {
+                    resolveAvatar(avatarData);
+                  });
+              });
+
               // Verifica se l'utente è membro leggendo direttamente il nodo del membro
               const memberData = await new Promise((resolveMember) => {
                 gun
