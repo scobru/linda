@@ -28,17 +28,20 @@ export const useBoardsV2 = () => {
             console.log(`Analisi board ${id}:`, data);
 
             if (data && data.name) {
-              // Ottieni l'avatar della board
-              const avatar = await new Promise((resolveAvatar) => {
-                gun
-                  .get(DAPP_NAME)
-                  .get("boards")
-                  .get(id)
-                  .get("avatar")
-                  .once((avatarData) => {
-                    resolveAvatar(avatarData);
-                  });
-              });
+              // Se sono il creatore, aggiungo la board indipendentemente dallo stato di membro
+              const isCreator = data.creator === appState.user.is.pub;
+
+              if (isCreator) {
+                results.push({
+                  ...data,
+                  id,
+                  avatar: data.avatar || null,
+                  isMember: true,
+                  isCreator,
+                  canWrite: true,
+                });
+                return;
+              }
 
               // Verifica se l'utente è membro leggendo direttamente il nodo del membro
               const memberData = await new Promise((resolveMember) => {
@@ -60,7 +63,6 @@ export const useBoardsV2 = () => {
                 return;
               }
 
-              const isCreator = data.creator === appState.user.is.pub;
               const canWrite =
                 memberData.canWrite === true ||
                 memberData.permissions?.write === true;
@@ -74,6 +76,7 @@ export const useBoardsV2 = () => {
               results.push({
                 ...data,
                 id,
+                avatar: data.avatar || null,
                 isMember: true,
                 isCreator,
                 canWrite,

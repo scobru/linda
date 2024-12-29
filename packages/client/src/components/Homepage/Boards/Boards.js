@@ -31,7 +31,9 @@ export default function Boards({ onSelect }) {
         .get(boardId)
         .get("avatar")
         .put(avatar);
+
       toast.success("Avatar della board aggiornato");
+      window.dispatchEvent(new CustomEvent("boardUpdated"));
       loadBoards();
     } catch (error) {
       console.error("Errore aggiornamento avatar:", error);
@@ -67,6 +69,7 @@ export default function Boards({ onSelect }) {
         admins: board.admins || {},
         description: board.description,
         members: board.members || [],
+        avatar: board.avatar || null,
         canWrite: true,
         isMember: true,
       },
@@ -109,6 +112,25 @@ export default function Boards({ onSelect }) {
       console.error("Errore nell'unirsi alla board:", error);
     }
   };
+
+  useEffect(() => {
+    loadBoards();
+
+    // Aggiungi listener per ricaricare le board quando vengono modificate
+    const handleBoardUpdate = () => {
+      loadBoards();
+    };
+
+    window.addEventListener("boardUpdated", handleBoardUpdate);
+    window.addEventListener("boardDeleted", handleBoardUpdate);
+    window.addEventListener("tabChanged", handleBoardUpdate);
+
+    return () => {
+      window.removeEventListener("boardUpdated", handleBoardUpdate);
+      window.removeEventListener("boardDeleted", handleBoardUpdate);
+      window.removeEventListener("tabChanged", handleBoardUpdate);
+    };
+  }, [loadBoards]);
 
   useEffect(() => {
     console.log(boards);
@@ -241,14 +263,14 @@ export default function Boards({ onSelect }) {
                       </button>
                     )}
                   </div>
-                  {board.creator !== appState.user.is.pub && (
+                  {board.creator !== appState.user?.is?.pub && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleLeaveBoard(board.id);
+                        handleJoinBoard(board);
                       }}
                       className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76] transition-colors"
-                      title="Esci dalla board"
+                      title="Unisciti alla board"
                     >
                       <svg
                         className="w-5 h-5"
@@ -260,7 +282,7 @@ export default function Boards({ onSelect }) {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           strokeWidth={2}
-                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                          d="M12 4v16m8-8H4"
                         />
                       </svg>
                     </button>

@@ -74,6 +74,7 @@ export const boardsV2 = {
         name: boardData.name,
         description: boardData.description || "",
         creator: user.is.pub,
+        avatar: boardData.avatar || null,
         admins: {
           [user.is.pub]: {
             role: "admin",

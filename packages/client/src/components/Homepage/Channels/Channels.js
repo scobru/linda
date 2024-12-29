@@ -3,7 +3,7 @@ import { useAppState } from "../../../context/AppContext";
 import { useMobileView } from "../../../hooks/useMobileView";
 import { useChannelsV2 } from "../../../hooks/useChannelsV2";
 import { toast } from "react-hot-toast";
-import { gun ,DAPP_NAME } from "#protocol";
+import { gun, DAPP_NAME } from "#protocol";
 
 export default function Channels({ onSelect }) {
   const { appState } = useAppState();
@@ -11,7 +11,17 @@ export default function Channels({ onSelect }) {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const { channels, loading, createChannel, error } = useChannelsV2();
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const {
+    channels,
+    loading,
+    createChannel,
+    error,
+    searchChannels,
+    joinChannel,
+    leaveChannel,
+  } = useChannelsV2();
 
   useEffect(() => {
     if (error) {
@@ -51,6 +61,19 @@ export default function Channels({ onSelect }) {
     }
   };
 
+  const handleSearch = async (query) => {
+    setIsSearching(true);
+    try {
+      const results = await searchChannels(query);
+      setSearchResults(results || []);
+    } catch (error) {
+      console.error("Errore ricerca canali:", error);
+      toast.error("Errore nella ricerca dei canali");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   // Funzione per aggiornare l'avatar del canale (solo per il creatore)
   const handleUpdateChannelAvatar = async (channelId, avatar) => {
     try {
@@ -67,9 +90,122 @@ export default function Channels({ onSelect }) {
     }
   };
 
-  const filteredChannels = channels.filter((channel) =>
-    channel.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleJoinChannel = async (channel) => {
+    try {
+      await joinChannel(channel.id);
+      onSelect(channel);
+    } catch (error) {
+      console.error("Errore nell'unirsi al canale:", error);
+    }
+  };
+
+  const handleLeaveChannel = async (channelId) => {
+    try {
+      await leaveChannel(channelId);
+    } catch (error) {
+      console.error("Errore nell'uscita dal canale:", error);
+    }
+  };
+
+  const displayedChannels = searchQuery ? searchResults : channels;
+
+  const renderChannelActions = (channel) => {
+    const isCreator = channel.creator === appState.user?.is?.pub;
+
+    if (isCreator) {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/*";
+            input.onchange = async (e) => {
+              const file = e.target.files[0];
+              if (file) {
+                if (file.size > 2 * 1024 * 1024) {
+                  toast.error("L'immagine non può superare i 2MB");
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  handleUpdateChannelAvatar(channel.id, reader.result);
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }}
+          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+          title="Cambia avatar del canale"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
+          </svg>
+        </button>
+      );
+    } else if (channel.isMember) {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleLeaveChannel(channel.id);
+          }}
+          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+          title="Esci dal canale"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+            />
+          </svg>
+        </button>
+      );
+    } else {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleJoinChannel(channel);
+          }}
+          className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
+          title="Unisciti al canale"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </button>
+      );
+    }
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -102,7 +238,14 @@ export default function Channels({ onSelect }) {
             type="text"
             placeholder="Cerca canali..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (e.target.value.trim()) {
+                handleSearch(e.target.value);
+              } else {
+                setSearchResults([]);
+              }
+            }}
             className="w-full bg-[#2D325A] text-white placeholder-gray-400 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -110,14 +253,14 @@ export default function Channels({ onSelect }) {
 
       {/* Lista canali */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {loading || isSearching ? (
           <div className="flex justify-center items-center h-full">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
           </div>
-        ) : filteredChannels.length === 0 ? (
+        ) : displayedChannels.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <p>Nessun canale trovato</p>
-            {appState.isAuthenticated && (
+            {appState.isAuthenticated && !searchQuery && (
               <p className="mt-2">
                 Crea un nuovo canale usando il pulsante + in alto!
               </p>
@@ -125,7 +268,7 @@ export default function Channels({ onSelect }) {
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {filteredChannels.map((channel) => (
+            {displayedChannels.map((channel) => (
               <div
                 key={channel.id}
                 onClick={() => onSelect(channel)}
@@ -152,51 +295,7 @@ export default function Channels({ onSelect }) {
                     {Object.keys(channel.members || {}).length} membri
                   </p>
                 </div>
-                {channel.creator === appState.user?.is?.pub && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Apri input file per selezionare avatar
-                      const input = document.createElement("input");
-                      input.type = "file";
-                      input.accept = "image/*";
-                      input.onchange = async (e) => {
-                        const file = e.target.files[0];
-                        if (file) {
-                          if (file.size > 2 * 1024 * 1024) {
-                            toast.error("L'immagine non può superare i 2MB");
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            handleUpdateChannelAvatar(
-                              channel.id,
-                              reader.result
-                            );
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      };
-                      input.click();
-                    }}
-                    className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-[#4A4F76]"
-                    title="Cambia avatar del canale"
-                  >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </button>
-                )}
+                {renderChannelActions(channel)}
               </div>
             ))}
           </div>

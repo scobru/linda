@@ -71,6 +71,7 @@ const initialState = {
     creator: null,
     members: [],
     messages: [],
+    avatar: null,
     settings: {
       isPublic: true,
       canWrite: true,

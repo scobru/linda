@@ -51,6 +51,7 @@ export default function Homepage() {
       ...item,
       type,
       roomId,
+      avatar: item.avatar || null,
     };
 
     if (type === "friend") {
@@ -196,6 +197,7 @@ export default function Homepage() {
               onClick={() => {
                 setCurrentView("boards");
                 updateAppState({ ...appState, selected: null });
+                window.dispatchEvent(new CustomEvent("tabChanged"));
               }}
               className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "boards"
