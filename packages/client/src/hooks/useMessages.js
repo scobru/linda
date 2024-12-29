@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { messaging, gun, DAPP_NAME } from "linda-protocol";
+import { messaging, gun, DAPP_NAME } from "#protocol";
 import { toast } from "react-hot-toast";
 
-const { messageList } = messaging.messages;
+const { messageList } = messaging;
 
 export const useMessages = (selected) => {
   const [messages, setMessages] = useState([]);

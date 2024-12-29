@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import reportWebVitals from "./reportWebVitals";
-import { gun } from "linda-protocol";
+import { gun } from "#protocol";
 import { AppProvider } from "./context/AppContext";
 
 // Funzione per verificare la connessione di Gun

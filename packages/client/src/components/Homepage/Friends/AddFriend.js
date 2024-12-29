@@ -1,7 +1,7 @@
 import React from "react";
-import { friends } from "linda-protocol";
+import { friends } from "#protocol";
 import toast from "react-hot-toast";
-import { gun, user } from "linda-protocol";
+import { gun, user } from "#protocol";
 
 export default function AddFriend({ onClose }) {
   const [input, setInput] = React.useState("");
@@ -11,12 +11,12 @@ export default function AddFriend({ onClose }) {
   // Funzione per cercare l'utente
   const searchUser = async (value) => {
     // Se il valore sembra essere una chiave pubblica, ritornalo direttamente
-    if (value.includes('.')) {
-      const result = await gun.get("~"+value).get('alias')
-      console.log('Result:', result);
+    if (value.includes(".")) {
+      const result = await gun.get("~" + value).get("alias");
+      console.log("Result:", result);
       return {
         pub: value,
-        alias: result
+        alias: result,
       };
     }
 
@@ -24,11 +24,11 @@ export default function AddFriend({ onClose }) {
       gun.get(`~@${value}`).once((data) => {
         if (data) {
           // Trova la chiave che inizia con ~
-          const pubKey = Object.keys(data).find(key => key.startsWith('~'));
+          const pubKey = Object.keys(data).find((key) => key.startsWith("~"));
           if (pubKey) {
             resolve({
               pub: pubKey.slice(1), // Rimuovi il ~ iniziale
-              alias: value
+              alias: value,
             });
           } else {
             resolve(null);
@@ -52,7 +52,7 @@ export default function AddFriend({ onClose }) {
     try {
       // Prima cerca l'utente
       const userData = await searchUser(input.trim());
-      console.log('User search result:', userData);
+      console.log("User search result:", userData);
 
       if (!userData) {
         throw new Error("Utente non trovato");
@@ -63,11 +63,11 @@ export default function AddFriend({ onClose }) {
       // Invia la richiesta di amicizia
       await new Promise((resolve, reject) => {
         friends.addFriendRequest(userData.alias, (response) => {
-          console.log('Friend request response:', response);
+          console.log("Friend request response:", response);
           if (response.success) {
             resolve(response);
           } else {
-            reject(new Error(response.errMessage || 'Errore invio richiesta'));
+            reject(new Error(response.errMessage || "Errore invio richiesta"));
           }
         });
       });
@@ -109,7 +109,9 @@ export default function AddFriend({ onClose }) {
       {searchResult && (
         <div className="mb-4 p-2 bg-gray-50 rounded">
           <p className="text-sm">Utente trovato: {searchResult.alias}</p>
-          <p className="text-xs text-gray-500 truncate">ID: {searchResult.pub}</p>
+          <p className="text-xs text-gray-500 truncate">
+            ID: {searchResult.pub}
+          </p>
         </div>
       )}
 
@@ -154,8 +156,10 @@ export default function AddFriend({ onClose }) {
               </svg>
               {searchResult ? "Invio richiesta..." : "Ricerca..."}
             </div>
+          ) : searchResult ? (
+            "Invia richiesta"
           ) : (
-            searchResult ? "Invia richiesta" : "Cerca"
+            "Cerca"
           )}
         </button>
       </div>

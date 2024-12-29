@@ -1,8 +1,8 @@
 import React, { useEffect } from "react";
-import { authentication, sessionManager } from "linda-protocol";
+import { authentication, sessionManager } from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
-import { gun, user, DAPP_NAME } from "linda-protocol";
+import { gun, user, DAPP_NAME } from "#protocol";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "../config/wagmi";
 

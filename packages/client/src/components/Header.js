@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { sessionManager, user } from "linda-protocol";
+import { sessionManager, user } from "#protocol";
 import { useAppState } from "../context/AppContext";
 import Profile from "./Homepage/Profile";
 import AddFriend from "./Homepage/Friends/AddFriend";

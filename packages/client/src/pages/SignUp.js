@@ -5,7 +5,7 @@ import {
   gun,
   user,
   sessionManager,
-} from "linda-protocol";
+} from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
 import { useAccount } from "../config/wagmi";

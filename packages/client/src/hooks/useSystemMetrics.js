@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 import { Observable } from "rxjs";
 
 export const useSystemMetrics = (metricsToObserve = []) => {

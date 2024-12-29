@@ -1,11 +1,11 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from "../useGun.js";
 
 // Funzione per verificare se esiste già una board con lo stesso nome
 const boardExists = async (name) => {
   return new Promise((resolve) => {
     gun
       .get(DAPP_NAME)
-      .get('boards')
+      .get("boards")
       .map()
       .once((board, id) => {
         if (
@@ -23,18 +23,18 @@ const boardExists = async (name) => {
 // Funzione per formattare il nome utente
 const formatUserName = async (pub) => {
   if (pub === user.is.pub) {
-    return `${user.is.alias || 'Utente'} (tu)`;
+    return `${user.is.alias || "Utente"} (tu)`;
   }
 
   // Recupera l'alias dell'utente dal database
   const alias = await new Promise((resolve) => {
     gun
       .get(DAPP_NAME)
-      .get('users')
+      .get("users")
       .get(pub)
-      .get('alias')
+      .get("alias")
       .once((alias) => {
-        resolve(alias || 'Utente');
+        resolve(alias || "Utente");
       });
   });
 
@@ -44,13 +44,13 @@ const formatUserName = async (pub) => {
 export const boardsV2 = {
   // Crea una nuova board
   create: async (boardData, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       if (!boardData.name) {
         callback({
           success: false,
-          error: 'Il nome della board è obbligatorio',
+          error: "Il nome della board è obbligatorio",
         });
         return;
       }
@@ -60,7 +60,7 @@ export const boardsV2 = {
       if (exists) {
         callback({
           success: false,
-          error: 'Esiste già una board con questo nome',
+          error: "Esiste già una board con questo nome",
         });
         return;
       }
@@ -72,11 +72,11 @@ export const boardsV2 = {
       const board = {
         id: boardId,
         name: boardData.name,
-        description: boardData.description || '',
+        description: boardData.description || "",
         creator: user.is.pub,
         admins: {
           [user.is.pub]: {
-            role: 'admin',
+            role: "admin",
             joinedAt: Date.now(),
           },
         },
@@ -85,7 +85,7 @@ export const boardsV2 = {
 
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
         .put(board, async (ack) => {
           if (ack.err) {
@@ -99,17 +99,17 @@ export const boardsV2 = {
           const userName = await formatUserName(user.is.pub);
           const systemMessage = {
             id: messageId,
-            type: 'system',
+            type: "system",
             content: `📌 Board "${boardData.name}" creata da ${userName}`,
-            sender: 'system',
+            sender: "system",
             timestamp: Date.now(),
           };
 
           gun
             .get(DAPP_NAME)
-            .get('boards')
+            .get("boards")
             .get(boardId)
-            .get('messages')
+            .get("messages")
             .get(messageId)
             .put(systemMessage);
 
@@ -122,14 +122,14 @@ export const boardsV2 = {
 
   // Lista tutte le board disponibili
   list: async (callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const boards = [];
       await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .map()
           .once((board, id) => {
             if (board) {
@@ -146,8 +146,8 @@ export const boardsV2 = {
   },
 
   // Cerca board per nome
-  search: async (query = '', callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+  search: async (query = "", callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const results = [];
@@ -156,7 +156,7 @@ export const boardsV2 = {
       await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .map()
           .once((board, id) => {
             if (
@@ -178,29 +178,29 @@ export const boardsV2 = {
 
   // Aggiungi un amministratore alla board
   addAdmin: async (boardId, userPub, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const board = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .get(boardId)
           .once((data) => resolve(data));
       });
 
-      if (!board) throw new Error('Board non trovata');
+      if (!board) throw new Error("Board non trovata");
       if (board.creator !== user.is.pub)
-        throw new Error('Solo il creatore può aggiungere amministratori');
+        throw new Error("Solo il creatore può aggiungere amministratori");
 
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('admins')
+        .get("admins")
         .get(userPub)
         .put({
-          role: 'admin',
+          role: "admin",
           joinedAt: Date.now(),
         });
 
@@ -208,15 +208,15 @@ export const boardsV2 = {
       const userName = await formatUserName(userPub);
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('messages')
+        .get("messages")
         .get(messageId)
         .put({
           id: messageId,
-          type: 'system',
+          type: "system",
           content: `👑 ${userName} è stato promosso ad amministratore`,
-          sender: 'system',
+          sender: "system",
           timestamp: Date.now(),
         });
 
@@ -228,28 +228,28 @@ export const boardsV2 = {
 
   // Rimuovi un amministratore dalla board
   removeAdmin: async (boardId, userPub, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const board = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .get(boardId)
           .once((data) => resolve(data));
       });
 
-      if (!board) throw new Error('Board non trovata');
+      if (!board) throw new Error("Board non trovata");
       if (board.creator !== user.is.pub)
-        throw new Error('Solo il creatore può rimuovere amministratori');
+        throw new Error("Solo il creatore può rimuovere amministratori");
       if (userPub === board.creator)
-        throw new Error('Non puoi rimuovere il creatore');
+        throw new Error("Non puoi rimuovere il creatore");
 
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('admins')
+        .get("admins")
         .get(userPub)
         .put(null);
 
@@ -257,15 +257,15 @@ export const boardsV2 = {
       const userName = await formatUserName(userPub);
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('messages')
+        .get("messages")
         .get(messageId)
         .put({
           id: messageId,
-          type: 'system',
+          type: "system",
           content: `👋 ${userName} non è più amministratore`,
-          sender: 'system',
+          sender: "system",
           timestamp: Date.now(),
         });
 
@@ -277,26 +277,26 @@ export const boardsV2 = {
 
   // Elimina un messaggio (solo amministratori)
   deleteMessage: async (boardId, messageId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const board = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .get(boardId)
           .once((data) => resolve(data));
       });
 
-      if (!board) throw new Error('Board non trovata');
+      if (!board) throw new Error("Board non trovata");
       if (!board.admins?.[user.is.pub])
-        throw new Error('Solo gli amministratori possono eliminare i messaggi');
+        throw new Error("Solo gli amministratori possono eliminare i messaggi");
 
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('messages')
+        .get("messages")
         .get(messageId)
         .put(null);
 
@@ -308,46 +308,109 @@ export const boardsV2 = {
 
   // Elimina una board (solo il creatore)
   delete: async (boardId, callback = () => {}) => {
-    if (!user?.is) throw new Error('Utente non autenticato');
+    if (!user?.is) throw new Error("Utente non autenticato");
 
     try {
       const board = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
-          .get('boards')
+          .get("boards")
           .get(boardId)
           .once((data) => resolve(data));
       });
 
-      if (!board) throw new Error('Board non trovata');
+      if (!board) throw new Error("Board non trovata");
       if (board.creator !== user.is.pub)
-        throw new Error('Solo il creatore può eliminare la board');
+        throw new Error("Solo il creatore può eliminare la board");
 
       // Elimina tutti i messaggi
       gun
         .get(DAPP_NAME)
-        .get('boards')
+        .get("boards")
         .get(boardId)
-        .get('messages')
+        .get("messages")
         .map()
         .once((msg, key) => {
           if (msg) {
             gun
               .get(DAPP_NAME)
-              .get('boards')
+              .get("boards")
               .get(boardId)
-              .get('messages')
+              .get("messages")
               .get(key)
               .put(null);
           }
         });
 
       // Elimina la board
-      gun.get(DAPP_NAME).get('boards').get(boardId).put(null);
+      gun.get(DAPP_NAME).get("boards").get(boardId).put(null);
 
       callback({ success: true });
     } catch (error) {
       callback({ success: false, error: error.message });
+    }
+  },
+
+  clearMessages: async (boardId, callback = () => {}) => {
+    if (!user?.is) throw new Error("Utente non autenticato");
+
+    try {
+      const board = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("boards")
+          .get(boardId)
+          .once((data) => resolve(data));
+      });
+
+      if (!board) throw new Error("Board non trovata");
+
+      // Verifica che l'utente sia amministratore
+      if (!board.admins?.[user.is.pub]) {
+        throw new Error(
+          "Solo gli amministratori possono cancellare i messaggi della board"
+        );
+      }
+
+      // Cancella tutti i messaggi
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("messages")
+        .map()
+        .once((msg, key) => {
+          if (msg) {
+            gun
+              .get(DAPP_NAME)
+              .get("boards")
+              .get(boardId)
+              .get("messages")
+              .get(key)
+              .put(null);
+          }
+        });
+
+      // Aggiungi messaggio di sistema
+      await gun
+        .get(DAPP_NAME)
+        .get("boards")
+        .get(boardId)
+        .get("messages")
+        .set({
+          id: `system_${Date.now()}`,
+          type: "system",
+          content: `🧹 ${formatUserName(
+            user.is.pub
+          )} ha cancellato tutti i messaggi`,
+          timestamp: Date.now(),
+          sender: "system",
+        });
+
+      return callback({ success: true });
+    } catch (error) {
+      console.error("Errore cancellazione messaggi:", error);
+      return callback({ success: false, error: error.message });
     }
   },
 };

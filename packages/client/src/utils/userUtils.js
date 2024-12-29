@@ -1,4 +1,4 @@
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 
 export const getUserUsername = async (userPub) => {
   try {

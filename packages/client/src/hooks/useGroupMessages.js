@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "react-hot-toast";
-import { messaging } from "linda-protocol";
+import { messaging } from "#protocol";
 import { useAppState } from "../context/AppContext";
 
 // Costante per il namespace dell'app

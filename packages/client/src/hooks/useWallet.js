@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useAppState } from "../context/AppContext";
-import { walletService } from "linda-protocol";
-import { user } from "linda-protocol";
+import { walletService } from "#protocol";
+import { user } from "#protocol";
 import { ethers } from "ethers";
 import { toast } from "react-hot-toast";
 

@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { sessionManager, user } from "linda-protocol";
+import { sessionManager, user } from "#protocol";
 import { useAppState } from "../context/AppContext";
 
 export const AuthProvider = ({ children }) => {

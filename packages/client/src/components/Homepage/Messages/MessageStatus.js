@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import Context from "../../../contexts/context";
 import { useMessageReceipts } from "../../../hooks/useMessageReceipts";
 import { useSendReceipt } from "../../../hooks/useSendReceipt";
-import { user } from "linda-protocol";
+import { user } from "#protocol";
 
 export const MessageStatus = ({ message }) => {
   const { selected } = React.useContext(Context);

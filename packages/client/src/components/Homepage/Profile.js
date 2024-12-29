@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 import { useAppState } from "../../context/AppContext";
 
 const Profile = ({ isOpen, onClose }) => {

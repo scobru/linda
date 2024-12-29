@@ -5,7 +5,7 @@ import FriendRequest from "./FriendRequest";
 import { useFriends } from "../../../hooks/useFriends";
 import { useFriendRequestNotifications } from "../../../hooks/useFriendRequestNotifications";
 import { toast } from "react-hot-toast";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 import { getUserUsername } from "../../../utils/userUtils";
 import { useMobileView } from "../../../hooks/useMobileView";
 

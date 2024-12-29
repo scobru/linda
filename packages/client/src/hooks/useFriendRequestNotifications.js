@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { gun, user, DAPP_NAME, friends } from "linda-protocol";
+import { gun, user, DAPP_NAME, friends } from "#protocol";
 import { toast } from "react-hot-toast";
 
 const { friendsService, acceptFriendRequest, rejectFriendRequest } = friends;

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { messaging, gun, DAPP_NAME, channelsV2 } from "linda-protocol";
+import { messaging, gun, DAPP_NAME, channelsV2 } from "#protocol";
 import { toast } from "react-hot-toast";
 import { useAppState } from "../context/AppContext";
 

@@ -7,7 +7,7 @@ import Friends from "../components/Homepage/Friends/Friends";
 import Boards from "../components/Homepage/Boards/Boards";
 import { useMobileView } from "../hooks/useMobileView";
 import { useChannelsV2 } from "../hooks/useChannelsV2";
-import { messaging } from "linda-protocol";
+import { messaging } from "#protocol";
 
 export default function Homepage() {
   const { appState, currentView, setCurrentView, updateAppState } =

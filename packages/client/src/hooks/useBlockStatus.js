@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { blocking, user } from "linda-protocol";
+import { blocking, user } from "#protocol";
 
 const { userBlocking } = blocking;
 

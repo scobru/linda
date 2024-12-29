@@ -1,23 +1,33 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { authentication } from "linda-protocol";
+import { gun, user, DAPP_NAME, observeAuthState, security } from "#protocol";
+
+const { sessionManager } = security;
 
 export default function LandingPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const subscription = authentication.observeAuthState().subscribe({
-      next: (authState) => {
-        if (authState.success) {
-          navigate("/homepage", { replace: true });
-        }
-      },
-      error: (error) => {
-        console.error("Errore verifica autenticazione:", error);
-      },
+    const checkExistingAuth = async () => {
+      const isAuth = await sessionManager.validateSession();
+      if (isAuth) {
+        navigate("/homepage", { replace: true });
+      }
+    };
+
+    checkExistingAuth();
+
+    const unsubscribe = observeAuthState((authState) => {
+      if (authState && authState.isAuthenticated) {
+        navigate("/homepage", { replace: true });
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+    };
   }, [navigate]);
 
   return (

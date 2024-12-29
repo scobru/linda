@@ -5,21 +5,22 @@
  * friend requests and other security-related operations.
  */
 
-import certificateManager from './certificateManager.js';
+import certificateManager from "./certificateManager.js";
 import {
   createChatsCertificate,
   createMessagesCertificate,
   revokeChatsCertificate,
   revokeMessagesCertificate,
-} from './chatCertificates.js';
+} from "./chatCertificates.js";
 import {
   createFriendRequestCertificate,
   generateAddFriendCertificate,
   createNotificationCertificate,
-  friendsCertificates
-} from './friendsCertificates.js';
-import { gun, user, DAPP_NAME } from '../useGun.js';
-import SEA from 'gun/sea.js';
+  friendsCertificates,
+} from "./friendsCertificates.js";
+import { gun, user, DAPP_NAME } from "../useGun.js";
+import SEA from "gun/sea.js";
+import sessionManager from "./sessionManager.js";
 
 // Esporta le funzioni dai moduli
 export {
@@ -31,7 +32,8 @@ export {
   createFriendRequestCertificate,
   generateAddFriendCertificate,
   createNotificationCertificate,
-  friendsCertificates
+  friendsCertificates,
+  sessionManager,
 };
 
 /**
@@ -54,7 +56,7 @@ export const verifyCertificate = async (cert, pubKey, type) => {
 
     return true;
   } catch (error) {
-    console.error('Errore verifica certificato:', error);
+    console.error("Errore verifica certificato:", error);
     return false;
   }
 };
@@ -67,9 +69,10 @@ export const getCertificate = async (type) => {
 
   try {
     const cert = await new Promise((resolve) => {
-      gun.user()
+      gun
+        .user()
         .get(DAPP_NAME)
-        .get('certificates')
+        .get("certificates")
         .get(type)
         .once((data) => {
           resolve(data);
@@ -78,9 +81,9 @@ export const getCertificate = async (type) => {
 
     if (!cert) {
       // Se non esiste, crea un nuovo certificato
-      if (type === 'friendRequests') {
+      if (type === "friendRequests") {
         return await createFriendRequestCertificate();
-      } else if (type === 'notifications') {
+      } else if (type === "notifications") {
         return await createNotificationCertificate();
       }
     }
@@ -104,5 +107,5 @@ export default {
   createNotificationCertificate,
   verifyCertificate,
   getCertificate,
-  friendsCertificates
+  friendsCertificates,
 };

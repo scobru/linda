@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { gun, user, DAPP_NAME } from "linda-protocol";
-import { blocking } from "linda-protocol";
-import { createMessagesCertificate } from "linda-protocol";
+import { gun, user, DAPP_NAME } from "#protocol";
+import { blocking } from "#protocol";
 
 const { userBlocking } = blocking;
 
@@ -62,31 +61,8 @@ export const useChatPermissions = (selected, chatData) => {
             return;
           }
 
-          try {
-            // Verifica il certificato
-            const cert = await gun
-              .get(DAPP_NAME)
-              .get("certificates")
-              .get(selected.pub)
-              .get("messages")
-              .then();
-
-            console.log("Certificato esistente:", cert);
-
-            if (!cert) {
-              console.log("Creazione nuovo certificato...");
-              const newCert = await createMessagesCertificate(selected.pub);
-              const hasPermission = !!newCert;
-              console.log("Nuovo certificato creato:", hasPermission);
-              setCanWrite(hasPermission);
-            } else {
-              console.log("Certificato valido - permesso concesso");
-              setCanWrite(true);
-            }
-          } catch (error) {
-            console.error("Errore gestione certificato:", error);
-            setCanWrite(false);
-          }
+          // Per le chat private, tutti possono scrivere se non sono bloccati
+          setCanWrite(true);
         }
       } catch (error) {
         console.error("Errore verifica permessi:", error);

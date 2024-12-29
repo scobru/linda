@@ -5,7 +5,7 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
-import { DAPP_NAME, user, gun, checkConnection } from "linda-protocol";
+import { DAPP_NAME, user, gun, checkConnection } from "#protocol";
 import Context from "./contexts/context";
 import RequireAuth from "./components/RequireAuth";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";

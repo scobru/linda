@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { user, notifications } from "linda-protocol";
+import { user, notifications } from "#protocol";
 import { toast } from "react-hot-toast";
 
 const { messageNotifications } = notifications;

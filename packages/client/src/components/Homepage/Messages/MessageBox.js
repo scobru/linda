@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { messaging, gun, DAPP_NAME } from "linda-protocol";
+import { messaging, gun, DAPP_NAME } from "#protocol";
 import { getUserUsername, getUserAvatar } from "../../../utils/userUtils";
 import AudioPlayer from "./AudioPlayer";
 
