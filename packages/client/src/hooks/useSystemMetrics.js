@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { gun, DAPP_NAME } from "#protocol";
+import { metricsService } from "../protocol/services";
 import { Observable } from "rxjs";
 
 export const useSystemMetrics = (metricsToObserve = []) => {
@@ -30,19 +30,17 @@ export const useSystemMetrics = (metricsToObserve = []) => {
     // Crea una sottoscrizione per ogni metrica richiesta
     metricsToObserve.forEach((metricName) => {
       const subscription = new Observable((subscriber) => {
-        const handler = gun
-          .get(DAPP_NAME)
-          .get("system")
-          .get("metrics")
-          .get(metricName)
-          .on((value) => {
+        const unsubscribe = metricsService.subscribeToMetric(
+          metricName,
+          (value) => {
             if (value !== undefined && value !== null) {
               subscriber.next({ [metricName]: value });
             }
-          });
+          }
+        );
 
         return () => {
-          if (typeof handler === "function") handler();
+          if (typeof unsubscribe === "function") unsubscribe();
         };
       }).subscribe({
         next: (value) => {
