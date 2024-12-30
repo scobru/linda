@@ -119,5 +119,6 @@ export const useMessages = (selected) => {
     isAuthorizedMember,
     authorizedMembers,
     memberCount,
+    setMessages,
   };
 };
