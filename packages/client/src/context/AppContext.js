@@ -5,7 +5,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import { gun, DAPP_NAME } from "linda-protocol";
+import { gun, DAPP_NAME } from "#protocol";
 
 const AppContext = createContext();
 
@@ -15,9 +15,19 @@ const initialState = {
   address: null,
   metamaskAddress: null,
   isAuthenticated: false,
+  user: {
+    is: {
+      pub: null,
+      alias: null,
+      address: null,
+      metamaskAddress: null,
+    },
+  },
   friends: [],
   selected: null,
   currentChat: null,
+  currentChannel: null,
+  currentBoard: null,
   notifications: [],
   unreadMessages: {},
   lastSeen: null,
@@ -38,7 +48,39 @@ const initialState = {
       canWrite: true,
     },
   },
+
+  activeChannel: {
+    id: null,
+    type: "channel",
+    name: null,
+    description: "",
+    creator: null,
+    members: [],
+    messages: [],
+    settings: {
+      isPublic: true,
+      canWrite: true,
+    },
+  },
+
+  activeBoard: {
+    id: null,
+    type: "board",
+    name: null,
+    description: "",
+    creator: null,
+    members: [],
+    messages: [],
+    avatar: null,
+    settings: {
+      isPublic: true,
+      canWrite: true,
+    },
+  },
+
   messages: {},
+  channels: {},
+  boards: {},
 
   walletInfo: null,
   transactions: [],
@@ -109,12 +151,21 @@ export const AppProvider = ({ children }) => {
     const walletAddress = localStorage.getItem("walletAddress");
 
     if (userPub && username) {
-      updateAppState({
+      const userData = {
         pub: userPub,
         alias: username,
         address: walletAddress,
         isAuthenticated: true,
-      });
+        user: {
+          is: {
+            pub: userPub,
+            alias: username,
+            address: walletAddress,
+          },
+        },
+      };
+
+      updateAppState(userData);
 
       gun
         .get(DAPP_NAME)
@@ -127,6 +178,13 @@ export const AppProvider = ({ children }) => {
               address: data.address,
               metamaskAddress: data.metamaskAddress,
               lastSeen: data.lastSeen,
+              user: {
+                is: {
+                  ...userData.user.is,
+                  address: data.address,
+                  metamaskAddress: data.metamaskAddress,
+                },
+              },
             });
           }
         });

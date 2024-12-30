@@ -1,8 +1,13 @@
 import React, { useEffect } from "react";
-import { authentication, sessionManager } from "linda-protocol";
+import {
+  authentication,
+  sessionManager,
+  gun,
+  user,
+  DAPP_NAME,
+} from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
-import { gun, user, DAPP_NAME } from "linda-protocol";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "../config/wagmi";
 
@@ -77,15 +82,17 @@ export default function SignIn() {
       console.log("handleLogin called");
 
       // Pulisci la sessione precedente
-      await sessionManager.clearSession();
+      sessionManager.clearSession();
       console.log("Pulizia stato precedente");
 
       // Verifica lo stato dell'utente
-      console.log("User.is:", user.is);
+      if (user.is) {
+        console.log("User.is:", user.is);
+      }
 
       const result = await authentication.loginUser({
-        username: username.trim(),
-        password: password.trim(),
+        username: username,
+        password: password,
       });
 
       if (result.success) {
@@ -259,9 +266,18 @@ export default function SignIn() {
             lastSeen: Date.now(),
             authType: "metamask",
           },
-          (ack) => {
-            if (ack.err) reject(new Error(ack.err));
-            else resolve();
+          async (ack) => {
+            try {
+              if (ack.err) {
+                console.error(
+                  "Errore durante il salvataggio dei dati utente:",
+                  ack.err
+                );
+              }
+              // Continua con il flusso normale
+            } catch (error) {
+              console.error("Errore durante il callback:", error);
+            }
           }
         );
 

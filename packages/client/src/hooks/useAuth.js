@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useAppState } from "../context/AppContext";
-import { user, auth } from "linda-protocol";
+import { user, auth } from "#protocol";
 import { toast } from "react-hot-toast";
 
 export const useAuth = () => {

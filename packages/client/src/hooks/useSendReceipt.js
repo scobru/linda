@@ -1,25 +1,63 @@
-import React from "react";
-import { gun, user } from "linda-protocol";
+import { useCallback } from "react";
+import { gun, user, DAPP_NAME } from "#protocol";
+import { Observable } from "rxjs";
+import { toast } from "react-hot-toast";
 
-export const useSendReceipt = () => {
-  const sendReceipt = React.useCallback(async (messageId, roomId, type) => {
-    if (!user.is || !messageId || !roomId) return;
+export const useSendReceipt = (roomId) => {
+  const sendReceipt = useCallback(
+    async (messageId, type) => {
+      if (!user?.is?.pub || !messageId || !roomId) return;
 
-    try {
-      await gun.get(`chats/${roomId}/receipts`).get(messageId).put({
-        type,
-        timestamp: Date.now(),
-        by: user.is.pub,
+      try {
+        await gun
+          .get(DAPP_NAME)
+          .get("chats")
+          .get(roomId)
+          .get("receipts")
+          .get(messageId)
+          .put({
+            type,
+            timestamp: Date.now(),
+            by: user.is.pub,
+          });
+      } catch (error) {
+        console.warn(`Errore invio ricevuta ${type}:`, error);
+      }
+    },
+    [roomId]
+  );
+
+  const observeReceipts = useCallback(
+    (messageId) => {
+      return new Observable((subscriber) => {
+        if (!roomId || !messageId) {
+          subscriber.error(new Error("ID messaggio o chat mancante"));
+          return;
+        }
+
+        const handler = gun
+          .get(DAPP_NAME)
+          .get("chats")
+          .get(roomId)
+          .get("receipts")
+          .get(messageId)
+          .on((receipt) => {
+            if (receipt) {
+              subscriber.next(receipt);
+            }
+          });
+
+        return () => {
+          if (typeof handler === "function") handler();
+        };
       });
-    } catch (error) {
-      console.warn(`Error sending ${type} receipt:`, error);
-    }
-  }, []);
+    },
+    [roomId]
+  );
 
   return {
-    sendDeliveryReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, "delivery"),
-    sendReadReceipt: (messageId, roomId) =>
-      sendReceipt(messageId, roomId, "read"),
+    sendDeliveryReceipt: (messageId) => sendReceipt(messageId, "delivery"),
+    sendReadReceipt: (messageId) => sendReceipt(messageId, "read"),
+    observeReceipts,
   };
 };

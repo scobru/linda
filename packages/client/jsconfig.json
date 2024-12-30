@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "#protocol": ["./src/protocol"],
+      "#protocol/*": ["./src/protocol/*"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
-import { walletService } from "linda-protocol";
-import { gun, user } from "linda-protocol";
+import { walletService } from "#protocol";
+import { gun, user } from "#protocol";
 import { ethers } from "ethers";
 import { formatEther } from "ethers";
 
