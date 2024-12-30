@@ -57,6 +57,55 @@ export const useMessageNotifications = (messages, chatId) => {
           );
         });
       }
+
+      // Mostra il box informativo solo la prima volta
+      const hasShownInfo = localStorage.getItem("notificationInfoShown");
+      if (!hasShownInfo) {
+        const infoBox = document.createElement("div");
+        infoBox.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          background: #373B5C;
+          border: 2px solid #4A4F76;
+          border-radius: 10px;
+          padding: 15px;
+          color: white;
+          max-width: 300px;
+          z-index: 9999;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        `;
+        infoBox.innerHTML = `
+          <h3 style="margin: 0 0 10px; font-size: 16px; font-weight: bold;">📱 Notifiche Personalizzate</h3>
+          <p style="margin: 0 0 10px; font-size: 14px;">
+            Riceverai notifiche dettagliate per:
+            <br>• 💬 Chat private con stato online
+            <br>• 📌 Board con sezioni e thread
+            <br>• 📢 Canali con membri e tema
+            <br>• 🎤 Messaggi vocali con durata
+            <br>• 📷 Immagini con dimensioni
+            <br>• 📎 File con dimensione
+            <br>• 👁️ Stato di lettura
+          </p>
+          <button style="
+            background: #4A4F76;
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+          ">Ho capito!</button>
+        `;
+
+        document.body.appendChild(infoBox);
+
+        // Rimuovi il box quando viene cliccato il pulsante
+        infoBox.querySelector("button").onclick = () => {
+          infoBox.remove();
+          localStorage.setItem("notificationInfoShown", "true");
+        };
+      }
     }
   }, []);
 
