@@ -256,9 +256,11 @@ const MessageBox = ({
         } mt-1`}
       >
         <div
-          className={`flex items-center ${isOwnMessage ? "mr-14" : "ml-14"}`}
+          className={`flex items-center ${
+            isOwnMessage ? "mr-2 sm:mr-4 md:mr-14" : "ml-2 sm:ml-4 md:ml-14"
+          }`}
         >
-          <div className="bg-[#2D325A] rounded-lg p-1">
+          <div className="bg-[#2D325A] rounded-lg p-1 shadow-md">
             <ReactionsContainer
               contentId={message.id}
               contentType={contentType}
