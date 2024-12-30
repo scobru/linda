@@ -1,31 +1,179 @@
 import { useState, useEffect, useCallback } from "react";
-import { channelsV2 } from "#protocol";
+import { channelService } from "../protocol/services";
 import { useAppState } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 
 export const useChannels = () => {
-  const [channelList, setChannelList] = useState([]);
-  const [loading, setLoading] = useState(true);
   const { appState } = useAppState();
+  const [channels, setChannels] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Carica la lista dei canali
   const loadChannels = useCallback(async () => {
+    if (!appState.isAuthenticated) return;
+
     try {
       setLoading(true);
-      await channelsV2.list((response) => {
+      setError(null);
+      await channelService.list((response) => {
         if (response.success) {
-          setChannelList(response.channels);
+          setChannels(response.channels);
         } else {
+          setError(response.error);
           toast.error(response.error || "Errore nel caricamento dei canali");
         }
       });
     } catch (error) {
       console.error("Errore caricamento canali:", error);
+      setError(error.message);
       toast.error("Errore nel caricamento dei canali");
     } finally {
       setLoading(false);
     }
+  }, [appState.isAuthenticated]);
+
+  // Crea un nuovo canale
+  const createChannel = useCallback(
+    async (channelData) => {
+      try {
+        setLoading(true);
+        return new Promise((resolve) => {
+          channelService.create(channelData, (response) => {
+            if (response.success) {
+              loadChannels();
+              toast.success("Canale creato con successo");
+              resolve(true);
+            } else {
+              toast.error(
+                response.error || "Errore nella creazione del canale"
+              );
+              resolve(false);
+            }
+          });
+        });
+      } catch (error) {
+        console.error("Errore creazione canale:", error);
+        toast.error(error.message || "Errore nella creazione del canale");
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadChannels]
+  );
+
+  // Unisciti a un canale
+  const joinChannel = useCallback(
+    async (channelId) => {
+      try {
+        setLoading(true);
+        await new Promise((resolve, reject) => {
+          channelService.join(channelId, (response) => {
+            if (response.success) {
+              loadChannels();
+              toast.success("Ti sei unito al canale");
+              resolve();
+            } else {
+              toast.error(response.error || "Errore nell'unirsi al canale");
+              reject(new Error(response.error));
+            }
+          });
+        });
+      } catch (error) {
+        console.error("Errore partecipazione canale:", error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadChannels]
+  );
+
+  // Lascia un canale
+  const leaveChannel = useCallback(async (channelId) => {
+    try {
+      setLoading(true);
+      await new Promise((resolve, reject) => {
+        channelService.leave(channelId, (response) => {
+          if (response.success) {
+            setChannels((prevChannels) =>
+              prevChannels.filter((c) => c.id !== channelId)
+            );
+            toast.success("Hai lasciato il canale");
+            resolve();
+          } else {
+            toast.error(response.error || "Errore nel lasciare il canale");
+            reject(new Error(response.error));
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Errore abbandono canale:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Elimina un canale
+  const deleteChannel = useCallback(async (channelId) => {
+    try {
+      setLoading(true);
+      await new Promise((resolve, reject) => {
+        channelService.delete(channelId, (response) => {
+          if (response.success) {
+            setChannels((prevChannels) =>
+              prevChannels.filter((c) => c.id !== channelId)
+            );
+            toast.success("Canale eliminato con successo");
+            resolve();
+          } else {
+            toast.error(
+              response.error || "Errore nell'eliminazione del canale"
+            );
+            reject(new Error(response.error));
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Errore eliminazione canale:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Cerca canali
+  const searchChannels = useCallback(async (query) => {
+    try {
+      setLoading(true);
+      return new Promise((resolve) => {
+        channelService.search(query, (response) => {
+          if (response.success) {
+            resolve(response.channels || []);
+          } else {
+            toast.error(response.error || "Errore nella ricerca dei canali");
+            resolve([]);
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Errore ricerca canali:", error);
+      toast.error("Errore nella ricerca dei canali");
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Verifica se l'utente è il creatore del canale
+  const isChannelCreator = useCallback(
+    (channel) => {
+      return channel.creator === appState.user?.is?.pub;
+    },
+    [appState.user?.is?.pub]
+  );
 
   // Carica i canali all'avvio
   useEffect(() => {
@@ -34,95 +182,10 @@ export const useChannels = () => {
     }
   }, [appState.isAuthenticated, loadChannels]);
 
-  // Crea un nuovo canale
-  const createChannel = async (name, isChannel = true) => {
-    try {
-      return new Promise((resolve, reject) => {
-        channelsV2.create(
-          {
-            name,
-            type: isChannel ? "channel" : "board",
-          },
-          (response) => {
-            if (response.success) {
-              toast.success("Canale creato con successo");
-              loadChannels();
-              resolve(true);
-            } else {
-              toast.error(
-                response.error || "Errore nella creazione del canale"
-              );
-              resolve(false);
-            }
-          }
-        );
-      });
-    } catch (error) {
-      console.error("Errore creazione canale:", error);
-      toast.error(error.message || "Errore nella creazione del canale");
-      return false;
-    }
-  };
-
-  // Unisciti a un canale
-  const joinChannel = async (channelId) => {
-    try {
-      await channelsV2.join(channelId);
-      toast.success("Ti sei unito al canale");
-      loadChannels();
-    } catch (error) {
-      console.error("Errore partecipazione canale:", error);
-      toast.error(error.message || "Errore nell'unirsi al canale");
-      throw error;
-    }
-  };
-
-  // Lascia un canale
-  const leaveChannel = async (channelId) => {
-    try {
-      await channelsV2.leave(channelId);
-      toast.success("Hai lasciato il canale");
-      loadChannels();
-    } catch (error) {
-      console.error("Errore abbandono canale:", error);
-      toast.error(error.message || "Errore nell'abbandonare il canale");
-      throw error;
-    }
-  };
-
-  // Elimina un canale
-  const deleteChannel = async (channelId) => {
-    try {
-      await channelsV2.delete(channelId);
-      toast.success("Canale eliminato con successo");
-      loadChannels();
-    } catch (error) {
-      console.error("Errore eliminazione canale:", error);
-      toast.error(error.message || "Errore nell'eliminazione del canale");
-      throw error;
-    }
-  };
-
-  // Cerca canali
-  const searchChannels = async (query) => {
-    try {
-      const results = await channelsV2.search(query);
-      return results.channels || [];
-    } catch (error) {
-      console.error("Errore ricerca canali:", error);
-      toast.error("Errore nella ricerca dei canali");
-      return [];
-    }
-  };
-
-  // Verifica se l'utente è il creatore del canale
-  const isChannelCreator = (channel) => {
-    return channel.creator === appState.user?.is?.pub;
-  };
-
   return {
-    channelList,
+    channels,
     loading,
+    error,
     createChannel,
     joinChannel,
     leaveChannel,
@@ -132,3 +195,5 @@ export const useChannels = () => {
     loadChannels,
   };
 };
+
+export default useChannels;

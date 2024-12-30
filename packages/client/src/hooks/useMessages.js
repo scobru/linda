@@ -17,23 +17,10 @@ export const useMessages = (selected) => {
     if (!selected?.roomId || selected.type !== "board") return;
 
     try {
-      let count = 0;
-      gun
-        .get(DAPP_NAME)
-        .get("boards")
-        .get(selected.roomId)
-        .get("members")
-        .map()
-        .once((data, key) => {
-          if (
-            data &&
-            (data.canWrite === true || data.permissions?.write === true)
-          ) {
-            setAuthorizedMembers((prev) => ({ ...prev, [key]: data }));
-            count++;
-            setMemberCount(count);
-          }
-        });
+      const { members, count } =
+        await messaging.messageService.loadAuthorizedMembers(selected.roomId);
+      setAuthorizedMembers(members);
+      setMemberCount(count);
     } catch (error) {
       console.error("Errore caricamento membri autorizzati:", error);
     }

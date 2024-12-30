@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { useMobileView } from "../../../hooks/useMobileView";
-import { useChannelsV2 } from "../../../hooks/useChannelsV2";
+import { useChannels } from "../../../hooks/useChannels";
 import { toast } from "react-hot-toast";
 import { gun, DAPP_NAME } from "#protocol";
 import { ManagementMenu } from "../Management";
@@ -25,7 +25,7 @@ export default function Channels({ onSelect }) {
     deleteChannel,
     updateName,
     updateDescription,
-  } = useChannelsV2();
+  } = useChannels();
 
   useEffect(() => {
     if (error) {

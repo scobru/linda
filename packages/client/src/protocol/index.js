@@ -23,7 +23,6 @@ export {
 export { walletService } from "./wallet";
 export { userUtils } from "./utils/userUtils";
 export { userBlocking } from "./blocking";
-export { cacheManager } from "./cache";
 export { avatarService } from "./utils/avatarService";
 
 // Security and Authentication
@@ -33,6 +32,8 @@ export { friendsService } from "./friends";
 // Messaging modules
 export { default as messaging } from "./messaging";
 export { channelsV2 } from "./messaging/channels.v2";
+export { boardService } from "./messaging/boardService";
+export { channelService } from "./messaging/channelService";
 
 // Other modules
 export * as blocking from "./blocking";
