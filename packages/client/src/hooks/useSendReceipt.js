@@ -1,25 +1,12 @@
 import { useCallback } from "react";
-import { gun, user, DAPP_NAME } from "#protocol";
+import { messageService } from "../protocol/services";
 import { Observable } from "rxjs";
-import { toast } from "react-hot-toast";
 
 export const useSendReceipt = (roomId) => {
   const sendReceipt = useCallback(
     async (messageId, type) => {
-      if (!user?.is?.pub || !messageId || !roomId) return;
-
       try {
-        await gun
-          .get(DAPP_NAME)
-          .get("chats")
-          .get(roomId)
-          .get("receipts")
-          .get(messageId)
-          .put({
-            type,
-            timestamp: Date.now(),
-            by: user.is.pub,
-          });
+        await messageService.sendReceipt(roomId, messageId, type);
       } catch (error) {
         console.warn(`Errore invio ricevuta ${type}:`, error);
       }
@@ -35,20 +22,18 @@ export const useSendReceipt = (roomId) => {
           return;
         }
 
-        const handler = gun
-          .get(DAPP_NAME)
-          .get("chats")
-          .get(roomId)
-          .get("receipts")
-          .get(messageId)
-          .on((receipt) => {
+        const unsubscribe = messageService.subscribeToReceipts(
+          roomId,
+          messageId,
+          (receipt) => {
             if (receipt) {
               subscriber.next(receipt);
             }
-          });
+          }
+        );
 
         return () => {
-          if (typeof handler === "function") handler();
+          if (typeof unsubscribe === "function") unsubscribe();
         };
       });
     },

@@ -6,14 +6,14 @@ import Header from "../components/Header";
 import Friends from "../components/Homepage/Friends/Friends";
 import Boards from "../components/Homepage/Boards/Boards";
 import { useMobileView } from "../hooks/useMobileView";
-import { useChannelsV2 } from "../hooks/useChannelsV2";
+import { useChannels } from "../hooks/useChannels";
 import { messaging } from "#protocol";
 
 export default function Homepage() {
   const { appState, currentView, setCurrentView, updateAppState } =
     useAppState();
   const { isMobileView, showSidebar, setShowSidebar } = useMobileView();
-  const channelService = useChannelsV2();
+  const channelService = useChannels();
 
   if (!appState.isAuthenticated) {
     return (

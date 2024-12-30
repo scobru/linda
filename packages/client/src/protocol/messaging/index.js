@@ -7,6 +7,9 @@ import { channelsV2 } from "./channels.v2.js";
 import { boardsV2 } from "./boards.v2.js";
 import { messageList } from "./messageList.js";
 import sendVoiceMessage from "./sendVoiceMessage.js";
+import { messageService } from "./messageService.js";
+import { boardService } from "./boardService.js";
+import { channelService } from "./channelService.js";
 import {
   addReaction,
   removeReaction,
@@ -300,6 +303,11 @@ export const messaging = {
   voice: {
     send: sendVoiceMessage,
   },
+
+  /**
+   * Servizio messaggi centralizzato
+   */
+  messageService,
 };
 
 export const addMessageReaction = async (messageId, reaction, userPub) => {
@@ -383,5 +391,6 @@ export const getBoardMessageReactions = async (messageId) => {
 };
 
 // Esporta i servizi V2 individualmente
-export { channelsV2, boardsV2 };
+export { channelsV2, boardsV2, boardService, channelService };
 export default messaging;
+export { messageService } from "./messageService";

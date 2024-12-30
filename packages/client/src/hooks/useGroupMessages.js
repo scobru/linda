@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "react-hot-toast";
-import { messaging } from "#protocol";
+import { messaging, gun } from "#protocol";
 import { useAppState } from "../context/AppContext";
+import { messageService } from "../protocol/services";
 
 // Costante per il namespace dell'app
 const GROUPS_NAMESPACE = "linda_groups";
@@ -20,26 +21,11 @@ export const useGroupMessages = (groupId, groupType) => {
       setLoading(true);
       setError(null);
 
-      const path = groupType === "channel" ? "channels" : "boards";
-      const messages = await new Promise((resolve) => {
-        const results = [];
-        gun
-          .get(GROUPS_NAMESPACE)
-          .get(path)
-          .get(groupId)
-          .get("messages")
-          .map()
-          .once((message, messageId) => {
-            if (message) {
-              results.push({ ...message, id: messageId });
-            }
-          });
-        setTimeout(() => resolve(results), 500);
-      });
-
-      // Ordina i messaggi per timestamp
-      const sortedMessages = messages.sort((a, b) => a.timestamp - b.timestamp);
-      setMessages(sortedMessages);
+      const messages = await messageService.loadGroupMessages(
+        groupId,
+        groupType
+      );
+      setMessages(messages);
     } catch (error) {
       console.error("Errore caricamento messaggi gruppo:", error);
       setError(error.message);
@@ -57,40 +43,15 @@ export const useGroupMessages = (groupId, groupType) => {
       try {
         setLoading(true);
 
-        const messageId = `group_msg_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-        const messageData = {
-          id: messageId,
-          content, // Non crittografato per i gruppi
-          sender: appState.user.is.pub,
-          timestamp: Date.now(),
-          type: "text",
-        };
-
-        const path = groupType === "channel" ? "channels" : "boards";
-
-        // Salva il messaggio
-        await gun
-          .get(GROUPS_NAMESPACE)
-          .get(path)
-          .get(groupId)
-          .get("messages")
-          .get(messageId)
-          .put(messageData);
-
-        // Aggiorna lastMessage
-        await gun
-          .get(GROUPS_NAMESPACE)
-          .get(path)
-          .get(groupId)
-          .get("lastMessage")
-          .put({
-            content:
-              content.substring(0, 50) + (content.length > 50 ? "..." : ""),
+        const messageData = await messageService.sendGroupMessage(
+          groupId,
+          groupType,
+          content,
+          {
             sender: appState.user.is.pub,
-            timestamp: Date.now(),
-          });
+            alias: appState.alias,
+          }
+        );
 
         // Aggiorna la lista locale
         setMessages((prev) => [...prev, messageData]);
@@ -104,7 +65,13 @@ export const useGroupMessages = (groupId, groupType) => {
         setLoading(false);
       }
     },
-    [appState.isAuthenticated, appState.user, groupId, groupType]
+    [
+      appState.isAuthenticated,
+      appState.user,
+      appState.alias,
+      groupId,
+      groupType,
+    ]
   );
 
   // Elimina un messaggio
@@ -115,8 +82,6 @@ export const useGroupMessages = (groupId, groupType) => {
       try {
         setLoading(true);
 
-        const path = groupType === "channel" ? "channels" : "boards";
-
         // Verifica permessi
         const message = messages.find((m) => m.id === messageId);
         if (!message) throw new Error("Messaggio non trovato");
@@ -125,14 +90,7 @@ export const useGroupMessages = (groupId, groupType) => {
           throw new Error("Non autorizzato a eliminare questo messaggio");
         }
 
-        // Elimina il messaggio
-        await gun
-          .get(GROUPS_NAMESPACE)
-          .get(path)
-          .get(groupId)
-          .get("messages")
-          .get(messageId)
-          .put(null);
+        await messageService.deleteGroupMessage(groupId, groupType, messageId);
 
         // Aggiorna la lista locale
         setMessages((prev) => prev.filter((m) => m.id !== messageId));
@@ -153,32 +111,28 @@ export const useGroupMessages = (groupId, groupType) => {
   useEffect(() => {
     if (!appState.isAuthenticated || !groupId) return;
 
-    const path = groupType === "channel" ? "channels" : "boards";
+    const unsubscribe = messageService.subscribeToGroupMessages(
+      groupId,
+      groupType,
+      (message, messageId, isDeleted) => {
+        setMessages((prev) => {
+          if (isDeleted) {
+            return prev.filter((m) => m.id !== messageId);
+          }
 
-    const unsubscribe = gun
-      .get(GROUPS_NAMESPACE)
-      .get(path)
-      .get(groupId)
-      .get("messages")
-      .map()
-      .on((message, messageId) => {
-        if (message) {
-          setMessages((prev) => {
-            const exists = prev.some((m) => m.id === messageId);
-            if (exists) {
-              return prev.map((m) =>
-                m.id === messageId ? { ...message, id: messageId } : m
-              );
-            } else {
-              return [...prev, { ...message, id: messageId }].sort(
-                (a, b) => a.timestamp - b.timestamp
-              );
-            }
-          });
-        } else {
-          setMessages((prev) => prev.filter((m) => m.id !== messageId));
-        }
-      });
+          const exists = prev.some((m) => m.id === messageId);
+          if (exists) {
+            return prev.map((m) =>
+              m.id === messageId ? { ...message, id: messageId } : m
+            );
+          } else {
+            return [...prev, { ...message, id: messageId }].sort(
+              (a, b) => a.timestamp - b.timestamp
+            );
+          }
+        });
+      }
+    );
 
     return () => {
       if (typeof unsubscribe === "function") unsubscribe();

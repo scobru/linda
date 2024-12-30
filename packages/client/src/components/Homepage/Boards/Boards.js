@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAppState } from "../../../context/AppContext";
 import { toast } from "react-hot-toast";
-import { useBoardsV2 } from "../../../hooks/useBoardsV2";
+import { useBoards } from "../../../hooks/useBoards";
 import { useMobileView } from "../../../hooks/useMobileView";
 import { gun, DAPP_NAME } from "#protocol";
 import { ManagementMenu } from "../Management";
@@ -18,7 +18,7 @@ export default function Boards({ onSelect }) {
     searchBoards,
     loadBoards,
     deleteBoard,
-  } = useBoardsV2();
+  } = useBoards();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");

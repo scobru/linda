@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { gun, DAPP_NAME } from "#protocol";
-import { getUserUsername, getUserAvatar } from "../utils/userUtils";
+import { userProfileService } from "../protocol/services";
 
 export const useChatUser = (selected, chatData) => {
   const [chatUserInfo, setChatUserInfo] = useState({
@@ -15,15 +14,15 @@ export const useChatUser = (selected, chatData) => {
 
     const loadUserInfo = async () => {
       try {
-        const info = await getUserUsername(selected.pub);
-        setChatUserInfo({
-          displayName: info || selected.alias,
-          username: info || "",
-          nickname: info || "",
-        });
-
-        const avatar = await getUserAvatar(selected.pub);
-        setChatUserAvatar(avatar);
+        const userInfo = await userProfileService.loadUserInfo(selected.pub);
+        if (userInfo) {
+          setChatUserInfo({
+            displayName: userInfo.displayName || selected.alias,
+            username: userInfo.username || "",
+            nickname: userInfo.nickname || "",
+          });
+          setChatUserAvatar(userInfo.avatar || "");
+        }
       } catch (error) {
         console.error("Errore caricamento info utente:", error);
       }
@@ -31,43 +30,21 @@ export const useChatUser = (selected, chatData) => {
 
     loadUserInfo();
 
-    // Sottoscrizioni al profilo utente
-    const unsubUserList = gun
-      .get(DAPP_NAME)
-      .get("userList")
-      .get("users")
-      .get(selected.pub)
-      .on((data) => {
-        if (data) {
-          setChatUserInfo((prev) => ({
-            ...prev,
-            displayName: data.nickname || data.username || selected.alias,
-            username: data.username || prev.username,
-            nickname: data.nickname || prev.nickname,
-          }));
-          if (data.avatar) setChatUserAvatar(data.avatar);
-        }
-      });
-
-    const unsubUsers = gun
-      .get(DAPP_NAME)
-      .get("users")
-      .get(selected.pub)
-      .on((data) => {
-        if (data) {
-          setChatUserInfo((prev) => ({
-            ...prev,
-            displayName: data.nickname || data.username || selected.alias,
-            username: data.username || prev.username,
-            nickname: data.nickname || prev.nickname,
-          }));
-          if (data.avatar) setChatUserAvatar(data.avatar);
-        }
-      });
+    // Sottoscrizione agli aggiornamenti del profilo
+    const unsubscribe = userProfileService.subscribeToUserInfo(
+      selected.pub,
+      (userInfo) => {
+        setChatUserInfo({
+          displayName: userInfo.displayName || selected.alias,
+          username: userInfo.username || "",
+          nickname: userInfo.nickname || "",
+        });
+        if (userInfo.avatar) setChatUserAvatar(userInfo.avatar);
+      }
+    );
 
     return () => {
-      if (typeof unsubUserList === "function") unsubUserList();
-      if (typeof unsubUsers === "function") unsubUsers();
+      if (typeof unsubscribe === "function") unsubscribe();
     };
   }, [selected?.pub, selected?.type, selected?.name, selected?.alias]);
 
