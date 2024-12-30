@@ -105,11 +105,11 @@ const InputArea = ({
           onChange={(e) => setNewMessage(e.target.value)}
           onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
           placeholder="Scrivi un messaggio..."
-          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none border-none"
+          className="flex-1 min-w-0 bg-transparent text-white placeholder-gray-400 focus:outline-none border-none"
           disabled={isRecording}
         />
         {!isRecording ? (
-          <>
+          <div className="flex items-center space-x-2 flex-shrink-0">
             <input
               type="file"
               ref={fileInputRef}
@@ -165,7 +165,7 @@ const InputArea = ({
             >
               <AiOutlineSend className="w-5 h-5" />
             </button>
-          </>
+          </div>
         ) : (
           <button
             onClick={stopRecording}
