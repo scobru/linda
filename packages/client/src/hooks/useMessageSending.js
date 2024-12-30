@@ -81,17 +81,10 @@ export const useMessageSending = (selected) => {
           blobSize: audioBlob.size,
         });
 
-        // Converti il blob in base64
-        const audioBase64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(audioBlob);
-        });
-
         const messageData = await messageService.sendVoiceMessage(
           selected.roomId,
           selected.type,
-          audioBase64,
+          audioBlob,
           {
             sender: appState.user.is.pub,
             senderAlias: appState.user.is.alias,
