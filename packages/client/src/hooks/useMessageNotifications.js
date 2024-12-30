@@ -231,7 +231,7 @@ export const useMessageNotifications = (messages, chatId) => {
               },
             };
 
-            // In Brave, alcune opzioni potrebbero non essere supportate
+            // In Brave, alcune opzioni potrebbero non essere supportate e
             if (!isBrave) {
               notificationOptions.badge = "/notification-badge.png";
               notificationOptions.actions = [
