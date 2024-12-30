@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { gun, DAPP_NAME } from "#protocol";
+import { chatService } from "../protocol/services";
 import { useAppState } from "../context/AppContext";
 import { toast } from "react-hot-toast";
 
@@ -26,55 +26,45 @@ export const useChat = (roomId, type = "friend") => {
       roomId
     );
 
-    // Sottoscrizione diretta alla chat
-    const chatRef = gun.get(DAPP_NAME).get("private_messages").get(roomId);
-
-    // Sottoscrizione ai messaggi
-    const messagesHandler = chatRef.map().on((msg, id) => {
-      if (!mounted || !msg || id === "_" || !msg.timestamp) {
-        console.log("useChat - Messaggio ignorato:", { msg, id });
-        return;
+    // Carica messaggi iniziali
+    chatService.loadMessages(roomId).then((initialMessages) => {
+      if (mounted) {
+        setMessages(initialMessages);
+        setLoading(false);
       }
-
-      console.log("useChat - Nuovo messaggio ricevuto:", { msg, id });
-
-      setMessages((prev) => {
-        // Evita duplicati
-        const exists = prev.some((m) => m.id === id);
-        if (exists) {
-          console.log("useChat - Messaggio duplicato ignorato:", id);
-          return prev;
-        }
-
-        // Aggiungi il nuovo messaggio
-        const newMessage = {
-          id,
-          text: msg.text || msg.content,
-          sender: msg.sender || msg.from,
-          timestamp: msg.timestamp || msg.time,
-          senderInfo: msg.senderInfo || {
-            pub: msg.sender || msg.from,
-            alias: msg.senderAlias,
-          },
-        };
-
-        console.log("useChat - Aggiunto nuovo messaggio:", newMessage);
-
-        // Ordina i messaggi per timestamp
-        const newMessages = [...prev, newMessage].sort(
-          (a, b) => a.timestamp - b.timestamp
-        );
-        return newMessages;
-      });
-
-      setLoading(false);
     });
+
+    // Sottoscrizione ai nuovi messaggi
+    const unsubscribe = chatService.subscribeToMessages(
+      roomId,
+      (newMessage) => {
+        if (!mounted) return;
+
+        setMessages((prev) => {
+          // Evita duplicati
+          const exists = prev.some((m) => m.id === newMessage.id);
+          if (exists) {
+            console.log(
+              "useChat - Messaggio duplicato ignorato:",
+              newMessage.id
+            );
+            return prev;
+          }
+
+          // Aggiungi il nuovo messaggio e ordina
+          const newMessages = [...prev, newMessage].sort(
+            (a, b) => a.timestamp - b.timestamp
+          );
+          return newMessages;
+        });
+      }
+    );
 
     return () => {
       console.log("useChat - Pulizia sottoscrizione per roomId:", roomId);
       mounted = false;
-      if (typeof messagesHandler === "function") {
-        messagesHandler();
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
       }
     };
   }, [roomId, appState.user?.is?.pub]);
@@ -93,40 +83,15 @@ export const useChat = (roomId, type = "friend") => {
       }
 
       try {
-        const messageData = {
-          text: text.trim(),
-          sender: appState.user.is.pub,
-          timestamp: Date.now(),
-          senderInfo: {
-            pub: appState.user.is.pub,
-            alias: appState.alias,
-          },
-        };
-
-        const messageId = `msg_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-
-        console.log("useChat - Invio messaggio:", { messageData, messageId });
-
-        await new Promise((resolve, reject) => {
-          gun
-            .get(DAPP_NAME)
-            .get("private_messages")
-            .get(roomId)
-            .get(messageId)
-            .put(messageData, (ack) => {
-              if (ack.err) {
-                console.error("useChat - Errore invio:", ack.err);
-                reject(new Error(ack.err));
-              } else {
-                console.log("useChat - Messaggio inviato con successo");
-                resolve();
-              }
-            });
+        const success = await chatService.sendMessage(roomId, text, {
+          alias: appState.alias,
         });
 
-        return true;
+        if (success) {
+          console.log("useChat - Messaggio inviato con successo");
+        }
+
+        return success;
       } catch (error) {
         console.error("useChat - Errore nell'invio del messaggio:", error);
         toast.error("Errore nell'invio del messaggio");
