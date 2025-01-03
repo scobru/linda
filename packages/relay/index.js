@@ -64,15 +64,21 @@ const CONFIG = {
 
 // Aggiungi questa definizione all'inizio del file, dopo le altre costanti
 const globalMetrics = {
-  totalUsers: 0,
-  totalChannels: 0,
-  totalBoards: 0,
-  totalFriendRequests: 0,
-  totalFriendRequestsRejected: 0,
-  totalMessagesSent: 0,
-  totalLogins: 0,
-  totalRegistrations: 0,
-  totalFriendRequestsMade: 0,
+  connections: 0,
+  putOperations: 0,
+  getOperations: 0,
+  bytesTransferred: 0,
+  storage: {
+    radata: 0,
+    total: 0,
+  },
+  system: {
+    cpu: 0,
+    memory: {
+      heapUsed: 0,
+      heapTotal: 0,
+    },
+  },
 };
 
 // Aggiungi questa funzione all'inizio del file, dopo le importazioni
@@ -430,10 +436,8 @@ function syncGlobalMetrics() {
 // Chiama syncGlobalMetrics ogni 5 secondi
 setInterval(syncGlobalMetrics, 5000);
 
-// Aggiungi questa nuova funzione per inizializzare gli event listeners
-function initializeGunListeners(gun, mogu) {
-  const processedEvents = new Set();
-
+// Rimuovi la funzione initializeGunListeners e sostituiscila con questa versione semplificata
+function initializeGunListeners(gun) {
   // Tracking operazioni put/get
   gun._.on("in", function (msg) {
     if (msg.put) {
@@ -448,113 +452,22 @@ function initializeGunListeners(gun, mogu) {
       metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.get)).length;
     }
   });
-
-  // Tracking messaggi
-  gun
-    .get(DAPP_NAME)
-    .get("chats")
-    .map()
-    .get("messages")
-    .map()
-    .on((msg, key) => {
-      if (msg && !processedEvents.has(key)) {
-        processedEvents.add(key);
-        updateGlobalMetric("totalMessagesSent", 1);
-      }
-    });
-
-  // Tracking richieste di amicizia
-  gun
-    .get(DAPP_NAME)
-    .get("friend_requests")
-    .map()
-    .on((data, key) => {
-      if (data && !processedEvents.has(key)) {
-        processedEvents.add(key);
-        updateGlobalMetric("totalFriendRequests", 1);
-      }
-    });
-
-  // Tracking richieste rifiutate
-  gun
-    .get(DAPP_NAME)
-    .get("rejected_requests")
-    .map()
-    .on((data, key) => {
-      if (data && !processedEvents.has(key)) {
-        processedEvents.add(key);
-        updateGlobalMetric("totalFriendRequestsRejected", 1);
-      }
-    });
-
-  // Tracking separato per board e canali
-  gun
-    .get(DAPP_NAME)
-    .get("channels")
-    .map()
-    .on((data, key) => {
-      if (data && !processedEvents.has(key)) {
-        processedEvents.add(key);
-
-        // Verifica il tipo di canale
-        if (data.type === "channel") {
-          updateGlobalMetric("totalChannels", 1);
-          console.log("Nuovo canale creato:", data.name);
-        } else if (data.type === "board") {
-          updateGlobalMetric("totalBoards", 1);
-          console.log("Nuova board creata:", data.name);
-        }
-      }
-    });
-
-  // Pulizia periodica degli eventi processati
-  setInterval(() => {
-    processedEvents.clear();
-  }, 60000); // Pulisci ogni minuto
 }
 
-// Modifica la funzione updateGlobalMetric
-function updateGlobalMetric(metric, value = 1) {
-  if (!metric || typeof value !== "number") return;
-
-  gun
-    .get(DAPP_NAME)
-    .get("globalMetrics")
-    .get(metric)
-    .once((currentValue) => {
-      // Assicurati che il valore corrente sia un numero
-      const current =
-        typeof currentValue === "number"
-          ? currentValue
-          : typeof currentValue === "object" && currentValue._
-          ? Number(currentValue._)
-          : 0;
-
-      const newValue = current + value;
-
-      // Usa gun direttamente invece di mogu
-      gun.get(DAPP_NAME).get("globalMetrics").get(metric).put(newValue);
-
-      // Aggiorna anche la metrica locale
-      globalMetrics[metric] = newValue;
-
-      console.log(
-        `Global metric updated: ${metric} = ${newValue} (from ${current})`
-      );
-    });
-}
-
-// Modifica l'endpoint delle metriche globali
+// Modifica l'endpoint delle metriche globali per restituire solo le metriche generiche
 app.get("/global-metrics", (req, res) => {
   try {
-    const cleanMetrics = {};
-    Object.entries(globalMetrics).forEach(([key, value]) => {
-      cleanMetrics[key] = typeof value === "number" ? value : 0;
-    });
-
-    // Aggiungi il totale combinato di canali e board per retrocompatibilità
-    cleanMetrics.totalChannelsAndBoards =
-      (cleanMetrics.totalChannels || 0) + (cleanMetrics.totalBoards || 0);
+    const cleanMetrics = {
+      connections: metrics.connections || 0,
+      putOperations: metrics.putOperations || 0,
+      getOperations: metrics.getOperations || 0,
+      bytesTransferred: metrics.bytesTransferred || 0,
+      storage: metrics.storage || { radata: 0, total: 0 },
+      system: {
+        cpu: getCPUUsage(),
+        memory: getMemoryUsage(),
+      },
+    };
 
     console.log("Sending global metrics:", cleanMetrics);
     res.json(cleanMetrics);
@@ -792,7 +705,7 @@ async function initializeServer() {
       }
     }
 
-    initializeGunListeners(gun, mogu);
+    initializeGunListeners(gun);
 
     app.use(Gun.serve);
 

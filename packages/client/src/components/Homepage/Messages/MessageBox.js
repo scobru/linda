@@ -11,6 +11,16 @@ import {
 import { useAppState } from "../../../context/AppContext";
 import AudioPlayer from "./AudioPlayer";
 
+const ActionButton = ({ icon, onClick, title, className = "" }) => (
+  <button
+    onClick={onClick}
+    className={`w-10 h-10 flex items-center justify-center rounded-full bg-[#2D325A] hover:bg-[#4A4F76] transition-colors ${className}`}
+    title={title}
+  >
+    {icon}
+  </button>
+);
+
 const MessageBox = ({
   message,
   isOwnMessage,
@@ -212,7 +222,7 @@ const MessageBox = ({
       </div>
       <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
         <div
-          className={`max-w-[70%] rounded-lg p-3 ${
+          className={`max-w-[70%] rounded-lg p-3 relative ${
             message.type === "system"
               ? "bg-[#1E2235] text-gray-300 italic"
               : isOwnMessage
@@ -222,28 +232,46 @@ const MessageBox = ({
         >
           <div className="flex flex-col">
             {renderContent()}
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-gray-200">
-                {new Date(message.timestamp).toLocaleTimeString()}
-              </span>
-              <div className="flex space-x-2">
+
+            {/* Barra delle azioni */}
+            <div className="flex items-center justify-end mt-2 gap-2">
+              <div className="flex items-center gap-2">
+                <ActionButton
+                  icon={<span className="text-white text-lg">⏰</span>}
+                  onClick={() => {
+                    /* gestione sveglia */
+                  }}
+                  title="Imposta promemoria"
+                />
+
+                <ActionButton
+                  icon={<span className="text-white text-lg">↗️</span>}
+                  onClick={() => {
+                    /* gestione condivisione */
+                  }}
+                  title="Condividi messaggio"
+                />
+
                 {showDeleteButton && (
-                  <button
+                  <ActionButton
+                    icon={<span className="text-red-500 text-lg">🗑️</span>}
                     onClick={() => onDelete(message.id)}
-                    className="text-xs text-red-300 hover:text-red-200"
-                  >
-                    Elimina
-                  </button>
+                    title="Elimina messaggio"
+                  />
                 )}
+
                 {showRemoveMember && (
-                  <button
+                  <ActionButton
+                    icon={<span className="text-yellow-500 text-lg">⚠️</span>}
                     onClick={() => onRemoveMember(message.sender)}
-                    className="text-xs text-yellow-300 hover:text-yellow-200"
-                  >
-                    Rimuovi membro
-                  </button>
+                    title="Rimuovi membro"
+                  />
                 )}
               </div>
+
+              <span className="text-xs text-gray-200 ml-2">
+                {new Date(message.timestamp).toLocaleTimeString()}
+              </span>
             </div>
           </div>
         </div>

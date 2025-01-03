@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="it">
+
 <head>
     <meta charset="UTF-8">
     <title>Gun Relay Dashboard</title>
@@ -9,16 +10,18 @@
         .metric-card {
             transition: all 0.3s ease;
         }
+
         .metric-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
     </style>
 </head>
+
 <body class="bg-light">
     <div class="container py-4">
         <h1 class="mb-4">Gun Relay Dashboard</h1>
-        
+
         <div class="row g-4 mb-4">
             <div class="col-md-3">
                 <div class="card metric-card">
@@ -55,57 +58,6 @@
         </div>
 
         <div class="row g-4 mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Statistiche Globali</h5>
-                        <div class="row mt-3">
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h6>Utenti</h6>
-                                        <ul class="list-unstyled">
-                                            <li title="Numero totale di utenti registrati">
-                                                Utenti Totali: <span id="globalTotalUsers" class="fw-bold">-</span>
-                                            </li>
-                                            <li title="Numero totale di accessi effettuati">
-                                                Login Totali: <span id="globalTotalLogins" class="fw-bold">-</span>
-                                            </li>
-                                            <li title="Numero totale di nuove registrazioni">
-                                                Registrazioni Totali: <span id="globalTotalRegistrations" class="fw-bold">-</span>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="card bg-light">
-                                    <div class="card-body">
-                                        <h6>Interazioni</h6>
-                                        <ul class="list-unstyled">
-                                            <li>Canali:</li>
-                                            <ul class="list-unstyled ms-3">
-                                                <li>Canali: <span id="globalTotalChannels" class="fw-bold">-</span></li>
-                                                <li>Board: <span id="globalTotalBoards" class="fw-bold">-</span></li>
-                                            </ul>
-                                            <li>Messaggi Inviati: <span id="globalTotalMessagesSent" class="fw-bold">-</span></li>
-                                            <li>Richieste di Amicizia:</li>
-                                            <ul class="list-unstyled ms-3">
-                                                <li>Effettuate: <span id="globalTotalFriendRequestsMade" class="fw-bold">-</span></li>
-                                                <li>Ricevute: <span id="globalTotalFriendRequests" class="fw-bold">-</span></li>
-                                                <li>Rifiutate: <span id="globalTotalFriendRequestsRejected" class="fw-bold">-</span></li>
-                                            </ul>
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-4 mb-4">
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-body">
@@ -136,7 +88,8 @@
                                     <li>Hash: <span id="lastBackupHash">-</span></li>
                                     <li>Data: <span id="lastBackupTime">-</span></li>
                                     <li>Dimensione: <span id="lastBackupSize">-</span></li>
-                                    <li>Link: <a id="lastBackupLink" href="#" target="_blank">Visualizza su IPFS</a></li>
+                                    <li>Link: <a id="lastBackupLink" href="#" target="_blank">Visualizza su IPFS</a>
+                                    </li>
                                 </ul>
                             </div>
                             <div class="col-md-6">
@@ -156,25 +109,13 @@
                     <div class="card-body">
                         <h5 class="card-title">Spazio Utilizzato</h5>
                         <div class="row mt-3">
-                            <div class="col-md-3">
+                            <div class="col-md-6">
                                 <div class="metric-card">
                                     <h6>Database (Radata)</h6>
                                     <h3 id="radataStorage">-</h3>
                                 </div>
                             </div>
-                            <div class="col-md-3">
-                                <div class="metric-card">
-                                    <h6>Nodi</h6>
-                                    <h3 id="nodesStorage">-</h3>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="metric-card">
-                                    <h6>Backup</h6>
-                                    <h3 id="backupsStorage">-</h3>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
+                            <div class="col-md-6">
                                 <div class="metric-card">
                                     <h6>Totale</h6>
                                     <h3 id="totalStorage">-</h3>
@@ -189,7 +130,7 @@
 
     <script>
         let cpuChart, memoryChart;
-        
+
         function initCharts() {
             const cpuCtx = document.getElementById('cpuChart').getContext('2d');
             cpuChart = new Chart(cpuCtx, {
@@ -245,38 +186,28 @@
             fetch('/metrics')
                 .then(response => response.json())
                 .then(metrics => {
-                    console.log('Dashboard metrics update:', metrics);  // Debug log
-                    
-                    // Aggiorna i contatori solo se i valori sono definiti
-                    if (typeof metrics.connections === 'number') {
-                        document.getElementById('connections').textContent = metrics.connections;
-                    }
-                    if (typeof metrics.putOperations === 'number') {
-                        document.getElementById('putOps').textContent = metrics.putOperations;
-                    }
-                    if (typeof metrics.getOperations === 'number') {
-                        document.getElementById('getOps').textContent = metrics.getOperations;
-                    }
-                    if (typeof metrics.bytesTransferred === 'number') {
-                        document.getElementById('bytesTransferred').textContent = formatBytes(metrics.bytesTransferred);
-                    }
+                    console.log('Dashboard metrics update:', metrics);
+
+                    // Aggiorna i contatori base
+                    document.getElementById('connections').textContent = metrics.connections || 0;
+                    document.getElementById('putOps').textContent = metrics.putOperations || 0;
+                    document.getElementById('getOps').textContent = metrics.getOperations || 0;
+                    document.getElementById('bytesTransferred').textContent = formatBytes(metrics.bytesTransferred || 0);
 
                     // Storage
                     if (metrics.storage) {
-                        document.getElementById('radataStorage').textContent = metrics.storage.radata;
-                        document.getElementById('nodesStorage').textContent = metrics.storage.nodes;
-                        document.getElementById('backupsStorage').textContent = metrics.storage.backups;
-                        document.getElementById('totalStorage').textContent = metrics.storage.total;
+                        document.getElementById('radataStorage').textContent = metrics.storage.radata || '0 B';
+                        document.getElementById('totalStorage').textContent = metrics.storage.total || '0 B';
                     }
 
                     // Sistema
                     if (metrics.system) {
                         // CPU
-                        if (metrics.system.cpu && metrics.system.cpu.length > 0) {
+                        if (metrics.system.cpu) {
                             const timestamp = new Date().toLocaleTimeString();
                             cpuChart.data.labels.push(timestamp);
-                            cpuChart.data.datasets[0].data.push(metrics.system.cpu[0]);
-                            
+                            cpuChart.data.datasets[0].data.push(metrics.system.cpu);
+
                             if (cpuChart.data.labels.length > 30) {
                                 cpuChart.data.labels.shift();
                                 cpuChart.data.datasets[0].data.shift();
@@ -289,7 +220,7 @@
                             const mem = metrics.system.memory;
                             const used = mem.heapUsed;
                             const total = mem.heapTotal;
-                            
+
                             memoryChart.data.datasets[0].data = [used, total - used];
                             memoryChart.data.labels = [
                                 `Utilizzata (${formatBytes(used)})`,
@@ -302,33 +233,21 @@
                     // Backup
                     if (metrics.backups) {
                         const backup = metrics.backups.lastBackup;
-                        let displayHash = backup.hash;
-                        
-                        // Gestisci il caso in cui hash sia un oggetto
-                        if (displayHash && typeof displayHash === 'object') {
-                            try {
-                                displayHash = JSON.stringify(displayHash);
-                            } catch (e) {
-                                displayHash = '[Object]';
-                            }
-                        }
-                        
-                        document.getElementById('lastBackupHash').textContent = displayHash || '-';
+                        document.getElementById('lastBackupHash').textContent = backup.hash || '-';
                         document.getElementById('lastBackupTime').textContent = backup.time || '-';
-                        document.getElementById('lastBackupSize').textContent = formatBytes(backup.size);
-                        
-                        // Aggiorna il link solo se è valido
+                        document.getElementById('lastBackupSize').textContent = formatBytes(backup.size || 0);
+
                         if (backup.link && backup.link !== '#') {
                             document.getElementById('lastBackupLink').href = backup.link;
                             document.getElementById('lastBackupLink').style.display = 'inline';
                         } else {
                             document.getElementById('lastBackupLink').style.display = 'none';
                         }
-                        
+
                         const stats = metrics.backups.stats;
-                        document.getElementById('backupsTotal').textContent = stats.total;
-                        document.getElementById('backupsSuccessful').textContent = stats.successful;
-                        document.getElementById('backupsFailed').textContent = stats.failed;
+                        document.getElementById('backupsTotal').textContent = stats.total || 0;
+                        document.getElementById('backupsSuccessful').textContent = stats.successful || 0;
+                        document.getElementById('backupsFailed').textContent = stats.failed || 0;
                     }
                 })
                 .catch(error => {
@@ -336,38 +255,9 @@
                 });
         }
 
-        function updateGlobalMetrics() {
-            fetch('/global-metrics')
-                .then(response => response.json())
-                .then(metrics => {
-                    console.log('Dashboard received global metrics:', metrics);
-
-                    // Aggiorna i valori usando gli ID corretti
-                    const updateMetric = (id, value) => {
-                        const element = document.getElementById(id);
-                        if (element) {
-                            element.textContent = value || '0';
-                        }
-                    };
-
-                    updateMetric('globalTotalUsers', metrics.totalUsers);
-                    updateMetric('globalTotalLogins', metrics.totalLogins);
-                    updateMetric('globalTotalRegistrations', metrics.totalRegistrations);
-                    updateMetric('globalTotalChannels', metrics.totalChannels);
-                    updateMetric('globalTotalBoards', metrics.totalBoards);
-                    updateMetric('globalTotalMessagesSent', metrics.totalMessagesSent);
-                    updateMetric('globalTotalFriendRequestsMade', metrics.totalFriendRequestsMade);
-                    updateMetric('globalTotalFriendRequests', metrics.totalFriendRequests);
-                    updateMetric('globalTotalFriendRequestsRejected', metrics.totalFriendRequestsRejected);
-                })
-                .catch(error => {
-                    console.error('Errore aggiornamento metriche globali:', error);
-                });
-        }
-
         initCharts();
         setInterval(updateDashboard, 2000);
-        setInterval(updateGlobalMetrics, 5000);
     </script>
 </body>
-</html> 
+
+</html>
