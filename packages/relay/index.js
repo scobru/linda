@@ -186,6 +186,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Configurazione Gun per il relay
+const GUN_CONFIG = {
+  multicast: false,
+  host: process.env.HOST || "0.0.0.0",
+  port: port,
+  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
+  radisk: true,
+  file: RADATA_PATH,
+  axe: true,
+  super: true,
+  websocket: {
+    path: "/gun",
+    server: null, // Will be set later
+  },
+};
+
 // Create HTTP/HTTPS server based on SSL config
 const server =
   SSL_ENABLED && SSL_CONFIG?.key && SSL_CONFIG?.cert
@@ -198,6 +214,9 @@ const wss = new WebSocket.Server({
   path: "/gun",
   perMessageDeflate: false,
 });
+
+// Update Gun config with server
+GUN_CONFIG.web = server;
 
 wss.on("connection", (ws, req) => {
   console.log("New WebSocket connection from:", req.socket.remoteAddress);
@@ -228,25 +247,6 @@ wss.on("connection", (ws, req) => {
     console.error("WebSocket error:", error);
   });
 });
-
-// Update Gun config with server
-GUN_CONFIG.web = server;
-
-// Configurazione Gun per il relay
-const GUN_CONFIG = {
-  multicast: false,
-  host: process.env.HOST || "0.0.0.0",
-  port: port,
-  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
-  radisk: true,
-  file: RADATA_PATH,
-  axe: true,
-  super: true,
-  websocket: {
-    path: "/gun",
-    server: null, // Will be set later
-  },
-};
 
 // Configurazione
 const CONFIG = {
