@@ -16,17 +16,20 @@ const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
 const RADATA_PATH = path.join(process.cwd(), "radata");
+const SSL_ENABLED = process.env.SSL_ENABLED === "true";
 const SSL_PATH = process.env.SSL_PATH || path.join(process.cwd(), "ssl");
 
 // SSL Configuration
-const SSL_CONFIG = {
-  key: process.env.SSL_KEY_PATH
-    ? fs.readFileSync(process.env.SSL_KEY_PATH)
-    : null,
-  cert: process.env.SSL_CERT_PATH
-    ? fs.readFileSync(process.env.SSL_CERT_PATH)
-    : null,
-};
+const SSL_CONFIG = SSL_ENABLED
+  ? {
+      key: process.env.SSL_KEY_PATH
+        ? fs.readFileSync(process.env.SSL_KEY_PATH)
+        : null,
+      cert: process.env.SSL_CERT_PATH
+        ? fs.readFileSync(process.env.SSL_CERT_PATH)
+        : null,
+    }
+  : null;
 
 // Importazioni Gun necessarie
 require("gun/gun.js");
@@ -185,7 +188,7 @@ app.use((req, res, next) => {
 
 // Create HTTP/HTTPS server based on SSL config
 const server =
-  SSL_CONFIG.key && SSL_CONFIG.cert
+  SSL_ENABLED && SSL_CONFIG?.key && SSL_CONFIG?.cert
     ? https.createServer(SSL_CONFIG, app)
     : http.createServer(app);
 
