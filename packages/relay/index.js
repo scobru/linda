@@ -34,6 +34,8 @@ require("gun/gun.js");
 require("gun/sea.js");
 require("gun/lib/axe.js");
 require("gun/lib/radisk.js");
+// rimport wire
+require("gun/lib/wire.js");
 
 // Utility Functions
 function formatBytes(bytes, decimals = 2) {
@@ -194,6 +196,7 @@ const GUN_CONFIG = {
   file: RADATA_PATH,
   axe: true,
   super: true,
+  wire: true,
   web:
     SSL_ENABLED && SSL_CONFIG
       ? https.createServer(SSL_CONFIG, app)
