@@ -20,16 +20,14 @@ const SSL_ENABLED = process.env.SSL_ENABLED === "true";
 const SSL_PATH = process.env.SSL_PATH || path.join(process.cwd(), "ssl");
 
 // SSL Configuration
-const SSL_CONFIG = SSL_ENABLED
-  ? {
-      key: process.env.SSL_KEY_PATH
-        ? fs.readFileSync(process.env.SSL_KEY_PATH)
-        : null,
-      cert: process.env.SSL_CERT_PATH
-        ? fs.readFileSync(process.env.SSL_CERT_PATH)
-        : null,
-    }
-  : null;
+const SSL_CONFIG =
+  SSL_ENABLED && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH
+    ? {
+        key: fs.readFileSync(process.env.SSL_KEY_PATH),
+        cert: fs.readFileSync(process.env.SSL_CERT_PATH),
+        rejectUnauthorized: false, // Allow self-signed certificates
+      }
+    : null;
 
 // Importazioni Gun necessarie
 require("gun/gun.js");
@@ -196,27 +194,32 @@ const GUN_CONFIG = {
   file: RADATA_PATH,
   axe: true,
   super: true,
-  websocket: {
+  web:
+    SSL_ENABLED && SSL_CONFIG
+      ? https.createServer(SSL_CONFIG, app)
+      : http.createServer(app),
+  ws: {
     path: "/gun",
-    server: null, // Will be set later
+    server: null,
+    noServer: true,
   },
 };
 
-// Create HTTP/HTTPS server based on SSL config
-const server =
-  SSL_ENABLED && SSL_CONFIG?.key && SSL_CONFIG?.cert
-    ? https.createServer(SSL_CONFIG, app)
-    : http.createServer(app);
-
-// Configure WebSocket server
+// Configure WebSocket server with proper SSL handling
 const wss = new WebSocket.Server({
-  server,
+  server: GUN_CONFIG.web,
   path: "/gun",
   perMessageDeflate: false,
+  clientTracking: true,
+  verifyClient: SSL_ENABLED
+    ? {
+        rejectUnauthorized: false, // Allow self-signed certificates for WebSocket
+      }
+    : false,
 });
 
-// Update Gun config with server
-GUN_CONFIG.web = server;
+// Update Gun config
+GUN_CONFIG.web = GUN_CONFIG.web;
 
 wss.on("connection", (ws, req) => {
   console.log("New WebSocket connection from:", req.socket.remoteAddress);
@@ -517,7 +520,7 @@ async function initializeServer() {
     // Inizializza Gun
     const gun = Gun({
       ...GUN_CONFIG,
-      web: server,
+      web: GUN_CONFIG.web,
       localStorage: false,
       radisk: true,
     });
@@ -561,13 +564,13 @@ async function initializeServer() {
     }
 
     // Avvia il server
-    server.listen(port, GUN_CONFIG.host, () => {
+    GUN_CONFIG.web.listen(port, GUN_CONFIG.host, () => {
       console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
       console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
     });
 
     // Gestione errori del server
-    server.on("error", (error) => {
+    GUN_CONFIG.web.on("error", (error) => {
       console.error("Server error:", error);
       if (error.code === "EADDRINUSE") {
         console.error(`Port ${port} is already in use`);
