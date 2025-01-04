@@ -8,14 +8,25 @@ const path = require("path");
 const { Mogu } = require("@scobru/mogu");
 const http = require("http");
 const WebSocket = require("ws");
-
 const mogu = require("@scobru/mogu");
+const https = require("https");
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
 const RADATA_PATH = path.join(process.cwd(), "radata");
+const SSL_PATH = process.env.SSL_PATH || path.join(process.cwd(), "ssl");
+
+// SSL Configuration
+const SSL_CONFIG = {
+  key: process.env.SSL_KEY_PATH
+    ? fs.readFileSync(process.env.SSL_KEY_PATH)
+    : null,
+  cert: process.env.SSL_CERT_PATH
+    ? fs.readFileSync(process.env.SSL_CERT_PATH)
+    : null,
+};
 
 // Importazioni Gun necessarie
 require("gun/gun.js");
@@ -154,7 +165,7 @@ function getDetailedSystemStats() {
 
 // Initialize Express app
 const app = express();
-const port = 8765;
+const port = process.env.PORT || 8765;
 
 // Middleware
 app.use(express.static(path.join(__dirname, "dashboard")));
@@ -172,86 +183,54 @@ app.use((req, res, next) => {
   next();
 });
 
-// Stats endpoint
-app.get("/stats", (req, res) => {
-  try {
-    const systemStats = getDetailedSystemStats();
-    const radataSize = getRadataSize();
-    const cpuInfo = getCPUUsage();
+// Create HTTP/HTTPS server based on SSL config
+const server =
+  SSL_CONFIG.key && SSL_CONFIG.cert
+    ? https.createServer(SSL_CONFIG, app)
+    : http.createServer(app);
 
-    const statsData = {
-      peers: {
-        count: metrics.connections,
-        time: process.uptime() * 1000,
-      },
-      node: {
-        count: metrics.putOperations + metrics.getOperations,
-      },
-      up: {
-        time: process.uptime() * 60,
-      },
-      memory: {
-        heapTotal: systemStats.memory.heapTotal,
-        heapUsed: systemStats.memory.heapUsed,
-      },
-      cpu: {
-        stack: cpuInfo.average,
-        cores: cpuInfo.cores,
-        count: cpuInfo.count,
-      },
-      dam: {
-        in: {
-          count: metrics.getOperations,
-          done: metrics.bytesTransferred,
-        },
-        out: {
-          count: metrics.putOperations,
-          done: metrics.bytesTransferred,
-        },
-      },
-      over: 15000,
-      all: {},
-    };
-
-    res.json(statsData);
-  } catch (error) {
-    console.error("Error serving stats:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
+// Configure WebSocket server
+const wss = new WebSocket.Server({
+  server,
+  path: "/gun",
+  perMessageDeflate: false,
 });
 
-// Gun stats endpoint
-app.get("/gun/stats", (req, res) => {
-  res.json({
-    peers: {
-      count: metrics.connections,
-      time: process.uptime() * 1000,
-    },
-  });
-});
-
-// Crea server HTTP
-const server = http.createServer(app);
-
-// Configura WebSocket
-const wss = new WebSocket.Server({ server });
-
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  console.log("New WebSocket connection from:", req.socket.remoteAddress);
   metrics.connections++;
-  console.log("New WebSocket connection");
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+      // Handle Gun messages
+      if (data.put) {
+        metrics.putOperations++;
+        metrics.bytesTransferred += message.length;
+      } else if (data.get) {
+        metrics.getOperations++;
+        metrics.bytesTransferred += message.length;
+      }
+    } catch (e) {
+      console.error("Error processing WebSocket message:", e);
+    }
+  });
 
   ws.on("close", () => {
-    metrics.connections--;
+    metrics.connections = Math.max(0, metrics.connections - 1);
     console.log("Client disconnected");
   });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+  });
 });
+
+// Update Gun config with server
+GUN_CONFIG.web = server;
 
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
-  web: server,
   multicast: false,
   host: process.env.HOST || "0.0.0.0",
   port: port,
@@ -260,6 +239,10 @@ const GUN_CONFIG = {
   file: RADATA_PATH,
   axe: true,
   super: true,
+  websocket: {
+    path: "/gun",
+    server: null, // Will be set later
+  },
 };
 
 // Configurazione
