@@ -603,3 +603,55 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });
+
+// Stats endpoint
+app.get("/stats", (req, res) => {
+  try {
+    const systemStats = getDetailedSystemStats();
+    const radataSize = getRadataSize();
+    const cpuInfo = getCPUUsage();
+
+    const statsData = {
+      peers: {
+        count: metrics.connections,
+        time: process.uptime() * 1000,
+      },
+      node: {
+        count: metrics.putOperations + metrics.getOperations,
+      },
+      up: {
+        time: process.uptime() * 60,
+      },
+      memory: {
+        heapTotal: systemStats.memory.heapTotal,
+        heapUsed: systemStats.memory.heapUsed,
+      },
+      cpu: {
+        stack: cpuInfo.average,
+        cores: cpuInfo.cores,
+        count: cpuInfo.count,
+      },
+      dam: {
+        in: {
+          count: metrics.getOperations,
+          done: metrics.bytesTransferred,
+        },
+        out: {
+          count: metrics.putOperations,
+          done: metrics.bytesTransferred,
+        },
+      },
+      over: 15000,
+      all: {},
+      storage: systemStats.storage,
+    };
+
+    res.json(statsData);
+  } catch (error) {
+    console.error("Error serving stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+});
