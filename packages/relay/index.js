@@ -9,6 +9,8 @@ const { Mogu } = require("@scobru/mogu");
 const http = require("http");
 const WebSocket = require("ws");
 
+const mogu = require("@scobru/mogu");
+
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const MULTICAST_ADDRESS = "239.255.255.250";
@@ -21,12 +23,235 @@ require("gun/sea.js");
 require("gun/lib/axe.js");
 require("gun/lib/radisk.js");
 
+// Utility Functions
+function formatBytes(bytes, decimals = 2) {
+  if (!bytes) return "0 B";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+// Variabili per il monitoraggio CPU
+let lastCPUInfo = os.cpus().map((cpu) => ({
+  idle: cpu.times.idle,
+  total: Object.values(cpu.times).reduce((acc, tv) => acc + tv, 0),
+}));
+
+function getCPUUsage() {
+  try {
+    const cpus = os.cpus();
+    const currentCPUInfo = cpus.map((cpu) => ({
+      idle: cpu.times.idle,
+      total: Object.values(cpu.times).reduce((acc, tv) => acc + tv, 0),
+    }));
+
+    const cpuUsage = currentCPUInfo.map((cpu, i) => {
+      const idleDiff = cpu.idle - lastCPUInfo[i].idle;
+      const totalDiff = cpu.total - lastCPUInfo[i].total;
+      const usage = 100 - (idleDiff / totalDiff) * 100;
+      return Math.min(100, Math.max(0, usage));
+    });
+
+    lastCPUInfo = currentCPUInfo;
+
+    return {
+      average: cpuUsage.reduce((acc, val) => acc + val, 0) / cpuUsage.length,
+      cores: cpuUsage,
+      count: cpus.length,
+    };
+  } catch (error) {
+    console.error("Error getting CPU usage:", error);
+    return {
+      average: 0,
+      cores: [],
+      count: 0,
+    };
+  }
+}
+
+function getMemoryUsage() {
+  try {
+    const used = process.memoryUsage();
+    return {
+      heapUsed: used.heapUsed || 0,
+      heapTotal: used.heapTotal || 0,
+      external: used.external || 0,
+      rss: used.rss || 0,
+      arrayBuffers: used.arrayBuffers || 0,
+    };
+  } catch (error) {
+    console.error("Error getting memory usage:", error);
+    return {
+      heapUsed: 0,
+      heapTotal: 0,
+      external: 0,
+      rss: 0,
+      arrayBuffers: 0,
+    };
+  }
+}
+
+function getRadataSize() {
+  try {
+    if (!fs.existsSync(RADATA_PATH)) {
+      console.log(`📁 Directory radata non trovata in: ${RADATA_PATH}`);
+      return 0;
+    }
+
+    let totalSize = 0;
+    const files = fs.readdirSync(RADATA_PATH);
+
+    files.forEach((file) => {
+      const filePath = path.join(RADATA_PATH, file);
+      const stats = fs.statSync(filePath);
+      if (stats.isFile()) {
+        totalSize += stats.size;
+      }
+    });
+
+    return totalSize;
+  } catch (error) {
+    console.error("Errore nel calcolo dimensione radata:", error);
+    return 0;
+  }
+}
+
+function getDetailedSystemStats() {
+  const cpuInfo = getCPUUsage();
+  const memInfo = getMemoryUsage();
+  const radataSize = getRadataSize();
+
+  return {
+    cpu: {
+      average: cpuInfo.average,
+      cores: cpuInfo.cores,
+      count: cpuInfo.count,
+    },
+    memory: {
+      heapUsed: memInfo.heapUsed,
+      heapTotal: memInfo.heapTotal,
+      external: memInfo.external,
+      rss: memInfo.rss,
+      arrayBuffers: memInfo.arrayBuffers,
+      formatted: {
+        heapUsed: formatBytes(memInfo.heapUsed),
+        heapTotal: formatBytes(memInfo.heapTotal),
+        rss: formatBytes(memInfo.rss),
+      },
+    },
+    storage: {
+      radata: formatBytes(radataSize),
+      total: formatBytes(radataSize),
+    },
+    uptime: process.uptime(),
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+  };
+}
+
+// Initialize Express app
 const app = express();
 const port = 8765;
 
+// Middleware
+app.use(express.static(path.join(__dirname, "dashboard")));
+app.use(express.json());
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Expose-Headers", "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Stats endpoint
+app.get("/stats", (req, res) => {
+  try {
+    const systemStats = getDetailedSystemStats();
+    const radataSize = getRadataSize();
+    const cpuInfo = getCPUUsage();
+
+    const statsData = {
+      peers: {
+        count: metrics.connections,
+        time: process.uptime() * 1000,
+      },
+      node: {
+        count: metrics.putOperations + metrics.getOperations,
+      },
+      up: {
+        time: process.uptime() * 60,
+      },
+      memory: {
+        heapTotal: systemStats.memory.heapTotal,
+        heapUsed: systemStats.memory.heapUsed,
+      },
+      cpu: {
+        stack: cpuInfo.average,
+        cores: cpuInfo.cores,
+        count: cpuInfo.count,
+      },
+      dam: {
+        in: {
+          count: metrics.getOperations,
+          done: metrics.bytesTransferred,
+        },
+        out: {
+          count: metrics.putOperations,
+          done: metrics.bytesTransferred,
+        },
+      },
+      over: 15000,
+      all: {},
+    };
+
+    res.json(statsData);
+  } catch (error) {
+    console.error("Error serving stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+});
+
+// Gun stats endpoint
+app.get("/gun/stats", (req, res) => {
+  res.json({
+    peers: {
+      count: metrics.connections,
+      time: process.uptime() * 1000,
+    },
+  });
+});
+
+// Crea server HTTP
+const server = http.createServer(app);
+
+// Configura WebSocket
+const wss = new WebSocket.Server({ server });
+
+wss.on("connection", (ws) => {
+  metrics.connections++;
+  console.log("New WebSocket connection");
+
+  ws.on("close", () => {
+    metrics.connections--;
+    console.log("Client disconnected");
+  });
+});
+
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
-  web: app,
+  web: server,
   multicast: false,
   host: process.env.HOST || "0.0.0.0",
   port: port,
@@ -62,121 +287,12 @@ const CONFIG = {
   },
 };
 
-// Aggiungi questa definizione all'inizio del file, dopo le altre costanti
-const globalMetrics = {
-  connections: 0,
-  putOperations: 0,
-  getOperations: 0,
-  bytesTransferred: 0,
-  storage: {
-    radata: 0,
-    total: 0,
-  },
-  system: {
-    cpu: 0,
-    memory: {
-      heapUsed: 0,
-      heapTotal: 0,
-    },
-  },
-};
-
-// Aggiungi questa funzione all'inizio del file, dopo le importazioni
-function formatBytes(bytes, decimals = 2) {
-  if (!bytes) return "0 B";
-
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
-
-// Funzione per calcolare la dimensione della directory radata
-function getRadataSize() {
-  try {
-    if (!fs.existsSync(RADATA_PATH)) {
-      console.log(`📁 Directory radata non trovata in: ${RADATA_PATH}`);
-      return 0;
-    }
-
-    let totalSize = 0;
-    const files = fs.readdirSync(RADATA_PATH);
-
-    files.forEach((file) => {
-      const filePath = path.join(RADATA_PATH, file);
-      const stats = fs.statSync(filePath);
-      if (stats.isFile()) {
-        totalSize += stats.size;
-      }
-    });
-
-    return totalSize;
-  } catch (error) {
-    console.error("Errore nel calcolo dimensione radata:", error);
-    return 0;
-  }
-}
-
-// Middleware
-app.use(express.static("dashboard"));
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  next();
-});
-
-// Middleware CORS più permissivo
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "*");
-  res.header("Access-Control-Expose-Headers", "*");
-  res.header("Access-Control-Allow-Credentials", "true");
-
-  // Gestione preflight OPTIONS
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// Rendi le variabili globali
-let gun, mogu;
+// Metriche avanzate per il monitoraggio
 const metrics = {
   connections: 0,
   putOperations: 0,
   getOperations: 0,
   bytesTransferred: 0,
-  protocol: {
-    messages: {
-      sent: 0,
-      received: 0,
-      encrypted: 0,
-      failed: 0,
-    },
-    authentication: {
-      logins: 0,
-      registrations: 0,
-      failures: 0,
-    },
-    friends: {
-      requests: 0,
-      accepted: 0,
-      rejected: 0,
-    },
-    channels: {
-      created: 0,
-      messages: 0,
-      members: 0,
-    },
-  },
   storage: {
     radata: 0,
     nodes: 0,
@@ -300,183 +416,6 @@ const scheduleBackup = async () => {
   }
 };
 
-// Modifica la funzione syncGlobalMetrics per gestire l'inizializzazione
-async function syncGlobalMetrics() {
-  try {
-    await waitForGunInit();
-    gun
-      .get(DAPP_NAME)
-      .get("globalMetrics")
-      .once((data) => {
-        if (data) {
-          const cleanMetrics = {};
-          Object.entries(data).forEach(([key, value]) => {
-            if (key !== "_" && key !== "#" && key !== ">") {
-              cleanMetrics[key] = Number(value);
-            }
-          });
-          console.log("Metriche globali sincronizzate:", cleanMetrics);
-        }
-      });
-  } catch (error) {
-    console.error("Errore durante la sincronizzazione delle metriche:", error);
-  }
-}
-
-// Modifica la funzione getMemoryUsage
-function getMemoryUsage() {
-  try {
-    const used = process.memoryUsage();
-    return {
-      heapUsed: used.heapUsed || 0,
-      heapTotal: used.heapTotal || 0,
-      external: used.external || 0,
-      rss: used.rss || 0,
-      arrayBuffers: used.arrayBuffers || 0,
-    };
-  } catch (error) {
-    console.error("Error getting memory usage:", error);
-    return {
-      heapUsed: 0,
-      heapTotal: 0,
-      external: 0,
-      rss: 0,
-      arrayBuffers: 0,
-    };
-  }
-}
-
-// Modifica l'endpoint delle metriche
-app.get("/metrics", (req, res) => {
-  try {
-    const memUsage = getMemoryUsage();
-    const cpuUsage = getCPUUsage();
-    const radataSize = getRadataSize();
-
-    const currentMetrics = {
-      connections: metrics.connections || 0,
-      putOperations: metrics.putOperations || 0,
-      getOperations: metrics.getOperations || 0,
-      bytesTransferred: metrics.bytesTransferred || 0,
-      storage: {
-        radata: formatBytes(radataSize),
-        total: formatBytes(radataSize),
-      },
-      system: {
-        cpu: [cpuUsage],
-        memory: {
-          heapUsed: memUsage.heapUsed,
-          heapTotal: memUsage.heapTotal,
-          formatted: {
-            heapUsed: formatBytes(memUsage.heapUsed),
-            heapTotal: formatBytes(memUsage.heapTotal),
-          },
-        },
-      },
-      backups: metrics.backups || {
-        lastBackup: {
-          hash: null,
-          time: null,
-          size: 0,
-          link: "#",
-        },
-        stats: {
-          total: 0,
-          successful: 0,
-          failed: 0,
-        },
-      },
-    };
-
-    res.json(currentMetrics);
-  } catch (error) {
-    console.error("Error serving metrics:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
-});
-
-// Aggiorna anche eventuali altri punti dove viene usato mogu?.getState
-const updateMetrics = () => {
-  try {
-    const metrics = getMetrics();
-    // Aggiorna le metriche...
-  } catch (error) {
-    console.warn("Error updating metrics:", error);
-  }
-};
-
-// Modifica la funzione syncGlobalMetrics per rimuovere i metadati dai log
-function syncGlobalMetrics() {
-  gun
-    .get(DAPP_NAME)
-    .get("globalMetrics")
-    .once((data) => {
-      if (data) {
-        // Filtra i metadati e converti i valori in numeri
-        const cleanMetrics = {};
-        Object.entries(data).forEach(([key, value]) => {
-          // Ignora i metadati di Gun
-          if (key !== "_" && key !== "#" && key !== ">") {
-            cleanMetrics[key] = typeof value === "number" ? value : 0;
-          }
-        });
-
-        // Aggiorna le metriche locali
-        Object.assign(globalMetrics, cleanMetrics);
-
-        // Log solo delle metriche pulite
-        console.log("Global metrics synced:", cleanMetrics);
-      }
-    });
-}
-
-// Chiama syncGlobalMetrics ogni 5 secondi
-setInterval(syncGlobalMetrics, 5000);
-
-// Rimuovi la funzione initializeGunListeners e sostituiscila con questa versione semplificata
-function initializeGunListeners(gun) {
-  // Tracking operazioni put/get
-  gun._.on("in", function (msg) {
-    if (msg.put) {
-      metrics.putOperations++;
-      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.put)).length;
-    }
-  });
-
-  gun._.on("out", function (msg) {
-    if (msg.get) {
-      metrics.getOperations++;
-      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.get)).length;
-    }
-  });
-}
-
-// Modifica l'endpoint delle metriche globali per restituire solo le metriche generiche
-app.get("/global-metrics", (req, res) => {
-  try {
-    const cleanMetrics = {
-      connections: metrics.connections || 0,
-      putOperations: metrics.putOperations || 0,
-      getOperations: metrics.getOperations || 0,
-      bytesTransferred: metrics.bytesTransferred || 0,
-      storage: metrics.storage || { radata: 0, total: 0 },
-      system: {
-        cpu: getCPUUsage(),
-        memory: getMemoryUsage(),
-      },
-    };
-
-    console.log("Sending global metrics:", cleanMetrics);
-    res.json(cleanMetrics);
-  } catch (error) {
-    console.error("Error fetching global metrics:", error);
-    res.json(globalMetrics);
-  }
-});
-
 // Aggiungi anche il tracking a livello di middleware
 app.use((req, res, next) => {
   // Track delle richieste HTTP
@@ -527,29 +466,6 @@ const waitForGunInit = () => {
   });
 };
 
-// Modifica la funzione syncGlobalMetrics per gestire l'inizializzazione
-async function syncGlobalMetrics() {
-  try {
-    await waitForGunInit();
-    gun
-      .get(DAPP_NAME)
-      .get("globalMetrics")
-      .once((data) => {
-        if (data) {
-          const cleanMetrics = {};
-          Object.entries(data).forEach(([key, value]) => {
-            if (key !== "_" && key !== "#" && key !== ">") {
-              cleanMetrics[key] = Number(value);
-            }
-          });
-          console.log("Metriche globali sincronizzate:", cleanMetrics);
-        }
-      });
-  } catch (error) {
-    console.error("Errore durante la sincronizzazione delle metriche:", error);
-  }
-}
-
 async function verifyDataIntegrity() {
   try {
     if (!fs.existsSync(RADATA_PATH)) {
@@ -589,89 +505,42 @@ function ensureDirectoryPermissions() {
   }
 }
 
+// Gun event listeners
+function initializeGunListeners(gun) {
+  gun._.on("in", function (msg) {
+    if (msg.put) {
+      metrics.putOperations++;
+      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.put)).length;
+    }
+  });
+
+  gun._.on("out", function (msg) {
+    if (msg.get) {
+      metrics.getOperations++;
+      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.get)).length;
+    }
+  });
+}
+
 // Modifica initializeServer per includere la verifica
 async function initializeServer() {
   try {
     ensureDirectoryPermissions();
     await verifyDataIntegrity();
-    const server = http.createServer(app);
 
-    // Aggiungi questa funzione per gestire la chiusura pulita
-    const handleShutdown = async () => {
-      console.log("Server shutdown initiated...");
-
-      // Attendi che Gun salvi i dati
-      if (gun) {
-        await new Promise((resolve) => {
-          gun.on("out", { put: null, "#": "cleanup" });
-          setTimeout(resolve, 2000); // Attendi 2 secondi per il salvataggio
-        });
-      }
-
-      process.exit(0);
-    };
-
-    // Gestisci la chiusura pulita
-    process.on("SIGTERM", handleShutdown);
-    process.on("SIGINT", handleShutdown);
-
-    gun = Gun({
+    // Inizializza Gun
+    const gun = Gun({
       ...GUN_CONFIG,
       web: server,
-      localStorage: false, // Disabilita localStorage
-      radisk: true, // Abilita esplicitamente radisk
+      localStorage: false,
+      radisk: true,
     });
 
-    // Aggiungi logging per debug
-    gun.on("put", function (msg) {
-      console.log("Data being saved:", msg.put);
-    });
-
-    // Avvia il server HTTP
-    server.listen(port, GUN_CONFIG.host, () => {
-      console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
-      console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
-    });
-
-    // Gestione errori del server
-    server.on("error", (error) => {
-      console.error("Server error:", error);
-      if (error.code === "EADDRINUSE") {
-        console.error(`Port ${port} is already in use`);
-      }
-    });
-
-    // Tracking connessioni
-    server.on("connection", (socket) => {
-      metrics.connections++;
-      console.log(`New connection - Total: ${metrics.connections}`);
-
-      socket.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(`Connection closed - Total: ${metrics.connections}`);
-      });
-    });
-
-    // Tracking eventi Gun
-    gun.on("hi", (peer) => {
-      metrics.connections++;
-      console.log(
-        `Peer connected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    gun.on("bye", (peer) => {
-      metrics.connections = Math.max(0, metrics.connections - 1);
-      console.log(
-        `Peer disconnected: ${peer.id || "unknown"} - Total: ${
-          metrics.connections
-        }`
-      );
-    });
+    // Inizializza i listener di Gun
+    initializeGunListeners(gun);
 
     // Inizializza Mogu se abilitato
+    let mogu;
     if (CONFIG.STORAGE.enabled) {
       mogu = new Mogu({
         storage: {
@@ -705,9 +574,23 @@ async function initializeServer() {
       }
     }
 
-    initializeGunListeners(gun);
+    // Avvia il server
+    server.listen(port, GUN_CONFIG.host, () => {
+      console.log(`Relay listening at http://${GUN_CONFIG.host}:${port}`);
+      console.log("Active peers:", Object.keys(gun._.opt.peers || {}));
+    });
 
-    app.use(Gun.serve);
+    // Gestione errori del server
+    server.on("error", (error) => {
+      console.error("Server error:", error);
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${port} is already in use`);
+      }
+    });
+
+    // Avvia lo scheduler dei backup
+    setInterval(scheduleBackup, 5 * 60 * 1000);
+    setTimeout(scheduleBackup, 5 * 60 * 1000);
 
     return { gun, mogu };
   } catch (error) {
@@ -718,50 +601,13 @@ async function initializeServer() {
 
 // Inizializza il server
 initializeServer()
-  .then(({ gun: g, mogu: m }) => {
-    gun = g;
-    mogu = m;
+  .then(({ gun, mogu }) => {
     console.log("Server initialized successfully");
-
-    // Avvia lo scheduler dei backup
-    setInterval(scheduleBackup, 5 * 60 * 1000); // Controlla ogni 5 minuti
-
-    // Esegui il primo backup dopo 5 minuti dall'avvio
-    setTimeout(scheduleBackup, 5 * 60 * 1000);
   })
   .catch((error) => {
     console.error("Failed to start server:", error);
     process.exit(1);
   });
-
-// Variabili per il monitoraggio CPU
-let lastCPUUsage = process.cpuUsage();
-let lastCPUTime = Date.now();
-
-// Funzione getCPUUsage
-function getCPUUsage() {
-  try {
-    const currentUsage = process.cpuUsage();
-    const currentTime = Date.now();
-
-    const userDiff = currentUsage.user - lastCPUUsage.user;
-    const systemDiff = currentUsage.system - lastCPUUsage.system;
-    const timeDiff = currentTime - lastCPUTime;
-
-    const cpuPercent = Math.min(
-      100,
-      Math.max(0, ((userDiff + systemDiff) / (timeDiff * 1000)) * 100)
-    );
-
-    lastCPUUsage = currentUsage;
-    lastCPUTime = currentTime;
-
-    return cpuPercent;
-  } catch (error) {
-    console.error("Error getting CPU usage:", error);
-    return 0;
-  }
-}
 
 // Aggiungi handler per gli errori non gestiti
 process.on("uncaughtException", (error) => {

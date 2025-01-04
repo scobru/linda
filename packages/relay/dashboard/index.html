@@ -1,24 +1,80 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" data-bs-theme="dark">
 
 <head>
     <meta charset="UTF-8">
     <title>Gun Relay Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <style>
+        :root {
+            --dark-bg: #212529;
+            --dark-card: #2c3034;
+            --dark-text: #e9ecef;
+        }
+
+        body {
+            transition: background-color 0.3s ease;
+        }
+
+        body.dark-mode {
+            background-color: var(--dark-bg);
+            color: var(--dark-text);
+        }
+
+        .dark-mode .card {
+            background-color: var(--dark-card);
+            border-color: #444;
+        }
+
         .metric-card {
             transition: all 0.3s ease;
         }
 
         .metric-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+
+        .dark-mode .chart-container canvas {
+            background-color: var(--dark-card) !important;
+        }
+
+        .realtime-charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+
+        .chart-label {
+            position: absolute;
+            left: 0.5em;
+            top: 1.75em;
+            color: var(--dark-text);
+            z-index: 1;
         }
     </style>
 </head>
 
-<body class="bg-light">
+<body class="dark-mode">
+    <button class="btn btn-outline-secondary theme-toggle" onclick="toggleTheme()">
+        <i class="bi bi-sun-fill"></i> Toggle Theme
+    </button>
     <div class="container py-4">
         <h1 class="mb-4">Gun Relay Dashboard</h1>
 
@@ -62,6 +118,12 @@
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title">Utilizzo CPU</h5>
+                        <div class="mb-3">
+                            <h6>Media Totale: <span id="cpuAverage">-</span>%</h6>
+                        </div>
+                        <div id="cpuCores" class="mb-3">
+                            <!-- I core CPU verranno aggiunti qui dinamicamente -->
+                        </div>
                         <canvas id="cpuChart"></canvas>
                     </div>
                 </div>
@@ -126,19 +188,67 @@
                 </div>
             </div>
         </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="stats-minimal"
+                            style="text-align: center; font-family: helvetica; color: rgb(80,135,25) !important; text-shadow: 1px 1px 20px rgb(80,150,25);">
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="peersCount">0</span> peers
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="timeMin">0</span> min
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="nodesCount">0</span> nodes
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="hoursUp">0</span> hours
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="blockTime">0</span> block
+                            <span class="shout" style="font-size: 24px; font-weight: bold; margin: 0 10px;"
+                                id="stackSize">0</span> stack
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Grafici Real-time</h5>
+                        <div id="realtime-charts" class="realtime-charts-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="model-chart none">
+            <div class="chart-container mb-4">
+                <span class="chart-label" style="position: absolute; left: 0.5em; top: 1.75em;"></span>
+                <canvas
+                    style="height: 5em; width: 100%; background-color: rgba(30,30,30,0.5); border-radius: 4px;"></canvas>
+            </div>
+        </div>
+
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/smoothie@1.36.1/smoothie.min.js"></script>
     <script>
         let cpuChart, memoryChart;
 
         function initCharts() {
+            const isDark = document.body.classList.contains('dark-mode');
+            const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+
             const cpuCtx = document.getElementById('cpuChart').getContext('2d');
             cpuChart = new Chart(cpuCtx, {
                 type: 'line',
                 data: {
                     labels: [],
                     datasets: [{
-                        label: 'Carico CPU %',
+                        label: 'CPU Media %',
                         data: [],
                         borderColor: 'rgb(75, 192, 192)',
                         tension: 0.1
@@ -149,9 +259,31 @@
                         y: {
                             beginAtZero: true,
                             max: 100,
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: isDark ? '#e9ecef' : '#666'
+                            },
                             title: {
                                 display: true,
-                                text: 'Utilizzo CPU (%)'
+                                text: 'Utilizzo CPU (%)',
+                                color: isDark ? '#e9ecef' : '#666'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: isDark ? '#e9ecef' : '#666'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: isDark ? '#e9ecef' : '#666'
                             }
                         }
                     },
@@ -170,6 +302,15 @@
                         data: [0, 0],
                         backgroundColor: ['#ff6384', '#36a2eb']
                     }]
+                },
+                options: {
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: isDark ? '#e9ecef' : '#666'
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -182,72 +323,135 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+
+            let uptime = '';
+            if (days > 0) uptime += `${days}d `;
+            if (hours > 0) uptime += `${hours}h `;
+            uptime += `${minutes}m`;
+
+            return uptime;
+        }
+
+        function createRealtimeStats(key, chart) {
+            if (chart = window.realtimeStats?.[key]) {
+                return chart;
+            }
+
+            if (!window.realtimeStats) window.realtimeStats = {};
+
+            chart = window.realtimeStats[key] = new SmoothieChart({
+                millisPerPixel: 500,
+                limitFPS: 16,
+                responsive: true,
+                minValue: 0,
+                grid: {
+                    strokeStyle: 'rgba(255,255,255,0.2)',
+                    verticalSections: 0,
+                    millisPerLine: 15000 * 4
+                },
+                labels: {
+                    fontSize: 20
+                }
+            });
+
+            chart.line = new TimeSeries();
+            chart.addTimeSeries(chart.line, {
+                strokeStyle: `rgb(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255})`,
+                lineWidth: 5
+            });
+
+            // Clone the template and append it
+            const template = document.querySelector('.model-chart .chart-container');
+            const container = template.cloneNode(true);
+            container.classList.remove('none');
+            document.getElementById('realtime-charts').appendChild(container);
+
+            // Set the label and initialize the chart
+            container.querySelector('.chart-label').textContent = key;
+            chart.streamTo(container.querySelector('canvas'), 15 * 1000);
+            chart.line.append(new Date().getTime(), 0);
+
+            return chart;
+        }
+
         function updateDashboard() {
-            fetch('/metrics')
+            fetch('/stats')
                 .then(response => response.json())
-                .then(metrics => {
-                    console.log('Dashboard metrics update:', metrics);
+                .then(data => {
+                    console.log('Dashboard stats update:', data);
 
                     // Aggiorna i contatori base
-                    document.getElementById('connections').textContent = metrics.connections || 0;
-                    document.getElementById('putOps').textContent = metrics.putOperations || 0;
-                    document.getElementById('getOps').textContent = metrics.getOperations || 0;
-                    document.getElementById('bytesTransferred').textContent = formatBytes(metrics.bytesTransferred || 0);
+                    document.getElementById('connections').textContent = data.peers?.count || 0;
+                    document.getElementById('putOps').textContent = data.dam?.out?.count || 0;
+                    document.getElementById('getOps').textContent = data.dam?.in?.count || 0;
+                    document.getElementById('bytesTransferred').textContent = formatBytes(data.dam?.in?.done + data.dam?.out?.done || 0);
 
                     // Storage
-                    if (metrics.storage) {
-                        document.getElementById('radataStorage').textContent = metrics.storage.radata || '0 B';
-                        document.getElementById('totalStorage').textContent = metrics.storage.total || '0 B';
+                    if (data.storage) {
+                        document.getElementById('radataStorage').textContent = data.storage.radata || '0 B';
+                        document.getElementById('totalStorage').textContent = data.storage.total || '0 B';
                     }
 
                     // Sistema
-                    if (metrics.system) {
-                        // CPU
-                        if (metrics.system.cpu) {
-                            const timestamp = new Date().toLocaleTimeString();
-                            cpuChart.data.labels.push(timestamp);
-                            cpuChart.data.datasets[0].data.push(metrics.system.cpu);
-
-                            if (cpuChart.data.labels.length > 30) {
-                                cpuChart.data.labels.shift();
-                                cpuChart.data.datasets[0].data.shift();
-                            }
-                            cpuChart.update();
-                        }
-
+                    if (data.memory) {
                         // Memoria
-                        if (metrics.system.memory) {
-                            const mem = metrics.system.memory;
-                            const used = mem.heapUsed;
-                            const total = mem.heapTotal;
+                        const memUsed = data.memory.heapUsed;
+                        const memTotal = data.memory.heapTotal;
 
-                            memoryChart.data.datasets[0].data = [used, total - used];
-                            memoryChart.data.labels = [
-                                `Utilizzata (${formatBytes(used)})`,
-                                `Libera (${formatBytes(total - used)})`
-                            ];
-                            memoryChart.update();
-                        }
+                        memoryChart.data.datasets[0].data = [memUsed, memTotal - memUsed];
+                        memoryChart.data.labels = [
+                            `Utilizzata (${formatBytes(memUsed)})`,
+                            `Libera (${formatBytes(memTotal - memUsed)})`
+                        ];
+                        memoryChart.update();
                     }
 
-                    // Backup
-                    if (metrics.backups) {
-                        const backup = metrics.backups.lastBackup;
-                        document.getElementById('lastBackupHash').textContent = backup.hash || '-';
-                        document.getElementById('lastBackupTime').textContent = backup.time || '-';
-                        document.getElementById('lastBackupSize').textContent = formatBytes(backup.size || 0);
+                    // Aggiorna le statistiche minimaliste
+                    document.getElementById('peersCount').textContent = data.peers?.count || 0;
+                    document.getElementById('timeMin').textContent = ((data.up?.time || 0) / 60).toFixed(0);
+                    document.getElementById('nodesCount').textContent = data.node?.count || 0;
+                    document.getElementById('hoursUp').textContent = ((data.up?.time || 0) / 60 / 60).toFixed(1);
+                    document.getElementById('blockTime').textContent = ((data.cpu?.stack || 0) / 100).toFixed(1);
+                    document.getElementById('stackSize').textContent = data.cpu?.stack || 0;
 
-                        if (backup.link && backup.link !== '#') {
-                            document.getElementById('lastBackupLink').href = backup.link;
-                            document.getElementById('lastBackupLink').style.display = 'inline';
-                        } else {
-                            document.getElementById('lastBackupLink').style.display = 'none';
+                    // Aggiorna i grafici real-time
+                    const now = new Date().getTime();
+
+                    createRealtimeStats('peers#').line.append(now, data.peers?.count || 0);
+                    createRealtimeStats('memory MB').line.append(now, (data.memory?.heapTotal || 0) / 1024 / 1024);
+                    createRealtimeStats('cpu %').line.append(now, data.cpu?.stack || 0);
+
+                    // Statistiche I/O
+                    const damInCount = data.dam?.in?.count || 0;
+                    const damOutCount = data.dam?.out?.count || 0;
+                    const damInSize = data.dam?.in?.done || 0;
+                    const damOutSize = data.dam?.out?.done || 0;
+                    const interval = data.over / 1000 || 15;
+
+                    createRealtimeStats('dam # in/s').line.append(now, Math.round(damInCount / interval));
+                    createRealtimeStats('dam in MB/s').line.append(now, damInSize / 1024 / 1024 / interval);
+                    createRealtimeStats('dam # out/s').line.append(now, Math.round(damOutCount / interval));
+                    createRealtimeStats('dam out MB/s').line.append(now, damOutSize / 1024 / 1024 / interval);
+
+                    // Aggiorna CPU
+                    if (data.cpu) {
+                        document.getElementById('cpuAverage').textContent = (data.cpu.stack || 0).toFixed(1);
+
+                        // Aggiorna il grafico CPU
+                        const timestamp = new Date().toLocaleTimeString();
+                        cpuChart.data.labels.push(timestamp);
+                        cpuChart.data.datasets[0].data.push(data.cpu.stack || 0);
+
+                        // Mantieni solo gli ultimi 30 punti
+                        if (cpuChart.data.labels.length > 30) {
+                            cpuChart.data.labels.shift();
+                            cpuChart.data.datasets[0].data.shift();
                         }
-
-                        const stats = metrics.backups.stats;
-                        document.getElementById('backupsTotal').textContent = stats.total || 0;
-                        document.getElementById('backupsSuccessful').textContent = stats.successful || 0;
-                        document.getElementById('backupsFailed').textContent = stats.failed || 0;
+                        cpuChart.update();
                     }
                 })
                 .catch(error => {
@@ -257,6 +461,24 @@
 
         initCharts();
         setInterval(updateDashboard, 2000);
+
+        function toggleTheme() {
+            const body = document.body;
+            const html = document.documentElement;
+            body.classList.toggle('dark-mode');
+            const isDark = body.classList.contains('dark-mode');
+            html.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
+
+            // Update chart themes
+            if (window.cpuChart) {
+                cpuChart.options.scales.y.grid.color = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+                cpuChart.options.scales.x.grid.color = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+                cpuChart.update();
+            }
+            if (window.memoryChart) {
+                memoryChart.update();
+            }
+        }
     </script>
 </body>
 
