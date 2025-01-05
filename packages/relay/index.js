@@ -697,3 +697,45 @@ async function syncGlobalMetrics() {
     console.error("Errore durante la sincronizzazione delle metriche:", error);
   }
 }
+
+// Endpoint per le statistiche
+app.get('/stats', (req, res) => {
+  try {
+    const stats = {
+      peers: {
+        count: Object.keys(gun._.opt.peers || {}).length,
+        time: Date.now()
+      },
+      node: {
+        count: Object.keys(gun._.graph || {}).length
+      },
+      dam: {
+        in: {
+          count: metrics.getOperations,
+          done: metrics.bytesTransferred
+        },
+        out: {
+          count: metrics.putOperations,
+          done: metrics.bytesTransferred
+        }
+      },
+      memory: process.memoryUsage(),
+      cpu: {
+        stack: getCPUUsage()
+      },
+      storage: {
+        radata: formatBytes(getRadataSize()),
+        total: formatBytes(getRadataSize())
+      },
+      up: {
+        time: process.uptime()
+      },
+      over: 15000
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Errore nel recupero delle statistiche:', error);
+    res.status(500).json({ error: 'Errore interno del server' });
+  }
+});
