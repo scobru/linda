@@ -101,6 +101,110 @@ export const sessionManager = {
   },
 
   /**
+   * Verifica se esiste una sessione valida
+   */
+  async validateSession() {
+    try {
+      console.log('Inizio validazione sessione...');
+      
+      const sessionData = localStorage.getItem('sessionData');
+      if (!sessionData) {
+        console.log('Dati sessione mancanti nel localStorage');
+        return false;
+      }
+
+      const parsedSessionData = JSON.parse(sessionData);
+      console.log('Dati sessione trovati:', {
+        hasPub: !!parsedSessionData.pub,
+        hasPair: !!parsedSessionData.pair,
+        pairDetails: parsedSessionData.pair ? {
+          hasPub: !!parsedSessionData.pair.pub,
+          hasPriv: !!parsedSessionData.pair.priv
+        } : null
+      });
+      
+      // Verifica base delle chiavi
+      const hasKeys = !!(parsedSessionData?.pair?.pub && parsedSessionData?.pair?.priv);
+      console.log('Verifica base chiavi:', { hasKeys });
+
+      if (!hasKeys) {
+        console.log('Chiavi di cifratura mancanti nella sessione');
+        return false;
+      }
+
+      // Se stiamo creando i certificati o siamo nel processo di login, verifica minima
+      const isCreatingCertificates = localStorage.getItem('creatingCertificates') === 'true';
+      const isLoggingIn = localStorage.getItem('isLoggingIn') === 'true';
+      
+      console.log('Stato processi:', { isCreatingCertificates, isLoggingIn });
+      
+      if (isCreatingCertificates || isLoggingIn) {
+        console.log('Processo in corso, verifica minima della sessione');
+        console.log('Verifica chiavi durante processo:', hasKeys);
+        return hasKeys;
+      }
+
+      const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+      const lastLogin = parseInt(localStorage.getItem('lastLogin') || '0');
+      const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 ore
+
+      console.log('Stato autenticazione:', {
+        isAuthenticated,
+        lastLogin,
+        timeSinceLastLogin: Date.now() - lastLogin
+      });
+
+      if (!isAuthenticated || Date.now() - lastLogin > SESSION_TIMEOUT) {
+        console.log('Sessione non valida o scaduta');
+        return false;
+      }
+
+      // Verifica che l'utente sia ancora autenticato
+      console.log('Verifica user.is:', {
+        exists: !!user.is,
+        hasPub: !!user.is?.pub,
+        pub: user.is?.pub
+      });
+
+      if (!user.is?.pub) {
+        // Se stiamo ancora creando i certificati, non considerare questo un errore
+        if (isCreatingCertificates || isLoggingIn) {
+          console.log('User.is mancante ma processo in corso, continuo...');
+          return hasKeys;
+        }
+        console.log('Utente non autenticato');
+        return false;
+      }
+
+      // Verifica che il pub dell'utente corrisponda
+      const pubMatch = parsedSessionData.pub === user.is.pub;
+      console.log('Verifica corrispondenza pub:', {
+        sessionPub: parsedSessionData.pub,
+        userPub: user.is.pub,
+        match: pubMatch
+      });
+
+      if (!pubMatch) {
+        // Se stiamo ancora creando i certificati, non considerare questo un errore
+        if (isCreatingCertificates || isLoggingIn) {
+          console.log('Mismatch pub ma processo in corso, continuo...');
+          return hasKeys;
+        }
+        console.log('Mismatch tra pub della sessione e utente corrente');
+        return false;
+      }
+
+      // Se tutto è ok, aggiorna il timestamp
+      localStorage.setItem('lastLogin', Date.now().toString());
+      console.log('Validazione sessione completata con successo');
+      return true;
+    } catch (error) {
+      console.error('Errore nella validazione della sessione:', error);
+      return false;
+    }
+  },
+
+  /**
    * Salva i dati della sessione
    * @param {Object} sessionData
    */
@@ -121,11 +225,11 @@ export const sessionManager = {
       }
 
       // Verifica che le chiavi necessarie siano presenti
-      if (!sessionData.pair || !sessionData.v_Pair || !sessionData.s_Pair) {
+      if (!sessionData.pair?.pub || !sessionData.pair?.priv) {
         throw new Error('Chiavi di cifratura mancanti');
       }
 
-      // Salva tutti i dati necessari
+      // Salva i dati della sessione
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('sessionData', JSON.stringify(sessionData));
       localStorage.setItem('userPub', sessionData.pub);
@@ -134,28 +238,35 @@ export const sessionManager = {
       localStorage.setItem('authType', sessionData.authType);
       localStorage.setItem('lastLogin', Date.now().toString());
 
-      console.log('Session Data saved:', {
-        ...sessionData,
-        env_pair: '***',
-        env_v_pair: '***',
-        env_s_pair: '***',
-        pair: '***',
-        v_Pair: '***',
-        s_Pair: '***',
-        credentials: '***',
-      });
-
       // Salva le chiavi per la riautenticazione
       localStorage.setItem(
         `gunWallet_${sessionData.pub}`,
-        JSON.stringify(sessionData)
+        JSON.stringify({
+          ...sessionData,
+          pair: {
+            pub: sessionData.pair.pub,
+            priv: sessionData.pair.priv,
+            epub: sessionData.pair.epub,
+            epriv: sessionData.pair.epriv
+          }
+        })
       );
+
+      console.log('Session Data saved:', {
+        ...sessionData,
+        pair: {
+          pub: sessionData.pair.pub,
+          hasPriv: !!sessionData.pair.priv,
+          hasEpub: !!sessionData.pair.epub,
+          hasEpriv: !!sessionData.pair.epriv
+        },
+        credentials: 'HIDDEN'
+      });
 
       console.log('Sessione salvata con successo');
       return true;
     } catch (error) {
       console.error('Errore nel salvataggio della sessione:', error);
-      this.clearSession();
       return false;
     }
   },
@@ -165,12 +276,36 @@ export const sessionManager = {
    */
   clearSession() {
     try {
+      // Non pulire la sessione se siamo in un processo critico
+      const isCreatingCertificates = localStorage.getItem('creatingCertificates') === 'true';
+      const isLoggingIn = localStorage.getItem('isLoggingIn') === 'true';
+      
+      if (isCreatingCertificates || isLoggingIn) {
+        console.log('Processo in corso, skip pulizia sessione');
+        return;
+      }
+
+      // Salva le chiavi prima della pulizia
+      const sessionData = localStorage.getItem('sessionData');
+      let savedKeys = null;
+      if (sessionData) {
+        const parsed = JSON.parse(sessionData);
+        if (parsed?.pair) {
+          savedKeys = { ...parsed.pair };
+        }
+      }
+
+      // Verifica se l'utente è autenticato prima di disconnetterlo
       if (user.is) {
-        user.leave();
+        console.log('Disconnessione utente...');
+        // Non disconnettere l'utente se stiamo ancora creando i certificati
+        if (!isCreatingCertificates && !isLoggingIn) {
+          user.leave();
+        }
       }
 
       // Lista delle chiavi da preservare
-      const keysToKeep = ['theme', 'language'];
+      const keysToKeep = ['theme', 'language', 'isLoggingIn', 'creatingCertificates'];
 
       // Salva i valori da preservare
       const preserved = {};
@@ -187,93 +322,19 @@ export const sessionManager = {
         localStorage.setItem(key, value);
       });
 
+      // Ripristina le chiavi se necessario
+      if (savedKeys && (user.is?.pub || isCreatingCertificates || isLoggingIn)) {
+        const minimalSession = {
+          pub: user.is?.pub || savedKeys.pub,
+          pair: savedKeys
+        };
+        localStorage.setItem('sessionData', JSON.stringify(minimalSession));
+        localStorage.setItem('isAuthenticated', 'true');
+      }
+
       console.log('Sessione pulita con successo');
     } catch (error) {
       console.error('Errore nella pulizia della sessione:', error);
-    }
-  },
-
-  /**
-   * Verifica se esiste una sessione valida
-   * @returns {Promise<boolean>}
-   */
-  async validateSession() {
-    try {
-      const isAuthenticated =
-        localStorage.getItem('isAuthenticated') === 'true';
-      const sessionData = localStorage.getItem('sessionData');
-      const lastLogin = parseInt(localStorage.getItem('lastLogin') || '0');
-      const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 ore
-
-      if (
-        !isAuthenticated ||
-        !sessionData ||
-        Date.now() - lastLogin > SESSION_TIMEOUT
-      ) {
-        console.log('Sessione non valida o scaduta');
-        this.clearSession();
-        return false;
-      }
-
-      // Verifica che l'utente sia ancora autenticato
-      if (!user.is?.pub) {
-        console.log('Utente non autenticato');
-        this.clearSession();
-        return false;
-      }
-
-      // Verifica che il pub dell'utente corrisponda
-      const parsedSessionData = JSON.parse(sessionData);
-      if (parsedSessionData.pub !== user.is.pub) {
-        console.log('Mismatch tra pub della sessione e utente corrente');
-        this.clearSession();
-        return false;
-      }
-
-      // Verifica che le chiavi necessarie siano presenti
-      if (
-        !parsedSessionData.pair ||
-        !parsedSessionData.v_Pair ||
-        !parsedSessionData.s_Pair
-      ) {
-        console.log('Chiavi di cifratura mancanti nella sessione');
-        this.clearSession();
-        return false;
-      }
-
-      // Verifica che i dati essenziali siano presenti
-      const username = localStorage.getItem('username');
-      const userPub = localStorage.getItem('userPub');
-      if (!username || !userPub || userPub !== user.is.pub) {
-        console.log('Dati utente mancanti o non corrispondenti');
-        this.clearSession();
-        return false;
-      }
-
-      // Verifica che i dati nel nodo Gun corrispondano
-      const gunData = await new Promise((resolve) => {
-        gun
-          .get(DAPP_NAME)
-          .get('users')
-          .get(user.is.pub)
-          .once((data) => {
-            resolve(data);
-          });
-      });
-
-      if (!gunData) {
-        console.log('Dati utente non trovati in Gun');
-        this.clearSession();
-        return false;
-      }
-
-      // Se tutto è ok, aggiorna il timestamp
-      localStorage.setItem('lastLogin', Date.now().toString());
-      return true;
-    } catch (error) {
-      console.error('Errore nella validazione della sessione:', error);
-      this.clearSession();
-      return false;
     }
   },
 };

@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME, walletManager } from '../useGun.js';
 import {
   createFriendRequestCertificate,
   createNotificationCertificate,
@@ -6,12 +6,241 @@ import {
 import { updateGlobalMetrics } from '../system/systemService.js';
 import { sessionManager } from './sessionManager.js';
 
-const LOGIN_TIMEOUT = 15000; // Aumentiamo il timeout a 15 secondi
+const LOGIN_TIMEOUT = 15000;
+
+const verifyAuthentication = async (maxAttempts = 30) => {
+  console.log('Verifica autenticazione...');
+  for (let i = 0; i < maxAttempts; i++) {
+    if (user.is?.pub) {
+      console.log('Utente autenticato:', user.is.pub);
+      return true;
+    }
+    console.log(`Tentativo ${i + 1}/${maxAttempts}...`);
+    await new Promise(r => setTimeout(r, 500)); // Aumentato il delay
+  }
+  console.log('Verifica autenticazione fallita');
+  return false;
+};
+
+const saveSession = async (userData, wallet) => {
+  try {
+    // Verifica che l'utente sia autenticato
+    if (!user.is?.pub) {
+      console.warn('Attendo autenticazione completa...');
+      const isAuthenticated = await verifyAuthentication();
+      if (!isAuthenticated) {
+        throw new Error('Utente non autenticato per il salvataggio della sessione');
+      }
+    }
+
+    // Attendi che il WalletManager sia pronto
+    await new Promise(r => setTimeout(r, 2000));
+
+    let keyPair = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (!keyPair && attempts < maxAttempts) {
+      attempts++;
+      console.log(`Tentativo ${attempts}/${maxAttempts} di ottenere le chiavi`);
+
+      try {
+        // Prima prova dal WalletManager
+        keyPair = walletManager.getCurrentUserKeyPair();
+        if (keyPair) {
+          console.log('Chiavi ottenute dal WalletManager');
+          break;
+        }
+
+        // Se non disponibile, prova da user._.sea
+        if (user._.sea) {
+          console.log('Tentativo recupero chiavi da user._.sea');
+          keyPair = {
+            pub: user._.sea.pub,
+            priv: user._.sea.priv,
+            epub: user._.sea.epub,
+            epriv: user._.sea.epriv
+          };
+          if (Object.values(keyPair).every(k => k)) {
+            console.log('Chiavi recuperate da user._.sea');
+            break;
+          }
+        }
+
+        // Se ancora non disponibile, prova da user.is
+        if (user.is) {
+          console.log('Tentativo recupero chiavi da user.is');
+          keyPair = {
+            pub: user.is.pub,
+            priv: user.is.priv,
+            epub: user.is.epub,
+            epriv: user.is.epriv
+          };
+          if (Object.values(keyPair).every(k => k)) {
+            console.log('Chiavi recuperate da user.is');
+            break;
+          }
+        }
+
+        console.log('Attendo prima del prossimo tentativo...');
+        await new Promise(r => setTimeout(r, 1000));
+      } catch (err) {
+        console.warn(`Errore nel tentativo ${attempts}:`, err);
+      }
+    }
+
+    if (!keyPair) {
+      throw new Error('Impossibile ottenere le chiavi dopo multipli tentativi');
+    }
+
+    // Verifica dettagliata delle chiavi
+    const keyCheck = {
+      pub: { exists: !!keyPair.pub, length: keyPair.pub?.length },
+      priv: { exists: !!keyPair.priv, length: keyPair.priv?.length },
+      epub: { exists: !!keyPair.epub, length: keyPair.epub?.length },
+      epriv: { exists: !!keyPair.epriv, length: keyPair.epriv?.length }
+    };
+
+    console.log('Verifica dettagliata chiavi:', keyCheck);
+
+    if (!Object.values(keyCheck).every(k => k.exists && k.length > 0)) {
+      throw new Error('Chiavi di cifratura incomplete o invalide');
+    }
+
+    const sessionData = {
+      pub: keyPair.pub,
+      epub: keyPair.epub,
+      address: wallet.address,
+      internalWalletAddress: wallet.address,
+      externalWalletAddress: userData.externalWalletAddress || null,
+      createdAt: userData.createdAt || Date.now(),
+      authType: userData.authType || 'credentials',
+      lastSeen: Date.now(),
+      pair: {
+        pub: keyPair.pub,
+        priv: keyPair.priv,
+        epub: keyPair.epub,
+        epriv: keyPair.epriv
+      },
+      credentials: {
+        username: userData.username,
+        password: userData.password || '',
+      },
+    };
+
+    // Verifica che i dati della sessione siano completi
+    if (!sessionData.pub || !sessionData.pair.pub) {
+      throw new Error('Dati sessione incompleti');
+    }
+
+    console.log('Tentativo salvataggio sessione con dati:', {
+      ...sessionData,
+      pair: {
+        pub: sessionData.pair.pub,
+        hasPriv: !!sessionData.pair.priv,
+        hasEpub: !!sessionData.pair.epub,
+        hasEpriv: !!sessionData.pair.epriv
+      },
+      credentials: 'HIDDEN'
+    });
+
+    const saved = await sessionManager.saveSession(sessionData);
+    if (!saved) {
+      throw new Error('Errore nel salvataggio della sessione');
+    }
+
+    // Verifica che la sessione sia stata salvata correttamente
+    const isValid = await sessionManager.validateSession();
+    if (!isValid) {
+      throw new Error('Validazione sessione fallita');
+    }
+
+    console.log('Sessione salvata e validata con successo');
+    return true;
+  } catch (error) {
+    console.error('Errore dettagliato salvataggio sessione:', error);
+    sessionManager.clearSession();
+    throw error;
+  }
+};
+
+const createCertificates = async () => {
+  try {
+    // Segnala che stiamo creando i certificati
+    localStorage.setItem('creatingCertificates', 'true');
+
+    // Verifica che l'utente sia autenticato
+    if (!user.is?.pub) {
+      console.warn('Utente non autenticato, attendo...');
+      const isAuthenticated = await verifyAuthentication();
+      if (!isAuthenticated) {
+        throw new Error('Utente non autenticato per la creazione dei certificati');
+      }
+    }
+
+    // Verifica che la sessione sia valida
+    const isSessionValid = await sessionManager.validateSession();
+    if (!isSessionValid) {
+      throw new Error('Sessione non valida per la creazione dei certificati');
+    }
+
+    // Salva una copia delle chiavi per il ripristino
+    const sessionData = JSON.parse(localStorage.getItem('sessionData'));
+    const backupKeys = sessionData?.pair ? { ...sessionData.pair } : null;
+    const backupSession = sessionData ? { ...sessionData } : null;
+
+    if (!backupKeys || !backupSession) {
+      throw new Error('Impossibile effettuare backup della sessione');
+    }
+
+    console.log('Inizio creazione certificati con pub:', user.is.pub);
+
+    try {
+      // Crea i certificati in sequenza
+      await createFriendRequestCertificate();
+      console.log('Certificato richieste amicizia creato');
+      
+      await createNotificationCertificate();
+      console.log('Certificato notifiche creato');
+      
+      console.log('Certificati creati con successo');
+    } catch (error) {
+      console.error('Errore durante la creazione dei certificati:', error);
+      
+      // In caso di errore, ripristina la sessione completa
+      if (backupSession) {
+        localStorage.setItem('sessionData', JSON.stringify(backupSession));
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('userPub', backupSession.pub);
+        console.log('Sessione ripristinata dopo errore');
+      }
+      throw error;
+    } finally {
+      // Rimuovi il flag solo se la sessione è ancora valida
+      const isStillValid = await sessionManager.validateSession();
+      if (isStillValid) {
+        localStorage.removeItem('creatingCertificates');
+        console.log('Flag creazione certificati rimosso');
+      } else {
+        // Se la sessione non è più valida, tenta di ripristinarla
+        if (backupSession) {
+          localStorage.setItem('sessionData', JSON.stringify(backupSession));
+          localStorage.setItem('isAuthenticated', 'true');
+          localStorage.setItem('userPub', backupSession.pub);
+          console.log('Sessione ripristinata nel finally block');
+        }
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Errore nella creazione dei certificati:', error);
+    // Non rimuovere il flag in caso di errore per permettere un nuovo tentativo
+    return false;
+  }
+};
 
 export const loginWithMetaMask = async (address) => {
-  let userDataCache = null;
-  let decryptedKeys = null;
-
   try {
     if (!address || typeof address !== 'string') {
       throw new Error('Indirizzo non valido');
@@ -20,680 +249,192 @@ export const loginWithMetaMask = async (address) => {
     const normalizedAddress = address.toLowerCase();
     console.log('Tentativo login con indirizzo:', normalizedAddress);
 
-    // 1. Verifica connessione Gun
-    const isGunConnected = await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(false), 5000);
-      gun.get('healthcheck').once(() => {
-        clearTimeout(timeout);
-        resolve(true);
-      });
-    });
-
-    if (!isGunConnected) {
-      throw new Error('Impossibile connettersi al server Gun');
-    }
-
-    // 2. Cerca l'utente con retry
-    const findUser = async (retries = 3) => {
-      for (let i = 0; i < retries; i++) {
-        const userData = await new Promise((resolve) => {
-          gun
-            .get(DAPP_NAME)
-            .get('addresses')
-            .get(normalizedAddress)
-            .once((data) => {
-              console.log('Dati utente trovati:', data);
-              resolve(data);
-            });
-          setTimeout(() => resolve(null), 2000);
+    // Verifica se l'utente esiste
+    const existingUser = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('addresses')
+        .get(normalizedAddress)
+        .once((data) => {
+          resolve(data);
         });
-
-        if (userData && userData.pub) return userData;
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      return null;
-    };
-
-    const existingUser = await findUser();
-    console.log('Utente esistente:', existingUser);
+    });
 
     if (!existingUser || !existingUser.pub) {
       throw new Error('Utente non trovato');
     }
 
-    userDataCache = existingUser;
+    // Usa l'EthereumManager per il login
+    const ethereumManager = walletManager.getEthereumManager();
+    const pubKey = await ethereumManager.loginWithEthereum();
 
-    // 3. Ottieni il signer con timeout
-    const signer = await Promise.race([
-      gun.getSigner(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout ottenimento signer')), 10000)
-      ),
-    ]);
-
-    if (!signer) {
-      throw new Error('Impossibile ottenere il signer di MetaMask');
+    if (!pubKey) {
+      throw new Error('Login con MetaMask fallito');
     }
 
-    // 4. Firma il messaggio con timeout
-    const signature = await Promise.race([
-      signer.signMessage(gun.MESSAGE_TO_SIGN),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout firma messaggio')), 30000)
-      ),
-    ]);
-
-    if (!signature) {
-      throw new Error('Firma non valida o non fornita');
-    }
-
-    // 5. Genera la password e decifra le chiavi
-    const password = await gun.generatePassword(signature);
-    console.log('Password generata');
-
-    try {
-      const [decryptedPair, decryptedVPair, decryptedSPair] = await Promise.all(
-        [
-          gun.decryptWithPassword(userDataCache.env_pair, password),
-          gun.decryptWithPassword(userDataCache.env_v_pair, password),
-          gun.decryptWithPassword(userDataCache.env_s_pair, password),
-        ]
-      );
-
-      if (!decryptedPair || !decryptedVPair || !decryptedSPair) {
-        throw new Error('Decifratura chiavi fallita');
-      }
-
-      decryptedKeys = {
-        pair: decryptedPair,
-        v_Pair: decryptedVPair,
-        s_Pair: decryptedSPair,
-      };
-      console.log('Chiavi decifrate con successo');
-    } catch (error) {
-      console.error('Errore decifratura:', error);
-      throw new Error('Errore nella decifratura delle chiavi');
-    }
-
-    if (
-      !decryptedKeys?.pair ||
-      !decryptedKeys?.v_Pair ||
-      !decryptedKeys?.s_Pair
-    ) {
-      throw new Error('Chiavi di cifratura mancanti o non valide');
-    }
-
-    // 6. Autentica l'utente con retry
-    const authenticateUser = async (retries = 3) => {
-      // Prima pulisci lo stato precedente
-      if (user.is) {
-        user.leave();
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      for (let i = 0; i < retries; i++) {
-        try {
-          // Prima crea l'utente
-          await new Promise((resolve, reject) => {
-            user.create(decryptedKeys.pair, (ack) => {
-              if (ack.err && !ack.err.includes('already created')) {
-                reject(new Error(ack.err));
-              } else {
-                resolve(true);
-              }
-            });
-          });
-
-          // Poi autentica
-          await new Promise((resolve, reject) => {
-            user.auth(decryptedKeys.pair, (ack) => {
-              if (ack.err) reject(new Error(ack.err));
-              else resolve(ack);
-            });
-          });
-
-          return true;
-        } catch (error) {
-          console.error(`Tentativo ${i + 1} fallito:`, error);
-          if (i === retries - 1) throw error;
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-    };
-
-    await authenticateUser();
-    console.log('Autenticazione completata');
-
-    // 7. Verifica autenticazione
-    let attempts = 0;
-    while (!user.is && attempts < 50) {
-      await new Promise((r) => setTimeout(r, 100));
-      attempts++;
-    }
-
-    if (!user.is) {
+    // Verifica che l'autenticazione sia avvenuta con successo
+    const isAuthenticated = await verifyAuthentication();
+    if (!isAuthenticated) {
       throw new Error('Verifica autenticazione fallita');
     }
 
-    console.log('Autenticazione verificata');
+    // Recupera il wallet
+    const wallet = await walletManager.retrieveWallet(pubKey);
+    if (!wallet) {
+      throw new Error('Wallet non trovato');
+    }
 
-    // 8. Aggiorna last seen e metriche
-    await Promise.resolve([
-      new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('users')
-          .get(userDataCache.pub)
-          .get('lastSeen')
-          .put(Date.now(), (ack) => {
-            if (ack.err) reject(new Error(ack.err));
-            else resolve(ack);
-          });
-      }),
-      updateGlobalMetrics('totalLogins', 1),
-    ]);
+    // Aggiorna last seen
+    await gun
+      .get(DAPP_NAME)
+      .get('users')
+      .get(pubKey)
+      .get('lastSeen')
+      .put(Date.now());
 
-    // 9. Salva la sessione
+    // Prepara i dati per la sessione
     const displayName = `${address.slice(0, 6)}...${address.slice(-4)}`;
-
-    console.log('User Data Cache:', userDataCache);
-
-    const walletData = {
-      pub: userDataCache.pub,
-      epub: userDataCache.epub,
-      viewingPublicKey: userDataCache.viewingPublicKey,
-      spendingPublicKey: userDataCache.spendingPublicKey,
-      env_pair: userDataCache.env_pair,
-      env_v_pair: userDataCache.env_v_pair,
-      env_s_pair: userDataCache.env_s_pair,
-      internalWalletAddress: userDataCache.internalWalletAddress,
-      externalWalletAddress: normalizedAddress,
-      createdAt: userDataCache.createdAt || Date.now(),
-      authType: 'metamask',
+    const userData = {
+      ...existingUser,
+      displayName,
+      address: normalizedAddress,
+      username: normalizedAddress,
       lastSeen: Date.now(),
-      pair: decryptedKeys.pair,
-      v_Pair: decryptedKeys.v_Pair,
-      s_Pair: decryptedKeys.s_Pair,
-      credentials: {
-        username: userDataCache.internalWalletAddress,
-        password: password,
-      },
+      authType: 'metamask'
     };
 
-    // Verifica che il salvataggio sia avvenuto con successo
-    const sessionSaved = await sessionManager.saveSession(walletData);
-    if (!sessionSaved) {
-      throw new Error('Errore nel salvataggio della sessione');
-    }
-
-    // Verifica che la sessione sia stata salvata correttamente
-    const isValid = await sessionManager.validateSession();
-    if (!isValid) {
-      sessionManager.clearSession();
-      throw new Error('Errore nella validazione della sessione');
-    }
+    // Salva la sessione
+    await saveSession(userData, wallet);
 
     // Aggiorna metriche e crea certificati
-    Promise.all([
-      updateGlobalMetrics('totalLogins', 1),
-      createFriendRequestCertificate(),
-      createNotificationCertificate(),
-    ]);
+    await updateGlobalMetrics('totalLogins', 1);
+    await createCertificates();
 
     return {
       success: true,
-      pub: userDataCache.pub,
-      userData: {
-        ...userDataCache,
-        displayName,
-        address: normalizedAddress,
-        username: normalizedAddress,
-      },
+      pub: pubKey,
+      userData
     };
   } catch (error) {
     console.error('Errore login:', error);
-
-    // Pulizia in caso di errore
     if (user.is) {
       user.leave();
     }
-
-    // Pulisci la sessione
     sessionManager.clearSession();
-
     throw error;
   }
 };
 
-/**
- * Authenticates a registered user with their credentials.
- *
- * This function handles the login process by:
- * 1. Validating the provided credentials
- * 2. Authenticating against the Gun user system
- * 3. Creating necessary security certificates
- * 4. Verifying the user session is properly established
- *
- * @param {Object} credentials - The user's login credentials
- * @param {string} credentials.username - The user's username
- * @param {string} credentials.password - The user's password
- * @param {Function} callback - Optional callback function that receives the authentication result
- * @returns {Promise<Object>} Promise that resolves with:
- *   - success: {boolean} Whether authentication succeeded
- *   - pub: {string} The user's public key
- *   - message: {string} Status message
- *   - user: {Object} The authenticated user object
- * @throws {Error} If credentials are invalid or authentication fails
- */
 export const loginUser = async (credentials) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // Verifica input
-      if (!credentials?.username || !credentials?.password) {
-        resolve({
-          success: false,
-          errMessage: 'Username e password sono richiesti',
-          errCode: 'login-error',
-        });
-        return;
-      }
+  try {
+    // Segnala che stiamo effettuando il login
+    localStorage.setItem('isLoggingIn', 'true');
 
-      // Assicurati che non ci siano sessioni attive
-      if (user.is) {
-        user.leave();
-        // Attendi che l'utente sia effettivamente disconnesso
-        await new Promise((r) => setTimeout(r, 1000));
-      }
+    if (!credentials?.username || !credentials?.password) {
+      throw new Error('Username e password sono richiesti');
+    }
 
-      let userPubFound = null;
-      // Verifica se l'utente esiste
-      const checkUserExists = async (retries = 3) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            const exists = await new Promise((resolve) => {
-              gun.get(`~@${credentials.username}`).once((data) => {
-                console.log(
-                  'Verifica utente (tentativo ' + (i + 1) + '):',
-                  data
-                );
+    // Usa il WalletManager per il login
+    const pubKey = await walletManager.login(credentials.username, credentials.password);
+    
+    if (!pubKey) {
+      throw new Error('Login fallito');
+    }
 
-                userPubFound = data;
+    // Verifica che l'autenticazione sia avvenuta con successo
+    const isAuthenticated = await verifyAuthentication();
+    if (!isAuthenticated) {
+      throw new Error('Verifica autenticazione fallita');
+    }
 
-                resolve(!!data);
-              });
-              setTimeout(() => resolve(false), 2000);
-            });
-
-            if (exists) return true;
-
-            // Se non esiste, prova anche nel nodo users
-            const userInNode = await new Promise((resolve) => {
-              gun
-                .get(DAPP_NAME)
-                .get('users')
-                .map()
-                .once((data) => {
-                  if (data && data.username === credentials.username) {
-                    resolve(true);
-                  }
-                });
-              setTimeout(() => resolve(false), 2000);
-            });
-
-            if (userInNode) return true;
-
-            if (i < retries - 1) {
-              console.log('Utente non trovato, riprovo...');
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-          } catch (error) {
-            console.error('Errore verifica utente:', error);
-            if (i === retries - 1) return false;
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        }
-        return false;
-      };
-
-      const userExists = await checkUserExists();
-      console.log('Risultato verifica utente:', userExists);
-
-      if (!userExists) {
-        resolve({
-          success: false,
-          errMessage: 'Utente non trovato',
-          errCode: 'login-error',
-        });
-        return;
-      }
-
-      // Timeout per l'autenticazione
-      const timeoutId = setTimeout(() => {
-        if (user.is) user.leave();
-        resolve({
-          success: false,
-          errMessage: 'Timeout durante il login',
-          errCode: 'login-error',
-        });
-      }, LOGIN_TIMEOUT);
-
-      // Tenta l'autenticazione
-      console.log('Tentativo login con credenziali:', credentials);
-
-      console.log('User Pub Found:', userPubFound);
-
-      // remove the first character from userPubFound
-      const userPub = Object.keys(userPubFound)
-        .find((key) => key.startsWith('~'))
-        .slice(1);
-
-      console.log('User Pub:', userPub);
-
-      await gun
+    // Recupera i dati utente
+    const userData = await new Promise((resolve) => {
+      gun
         .get(DAPP_NAME)
         .get('users')
-        .get(userPub)
+        .get(pubKey)
         .once((data) => {
-          console.log('User in node', data);
-          return data;
+          resolve(data);
         });
+    });
 
-      await user.auth(
-        credentials.username,
-        credentials.password,
-        async (ack) => {
-          clearTimeout(timeoutId);
+    // Se non ci sono dati, usa dati base
+    const userDataToUse = userData || {
+      pub: pubKey,
+      username: credentials.username,
+      timestamp: Date.now(),
+      lastSeen: Date.now(),
+      authType: 'credentials'
+    };
 
-          console.log('Risultato autenticazione:', ack);
-
-          if (ack.err) {
-            resolve({
-              success: false,
-              errMessage: ack.err,
-              errCode: 'login-error',
-            });
-            return;
-          }
-
-          // Verifica che l'autenticazione sia avvenuta correttamente
-          let attempts = 0;
-          while (attempts < 30 && !user.is?.pub) {
-            await new Promise((r) => setTimeout(r, 100));
-            attempts++;
-          }
-
-          if (!user.is?.pub) {
-            resolve({
-              success: false,
-              errMessage: 'Verifica autenticazione fallita',
-              errCode: 'login-error',
-            });
-            return;
-          }
-
-          console.log('Autenticazione avvenuta con successo');
-
-          // Recupera i dati dell'utente con retry
-          const getUserData = async (retries = 3) => {
-            for (let i = 0; i < retries; i++) {
-              try {
-                const data = await new Promise((resolve) => {
-                  gun
-                    .get(DAPP_NAME)
-                    .get('users')
-                    .get(user.is.pub)
-                    .once((data) => {
-                      console.log('Dati utente recuperati:', data);
-                      resolve(data);
-                    });
-                  setTimeout(() => resolve(null), 3000);
-                });
-
-                if (data) return data;
-
-                // Se non troviamo i dati in users, proviamo in addresses
-                const addressData = await new Promise((resolve) => {
-                  gun
-                    .get(DAPP_NAME)
-                    .get('addresses')
-                    .get(user.is.pub)
-                    .once((data) => resolve(data));
-                  setTimeout(() => resolve(null), 3000);
-                });
-
-                if (addressData) return addressData;
-
-                if (i < retries - 1) {
-                  console.log('Dati utente non trovati, riprovo...');
-                  await new Promise((r) => setTimeout(r, 1000));
-                }
-              } catch (error) {
-                console.error('Errore recupero dati:', error);
-                if (i === retries - 1) throw error;
-                await new Promise((r) => setTimeout(r, 1000));
-              }
-            }
-            return null;
-          };
-
-          const userData = await getUserData();
-
-          // Se non troviamo i dati, creiamo un oggetto base
-          const userDataToUse = userData || {
-            pub: user.is.pub,
-            username: credentials.username,
-            timestamp: Date.now(),
-            lastSeen: Date.now(),
-            authType: 'credentials',
-          };
-
-          // Decifra le chiavi se presenti
-          let decryptedKeys = null;
-          if (
-            userData?.env_pair &&
-            userData?.env_v_pair &&
-            userData?.env_s_pair
-          ) {
-            try {
-              const [decryptedPair, decryptedVPair, decryptedSPair] =
-                await Promise.all([
-                  gun.decryptWithPassword(
-                    userData.env_pair,
-                    credentials.password
-                  ),
-                  gun.decryptWithPassword(
-                    userData.env_v_pair,
-                    credentials.password
-                  ),
-                  gun.decryptWithPassword(
-                    userData.env_s_pair,
-                    credentials.password
-                  ),
-                ]);
-
-              if (!decryptedPair || !decryptedVPair || !decryptedSPair) {
-                throw new Error('Decifratura chiavi fallita');
-              }
-
-              decryptedKeys = {
-                pair: decryptedPair,
-                v_Pair: decryptedVPair,
-                s_Pair: decryptedSPair,
-              };
-              console.log('Chiavi decifrate con successo');
-            } catch (error) {
-              console.error('Errore decifratura:', error);
-              throw new Error('Errore nella decifratura delle chiavi');
-            }
-          }
-
-          // Prepara i dati della sessione
-          const walletData = {
-            pub: user.is.pub,
-            epub: user._.sea?.epub,
-            viewingPublicKey: userDataToUse.viewingPublicKey,
-            spendingPublicKey: userDataToUse.spendingPublicKey,
-            env_pair: userDataToUse.env_pair,
-            env_v_pair: userDataToUse.env_v_pair,
-            env_s_pair: userDataToUse.env_s_pair,
-            internalWalletAddress:
-              userDataToUse.internalWalletAddress || user.is.pub,
-            externalWalletAddress: null,
-            createdAt: userDataToUse.createdAt || Date.now(),
-            authType: 'credentials',
-            lastSeen: Date.now(),
-            // Usa le chiavi decifrate se disponibili, altrimenti usa quelle di default
-            pair: decryptedKeys?.pair || user._.sea,
-            v_Pair: decryptedKeys?.v_Pair || user._.sea,
-            s_Pair: decryptedKeys?.s_Pair || user._.sea,
-            credentials: {
-              username: credentials.username,
-              password: credentials.password,
-            },
-          };
-
-          console.log('Wallet Data', walletData);
-
-          // Prima aggiorna i dati utente in Gun
-          new Promise((resolve, reject) => {
-            gun
-              .get(DAPP_NAME)
-              .get('users')
-              .get(user.is.pub)
-              .put(
-                {
-                  ...userDataToUse,
-                  lastSeen: Date.now(),
-                  username: credentials.username,
-                  nickname: credentials.username,
-                },
-                (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve(ack);
-                }
-              );
-
-            gun
-              .get(DAPP_NAME)
-              .get('users')
-              .get(credentials.username)
-              .put(
-                {
-                  ...userDataToUse,
-                  lastSeen: Date.now(),
-                  username: credentials.username,
-                  nickname: credentials.username,
-                },
-                (ack) => {
-                  if (ack.err) reject(new Error(ack.err));
-                  else resolve(ack);
-                }
-              );
-          });
-
-          // Poi salva la sessione
-          const sessionSaved = sessionManager.saveSession(walletData);
-          if (!sessionSaved) {
-            resolve({
-              success: false,
-              errMessage: 'Errore nel salvataggio della sessione',
-              errCode: 'login-error',
-            });
-            return;
-          }
-
-          // Verifica che la sessione sia stata salvata correttamente
-          const isValid = await sessionManager.validateSession();
-          if (!isValid) {
-            sessionManager.clearSession();
-            resolve({
-              success: false,
-              errMessage: 'Errore nella validazione della sessione',
-              errCode: 'login-error',
-            });
-            return;
-          }
-
-          // Aggiorna metriche e crea certificati
-          Promise.all([
-            updateGlobalMetrics('totalLogins', 1),
-            createFriendRequestCertificate(),
-            createNotificationCertificate(),
-          ]);
-
-          // Dopo l'autenticazione riuscita, verifica e rigenera i certificati
-          const certificatesOk = await verifyAndRegenerateCertificates();
-          if (!certificatesOk) {
-            console.warn(
-              'Problemi con i certificati, ma procedo comunque con il login'
-            );
-          }
-
-          resolve({
-            success: true,
-            pub: user.is.pub,
-            userData: {
-              ...userDataToUse,
-              username: credentials.username,
-              nickname: credentials.username,
-            },
-          });
-        }
-      );
-    } catch (error) {
-      console.error('Errore login:', error);
-      if (user.is) user.leave();
-      resolve({
-        success: false,
-        errMessage: error.message,
-        errCode: 'login-error',
+    // Aggiorna last seen
+    await gun
+      .get(DAPP_NAME)
+      .get('users')
+      .get(pubKey)
+      .put({
+        ...userDataToUse,
+        lastSeen: Date.now(),
+        username: credentials.username,
+        nickname: credentials.username,
+        password: credentials.password // Necessario per il salvataggio della sessione
       });
-    }
-  });
-};
 
-const verifyAndRegenerateCertificates = async () => {
-  if (!user?.is) return false;
-
-  try {
-    // Verifica i certificati esistenti
-    const [friendRequestCert, notificationCert] = await Promise.all([
-      gun
-        .user()
-        .get(DAPP_NAME)
-        .get('certificates')
-        .get('friendRequests')
-        .then(),
-      gun.user().get(DAPP_NAME).get('certificates').get('notifications').then(),
-    ]);
-
-    // Rigenera i certificati mancanti
-    const promises = [];
-
-    if (!friendRequestCert) {
-      console.log('Certificato richieste amicizia mancante, rigenerazione...');
-      promises.push(createFriendRequestCertificate());
+    // Recupera il wallet
+    const wallet = await walletManager.retrieveWallet(pubKey);
+    if (!wallet) {
+      throw new Error('Wallet non trovato');
     }
 
-    if (!notificationCert) {
-      console.log('Certificato notifiche mancante, rigenerazione...');
-      promises.push(createNotificationCertificate());
+    // Salva la sessione
+    const sessionSaved = await saveSession(userDataToUse, wallet);
+    if (!sessionSaved) {
+      throw new Error('Errore nel salvataggio della sessione');
     }
 
-    if (promises.length > 0) {
-      const results = await Promise.all(promises);
-      const allSuccess = results.every((cert) => cert !== null);
+    // Verifica che la sessione sia valida prima di procedere
+    const isSessionValid = await sessionManager.validateSession();
+    if (!isSessionValid) {
+      throw new Error('Sessione non valida dopo il salvataggio');
+    }
 
-      if (!allSuccess) {
-        console.error('Errore nella rigenerazione dei certificati');
-        return false;
+    // Aggiorna metriche e crea certificati
+    await updateGlobalMetrics('totalLogins', 1);
+    const certificatesCreated = await createCertificates();
+    if (!certificatesCreated) {
+      throw new Error('Errore nella creazione dei certificati');
+    }
+
+    // Verifica finale della sessione
+    const isFinalSessionValid = await sessionManager.validateSession();
+    if (!isFinalSessionValid) {
+      throw new Error('Sessione non valida dopo la creazione dei certificati');
+    }
+
+    // Rimuovi il flag di login solo dopo che tutto è completato con successo
+    localStorage.removeItem('isLoggingIn');
+
+    return {
+      success: true,
+      pub: pubKey,
+      userData: {
+        ...userDataToUse,
+        username: credentials.username,
+        nickname: credentials.username
       }
-    }
-
-    return true;
+    };
   } catch (error) {
-    console.error('Errore verifica/rigenerazione certificati:', error);
-    return false;
+    console.error('Errore login:', error);
+    if (user.is) {
+      user.leave();
+    }
+    sessionManager.clearSession();
+    localStorage.removeItem('isLoggingIn');
+    return {
+      success: false,
+      errMessage: error.message,
+      errCode: 'login-error'
+    };
   }
 };
 

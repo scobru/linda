@@ -1,8 +1,5 @@
-import Gun from "gun";
-import SEA from "gun/sea.js";
-// import GunEthModule from './gun-eth.mjs';
-
-import GunEthModule from "@scobru/gun-eth";
+import { WalletManager } from "@scobru/shogun";
+import SEA from "gun/sea";
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
@@ -12,34 +9,17 @@ const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
 
 let isConnected = false;
 
-const GunEth = GunEthModule.GunEth;
 
-const gunOptions = {
-  peers: DEFAULT_PEERS,
-  localStorage: false,
-  radisk: false,
-  radix: false,
-  retry: 1500,
-  file: false,
-  web: false,
-  axe: true,
-  multicast: false,
-  // Configurazione WebSocket migliorata
-  ws: {
-    protocols: ["gun"],
-    reconnect: true,
-    pingTimeout: 45000,
-    pingInterval: 30000,
-    maxPayload: 2 * 1024 * 1024,
-    perMessageDeflate: false,
-  },
-};
+export { SEA }
+
+// Inizializza il WalletManager
+const walletManager = new WalletManager();
 
 // Inizializza Gun con le opzioni
-export const gun = GunEth.initializeGun(gunOptions);
+export const gun = walletManager.getGun();
 
 // Inizializza l'utente
-export const user = gun.user().recall({ sessionStorage: true });
+export const user = walletManager.getUser();
 
 // Gestione errori di connessione
 gun.on("error", (err) => {
@@ -122,8 +102,6 @@ export const checkConnection = () => {
 export const reconnect = async () => {
   console.log("Tentativo di riconnessione forzata...");
   gun.off();
-  reconnectAttempts = 0;
-  isReconnecting = false;
 
   // Rimuovi tutti i peer esistenti
   const currentPeers = Object.keys(gun._.opt.peers || {});
@@ -142,8 +120,8 @@ export const reconnect = async () => {
   return isConnected;
 };
 
-// Esporta SEA
-export { SEA };
+// Esporta il WalletManager
+export { walletManager };
 
 // Funzione per pulire la cache locale
 export const clearLocalCache = () => {
