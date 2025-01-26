@@ -166,13 +166,17 @@ const saveSession = async (userData, wallet) => {
 
 const createCertificates = async () => {
   try {
+    console.log('Inizio processo creazione certificati...');
+    
     // Segnala che stiamo creando i certificati
     localStorage.setItem('creatingCertificates', 'true');
+    console.log('Flag creatingCertificates impostato');
 
     // Verifica che l'utente sia autenticato
     if (!user.is?.pub) {
       console.warn('Utente non autenticato, attendo...');
       const isAuthenticated = await verifyAuthentication();
+      console.log('Risultato verifica autenticazione:', { isAuthenticated });
       if (!isAuthenticated) {
         throw new Error('Utente non autenticato per la creazione dei certificati');
       }
@@ -180,12 +184,22 @@ const createCertificates = async () => {
 
     // Verifica che la sessione sia valida
     const isSessionValid = await sessionManager.validateSession();
+    console.log('Verifica validità sessione:', { isSessionValid });
     if (!isSessionValid) {
       throw new Error('Sessione non valida per la creazione dei certificati');
     }
 
     // Salva una copia delle chiavi per il ripristino
     const sessionData = JSON.parse(localStorage.getItem('sessionData'));
+    console.log('Backup sessione:', {
+      hasSessionData: !!sessionData,
+      hasPair: !!sessionData?.pair,
+      pairDetails: sessionData?.pair ? {
+        hasPub: !!sessionData.pair.pub,
+        hasPriv: !!sessionData.pair.priv
+      } : null
+    });
+
     const backupKeys = sessionData?.pair ? { ...sessionData.pair } : null;
     const backupSession = sessionData ? { ...sessionData } : null;
 
@@ -197,9 +211,11 @@ const createCertificates = async () => {
 
     try {
       // Crea i certificati in sequenza
+      console.log('Creazione certificato richieste amicizia...');
       await createFriendRequestCertificate();
       console.log('Certificato richieste amicizia creato');
       
+      console.log('Creazione certificato notifiche...');
       await createNotificationCertificate();
       console.log('Certificato notifiche creato');
       
@@ -209,6 +225,7 @@ const createCertificates = async () => {
       
       // In caso di errore, ripristina la sessione completa
       if (backupSession) {
+        console.log('Tentativo ripristino sessione dopo errore...');
         localStorage.setItem('sessionData', JSON.stringify(backupSession));
         localStorage.setItem('isAuthenticated', 'true');
         localStorage.setItem('userPub', backupSession.pub);
@@ -216,20 +233,34 @@ const createCertificates = async () => {
       }
       throw error;
     } finally {
-      // Rimuovi il flag solo se la sessione è ancora valida
+      // Verifica finale della sessione prima di rimuovere il flag
+      console.log('Verifica finale sessione...');
       const isStillValid = await sessionManager.validateSession();
+      console.log('Risultato verifica finale:', { isStillValid });
+      
       if (isStillValid) {
+        console.log('Rimozione flag creazione certificati...');
         localStorage.removeItem('creatingCertificates');
         console.log('Flag creazione certificati rimosso');
       } else {
         // Se la sessione non è più valida, tenta di ripristinarla
+        console.log('Sessione non valida nel finally, tentativo ripristino...');
         if (backupSession) {
           localStorage.setItem('sessionData', JSON.stringify(backupSession));
           localStorage.setItem('isAuthenticated', 'true');
           localStorage.setItem('userPub', backupSession.pub);
           console.log('Sessione ripristinata nel finally block');
+          // Mantieni il flag per permettere un nuovo tentativo
+          console.log('Flag creazione certificati mantenuto per nuovo tentativo');
         }
       }
+    }
+
+    // Verifica finale dopo il finally
+    const finalCheck = await sessionManager.validateSession();
+    console.log('Verifica finale dopo finally:', { finalCheck });
+    if (!finalCheck) {
+      throw new Error('Sessione non valida dopo la creazione dei certificati');
     }
 
     return true;
