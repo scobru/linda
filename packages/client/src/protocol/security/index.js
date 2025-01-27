@@ -20,7 +20,7 @@ import {
 } from "./friendsCertificates.js";
 import { gun, user, DAPP_NAME } from "../useGun.js";
 import SEA from "gun/sea.js";
-import sessionManager from "./sessionManager.js";
+import sessionManager from "../authentication/sessionManager.js";
 
 // Esporta le funzioni dai moduli
 export {

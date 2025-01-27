@@ -1,5 +1,5 @@
 import { user } from '../useGun.js';
-import { sessionManager } from '../security/index.js';
+import { sessionManager } from './sessionManager.js';
 
 export const checkAuth = async () => {
   try {

@@ -114,6 +114,7 @@ export const sessionManager = {
       }
 
       const parsedSessionData = JSON.parse(sessionData);
+
       console.log('Dati sessione trovati:', {
         hasPub: !!parsedSessionData.pub,
         hasPair: !!parsedSessionData.pair,
@@ -125,7 +126,13 @@ export const sessionManager = {
       
       // Verifica base delle chiavi
       const hasKeys = !!(parsedSessionData?.pair?.pub && parsedSessionData?.pair?.priv);
-      console.log('Verifica base chiavi:', { hasKeys });
+      console.log('Verifica base chiavi:', { 
+        hasKeys,
+        pairExists: !!parsedSessionData?.pair,
+        pubExists: !!parsedSessionData?.pair?.pub,
+        privExists: !!parsedSessionData?.pair?.priv,
+        fullPair: parsedSessionData?.pair
+      });
 
       if (!hasKeys) {
         console.log('Chiavi di cifratura mancanti nella sessione');
@@ -140,7 +147,6 @@ export const sessionManager = {
       
       if (isCreatingCertificates || isLoggingIn) {
         console.log('Processo in corso, verifica minima della sessione');
-        console.log('Verifica chiavi durante processo:', hasKeys);
         return hasKeys;
       }
 
@@ -166,37 +172,48 @@ export const sessionManager = {
         pub: user.is?.pub
       });
 
-      if (!user.is?.pub) {
-        // Se stiamo ancora creando i certificati, non considerare questo un errore
-        if (isCreatingCertificates || isLoggingIn) {
-          console.log('User.is mancante ma processo in corso, continuo...');
-          return hasKeys;
+      // Se l'utente non è autenticato ma abbiamo le chiavi, proviamo la riautenticazione
+      if (!user.is && parsedSessionData.pair) {
+        console.log('Tentativo riautenticazione automatica...');
+        try {
+          await new Promise((resolve, reject) => {
+            user.auth(parsedSessionData.pair, (ack) => {
+              if (ack.err) {
+                console.error('Errore riautenticazione:', ack.err);
+                reject(ack.err);
+              } else {
+                console.log('Riautenticazione automatica completata');
+                resolve();
+              }
+            });
+          });
+          
+          // Verifica che l'utente sia stato effettivamente autenticato
+          if (!user.is?.pub) {
+            console.log('Riautenticazione fallita - user.is non presente');
+            return false;
+          }
+          
+          // Verifica che il pub corrisponda
+          if (user.is.pub !== parsedSessionData.pub) {
+            console.log('Riautenticazione fallita - pub non corrispondente');
+            return false;
+          }
+          
+          return true;
+        } catch (error) {
+          console.error('Errore durante la riautenticazione:', error);
+          return false;
         }
-        console.log('Utente non autenticato');
-        return false;
       }
 
-      // Verifica che il pub dell'utente corrisponda
-      const pubMatch = parsedSessionData.pub === user.is.pub;
-      console.log('Verifica corrispondenza pub:', {
-        sessionPub: parsedSessionData.pub,
-        userPub: user.is.pub,
-        match: pubMatch
-      });
-
-      if (!pubMatch) {
-        // Se stiamo ancora creando i certificati, non considerare questo un errore
-        if (isCreatingCertificates || isLoggingIn) {
-          console.log('Mismatch pub ma processo in corso, continuo...');
-          return hasKeys;
-        }
-        console.log('Mismatch tra pub della sessione e utente corrente');
+      if (!user.is?.pub) {
+        console.log('Utente non autenticato');
         return false;
       }
 
       // Se tutto è ok, aggiorna il timestamp
       localStorage.setItem('lastLogin', Date.now().toString());
-      console.log('Validazione sessione completata con successo');
       return true;
     } catch (error) {
       console.error('Errore nella validazione della sessione:', error);
