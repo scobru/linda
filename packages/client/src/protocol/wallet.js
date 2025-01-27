@@ -1,6 +1,9 @@
 import { gun, user, DAPP_NAME } from "./useGun.js";
 import { ethers, JsonRpcProvider } from "ethers";
 import { StealthChain } from "@scobru/shogun";
+import GUN from 'gun';
+
+const SEA = GUN.SEA;
 
 // Inizializza StealthChain
 const stealthChain = new StealthChain(gun);
@@ -13,6 +16,18 @@ const SUPPORTED_CHAINS = {
     rpcUrl:
       "https://spring-serene-snow.optimism-sepolia.quiknode.pro/d02b30b94d9d8e89cee0b2a694d5e1a5c6d87d9f",
     blockExplorer: "https://sepolia-optimism.etherscan.io/",
+    nativeCurrency: {
+      name: "ETH",
+      symbol: "ETH",
+      decimals: 18,
+    },
+  },
+  SEPOLIA_TESTNET: {
+    name: "Sepolia Testnet",
+    chainId: 11155111,
+    rpcUrl:
+      "https://eth-sepolia.g.alchemy.com/v2/pq9eEUbylJw5ENv94Z1lu0h4bU4OHhRQ",
+    blockExplorer: "https://sepolia.etherscan.io/",
     nativeCurrency: {
       name: "ETH",
       symbol: "ETH",
@@ -99,6 +114,34 @@ const cleanupGunData = async (path, key) => {
   });
 };
 
+// Funzione per normalizzare la chiave privata
+const normalizePrivateKey = (privateKey) => {
+  try {
+    // Rimuovi eventuali spazi
+    let cleanKey = privateKey.trim();
+    
+    // Aggiungi 0x se non presente
+    if (!cleanKey.startsWith('0x')) {
+      cleanKey = '0x' + cleanKey;
+    }
+    
+    // Verifica che la lunghezza sia corretta (32 bytes = 64 caratteri + '0x')
+    if (cleanKey.length !== 66) {
+      throw new Error("Lunghezza chiave privata non valida");
+    }
+    
+    // Verifica che sia una stringa esadecimale valida
+    if (!/^0x[0-9a-fA-F]{64}$/.test(cleanKey)) {
+      throw new Error("Formato chiave privata non valido");
+    }
+    
+    return cleanKey;
+  } catch (error) {
+    console.error("Error normalizing private key:", error);
+    throw new Error("Chiave privata non valida");
+  }
+};
+
 export const walletService = {
   setChain: async (chainKey) => {
     if (!SUPPORTED_CHAINS[chainKey]) {
@@ -127,64 +170,91 @@ export const walletService = {
         throw new Error("userPub è richiesto per getCurrentWallet");
       }
 
+      // Prova prima dal localStorage
       const localWallet = localStorage.getItem(`gunWallet_${userPub}`);
       if (localWallet) {
         try {
           const walletData = JSON.parse(localWallet);
-          console.log("Wallet data from localStorage:", walletData);
+          console.log("Dati wallet da localStorage:", walletData);
 
-          if (!walletData.internalWalletAddress || !walletData.internalWalletPk) {
-            console.log("Wallet data incompleto nel localStorage, provo su Gun");
-          } else {
+          if (walletData.internalWalletAddress && walletData.internalWalletPk) {
             return normalizeWalletData(walletData);
           }
         } catch (error) {
-          console.error("Error parsing localStorage wallet:", error);
+          console.error("Errore parsing localStorage wallet:", error);
         }
       }
 
-      let userData = await new Promise((resolve) => {
+      // Prova da Gun
+      const userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get("users")
           .get(userPub)
           .once((data) => {
-            console.log("User data from Gun:", data);
+            console.log("Dati utente da Gun:", data);
             resolve(data);
           });
       });
 
-      if (!userData) {
-        throw new Error("Dati utente non trovati");
+      if (userData?.address && userData?.privateKey) {
+        const walletData = {
+          internalWalletAddress: userData.address,
+          internalWalletPk: userData.privateKey,
+        };
+
+        // Salva nel localStorage
+        localStorage.setItem(
+          `gunWallet_${userPub}`,
+          JSON.stringify(walletData)
+        );
+
+        return normalizeWalletData(walletData);
       }
 
-      // Recupera le chiavi stealth
-      const stealthKeys = await stealthChain.retrieveStealthKeysFromUser(userPub);
-      if (!stealthKeys) {
-        throw new Error("Chiavi stealth non trovate");
-      }
+      // Se non troviamo il wallet, ne creiamo uno nuovo
+      console.log("Nessun wallet trovato, ne creo uno nuovo");
+      
+      // Genera un nuovo wallet
+      const wallet = ethers.Wallet.createRandom();
+      console.log("Nuovo wallet creato:", wallet.address);
 
-      const walletData = {
-        internalWalletAddress: userData.address,
-        internalWalletPk: userData.privateKey,
-        viewingPublicKey: stealthKeys.epub,
-        spendingPublicKey: stealthKeys.pub,
-        pair: {
-          pub: stealthKeys.pub,
-          priv: stealthKeys.priv,
-          epub: stealthKeys.epub,
-          epriv: stealthKeys.epriv
-        }
+      const newWalletData = {
+        internalWalletAddress: wallet.address,
+        internalWalletPk: wallet.privateKey,
       };
 
+      // Salva in Gun
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get("users")
+          .get(userPub)
+          .put({
+            address: wallet.address,
+            privateKey: wallet.privateKey,
+            createdAt: Date.now(),
+          }, (ack) => {
+            if (ack.err) {
+              console.error("Errore salvataggio wallet in Gun:", ack.err);
+              reject(new Error("Errore salvataggio wallet in Gun"));
+            } else {
+              resolve();
+            }
+          });
+      });
+
+      // Salva in localStorage
       localStorage.setItem(
         `gunWallet_${userPub}`,
-        JSON.stringify(walletData)
+        JSON.stringify(newWalletData)
       );
 
-      return normalizeWalletData(walletData);
+      console.log("Nuovo wallet salvato con successo");
+      return normalizeWalletData(newWalletData);
+
     } catch (error) {
-      console.error("Error getting current wallet:", error);
+      console.error("Errore recupero/creazione wallet:", error);
       throw error;
     }
   },
@@ -432,36 +502,47 @@ export const walletService = {
 
   getUserWalletAddress: async (userPub) => {
     try {
+      if (!userPub) {
+        throw new Error("userPub non fornito");
+      }
+
       // Prima cerca nei dati utente
       const userData = await new Promise((resolve) => {
         gun
           .get(DAPP_NAME)
           .get("users")
-          .map()
+          .get(userPub)
           .once((data) => {
-            if (data && data.pub === userPub) {
-              resolve(data);
-            }
+            console.log("Found user data:", data);
+            resolve(data);
           });
-        setTimeout(() => resolve(null), 2000);
       });
-
-      console.log("Found user data:", userData);
 
       if (userData?.address) {
         return userData.address;
       }
 
       // Se non trovato, cerca nel profilo
-      const userProfile = await gun
-        .user()
-        .get(DAPP_NAME)
-        .get("profiles")
-        .get(userPub)
-        .once((data) => {
-          console.log("Found user profile:", data);
-          return data.address;
-        });
+      const profileData = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("profiles")
+          .get(userPub)
+          .once((data) => {
+            console.log("Found profile data:", data);
+            resolve(data);
+          });
+      });
+
+      if (profileData?.address) {
+        return profileData.address;
+      }
+
+      // Se non trovato, cerca nel wallet
+      const walletData = await walletService.getCurrentWallet(userPub);
+      if (walletData?.internalWalletAddress) {
+        return walletData.internalWalletAddress;
+      }
 
       throw new Error("Indirizzo wallet non trovato per questo utente");
     } catch (error) {
@@ -470,40 +551,98 @@ export const walletService = {
     }
   },
 
-  sendTransaction: async (to, amount) => {
+  sendTransaction: async (recipientAddress, amount) => {
     try {
+      const userPub = user?.is?.pub;
+      if (!userPub) {
+        throw new Error("Utente non autenticato");
+      }
+
+      const currentWallet = await walletService.getCurrentWallet(userPub);
+      if (!currentWallet) {
+        throw new Error("Wallet non trovato");
+      }
+
+      if (!currentWallet.internalWalletPk) {
+        throw new Error("Chiave privata non trovata nel wallet");
+      }
+
       const state = getUserChainState();
-      if (!state) throw new Error("User not authenticated");
+      if (!state) {
+        throw new Error("Chain non inizializzata");
+      }
 
-      // Get sender's wallet
-      const senderWallet = await walletService.getCurrentWallet();
-      const signer = new ethers.Wallet(senderWallet.privateKey, state.provider);
+      console.log("Chain corrente:", state.currentChain.name);
+      console.log("Chain ID:", state.currentChain.chainId);
 
-      // Send transaction
-      const tx = await signer.sendTransaction({
-        to: to,
-        value: ethers.parseEther(amount),
-        chainId: state.currentChain.chainId,
+      // Normalizza la chiave privata
+      const normalizedPrivateKey = normalizePrivateKey(currentWallet.internalWalletPk);
+      console.log("Chiave privata normalizzata:", normalizedPrivateKey ? "presente" : "mancante");
+
+      const provider = new JsonRpcProvider(state.currentChain.rpcUrl);
+      const network = await provider.getNetwork();
+      console.log("Network chainId:", network.chainId);
+
+      const signer = new ethers.Wallet(normalizedPrivateKey, provider);
+      console.log("Signer creato con successo");
+
+      // Verifica il saldo
+      const balance = await provider.getBalance(signer.address);
+      console.log("Saldo wallet:", ethers.formatEther(balance), "ETH");
+
+      const amountWei = ethers.parseEther(amount.toString());
+      if (balance < amountWei) {
+        throw new Error(`Saldo insufficiente. Hai ${ethers.formatEther(balance)} ETH, necessari ${amount} ETH`);
+      }
+
+      // Stima il gas
+      const gasEstimate = await provider.estimateGas({
+        from: signer.address,
+        to: recipientAddress,
+        value: amountWei,
       });
 
-      await tx.wait();
+      const gasPrice = await provider.getFeeData();
+      const gasCost = gasEstimate * gasPrice.gasPrice;
+      console.log("Costo stimato gas:", ethers.formatEther(gasCost), "ETH");
 
-      // Save transaction record
-      gun
-        .get(DAPP_NAME)
-        .get("transactions")
-        .set({
-          from: user.is.pub,
-          to: to,
-          amount: ethers.formatEther(tx.value),
-          txHash: tx.hash,
-          timestamp: Date.now(),
-          network: state.currentChain.name,
-        });
+      // Verifica se c'è abbastanza ETH per la transazione + gas
+      if (balance < amountWei + gasCost) {
+        throw new Error(`Saldo insufficiente per coprire il gas. Necessari ${ethers.formatEther(amountWei + gasCost)} ETH totali`);
+      }
+
+      console.log("Invio transazione a:", recipientAddress);
+      console.log("Importo:", amount);
+
+      const tx = await signer.sendTransaction({
+        to: recipientAddress,
+        value: amountWei,
+        chainId: network.chainId,
+        gasLimit: gasEstimate,
+        maxFeePerGas: gasPrice.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.maxPriorityFeePerGas,
+      });
+
+      console.log("Transazione inviata:", tx.hash);
+      await tx.wait();
+      console.log("Transazione confermata");
+
+      await gun.get(DAPP_NAME).get("transactions").set({
+        from: userPub,
+        to: recipientAddress,
+        amount: amount,
+        txHash: tx.hash,
+        timestamp: Date.now(),
+        network: state.currentChain.name,
+        isStealthPayment: false,
+      });
 
       return tx;
     } catch (error) {
-      console.error("Error sending transaction:", error);
+      console.error("Errore invio transazione:", error);
+      if (error.code === "CALL_EXCEPTION") {
+        throw new Error("Errore durante la stima del gas. Verifica il saldo e riprova.");
+      }
       throw error;
     }
   },

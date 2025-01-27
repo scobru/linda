@@ -14,7 +14,7 @@ import AudioPlayer from "./AudioPlayer";
 const ActionButton = ({ icon, onClick, title, className = "" }) => (
   <button
     onClick={onClick}
-    className={`w-10 h-10 flex items-center justify-center rounded-full bg-[#2D325A] hover:bg-[#4A4F76] transition-colors ${className}`}
+    className={`w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#4A4F76] transition-colors ${className}`}
     title={title}
   >
     {icon}
@@ -236,25 +236,11 @@ const MessageBox = ({
             {/* Barra delle azioni */}
             <div className="flex items-center justify-end mt-2 gap-2">
               <div className="flex items-center gap-2">
-                <ActionButton
-                  icon={<span className="text-white text-lg">⏰</span>}
-                  onClick={() => {
-                    /* gestione sveglia */
-                  }}
-                  title="Imposta promemoria"
-                />
-
-                <ActionButton
-                  icon={<span className="text-white text-lg">↗️</span>}
-                  onClick={() => {
-                    /* gestione condivisione */
-                  }}
-                  title="Condividi messaggio"
-                />
+                
 
                 {showDeleteButton && (
                   <ActionButton
-                    icon={<span className="text-red-500 text-lg">🗑️</span>}
+                    icon={<span className="text-xs">❌</span>}
                     onClick={() => onDelete(message.id)}
                     title="Elimina messaggio"
                   />

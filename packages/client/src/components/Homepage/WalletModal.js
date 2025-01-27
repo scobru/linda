@@ -16,6 +16,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   const [availableChains, setAvailableChains] = useState({});
   const [isStealthMode, setIsStealthMode] = useState(false);
   const [recipientName, setRecipientName] = useState("");
+  const [isSending, setIsSending] = useState(false);
 
   // Carica il nome del destinatario
   useEffect(() => {
@@ -182,40 +183,43 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
   };
 
   const handleSend = async () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      toast.error("Inserisci un importo valido");
-      return;
-    }
-
     try {
-      setIsLoading(true);
-
-      if (!selectedChain) {
-        throw new Error("Seleziona prima una chain");
+      if (!amount || isNaN(parseFloat(amount))) {
+        toast.error("Inserisci un importo valido");
+        return;
       }
 
-      if (sendType === "contact") {
-        if (!selectedUser?.pub) {
-          throw new Error("Destinatario non valido");
-        }
-        await onSend(selectedUser.pub, amount, isStealthMode);
+      if (!recipientWalletInfo?.address) {
+        toast.error("Indirizzo del destinatario non disponibile");
+        return;
+      }
+
+      // Converti l'importo in un numero
+      const numericAmount = parseFloat(amount);
+      
+      // Verifica che l'importo sia positivo
+      if (numericAmount <= 0) {
+        toast.error("L'importo deve essere maggiore di zero");
+        return;
+      }
+
+      setIsSending(true);
+
+      // Se è in modalità stealth, usa sendTip
+      if (isStealthMode && selectedUser?.pub) {
+        await walletService.sendTip(selectedUser.pub, numericAmount, true);
       } else {
-        if (!ethers.isAddress(customAddress)) {
-          throw new Error("Indirizzo non valido");
-        }
-        await walletService.sendTransaction(customAddress, amount);
+        // Altrimenti usa sendTransaction
+        await walletService.sendTransaction(recipientWalletInfo.address, numericAmount.toString());
       }
 
-      toast.success("Transazione inviata con successo!");
+      toast.success("Transazione inviata con successo");
       onClose();
-      setAmount("");
-      setCustomAddress("");
-      setIsStealthMode(false);
     } catch (error) {
       console.error("Errore invio transazione:", error);
-      toast.error(error.message || "Errore durante la transazione");
+      toast.error(error.message || "Errore nell'invio della transazione");
     } finally {
-      setIsLoading(false);
+      setIsSending(false);
     }
   };
 
@@ -436,14 +440,14 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
             <button
               onClick={handleSend}
               disabled={
-                isLoading ||
+                isSending ||
                 !amount ||
                 (sendType === "address" && !customAddress) ||
                 (sendType === "contact" && !recipientWalletInfo?.address)
               }
               className={`w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
                 ${
-                  isLoading ||
+                  isSending ||
                   !amount ||
                   (sendType === "address" && !customAddress) ||
                   (sendType === "contact" && !recipientWalletInfo?.address)
@@ -451,7 +455,7 @@ const WalletModal = ({ isOpen, onClose, onSend, selectedUser }) => {
                     : ""
                 }`}
             >
-              {isLoading ? "Invio in corso..." : "Invia"}
+              {isSending ? "Invio in corso..." : "Invia"}
             </button>
           </div>
         </div>

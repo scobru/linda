@@ -354,6 +354,43 @@ export const sessionManager = {
       console.error('Errore nella pulizia della sessione:', error);
     }
   },
+
+  /**
+   * Osserva i cambiamenti dello stato di autenticazione
+   * @param {Function} callback - Funzione da chiamare quando lo stato cambia
+   * @returns {Function} Funzione per rimuovere l'observer
+   */
+  observeAuthState(callback) {
+    const checkState = async () => {
+      const isValid = await this.validateSession();
+      const authState = {
+        isAuthenticated: !!user.is && isValid,
+        userPub: user.is?.pub,
+        sessionData: localStorage.getItem('sessionData') ? JSON.parse(localStorage.getItem('sessionData')) : null
+      };
+      callback(authState);
+    };
+
+    // Controlla lo stato iniziale
+    checkState();
+
+    // Osserva i cambiamenti dell'utente
+    const userObserver = user.on('auth', checkState);
+    
+    // Osserva i cambiamenti del localStorage
+    const storageListener = (event) => {
+      if (event.key === 'sessionData' || event.key === 'isAuthenticated') {
+        checkState();
+      }
+    };
+    window.addEventListener('storage', storageListener);
+
+    // Ritorna una funzione per rimuovere gli observer
+    return () => {
+      user.off(userObserver);
+      window.removeEventListener('storage', storageListener);
+    };
+  }
 };
 
 export default sessionManager;
