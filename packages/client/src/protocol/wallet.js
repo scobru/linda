@@ -285,18 +285,37 @@ export const walletService = {
 
       let tx;
       if (isStealthMode) {
-        // Genera l'indirizzo stealth usando StealthChain
+        console.log("Generazione chiavi stealth per:", recipientPub);
+
+        // Genera una nuova coppia di chiavi effimere
+        const senderEphemeralPair = await SEA.pair();
+        
+        if (!senderEphemeralPair || !senderEphemeralPair.epub) {
+          throw new Error("Impossibile generare la coppia di chiavi effimere del mittente");
+        }
+
+        // Genera l'indirizzo stealth
         const stealthResult = await new Promise((resolve, reject) => {
-          stealthChain.generateStealthAddress(recipientPub, (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          });
+          stealthChain.generateStealthAddress(
+            recipientPub, 
+            senderEphemeralPair,
+            (error, result) => {
+              if (error) {
+                console.error("Errore generazione indirizzo stealth:", error);
+                reject(error);
+                return;
+              }
+              console.log("Dati stealth generati:", result);
+              resolve(result);
+            }
+          );
         });
 
-        console.log("Generated stealth data:", {
-          stealthAddress: stealthResult.stealthAddress,
-          ephemeralPublicKey: stealthResult.ephemeralPublicKey,
-        });
+        if (!stealthResult?.stealthAddress) {
+          throw new Error("Indirizzo stealth non generato correttamente");
+        }
+
+        console.log("Invio transazione stealth a:", stealthResult.stealthAddress);
 
         // Invia la transazione all'indirizzo stealth
         tx = await signer.sendTransaction({
@@ -306,12 +325,13 @@ export const walletService = {
         });
 
         await tx.wait();
+        console.log("Transazione stealth confermata:", tx.hash);
 
         // Salva l'annuncio stealth
         const announcementId = `stealth_${tx.hash}_${Date.now()}`;
         const announcement = {
           stealthAddress: stealthResult.stealthAddress,
-          ephemeralPublicKey: stealthResult.ephemeralPublicKey,
+          ephemeralPublicKey: senderEphemeralPair.epub, // Usa la chiave effimera generata
           recipientPublicKey: recipientPub,
           from: senderPub,
           to: recipientPub,
@@ -336,6 +356,7 @@ export const walletService = {
           .get(announcementId)
           .put(announcement);
 
+        console.log("Annuncio stealth salvato");
         return tx;
       } else {
         // Gestione pagamento standard
