@@ -1,8 +1,7 @@
-import { gun, user } from '../useGun';
-import { DAPP_NAME } from '../useGun';
+const { gun, user, DAPP_NAME } = require('../useGun');
 
 // Costanti ActivityPub
-export const ACTIVITY_TYPES = {
+const ACTIVITY_TYPES = {
   CREATE: 'Create',
   UPDATE: 'Update',
   DELETE: 'Delete',
@@ -26,15 +25,15 @@ class ActivityPubManager {
     const actorData = {
       '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Person',
-      id: `${window.location.origin}/users/${username}`,
-      following: `${window.location.origin}/users/${username}/following`,
-      followers: `${window.location.origin}/users/${username}/followers`,
-      inbox: `${window.location.origin}/users/${username}/inbox`,
-      outbox: `${window.location.origin}/users/${username}/outbox`,
+      id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+      following: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/following`,
+      followers: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/followers`,
+      inbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox`,
+      outbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/outbox`,
       preferredUsername: username,
       publicKey: {
-        id: `${window.location.origin}/users/${username}#main-key`,
-        owner: `${window.location.origin}/users/${username}`,
+        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`,
+        owner: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
         publicKeyPem: user.is?.pub
       }
     };
@@ -71,4 +70,9 @@ class ActivityPubManager {
   }
 }
 
-export const activityPubManager = new ActivityPubManager(); 
+const activityPubManager = new ActivityPubManager();
+
+module.exports = {
+  ACTIVITY_TYPES,
+  activityPubManager
+}; 
