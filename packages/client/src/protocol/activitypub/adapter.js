@@ -1,7 +1,7 @@
-const { ACTIVITY_TYPES } = require('./index');
+import { ACTIVITY_TYPES } from './index.js';
 
 // Converte un post nel formato ActivityPub
-const convertPostToActivity = (post) => {
+export const convertPostToActivity = (post) => {
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: ACTIVITY_TYPES.CREATE,
@@ -17,7 +17,7 @@ const convertPostToActivity = (post) => {
 };
 
 // Converte una reazione nel formato ActivityPub
-const convertReactionToActivity = (reaction, postId) => {
+export const convertReactionToActivity = (reaction, postId) => {
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: ACTIVITY_TYPES.LIKE,
@@ -27,7 +27,7 @@ const convertReactionToActivity = (reaction, postId) => {
 };
 
 // Converte una richiesta di amicizia nel formato ActivityPub
-const convertFriendRequestToActivity = (targetUser) => {
+export const convertFriendRequestToActivity = (targetUser) => {
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: ACTIVITY_TYPES.FOLLOW,
@@ -37,7 +37,7 @@ const convertFriendRequestToActivity = (targetUser) => {
 };
 
 // Converte una risposta ad una richiesta di amicizia nel formato ActivityPub
-const convertFriendResponseToActivity = (targetUser, accepted) => {
+export const convertFriendResponseToActivity = (targetUser, accepted) => {
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: accepted ? ACTIVITY_TYPES.ACCEPT : ACTIVITY_TYPES.REJECT,
@@ -47,11 +47,4 @@ const convertFriendResponseToActivity = (targetUser, accepted) => {
     },
     published: new Date().toISOString()
   };
-};
-
-module.exports = {
-  convertPostToActivity,
-  convertReactionToActivity,
-  convertFriendRequestToActivity,
-  convertFriendResponseToActivity
 }; 

@@ -1,7 +1,7 @@
-const { gun, user, DAPP_NAME } = require('../useGun');
+import { gun, user, DAPP_NAME } from '../useGun.js';
 
 // Costanti ActivityPub
-const ACTIVITY_TYPES = {
+export const ACTIVITY_TYPES = {
   CREATE: 'Create',
   UPDATE: 'Update',
   DELETE: 'Delete',
@@ -70,9 +70,4 @@ class ActivityPubManager {
   }
 }
 
-const activityPubManager = new ActivityPubManager();
-
-module.exports = {
-  ACTIVITY_TYPES,
-  activityPubManager
-}; 
+export const activityPubManager = new ActivityPubManager(); 

@@ -1,6 +1,6 @@
-const fetch = require('node-fetch');
-const { activityPubManager } = require('./index');
-const { convertPostToActivity, convertFriendRequestToActivity } = require('./adapter');
+import fetch from 'node-fetch';
+import { activityPubManager } from './index.js';
+import { convertPostToActivity, convertFriendRequestToActivity } from './adapter.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8765';
 const TEST_USERNAME = 'testuser';

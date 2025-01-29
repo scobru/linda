@@ -1,5 +1,5 @@
 import { WalletManager } from "@scobru/shogun";
-import SEA from "gun/sea";
+import SEA from "gun/sea.js ";
 
 // Non importare i moduli di storage
 // require('gun/lib/store');

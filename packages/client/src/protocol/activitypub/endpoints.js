@@ -1,8 +1,8 @@
-const { activityPubManager } = require('./index');
-const { gun, user, DAPP_NAME } = require('../useGun');
+import { activityPubManager } from './index.js';
+import { gun, user, DAPP_NAME } from '../useGun.js';
 
 // Endpoint per il profilo utente (actor)
-const handleActorEndpoint = async (username) => {
+export const handleActorEndpoint = async (username) => {
   const actorData = await gun
     .get(DAPP_NAME)
     .get('activitypub')
@@ -13,7 +13,7 @@ const handleActorEndpoint = async (username) => {
 };
 
 // Endpoint per l'inbox
-const handleInbox = async (activity) => {
+export const handleInbox = async (activity) => {
   try {
     await activityPubManager.handleIncomingActivity(activity);
     return { success: true };
@@ -24,7 +24,7 @@ const handleInbox = async (activity) => {
 };
 
 // Endpoint per l'outbox
-const handleOutbox = async (activity) => {
+export const handleOutbox = async (activity) => {
   try {
     if (!user.is) throw new Error('Utente non autenticato');
 
@@ -50,7 +50,7 @@ const handleOutbox = async (activity) => {
 };
 
 // Endpoint per i follower
-const handleFollowers = async (username) => {
+export const handleFollowers = async (username) => {
   const followers = await gun
     .get(DAPP_NAME)
     .get('activitypub')
@@ -67,7 +67,7 @@ const handleFollowers = async (username) => {
 };
 
 // Endpoint per i following
-const handleFollowing = async (username) => {
+export const handleFollowing = async (username) => {
   const following = await gun
     .get(DAPP_NAME)
     .get('activitypub')
@@ -81,12 +81,4 @@ const handleFollowing = async (username) => {
     totalItems: following ? Object.keys(following).length : 0,
     items: following || []
   };
-};
-
-module.exports = {
-  handleActorEndpoint,
-  handleInbox,
-  handleOutbox,
-  handleFollowers,
-  handleFollowing
 }; 

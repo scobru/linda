@@ -1,6 +1,7 @@
 {
   "name": "linda-client",
   "version": "1.0.0",
+  "type": "module",
   "private": false,
   "dependencies": {
     "@headlessui/react": "^2.2.0",

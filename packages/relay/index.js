@@ -1,13 +1,20 @@
-require("dotenv").config();
+import dotenv from 'dotenv';
+import express from 'express';
+import Gun from 'gun';
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { Mogu } from '@scobru/mogu';
+import http from 'http';
+import WebSocket from 'ws';
 
-const express = require("express");
-const Gun = require("gun");
-const os = require("os");
-const fs = require("fs");
-const path = require("path");
-const { Mogu } = require("@scobru/mogu");
-const http = require('http');
-const WebSocket = require('ws');
+// Configurazione ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config();
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
@@ -15,10 +22,10 @@ const MULTICAST_ADDRESS = '239.255.255.250';
 const MULTICAST_PORT = 8765;
 
 // Importazioni Gun necessarie
-require("gun/gun.js");
-require("gun/sea.js");
-require("gun/lib/axe.js");
-require("gun/lib/radisk.js");
+import 'gun/gun.js';
+import 'gun/sea.js';
+import 'gun/lib/axe.js';
+import 'gun/lib/radisk.js';
 
 const app = express();
 const port = 8765;
@@ -118,7 +125,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rendi le variabili globali
+// Middleware Gun
+app.head('/gun', (req, res) => {
+  res.status(200).end();
+});
+
+app.get('/gun', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: Date.now() });
+});
+
+app.use((req, res, next) => {
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// Variabili globali
 let gun, mogu;
 const metrics = {
   connections: 0,
@@ -230,23 +253,25 @@ async function performBackup() {
   return false;
 }
 
-// Modifica l'inizializzazione del server
+// Funzione principale di inizializzazione
 async function initializeServer() {
   try {
-    // Crea il server HTTP
     const server = http.createServer(app);
     
-    // Configura Gun con il server HTTP invece di express
     const gunConfig = {
       ...GUN_CONFIG,
-      web: server  // Usa il server HTTP invece di app
+      web: server
     };
 
-    // Inizializza Gun con la configurazione
     gun = new Gun(gunConfig);
     console.log("Gun server started");
 
-    // Avvia il server HTTP
+    // Aggiungi il middleware Gun.serve
+    app.use(Gun.serve);
+
+    // Configura gli handler delle connessioni
+    setupConnectionHandlers(server, gun);
+
     server.listen(port, () => {
       console.log(`Relay listening at http://localhost:${port}`);
     });
@@ -254,80 +279,20 @@ async function initializeServer() {
     // Inizializza Mogu se abilitato
     if (CONFIG.STORAGE.enabled) {
       mogu = new Mogu({
-        key: "", // chiave opzionale
+        key: "",
         storageService: CONFIG.STORAGE.service,
         storageConfig: CONFIG.STORAGE.config,
         server: gun,
-        useIPFS: false // disabilita IPFS
+        useIPFS: false
       });
-
-      try {
-        console.log("Mogu initialized successfully");
-
-        // Verifica e ripristina l'ultimo backup se esiste
-        const lastBackup = metrics.backups.lastBackup.hash;
-        if (lastBackup) {
-          const comparison = await mogu.compareBackup(lastBackup);
-          if (comparison.isEqual) {
-            await mogu.restore(lastBackup);
-            console.log("Last backup restored successfully");
-          }
-        }
-      } catch (error) {
-        console.error("Error initializing Mogu:", error);
-      }
+      console.log("Mogu initialized successfully");
     }
 
+    // Inizializza i listener di Gun
     initializeGunListeners(gun, mogu);
 
-    // Aggiungi questi middleware prima di app.use(Gun.serve)
-    app.head('/gun', (req, res) => {
-      res.status(200).end();
-    });
-
-    app.get('/gun', (req, res) => {
-      res.status(200).json({ status: 'ok', timestamp: Date.now() });
-    });
-
-    // Middleware per gestire lo stato del server
-    app.use((req, res, next) => {
-      if (req.method === 'HEAD') {
-        return res.status(200).end();
-      }
-      next();
-    });
-
-    app.use(Gun.serve);
-
-    // Tracking connessioni WebSocket
-    server.on("connection", (socket) => {
-      metrics.connections++;
-      console.log(`Nuova connessione - Totale: ${metrics.connections}`);
-
-      socket.on("close", () => {
-        metrics.connections = Math.max(0, metrics.connections - 1);
-        console.log(`Connessione chiusa - Totale: ${metrics.connections}`);
-      });
-    });
-
-    // Tracking eventi Gun
-    gun.on("hi", (peer) => {
-      metrics.connections++;
-      console.log(
-        `Peer connesso: ${peer.id || "unknown"} - Totale: ${
-          metrics.connections
-        }`
-      );
-    });
-
-    gun.on("bye", (peer) => {
-      metrics.connections = Math.max(0, metrics.connections - 1);
-      console.log(
-        `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${
-          metrics.connections
-        }`
-      );
-    });
+    // Avvia la sincronizzazione delle metriche
+    setInterval(syncGlobalMetrics, 5000);
 
     return { gun, mogu };
   } catch (error) {
@@ -336,11 +301,9 @@ async function initializeServer() {
   }
 }
 
-// Inizializza il server
+// Avvia il server
 initializeServer()
-  .then(({ gun: g, mogu: m }) => {
-    gun = g;
-    mogu = m;
+  .then(() => {
     console.log("Server initialized successfully");
   })
   .catch((error) => {
@@ -461,42 +424,55 @@ const updateMetrics = () => {
   }
 };
 
+// Funzione per attendere l'inizializzazione di Gun
+const waitForGunInit = () => {
+  return new Promise((resolve) => {
+    if (gun && gun._.opt.peers && Object.keys(gun._.opt.peers).length > 0) {
+      resolve();
+    } else {
+      gun.on('hi', resolve);
+    }
+  });
+};
+
 // Modifica la funzione syncGlobalMetrics per rimuovere i metadati dai log
-function syncGlobalMetrics() {
-  gun
-    .get(DAPP_NAME)
-    .get("globalMetrics")
-    .once((data) => {
-      if (data) {
-        // Filtra i metadati e converti i valori in numeri
-        const cleanMetrics = {};
-        Object.entries(data).forEach(([key, value]) => {
-          // Ignora i metadati di Gun
-          if (key !== "_" && key !== "#" && key !== ">") {
-            cleanMetrics[key] = typeof value === "number" ? value : 0;
-          }
-        });
+async function syncGlobalMetrics() {
+  try {
+    await waitForGunInit();
+    gun
+      .get(DAPP_NAME)
+      .get("globalMetrics")
+      .once((data) => {
+        if (data) {
+          // Filtra i metadati e converti i valori in numeri
+          const cleanMetrics = {};
+          Object.entries(data).forEach(([key, value]) => {
+            // Ignora i metadati di Gun
+            if (key !== "_" && key !== "#" && key !== ">") {
+              cleanMetrics[key] = typeof value === "number" ? value : 0;
+            }
+          });
 
-        // Aggiorna le metriche locali
-        Object.assign(globalMetrics, cleanMetrics);
+          // Aggiorna le metriche locali
+          Object.assign(globalMetrics, cleanMetrics);
 
-        // Log solo delle metriche pulite
-        console.log("Global metrics synced:", cleanMetrics);
-      }
-    });
+          // Log solo delle metriche pulite
+          console.log("Global metrics synced:", cleanMetrics);
+        }
+      });
+  } catch (error) {
+    console.error("Errore durante la sincronizzazione delle metriche:", error);
+  }
 }
 
-// Chiama syncGlobalMetrics ogni 5 secondi
-setInterval(syncGlobalMetrics, 5000);
-
-// Import ActivityPub handlers
-const { 
+// Modifica gli import degli endpoint ActivityPub
+import { 
   handleActorEndpoint, 
   handleInbox, 
   handleOutbox,
   handleFollowers,
   handleFollowing 
-} = require('../client/src/protocol/activitypub/endpoints');
+} from '../client/src/protocol/activitypub/endpoints.js';
 
 // ActivityPub Endpoints
 app.get('/.well-known/webfinger', async (req, res) => {
@@ -769,40 +745,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rimuovi la dichiarazione duplicata di gun precedente e mantieni solo waitForGunInit
-const waitForGunInit = () => {
-  return new Promise((resolve) => {
-    if (gun && gun._.opt.peers && Object.keys(gun._.opt.peers).length > 0) {
-      resolve();
-    } else {
-      gun.on('hi', resolve);
-    }
-  });
-};
-
-// Modifica la funzione syncGlobalMetrics per gestire l'inizializzazione
-async function syncGlobalMetrics() {
-  try {
-    await waitForGunInit();
-    gun
-      .get(DAPP_NAME)
-      .get("globalMetrics")
-      .once((data) => {
-        if (data) {
-          const cleanMetrics = {};
-          Object.entries(data).forEach(([key, value]) => {
-            if (key !== "_" && key !== "#" && key !== ">") {
-              cleanMetrics[key] = Number(value);
-            }
-          });
-          console.log("Metriche globali sincronizzate:", cleanMetrics);
-        }
-      });
-  } catch (error) {
-    console.error("Errore durante la sincronizzazione delle metriche:", error);
-  }
-}
-
 // Endpoint per le statistiche
 app.get('/stats', (req, res) => {
   try {
@@ -844,3 +786,43 @@ app.get('/stats', (req, res) => {
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
+
+// Esporta le funzioni necessarie
+export {
+  gun,
+  mogu,
+  metrics,
+  globalMetrics,
+  initializeServer,
+  updateMetrics,
+  syncGlobalMetrics
+};
+
+// Funzione per gestire gli eventi di connessione
+function setupConnectionHandlers(server, gun) {
+  // Tracking connessioni WebSocket
+  server.on("connection", (socket) => {
+    metrics.connections++;
+    console.log(`Nuova connessione - Totale: ${metrics.connections}`);
+
+    socket.on("close", () => {
+      metrics.connections = Math.max(0, metrics.connections - 1);
+      console.log(`Connessione chiusa - Totale: ${metrics.connections}`);
+    });
+  });
+
+  // Tracking eventi Gun
+  gun.on("hi", (peer) => {
+    metrics.connections++;
+    console.log(
+      `Peer connesso: ${peer.id || "unknown"} - Totale: ${metrics.connections}`
+    );
+  });
+
+  gun.on("bye", (peer) => {
+    metrics.connections = Math.max(0, metrics.connections - 1);
+    console.log(
+      `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${metrics.connections}`
+    );
+  });
+}
