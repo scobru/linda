@@ -465,14 +465,14 @@ async function syncGlobalMetrics() {
   }
 }
 
-// Modifica gli import degli endpoint ActivityPub
+// Import degli endpoint ActivityPub locali
 import { 
   handleActorEndpoint, 
   handleInbox, 
   handleOutbox,
   handleFollowers,
   handleFollowing 
-} from '../client/src/protocol/activitypub/endpoints.js';
+} from './activitypub/endpoints.js';
 
 // ActivityPub Endpoints
 app.get('/.well-known/webfinger', async (req, res) => {
@@ -497,7 +497,7 @@ app.get('/.well-known/webfinger', async (req, res) => {
 // Endpoint Actor
 app.get('/users/:username', async (req, res) => {
   try {
-    const actorData = await handleActorEndpoint(req.params.username);
+    const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
     res.json(actorData);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -507,7 +507,7 @@ app.get('/users/:username', async (req, res) => {
 // Endpoint Inbox
 app.post('/users/:username/inbox', async (req, res) => {
   try {
-    await handleInbox(req.body);
+    await handleInbox(gun, DAPP_NAME, req.params.username, req.body);
     res.status(200).json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -515,10 +515,10 @@ app.post('/users/:username/inbox', async (req, res) => {
 });
 
 // Endpoint Outbox
-app.get('/users/:username/outbox', async (req, res) => {
+app.post('/users/:username/outbox', async (req, res) => {
   try {
-    const activities = await handleOutbox();
-    res.json(activities);
+    const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
+    res.json(activity);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -527,7 +527,7 @@ app.get('/users/:username/outbox', async (req, res) => {
 // Endpoint Followers
 app.get('/users/:username/followers', async (req, res) => {
   try {
-    const followers = await handleFollowers(req.params.username);
+    const followers = await handleFollowers(gun, DAPP_NAME, req.params.username);
     res.json(followers);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -537,7 +537,7 @@ app.get('/users/:username/followers', async (req, res) => {
 // Endpoint Following
 app.get('/users/:username/following', async (req, res) => {
   try {
-    const following = await handleFollowing(req.params.username);
+    const following = await handleFollowing(gun, DAPP_NAME, req.params.username);
     res.json(following);
   } catch (error) {
     res.status(500).json({ error: error.message });
