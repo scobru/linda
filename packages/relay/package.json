@@ -11,8 +11,8 @@
     "restore:radata": "node scripts/restoreRadata.js"
   },
   "dependencies": {
-    "@scobru/mogu": "^0.0.9",
-    "@scobru/shogun": "^0.0.9",
+    "@scobru/mogu": "latest",
+    "@scobru/shogun": "latest",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
     "express": "^4.17.3",
