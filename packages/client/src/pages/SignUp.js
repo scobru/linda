@@ -645,14 +645,54 @@ export default function Register() {
 
           {/* Bottone per MetaMask */}
           {authMethod === "metamask" && (
-            <div className="flex justify-center">
-              <button
-                onClick={handleMetaMaskRegister}
-                disabled={isLoading}
-                className="w-full max-w-xs h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200"
-              >
-                {isLoading ? "Registrazione in corso..." : "Registrati con MetaMask"}
-              </button>
+            <div className="flex flex-col items-center space-y-4">
+              <div className="w-full max-w-xs">
+                <ConnectButton.Custom>
+                  {({
+                    account,
+                    chain,
+                    openAccountModal,
+                    openChainModal,
+                    openConnectModal,
+                    mounted,
+                  }) => {
+                    return (
+                      <div
+                        {...(!mounted && {
+                          "aria-hidden": true,
+                          style: {
+                            opacity: 0,
+                            pointerEvents: "none",
+                            userSelect: "none",
+                          },
+                        })}
+                      >
+                        {(() => {
+                          if (!mounted || !account || !chain) {
+                            return (
+                              <button
+                                onClick={openConnectModal}
+                                className="w-full h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200"
+                              >
+                                Connetti Wallet
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              onClick={handleMetaMaskRegister}
+                              disabled={isLoading}
+                              className="w-full h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                            >
+                              {isLoading ? "Registrazione in corso..." : "Registrati con MetaMask"}
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    );
+                  }}
+                </ConnectButton.Custom>
+              </div>
             </div>
           )}
 
