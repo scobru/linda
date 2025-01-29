@@ -28,6 +28,7 @@ export { avatarService } from "./utils/avatarService";
 // Security and Authentication
 export { sessionManager } from "./security";
 export { friendsService } from "./friends";
+export { webAuthnService } from "./authentication/webauthn";
 
 // Messaging modules
 export { default as messaging } from "./messaging";

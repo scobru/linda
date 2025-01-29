@@ -1,10 +1,11 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   authentication,
   sessionManager,
   gun,
   user,
   DAPP_NAME,
+  webAuthnService,
 } from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
@@ -12,17 +13,21 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "../config/wagmi";
 
 export default function SignIn() {
-  const [username, setUsername] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isRedirecting, setIsRedirecting] = React.useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const navigate = useNavigate();
   const maxRetries = 3;
   const retryDelay = 1000; // 1 secondo tra i tentativi
   const { address, isConnected } = useAccount();
-  const [loginMethod, setLoginMethod] = React.useState("traditional"); // 'traditional' o 'metamask'
+  const [authMethod, setAuthMethod] = useState("metamask"); // aggiungo stato per il metodo di autenticazione
+  const [isWebAuthnSupported, setIsWebAuthnSupported] = useState(false);
 
   useEffect(() => {
+    // Verifica se WebAuthn è supportato
+    setIsWebAuthnSupported(webAuthnService.isSupported());
+    
     const checkExistingAuth = async () => {
       try {
         const isSessionValid = await sessionManager.validateSession();
@@ -347,6 +352,70 @@ export default function SignIn() {
     }
   };
 
+  const handleWebAuthnLogin = async () => {
+    if (isLoading || isRedirecting) return;
+    if (!username.trim()) {
+      toast.error("Per favore inserisci il tuo username");
+      return;
+    }
+
+    setIsLoading(true);
+    const toastId = toast.loading("Accesso con WebAuthn in corso...");
+
+    try {
+      // Effettua il login con WebAuthn
+      const credentials = await webAuthnService.login(username.trim());
+      
+      if (!credentials.success) {
+        throw new Error(credentials.error || "Errore durante l'accesso con WebAuthn");
+      }
+
+      // Effettua il login con le credenziali generate
+      const result = await authentication.loginUser({
+        username: credentials.username,
+        password: credentials.password
+      });
+
+      if (result.success) {
+        // Salva lo stato di autenticazione
+        localStorage.setItem("isAuthenticated", "true");
+        localStorage.setItem("userPub", user.is.pub);
+        localStorage.setItem("username", credentials.username);
+        localStorage.setItem("webauthn_credential_id", credentials.credentialId);
+
+        // Verifica che la sessione sia stata salvata correttamente
+        const isSessionValid = await sessionManager.validateSession();
+        if (!isSessionValid) {
+          throw new Error("Errore durante il salvataggio della sessione");
+        }
+
+        toast.success("Accesso effettuato con successo!", { id: toastId });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
+        localStorage.removeItem("redirectAfterLogin");
+        window.location.replace(redirectPath);
+      } else {
+        throw new Error(result.errMessage || "Errore durante il login");
+      }
+    } catch (error) {
+      console.error("Errore login WebAuthn:", error);
+      toast.error(error.message, { id: toastId });
+      
+      // Pulisci lo stato in caso di errore
+      localStorage.removeItem("isAuthenticated");
+      localStorage.removeItem("userPub");
+      localStorage.removeItem("username");
+      localStorage.removeItem("webauthn_credential_id");
+      await sessionManager.clearSession();
+      if (user.is) {
+        user.leave();
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Modifica l'effetto di verifica iniziale
   useEffect(() => {
     const checkAuth = async () => {
@@ -413,75 +482,111 @@ export default function SignIn() {
   }
 
   return (
-    <>
-      <div className="w-screen h-screen flex flex-col justify-center items-center bg-gray-50">
-        <div className="text-center -mt-24">
-          <p className="text-4xl mb-8">Sign In</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-gray-100 to-gray-200 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-lg">
+        <div className="text-center">
+          <h2 className="text-4xl font-medium mb-8">Sign In</h2>
 
-          {/* Bottoni per scegliere il metodo di login */}
-          <div className="flex justify-center gap-2 mb-6">
+          {/* Selezione metodo di autenticazione */}
+          <div className="flex justify-center space-x-4 mb-6">
             <button
-              onClick={() => setLoginMethod("traditional")}
-              className={`w-40 py-2 rounded-full transition-colors ${
-                loginMethod === "traditional"
-                  ? "bg-blue-500 text-white"
+              onClick={() => setAuthMethod("traditional")}
+              className={`px-6 py-2 rounded-full transition-colors ${
+                authMethod === "traditional" 
+                  ? "bg-blue-500 text-white" 
                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
               }`}
             >
-              Username
+              Password
             </button>
             <button
-              onClick={() => setLoginMethod("metamask")}
-              className={`w-40 py-2 rounded-full transition-colors ${
-                loginMethod === "metamask"
-                  ? "bg-blue-500 text-white"
+              onClick={() => setAuthMethod("metamask")}
+              className={`px-6 py-2 rounded-full transition-colors ${
+                authMethod === "metamask" 
+                  ? "bg-blue-500 text-white" 
                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
               }`}
             >
               MetaMask
             </button>
+            {isWebAuthnSupported && (
+              <button
+                onClick={() => setAuthMethod("webauthn")}
+                className={`px-6 py-2 rounded-full transition-colors ${
+                  authMethod === "webauthn" 
+                    ? "bg-blue-500 text-white" 
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                WebAuthn
+              </button>
+            )}
           </div>
 
-          {loginMethod === "traditional" ? (
-            // Form tradizionale
-            <div className="flex flex-col place-items-center">
+          {/* Messaggio informativo per WebAuthn */}
+          {authMethod === "webauthn" && (
+            <div className="text-sm text-gray-600 text-center mx-auto max-w-sm mb-6 bg-blue-50 p-4 rounded-lg">
+              <p>Per accedere con WebAuthn:</p>
+              <p>1. Inserisci il tuo username</p>
+              <p>2. Clicca su "Accedi con WebAuthn"</p>
+              <p>3. Usa il tuo metodo biometrico per autenticarti</p>
+            </div>
+          )}
+
+          {/* Form tradizionale */}
+          {authMethod === "traditional" && (
+            <div className="flex flex-col items-center space-y-4">
               <input
-                className="w-80 h-14 rounded-full text-center border border-gray-300 mb-3"
                 type="text"
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyPress={handleKeyPress}
                 value={username}
-                placeholder="enter username"
-                disabled={isLoading || isRedirecting}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Inserisci username"
+                className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
+                disabled={isLoading}
               />
               <input
-                className="w-80 h-14 rounded-full text-center border border-gray-300 mb-3"
                 type="password"
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyPress={handleKeyPress}
                 value={password}
-                placeholder="enter password"
-                disabled={isLoading || isRedirecting}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Inserisci password"
+                className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
+                disabled={isLoading}
               />
               <button
                 onClick={handleLogin}
-                disabled={isLoading || isRedirecting}
-                className="w-80 h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full mb-3"
+                disabled={isLoading || !username.trim() || !password.trim()}
+                className="w-full max-w-xs h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {isLoading ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
-                    Signing in...
-                  </div>
-                ) : (
-                  "Sign In"
-                )}
+                {isLoading ? "Accesso in corso..." : "Accedi"}
               </button>
             </div>
-          ) : (
-            // Sezione MetaMask
-            <div className="flex flex-col items-center">
-              <div className="w-80 mb-3">
+          )}
+
+          {/* Input e bottone per WebAuthn */}
+          {authMethod === "webauthn" && (
+            <div className="flex flex-col items-center space-y-4">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Inserisci il tuo username"
+                className="w-full max-w-xs h-14 rounded-full text-center border border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
+                disabled={isLoading}
+              />
+              <button
+                onClick={handleWebAuthnLogin}
+                disabled={isLoading || !username.trim()}
+                className="w-full max-w-xs h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {isLoading ? "Accesso in corso..." : "Accedi con WebAuthn"}
+              </button>
+            </div>
+          )}
+
+          {/* Bottone per MetaMask */}
+          {authMethod === "metamask" && (
+            <div className="flex flex-col items-center space-y-4">
+              <div className="w-full max-w-xs">
                 <ConnectButton.Custom>
                   {({
                     account,
@@ -501,56 +606,46 @@ export default function SignIn() {
                             userSelect: "none",
                           },
                         })}
-                        className="w-full"
                       >
                         {(() => {
                           if (!mounted || !account || !chain) {
                             return (
                               <button
                                 onClick={openConnectModal}
-                                type="button"
-                                className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
+                                className="w-full h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200"
                               >
                                 Connetti Wallet
                               </button>
                             );
                           }
                           return (
-                            <div className="w-full text-center">
-                              <button
-                                onClick={openAccountModal}
-                                type="button"
-                                className="w-full h-14 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
-                              >
-                                {account.displayName}
-                              </button>
-                            </div>
+                            <button
+                              onClick={handleMetaMaskLogin}
+                              disabled={isLoading}
+                              className="w-full h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                            >
+                              {isLoading ? "Accesso in corso..." : "Accedi con MetaMask"}
+                            </button>
                           );
                         })()}
                       </div>
                     );
                   }}
                 </ConnectButton.Custom>
-                <button
-                  onClick={handleMetaMaskLogin}
-                  type="button"
-                  className="w-full h-14 mt-2 bg-blue-500 hover:bg-blue-700 text-white font-bold rounded-full"
-                >
-                  Accedi con MetaMask
-                </button>
               </div>
             </div>
           )}
 
-          <div className="flex flex-col gap-3 mt-6">
-            <Link to="/landing">
-              <button className="w-80 h-14 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-full">
+          {/* Bottoni di navigazione */}
+          <div className="flex flex-col items-center space-y-4 mt-8">
+            <Link to="/landing" className="w-full max-w-xs">
+              <button className="w-full h-14 bg-gray-500 hover:bg-gray-600 text-white font-medium rounded-full transition-colors">
                 Torna indietro
               </button>
             </Link>
 
-            <Link to="/register">
-              <button className="w-80 h-14 bg-white hover:bg-gray-100 text-blue-500 font-bold rounded-full border-2 border-blue-500">
+            <Link to="/register" className="w-full max-w-xs">
+              <button className="w-full h-14 bg-white hover:bg-gray-100 text-blue-500 font-medium rounded-full border-2 border-blue-500 transition-colors">
                 Crea account
               </button>
             </Link>
@@ -562,6 +657,6 @@ export default function SignIn() {
         </div>
       </div>
       <Toaster />
-    </>
+    </div>
   );
 }
