@@ -489,7 +489,86 @@ function syncGlobalMetrics() {
 // Chiama syncGlobalMetrics ogni 5 secondi
 setInterval(syncGlobalMetrics, 5000);
 
-// Aggiungi questa nuova funzione per inizializzare gli event listeners
+// Import ActivityPub handlers
+const { 
+  handleActorEndpoint, 
+  handleInbox, 
+  handleOutbox,
+  handleFollowers,
+  handleFollowing 
+} = require('../client/src/protocol/activitypub/endpoints');
+
+// ActivityPub Endpoints
+app.get('/.well-known/webfinger', async (req, res) => {
+  const resource = req.query.resource;
+  if (!resource) {
+    return res.status(400).json({ error: 'Resource parameter required' });
+  }
+
+  const [, username] = resource.split(':');
+  const [handle] = username.split('@');
+
+  res.json({
+    subject: resource,
+    links: [{
+      rel: 'self',
+      type: 'application/activity+json',
+      href: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${handle}`
+    }]
+  });
+});
+
+// Endpoint Actor
+app.get('/users/:username', async (req, res) => {
+  try {
+    const actorData = await handleActorEndpoint(req.params.username);
+    res.json(actorData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint Inbox
+app.post('/users/:username/inbox', async (req, res) => {
+  try {
+    await handleInbox(req.body);
+    res.status(200).json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint Outbox
+app.get('/users/:username/outbox', async (req, res) => {
+  try {
+    const activities = await handleOutbox();
+    res.json(activities);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint Followers
+app.get('/users/:username/followers', async (req, res) => {
+  try {
+    const followers = await handleFollowers(req.params.username);
+    res.json(followers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint Following
+app.get('/users/:username/following', async (req, res) => {
+  try {
+    const following = await handleFollowing(req.params.username);
+    res.json(following);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Aggiungi il tracking delle attività ActivityPub nelle metriche
 function initializeGunListeners(gun, mogu) {
   const processedEvents = new Set();
 
@@ -561,6 +640,32 @@ function initializeGunListeners(gun, mogu) {
         } else if (data.type === 'board') {
           updateGlobalMetric('totalBoards', 1);
           console.log('Nuova board creata:', data.name);
+        }
+      }
+    });
+
+  // Tracking attività ActivityPub
+  gun.get(DAPP_NAME)
+    .get('activitypub')
+    .map()
+    .on((activity, key) => {
+      if (activity && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        
+        // Aggiorna le metriche in base al tipo di attività
+        switch(activity.type) {
+          case 'Create':
+            updateGlobalMetric('totalPosts', 1);
+            break;
+          case 'Follow':
+            updateGlobalMetric('totalFollows', 1);
+            break;
+          case 'Like':
+            updateGlobalMetric('totalLikes', 1);
+            break;
+          case 'Announce':
+            updateGlobalMetric('totalBoosts', 1);
+            break;
         }
       }
     });

@@ -3019,10 +3019,10 @@
     winston "^3.17.0"
     zod "^3.23.8"
 
-"@scobru/shogun@^0.0.8":
-  version "0.0.8"
-  resolved "https://registry.npmjs.org/@scobru/shogun/-/shogun-0.0.8.tgz"
-  integrity sha512-cTjh71ULnJfvE0AsGnQY2zdpus+qBkyAADG41vb1GL+wxPG6Wd4WGUPaE/wVNUsi2/KVmXhPd0/WijvRjbKkBQ==
+"@scobru/shogun@^0.0.9":
+  version "0.0.9"
+  resolved "https://registry.yarnpkg.com/@scobru/shogun/-/shogun-0.0.9.tgz#c6ca298aa1bb529aeb76f6da94d795c3cc1a9289"
+  integrity sha512-H6CFX4PIp+5OAZ10Y3nGF3wBkDNCM6yyJIDV2kM5xz/d9EsGC6xFswkF9UVYG5ePPyrCknfS1YXOcj8Ms6IKyQ==
   dependencies:
     ethers "^6.13.5"
     gun "^0.2020.1239"

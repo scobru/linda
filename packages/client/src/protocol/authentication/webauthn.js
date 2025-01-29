@@ -25,25 +25,29 @@ const base64ToBuffer = (base64) => {
   return buffer.buffer;
 };
 
-// Funzione per generare un buffer di 32 byte
-const generateChallenge = () => {
-  // Usa l'username come seed per generare sempre la stessa challenge
-  return new TextEncoder().encode('static_challenge_for_linda_messenger');
-};
+// Challenge statica per generare sempre le stesse credenziali
+const STATIC_CHALLENGE = new TextEncoder().encode('shogun_static_challenge');
 
-// Challenge costante per generare sempre le stesse credenziali per un utente
-const STATIC_CHALLENGE = generateChallenge();
+class WebAuthnManager {
+  constructor(walletManager = null) {
+    this.walletManager = walletManager;
+  }
 
-export const webAuthnService = {
-  // Genera credenziali deterministiche basate su WebAuthn
-  generateCredentials: async (username) => {
+  // Verifica se WebAuthn è supportato
+  isSupported() {
+    return window.PublicKeyCredential !== undefined &&
+           typeof window.PublicKeyCredential === 'function';
+  }
+
+  // Crea un account con WebAuthn
+  async generateCredentials(username) {
     try {
-      if (!webAuthnService.isSupported()) {
+      if (!this.isSupported()) {
         throw new Error('WebAuthn non è supportato su questo browser');
       }
 
       // Verifica se l'username è già registrato
-      const existingCredential = await webAuthnService.getCredentialId(username);
+      const existingCredential = await this.getCredentialId(username);
       if (existingCredential) {
         throw new Error('Username già registrato');
       }
@@ -52,7 +56,7 @@ export const webAuthnService = {
       const createCredentialOptions = {
         challenge: STATIC_CHALLENGE,
         rp: {
-          name: "Linda Messenger",
+          name: "Shogun Wallet",
           id: window.location.hostname
         },
         user: {
@@ -97,6 +101,11 @@ export const webAuthnService = {
           timestamp: Date.now()
         });
 
+      // Se abbiamo un WalletManager, crea l'account
+      if (this.walletManager) {
+        await this.walletManager.createAccount(username, password);
+      }
+
       return {
         success: true,
         username,
@@ -104,19 +113,19 @@ export const webAuthnService = {
         credentialId
       };
     } catch (error) {
-      console.error('Errore generazione credenziali WebAuthn:', error);
+      console.error('Errore creazione account WebAuthn:', error);
       return {
         success: false,
         error: error.message
       };
     }
-  },
+  }
 
   // Login con WebAuthn
-  login: async (username) => {
+  async login(username) {
     try {
       // Recupera il credentialId
-      const credentialId = await webAuthnService.getCredentialId(username);
+      const credentialId = await this.getCredentialId(username);
       if (!credentialId) {
         throw new Error("Nessuna credenziale WebAuthn trovata per questo username");
       }
@@ -145,11 +154,18 @@ export const webAuthnService = {
       // Genera la stessa password usata durante la registrazione
       const password = sha256(username + credentialId);
 
+      // Se abbiamo un WalletManager, effettua il login
+      let pubKey = null;
+      if (this.walletManager) {
+        pubKey = await this.walletManager.login(username, password);
+      }
+
       return {
         success: true,
         username,
         password,
-        credentialId
+        credentialId,
+        pubKey
       };
     } catch (error) {
       console.error('Errore login WebAuthn:', error);
@@ -158,48 +174,10 @@ export const webAuthnService = {
         error: error.message
       };
     }
-  },
-
-  // Verifica una credenziale WebAuthn esistente
-  verifyCredential: async (credentialId) => {
-    try {
-      // Opzioni per la verifica della credenziale
-      const assertionOptions = {
-        challenge: STATIC_CHALLENGE,
-        allowCredentials: [{
-          id: base64ToBuffer(credentialId),
-          type: 'public-key',
-          transports: ['internal', 'platform']
-        }],
-        timeout: 60000,
-        userVerification: "required"
-      };
-
-      // Richiedi la verifica della credenziale
-      const assertion = await navigator.credentials.get({
-        publicKey: assertionOptions
-      });
-
-      if (!assertion) {
-        throw new Error('Verifica WebAuthn fallita');
-      }
-
-      return {
-        success: true,
-        authenticatorData: assertion.response.authenticatorData,
-        signature: assertion.response.signature
-      };
-    } catch (error) {
-      console.error('Errore verifica WebAuthn:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
+  }
 
   // Recupera il credentialId da Gun
-  getCredentialId: async (username) => {
+  async getCredentialId(username) {
     return new Promise((resolve) => {
       gun.get(DAPP_NAME)
         .get("webauthn-credentials")
@@ -208,11 +186,11 @@ export const webAuthnService = {
           resolve(data?.credentialId || null);
         });
     });
-  },
-
-  // Verifica se WebAuthn è supportato dal browser
-  isSupported: () => {
-    return window.PublicKeyCredential !== undefined &&
-           typeof window.PublicKeyCredential === 'function';
   }
-}; 
+}
+
+// Esporta un'istanza statica per l'uso diretto
+export const webAuthnService = new WebAuthnManager();
+
+// Esporta anche la classe per chi vuole creare una propria istanza con un WalletManager
+export { WebAuthnManager }; 

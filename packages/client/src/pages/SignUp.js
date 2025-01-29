@@ -85,7 +85,7 @@ export default function Register() {
   const handleRegister = async () => {
     if (isLoading) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Per favore inserisci username e password");
+      toast.error("Per favore compila tutti i campi");
       return;
     }
 
@@ -93,276 +93,64 @@ export default function Register() {
     const toastId = toast.loading("Registrazione in corso...");
 
     try {
-      // Pulisci lo stato precedente
-      localStorage.clear();
-      if (user.is) {
-        user.leave();
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-
-      // Registra l'utente con timeout più lungo
-      let timeoutId;
-      const result = await Promise.race([
-        new Promise((resolve, reject) => {
-          let hasShownToast = false;
-
-          // Funzione per gestire il caso di username già esistente
-          const handleUsernameExists = () => {
-            if (hasShownToast)
-              return resolve({
-                success: false,
-                status: "username-esistente",
-              });
-
-            hasShownToast = true;
-            setIsLoading(false);
-            toast.dismiss(toastId);
-            toast.error(
-              <div className="flex flex-col gap-2 p-2">
-                <div className="font-medium">Username già registrato</div>
-                <div className="text-sm text-gray-600 mb-2">
-                  Questo username è già in uso. Puoi:
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Link
-                    to="/signin"
-                    state={{ username: username.trim() }}
-                    className="text-blue-500 hover:text-blue-700 font-semibold"
-                  >
-                    Accedi con questo username →
-                  </Link>
-                  <button
-                    onClick={() => {
-                      setUsername("");
-                      toast.dismiss();
-                      setIsLoading(false);
-                    }}
-                    className="text-gray-500 hover:text-gray-700 text-sm"
-                  >
-                    Prova con un altro username
-                  </button>
-                </div>
-              </div>,
-              {
-                duration: 10000,
-                style: {
-                  background: "#fff",
-                  color: "#000",
-                  padding: "16px",
-                  borderRadius: "8px",
-                  maxWidth: "320px",
-                },
-              }
-            );
-            return resolve({
-              success: false,
-              status: "username-esistente",
-            });
-          };
-
-          const registerCallback = async (response) => {
-            try {
-              // Se lo username è già in uso, gestisci subito
-              if (
-                response.status === "username-esistente" ||
-                response.errMessage?.includes("già in uso") ||
-                response.error?.message?.includes("già in uso")
-              ) {
-                return handleUsernameExists();
-              }
-
-              // Procedi con la registrazione
-              if (response.success) {
-                toast.success(
-                  <div>
-                    <div className="font-medium">
-                      Registrazione completata con successo!
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      Verrai reindirizzato al login...
-                    </div>
-                  </div>,
-                  { id: toastId, duration: 2000 }
-                );
-
-                // Attendi che il toast sia mostrato
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-
-                // Reindirizza al login con l'username pre-compilato
-                navigate("/signin", {
-                  replace: true,
-                  state: { username: username.trim() },
-                });
-                resolve(response);
-                return;
-              } else {
-                // Gestisci gli altri stati della registrazione
-                if (response.status) {
-                  switch (response.status) {
-                    case "validazione":
-                      updateToast(
-                        response.status,
-                        "Validazione dati in corso..."
-                      );
-                      break;
-                    case "verifica-esistenza":
-                      updateToast(
-                        response.status,
-                        "Verifica disponibilità username..."
-                      );
-                      break;
-                    case "creazione-utente":
-                      updateToast(
-                        response.status,
-                        "Creazione account in corso..."
-                      );
-                      break;
-                    case "autenticazione":
-                      updateToast(
-                        response.status,
-                        "Autenticazione in corso..."
-                      );
-                      break;
-                    case "generazione-account":
-                      updateToast(response.status, "Generazione account...");
-                      break;
-                    case "preparazione-dati":
-                      updateToast(
-                        response.status,
-                        "Preparazione dati utente..."
-                      );
-                      break;
-                    case "salvataggio":
-                      const progress = response.progress
-                        ? `${response.progress}%`
-                        : "90%";
-                      updateToast(
-                        response.status,
-                        "Salvataggio dati utente...",
-                        progress
-                      );
-                      break;
-                    default:
-                      break;
-                  }
-                }
-
-                reject(
-                  new Error(
-                    response.errMessage || "Errore durante la registrazione"
-                  )
-                );
-              }
-            } catch (error) {
-              // Se l'errore è relativo allo username già esistente, gestiscilo
-              if (error.message?.includes("già in uso")) {
-                return handleUsernameExists();
-              }
-              reject(error);
+      const result = await authentication.registerUser(
+        {
+          username: username.trim(),
+          password: password.trim()
+        },
+        (response) => {
+          if (response.status) {
+            switch (response.status) {
+              case "validazione":
+                toast.loading("Validazione dati in corso...", { id: toastId });
+                break;
+              case "verifica-esistenza":
+                toast.loading("Verifica disponibilità username...", { id: toastId });
+                break;
+              case "creazione-utente":
+                toast.loading("Creazione account in corso...", { id: toastId });
+                break;
+              case "autenticazione":
+                toast.loading("Autenticazione in corso...", { id: toastId });
+                break;
+              case "generazione-account":
+                toast.loading("Generazione account...", { id: toastId });
+                break;
+              case "preparazione-dati":
+                toast.loading("Preparazione dati utente...", { id: toastId });
+                break;
+              case "salvataggio":
+                const progress = response.progress ? `${response.progress}%` : "90%";
+                toast.loading(`Salvataggio dati utente... ${progress}`, { id: toastId });
+                break;
+              default:
+                break;
             }
-          };
+          }
+        }
+      );
 
-          authentication.registerUser(
-            { username: username.trim(), password: password.trim() },
-            registerCallback
-          );
-        }),
-        new Promise((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(new Error("Timeout durante la registrazione"));
-          }, 120000);
-        }),
-      ]).finally(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-        setIsLoading(false);
-      });
-
-      // Se l'username è già in uso, non procedere oltre
-      if (!result.success && result.status === "username-esistente") {
-        return;
-      }
-
-      if (!result || !result.success) {
-        throw new Error(
-          result?.errMessage || "Errore durante la registrazione"
+      if (result.success) {
+        toast.success(
+          <div>
+            <div className="font-medium">
+              Registrazione completata con successo!
+            </div>
+            <div className="text-sm text-gray-500 mt-1">
+              Verrai reindirizzato al login...
+            </div>
+          </div>,
+          { id: toastId, duration: 2000 }
         );
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        navigate("/signin", { replace: true });
+      } else {
+        throw new Error(result.errMessage || "Errore durante la registrazione");
       }
-
-      // Verifica che l'utente sia effettivamente registrato
-      let attempts = 0;
-      while (attempts < 30 && !user.is?.pub) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        attempts++;
-      }
-
-      if (!user.is?.pub) {
-        throw new Error("Verifica registrazione fallita");
-      }
-
-      toast.success("Registrazione completata con successo!", {
-        id: toastId,
-        duration: 2000,
-      });
-
-      // Attendi che il toast sia mostrato
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Reindirizza alla pagina di login
-      navigate("/signin", { replace: true });
     } catch (error) {
       console.error("Errore registrazione:", error);
-
-      // Pulisci lo stato in caso di errore
-      localStorage.clear();
-      if (user.is) {
-        user.leave();
-      }
-
-      let errorMessage = "Errore durante la registrazione";
-
-      if (error.message.includes("già in uso")) {
-        setIsLoading(false);
-        toast.dismiss(toastId);
-        toast(
-          (t) => (
-            <div className="flex flex-col gap-2 p-2">
-              <span className="font-medium">Username già registrato</span>
-              <Link
-                to="/signin"
-                state={{ username: username.trim() }}
-                className="text-blue-500 hover:text-blue-700 font-semibold"
-                onClick={() => toast.dismiss(t.id)}
-              >
-                Vai al login →
-              </Link>
-            </div>
-          ),
-          {
-            duration: 5000,
-            style: {
-              background: "#fff",
-              color: "#000",
-              padding: "16px",
-              borderRadius: "8px",
-            },
-          }
-        );
-        return;
-      } else if (error.message.includes("Timeout")) {
-        errorMessage = "Timeout durante la registrazione. Riprova.";
-      } else if (error.message.includes("network")) {
-        errorMessage =
-          "Errore di connessione. Verifica la tua connessione internet";
-      } else if (error.message.includes("verification")) {
-        errorMessage = "Impossibile verificare la registrazione. Riprova";
-      } else if (error.message.includes("already being created")) {
-        errorMessage =
-          "Registrazione già in corso. Attendi qualche secondo e riprova.";
-      } else if (error.message.includes("server")) {
-        errorMessage = "Impossibile connettersi al server. Riprova più tardi";
-      }
-
-      toast.error(errorMessage, { id: toastId });
+      toast.error(error.message, { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -600,6 +388,7 @@ export default function Register() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleRegister()}
                 placeholder="Scegli uno username"
                 className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
                 disabled={isLoading}
@@ -608,6 +397,7 @@ export default function Register() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleRegister()}
                 placeholder="Scegli una password"
                 className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
                 disabled={isLoading}
@@ -617,7 +407,14 @@ export default function Register() {
                 disabled={isLoading || !username.trim() || !password.trim()}
                 className="w-full max-w-xs h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {isLoading ? "Registrazione in corso..." : "Registrati"}
+                {isLoading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
+                    Registrazione in corso...
+                  </div>
+                ) : (
+                  "Registrati"
+                )}
               </button>
             </div>
           )}

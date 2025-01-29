@@ -74,9 +74,9 @@ export default function SignIn() {
   }, []);
 
   const handleLogin = async () => {
-    if (isLoading) return;
+    if (isLoading || isRedirecting) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Per favore inserisci username e password");
+      toast.error("Per favore compila tutti i campi");
       return;
     }
 
@@ -84,20 +84,9 @@ export default function SignIn() {
     const toastId = toast.loading("Accesso in corso...");
 
     try {
-      console.log("handleLogin called");
-
-      // Pulisci la sessione precedente
-      sessionManager.clearSession();
-      console.log("Pulizia stato precedente");
-
-      // Verifica lo stato dell'utente
-      if (user.is) {
-        console.log("User.is:", user.is);
-      }
-
       const result = await authentication.loginUser({
-        username: username,
-        password: password,
+        username: username.trim(),
+        password: password.trim()
       });
 
       if (result.success) {
@@ -112,38 +101,19 @@ export default function SignIn() {
           throw new Error("Errore durante il salvataggio della sessione");
         }
 
-        // Attendi un momento per assicurarsi che la sessione sia completamente salvata
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Verifica nuovamente la sessione
-        const finalCheck = await sessionManager.validateSession();
-        if (!finalCheck) {
-          throw new Error("Verifica finale della sessione fallita");
-        }
-
-        // Mostra il toast di successo
         toast.success("Accesso effettuato con successo!", { id: toastId });
-
-        // Attendi che il toast sia mostrato
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // Ottieni il percorso di redirect
-        const redirectPath =
-          localStorage.getItem("redirectAfterLogin") || "/homepage";
-        console.log("Reindirizzamento a:", redirectPath);
-
-        // Pulisci il redirect salvato
+        const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
         localStorage.removeItem("redirectAfterLogin");
-
-        // Usa window.location.replace per un redirect completo
         window.location.replace(redirectPath);
-        return;
+      } else {
+        throw new Error(result.errMessage || "Errore durante il login");
       }
-
-      throw new Error(result.errMessage || "Errore durante il login");
     } catch (error) {
       console.error("Errore login:", error);
-
+      toast.error(error.message, { id: toastId });
+      
       // Pulisci lo stato in caso di errore
       localStorage.removeItem("isAuthenticated");
       localStorage.removeItem("userPub");
@@ -152,23 +122,6 @@ export default function SignIn() {
       if (user.is) {
         user.leave();
       }
-
-      let errorMessage = "Errore durante il login";
-
-      if (error.message.includes("credenziali")) {
-        errorMessage = "Credenziali non valide";
-      } else if (error.message.includes("network")) {
-        errorMessage =
-          "Errore di connessione. Verifica la tua connessione internet";
-      } else if (error.message.includes("timeout")) {
-        errorMessage = "Timeout durante il login. Riprova";
-      } else if (error.message.includes("server")) {
-        errorMessage = "Impossibile connettersi al server. Riprova più tardi";
-      } else if (error.message.includes("sessione")) {
-        errorMessage = "Errore durante il salvataggio della sessione. Riprova";
-      }
-
-      toast.error(errorMessage, { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -540,6 +493,7 @@ export default function SignIn() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleLogin()}
                 placeholder="Inserisci username"
                 className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
                 disabled={isLoading}
@@ -548,6 +502,7 @@ export default function SignIn() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleLogin()}
                 placeholder="Inserisci password"
                 className="w-full max-w-xs h-14 rounded-full text-center border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
                 disabled={isLoading}
@@ -557,7 +512,14 @@ export default function SignIn() {
                 disabled={isLoading || !username.trim() || !password.trim()}
                 className="w-full max-w-xs h-14 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {isLoading ? "Accesso in corso..." : "Accedi"}
+                {isLoading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2" />
+                    Accesso in corso...
+                  </div>
+                ) : (
+                  "Accedi"
+                )}
               </button>
             </div>
           )}

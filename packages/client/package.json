@@ -7,7 +7,7 @@
     "@mui/material": "^6.3.0",
     "@rainbow-me/rainbowkit": "^1.0.11",
     "@scobru/gun-eth": "^1.0.0",
-    "@scobru/shogun": "^0.0.8",
+    "@scobru/shogun": "^0.0.9",
     "@tailwindcss/forms": "^0.5.9",
     "@tanstack/react-query": "^5.60.5",
     "@testing-library/jest-dom": "^5.16.4",
@@ -32,7 +32,11 @@
     "url": "^0.11.4",
     "viem": "^1.19.11",
     "wagmi": "^1.4.7",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "node-fetch": "^3.3.2"
   },
   "scripts": {
     "start": "react-scripts start",
