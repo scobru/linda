@@ -38,25 +38,13 @@ const GlobalWalletModal = ({ isOpen, onClose }) => {
   useEffect(() => {
     const loadWalletInfo = async () => {
       try {
-        if (!selectedChain) return;
-
         const wallet = await walletService.getCurrentWallet(user.is.pub);
-        setMyWalletInfo(wallet);
-
-        if (wallet?.hasValidAddress && wallet.internalWalletAddress) {
-          try {
-            const provider = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
-            const balance = await provider.getBalance(
-              wallet.internalWalletAddress
-            );
-            setBalance(formatEther(balance));
-          } catch (error) {
-            console.error("Error loading balance:", error);
-            setBalance("0.0");
-          }
+        if (!wallet) {
+          // Se non esiste un wallet, ne crea uno nuovo
+          await walletService.createWallet(user.is.pub);
+          setMyWalletInfo(await walletService.getCurrentWallet(user.is.pub));
         } else {
-          console.log("Wallet senza indirizzo valido:", wallet);
-          setBalance("0.0");
+          setMyWalletInfo(wallet);
         }
       } catch (error) {
         console.error("Error loading wallet info:", error);

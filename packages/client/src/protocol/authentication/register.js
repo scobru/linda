@@ -5,9 +5,13 @@ import {
 } from "../security/index";
 import { updateGlobalMetrics } from "../system/systemService";
 import { avatarService } from "../utils/avatarService";
-import { WalletManager } from "@scobru/shogun";
+import { WalletManager, StealthChain } from "@scobru/shogun";
+import SEA from "gun/sea";
 
 const LOGIN_TIMEOUT = 5000; // Ridotto da 10 a 5 secondi
+
+// Inizializza StealthChain
+const stealthChain = new StealthChain(gun);
 
 // Funzione di utilità per attendere la riconnessione
 const waitForConnection = async (maxAttempts = 5) => {
@@ -59,6 +63,23 @@ export const registerWithMetaMask = async (address) => {
     const walletResult = await WalletManager.createWalletObj(user._.sea);
     const mainWallet = walletResult.walletObj;
 
+    // Genera le chiavi stealth
+    const stealthKeys = await new Promise((resolve, reject) => {
+      stealthChain.generateStealthKeys((error, keys) => {
+        if (error) {
+          console.error("Errore generazione chiavi stealth:", error);
+          reject(error);
+          return;
+        }
+        console.log("Chiavi stealth generate:", keys);
+        resolve(keys);
+      });
+    });
+
+    if (!stealthKeys?.pub) {
+      throw new Error("Errore nella generazione delle chiavi stealth");
+    }
+
     // Prepara i dati utente
     const userDataToSave = {
       pub: user._.sea.pub,
@@ -66,10 +87,25 @@ export const registerWithMetaMask = async (address) => {
       address: mainWallet.address,
       internalWalletAddress: mainWallet.address,
       externalWalletAddress: normalizedAddress,
+      viewingPublicKey: stealthKeys.pub,
+      spendingPublicKey: stealthKeys.epub,
       createdAt: Date.now(),
       authType: "metamask",
       lastSeen: Date.now(),
     };
+
+    // Salva le chiavi private in modo sicuro
+    const encryptedStealthKeys = await SEA.encrypt({
+      viewingPrivateKey: stealthKeys.priv,
+      spendingPrivateKey: stealthKeys.epriv
+    }, user._.sea);
+
+    // Salva le chiavi private cifrate
+    await gun.get(DAPP_NAME)
+      .get("users")
+      .get(user._.sea.pub)
+      .get("stealth-keys")
+      .put(encryptedStealthKeys);
 
     // Salva i dati con transazione atomica
     const saveData = async () => {
@@ -156,17 +192,49 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
     const walletResult = await WalletManager.createWalletObj(user._.sea);
     const mainWallet = walletResult.walletObj;
 
+    // Genera le chiavi stealth
+    const stealthKeys = await new Promise((resolve, reject) => {
+      stealthChain.generateStealthKeys((error, keys) => {
+        if (error) {
+          console.error("Errore generazione chiavi stealth:", error);
+          reject(error);
+          return;
+        }
+        console.log("Chiavi stealth generate:", keys);
+        resolve(keys);
+      });
+    });
+
+    if (!stealthKeys?.pub) {
+      throw new Error("Errore nella generazione delle chiavi stealth");
+    }
+
     // Prepara i dati utente
     const userDataToSave = {
       pub: user._.sea.pub,
       epub: user._.sea.epub,
       address: mainWallet.address,
       internalWalletAddress: mainWallet.address,
-      username: credentials.username,
+      externalWalletAddress: credentials.username,
+      viewingPublicKey: stealthKeys.pub,
+      spendingPublicKey: stealthKeys.epub,
       createdAt: Date.now(),
       authType: "credentials",
       lastSeen: Date.now(),
     };
+
+    // Salva le chiavi private in modo sicuro
+    const encryptedStealthKeys = await SEA.encrypt({
+      viewingPrivateKey: stealthKeys.priv,
+      spendingPrivateKey: stealthKeys.epriv
+    }, user._.sea);
+
+    // Salva le chiavi private cifrate
+    await gun.get(DAPP_NAME)
+      .get("users")
+      .get(user._.sea.pub)
+      .get("stealth-keys")
+      .put(encryptedStealthKeys);
 
     // Salva i dati
     await gun

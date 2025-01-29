@@ -5,6 +5,10 @@ import GUN from 'gun';
 
 const SEA = GUN.SEA;
 
+// Cache per i wallet
+const walletCache = new Map();
+const CACHE_DURATION = 30000; // 30 secondi di cache
+
 // Inizializza StealthChain
 const stealthChain = new StealthChain(gun);
 
@@ -142,6 +146,23 @@ const normalizePrivateKey = (privateKey) => {
   }
 };
 
+const getFromCache = (key) => {
+  const cached = walletCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log("Recupero wallet dalla cache per:", key);
+    return cached.data;
+  }
+  return null;
+};
+
+const setInCache = (key, data) => {
+  console.log("Salvo wallet in cache per:", key);
+  walletCache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+};
+
 export const walletService = {
   setChain: async (chainKey) => {
     if (!SUPPORTED_CHAINS[chainKey]) {
@@ -170,6 +191,12 @@ export const walletService = {
         throw new Error("userPub è richiesto per getCurrentWallet");
       }
 
+      // Controlla la cache
+      const cached = getFromCache(`wallet_${userPub}`);
+      if (cached) {
+        return cached;
+      }
+
       // Prova prima dal localStorage
       const localWallet = localStorage.getItem(`gunWallet_${userPub}`);
       if (localWallet) {
@@ -178,7 +205,9 @@ export const walletService = {
           console.log("Dati wallet da localStorage:", walletData);
 
           if (walletData.internalWalletAddress && walletData.internalWalletPk) {
-            return normalizeWalletData(walletData);
+            const normalized = normalizeWalletData(walletData);
+            setInCache(`wallet_${userPub}`, normalized);
+            return normalized;
           }
         } catch (error) {
           console.error("Errore parsing localStorage wallet:", error);
@@ -209,13 +238,14 @@ export const walletService = {
           JSON.stringify(walletData)
         );
 
-        return normalizeWalletData(walletData);
+        const normalized = normalizeWalletData(walletData);
+        setInCache(`wallet_${userPub}`, normalized);
+        return normalized;
       }
 
       // Se non troviamo il wallet, ne creiamo uno nuovo
       console.log("Nessun wallet trovato, ne creo uno nuovo");
       
-      // Genera un nuovo wallet
       const wallet = ethers.Wallet.createRandom();
       console.log("Nuovo wallet creato:", wallet.address);
 
@@ -251,7 +281,9 @@ export const walletService = {
       );
 
       console.log("Nuovo wallet salvato con successo");
-      return normalizeWalletData(newWalletData);
+      const normalized = normalizeWalletData(newWalletData);
+      setInCache(`wallet_${userPub}`, normalized);
+      return normalized;
 
     } catch (error) {
       console.error("Errore recupero/creazione wallet:", error);
@@ -287,28 +319,113 @@ export const walletService = {
       if (isStealthMode) {
         console.log("Generazione chiavi stealth per:", recipientPub);
 
-        // Genera una nuova coppia di chiavi effimere
-        const senderEphemeralPair = await SEA.pair();
-        
-        if (!senderEphemeralPair || !senderEphemeralPair.epub) {
-          throw new Error("Impossibile generare la coppia di chiavi effimere del mittente");
+        // Ottieni la chiave pubblica del destinatario
+        const recipientData = await new Promise((resolve) => {
+          gun.get(DAPP_NAME)
+            .get("users")
+            .get(recipientPub)
+            .once((data) => {
+              console.log("Dati destinatario:", data);
+              resolve(data);
+            });
+        });
+
+        // Verifica e normalizza la chiave pubblica
+        let viewingPublicKey = recipientData?.viewingPublicKey;
+        if (!viewingPublicKey || typeof viewingPublicKey !== 'string') {
+          console.log("Chiave pubblica mancante o non valida, la genero per:", recipientPub);
+          
+          // Genera le chiavi stealth
+          const stealthKeys = await new Promise((resolve, reject) => {
+            stealthChain.generateStealthKeys((error, keys) => {
+              if (error) {
+                console.error("Errore generazione chiavi stealth:", error);
+                reject(error);
+                return;
+              }
+              console.log("Chiavi stealth generate:", keys);
+              resolve(keys);
+            });
+          });
+
+          if (!stealthKeys?.pub) {
+            throw new Error("Errore nella generazione delle chiavi stealth");
+          }
+
+          // Normalizza la chiave pubblica
+          viewingPublicKey = stealthKeys.pub;
+
+          // Aggiorna i dati utente con le nuove chiavi
+          const updatedUserData = {
+            ...recipientData,
+            viewingPublicKey: viewingPublicKey,
+            spendingPublicKey: stealthKeys.epub
+          };
+
+          console.log("Salvo i dati utente aggiornati:", updatedUserData);
+
+          // Salva le chiavi pubbliche
+          await gun.get(DAPP_NAME)
+            .get("users")
+            .get(recipientPub)
+            .put(updatedUserData);
+
+          // Salva le chiavi private in modo sicuro
+          const encryptedStealthKeys = await SEA.encrypt({
+            viewingPrivateKey: stealthKeys.priv,
+            spendingPrivateKey: stealthKeys.epriv
+          }, recipientData);
+
+          // Salva le chiavi private cifrate
+          await gun.get(DAPP_NAME)
+            .get("users")
+            .get(recipientPub)
+            .get("stealth-keys")
+            .put(encryptedStealthKeys);
         }
 
-        // Genera l'indirizzo stealth
+        // Verifica che la chiave pubblica sia una stringa valida
+        if (typeof viewingPublicKey !== 'string' || !viewingPublicKey.startsWith('0x')) {
+          throw new Error("Chiave pubblica di visualizzazione non valida");
+        }
+
+        console.log("Uso la chiave di visualizzazione:", viewingPublicKey);
+
+        // Genera una nuova coppia di chiavi effimere per questa transazione
+        const ephemeralKeys = await new Promise((resolve, reject) => {
+          stealthChain.generateStealthKeys((error, keys) => {
+            if (error) {
+              console.error("Errore generazione chiavi effimere:", error);
+              reject(error);
+              return;
+            }
+            console.log("Chiavi effimere generate:", keys);
+            resolve(keys);
+          });
+        });
+
+        if (!ephemeralKeys?.pub) {
+          throw new Error("Errore nella generazione delle chiavi effimere");
+        }
+
+        // Genera l'indirizzo stealth usando StealthChain
         const stealthResult = await new Promise((resolve, reject) => {
-          stealthChain.generateStealthAddress(
-            recipientPub, 
-            senderEphemeralPair,
-            (error, result) => {
+          stealthChain.generateStealthAddress({
+            recipientViewingKey: viewingPublicKey,
+            ephemeralKeyPair: ephemeralKeys,
+            callback: (error, result) => {
               if (error) {
                 console.error("Errore generazione indirizzo stealth:", error);
                 reject(error);
                 return;
               }
               console.log("Dati stealth generati:", result);
-              resolve(result);
+              resolve({
+                ...result,
+                ephemeralPublicKey: ephemeralKeys.pub
+              });
             }
-          );
+          });
         });
 
         if (!stealthResult?.stealthAddress) {
@@ -331,7 +448,7 @@ export const walletService = {
         const announcementId = `stealth_${tx.hash}_${Date.now()}`;
         const announcement = {
           stealthAddress: stealthResult.stealthAddress,
-          ephemeralPublicKey: senderEphemeralPair.epub, // Usa la chiave effimera generata
+          ephemeralPublicKey: stealthResult.ephemeralPublicKey,
           recipientPublicKey: recipientPub,
           from: senderPub,
           to: recipientPub,
@@ -527,6 +644,12 @@ export const walletService = {
         throw new Error("userPub non fornito");
       }
 
+      // Controlla la cache
+      const cached = getFromCache(`address_${userPub}`);
+      if (cached) {
+        return cached;
+      }
+
       // Prima cerca nei dati utente
       const userData = await new Promise((resolve) => {
         gun
@@ -540,6 +663,7 @@ export const walletService = {
       });
 
       if (userData?.address) {
+        setInCache(`address_${userPub}`, userData.address);
         return userData.address;
       }
 
@@ -556,12 +680,14 @@ export const walletService = {
       });
 
       if (profileData?.address) {
+        setInCache(`address_${userPub}`, profileData.address);
         return profileData.address;
       }
 
       // Se non trovato, cerca nel wallet
       const walletData = await walletService.getCurrentWallet(userPub);
       if (walletData?.internalWalletAddress) {
+        setInCache(`address_${userPub}`, walletData.internalWalletAddress);
         return walletData.internalWalletAddress;
       }
 
