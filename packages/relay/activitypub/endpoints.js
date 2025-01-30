@@ -137,7 +137,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error('Target user non valido');
       }
 
-      // Salva il follow sia per l'utente che segue che per quello seguito
+      // Salva il follow localmente
       await Promise.all([
         gun
           .get(DAPP_NAME)
@@ -161,6 +161,29 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             followed_at: new Date().toISOString()
           })
       ]);
+
+      // Invia la richiesta di follow al server remoto
+      const targetServer = activity.object.split('/users/')[0];
+      const followActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        type: 'Follow',
+        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        object: activity.object
+      };
+
+      const response = await fetch(`${targetServer}/users/${targetUser}/inbox`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/activity+json',
+          'Accept': 'application/activity+json'
+        },
+        body: JSON.stringify(followActivity)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send follow request: ${response.statusText}`);
+      }
 
       // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
       return {

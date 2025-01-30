@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 const BASE_URL = 'https://gun-relay.scobrudot.dev';
-const TEST_USERNAME = '@scobru_test';
+const TEST_USERNAME = 'scobru_test';
 
 async function runTests() {
   console.log('Inizio dei test ActivityPub sul relay...\n');
