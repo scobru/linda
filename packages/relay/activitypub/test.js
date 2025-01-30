@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
-const BASE_URL = 'http://localhost:8765';
-const TEST_USERNAME = 'scobru_test';
+const BASE_URL = 'https://gun-relay.scobrudot.dev';
+const TEST_USERNAME = '@scobru_test';
 
 async function runTests() {
   console.log('Inizio dei test ActivityPub sul relay...\n');
@@ -60,7 +60,7 @@ async function runTests() {
     console.log('Test 4: Follow Request');
     const followActivity = {
       type: 'Follow',
-      object: 'https://mastodon.social/users/test'
+      object: 'https://ftwr.scobrudot.dev/users/scobru'
     };
     
     const followResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {

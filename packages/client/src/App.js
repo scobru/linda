@@ -20,6 +20,7 @@ import LandingPage from "./pages/LandingPage";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import Homepage from "./pages/Homepage";
+import ActivityPubPage from './pages/ActivityPub';
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,7 @@ function App() {
                     </RequireAuth>
                   }
                 />
+                <Route path="/activitypub" element={<ActivityPubPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>

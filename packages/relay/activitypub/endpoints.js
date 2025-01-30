@@ -137,24 +137,30 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error('Target user non valido');
       }
 
-      // Salva il follow
-      await new Promise((resolve, reject) => {
+      // Salva il follow sia per l'utente che segue che per quello seguito
+      await Promise.all([
         gun
           .get(DAPP_NAME)
-          .get('follows')
-          .get(timestamp.toString())
+          .get('activitypub')
+          .get(username)
+          .get('following')
+          .get(targetUser)
           .put({
-            follower: username,
-            following: targetUser,
-            timestamp: timestamp
-          }, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(ack);
-            }
-          });
-      });
+            id: targetUser,
+            followed_at: new Date().toISOString()
+          }),
+          
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(targetUser)
+          .get('followers')
+          .get(username)
+          .put({
+            id: username,
+            followed_at: new Date().toISOString()
+          })
+      ]);
 
       // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
       return {
@@ -182,13 +188,19 @@ export const handleFollowers = async (gun, DAPP_NAME, username) => {
     .get('activitypub')
     .get(username)
     .get('followers')
-    .then();
+    .then(data => {
+      if (!data) return [];
+      return Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      }));
+    });
 
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: 'OrderedCollection',
-    totalItems: followers ? Object.keys(followers).length : 0,
-    items: followers || []
+    totalItems: followers.length,
+    items: followers
   };
 };
 
@@ -199,12 +211,18 @@ export const handleFollowing = async (gun, DAPP_NAME, username) => {
     .get('activitypub')
     .get(username)
     .get('following')
-    .then();
+    .then(data => {
+      if (!data) return [];
+      return Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      }));
+    });
 
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
     type: 'OrderedCollection',
-    totalItems: following ? Object.keys(following).length : 0,
-    items: following || []
+    totalItems: following.length,
+    items: following
   };
 }; 
