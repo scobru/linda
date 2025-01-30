@@ -1,3 +1,5 @@
+import fetch from 'node-fetch';
+
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   const actorData = await gun
