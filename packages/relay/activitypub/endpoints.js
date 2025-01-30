@@ -99,14 +99,19 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
     // Gestione specifica per il campo object
     if (activity.object) {
-      if (typeof activity.object !== 'object' || Array.isArray(activity.object)) {
-        throw new Error('Campo object non valido: deve essere un oggetto');
+      // Se l'oggetto è una stringa (come nel caso di Follow), convertilo in un oggetto
+      if (typeof activity.object === 'string') {
+        enrichedActivity.object = {
+          id: activity.object
+        };
+      } else if (typeof activity.object === 'object' && !Array.isArray(activity.object)) {
+        enrichedActivity.object = {
+          ...activity.object,
+          id: activity.object.id || `${activityId}/object`
+        };
+      } else {
+        throw new Error('Campo object non valido: deve essere un oggetto o una stringa');
       }
-
-      enrichedActivity.object = {
-        ...activity.object,
-        id: activity.object.id || `${activityId}/object`
-      };
     }
 
     // Salva l'attività nel database con una struttura più chiara
@@ -127,18 +132,18 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       });
 
     // Gestione specifica per Follow
-    if (activity.type === 'Follow' && activity.object) {
+    if (activity.type === 'Follow' && enrichedActivity.object?.id) {
       await gun
         .get(DAPP_NAME)
         .get('activitypub')
         .get(username)
         .get('following')
-        .get(activity.object)
+        .get(enrichedActivity.object.id)
         .put({
-          id: activity.object,
+          id: enrichedActivity.object.id,
           followed_at: new Date().toISOString(),
           _: {
-            '#': `${DAPP_NAME}/activitypub/${username}/following/${activity.object}`,
+            '#': `${DAPP_NAME}/activitypub/${username}/following/${enrichedActivity.object.id}`,
             '>': {
               followed_at: Date.now()
             }
