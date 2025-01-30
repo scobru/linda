@@ -21,15 +21,25 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
 // Endpoint per l'inbox
 export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   try {
-    // Verifica che l'attività sia definita
-    if (!activity || !activity.type) {
-      throw new Error('Attività non valida');
+    // Verifica che l'attività sia definita e valida
+    if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
+      throw new Error('Attività non valida: deve essere un oggetto');
     }
 
+    if (!activity.type) {
+      throw new Error('Tipo di attività mancante');
+    }
+
+    // Crea un ID univoco per l'attività
+    const activityId = activity.id || `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox/${Date.now()}`;
+
+    // Costruisci l'attività arricchita
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
-      ...activity,
-      received_at: new Date().toISOString()
+      id: activityId,
+      type: activity.type,
+      received_at: new Date().toISOString(),
+      ...activity
     };
 
     // Salva l'attività nell'inbox
@@ -38,15 +48,17 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
       .get('activitypub')
       .get(username)
       .get('inbox')
+      .get(activityId)
       .put(enrichedActivity);
 
-    // Se è un Follow, aggiorna anche la lista followers
-    if (activity.type === 'Follow') {
+    // Gestione specifica per Follow
+    if (activity.type === 'Follow' && activity.actor) {
       await gun
         .get(DAPP_NAME)
         .get('activitypub')
         .get(username)
         .get('followers')
+        .get(activity.actor)
         .put({
           id: activity.actor,
           followed_at: new Date().toISOString()
@@ -63,17 +75,26 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 // Endpoint per l'outbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
   try {
-    // Verifica che l'attività sia definita
-    if (!activity || !activity.type) {
-      throw new Error('Attività non valida');
+    // Verifica che l'attività sia definita e valida
+    if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
+      throw new Error('Attività non valida: deve essere un oggetto');
     }
 
+    if (!activity.type) {
+      throw new Error('Tipo di attività mancante');
+    }
+
+    // Crea un ID univoco per l'attività
+    const activityId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${Date.now()}`;
+
+    // Costruisci l'attività arricchita
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
-      ...activity,
+      id: activityId,
+      type: activity.type,
       actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
       published: new Date().toISOString(),
-      id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${Date.now()}`
+      ...activity
     };
 
     // Salva l'attività nel database
@@ -82,31 +103,36 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       .get('activitypub')
       .get(username)
       .get('outbox')
+      .get(activityId)
       .put(enrichedActivity);
 
-    // Se è un Follow, aggiorna anche la lista following
-    if (activity.type === 'Follow') {
+    // Gestione specifica per Follow
+    if (activity.type === 'Follow' && activity.object) {
       await gun
         .get(DAPP_NAME)
         .get('activitypub')
         .get(username)
         .get('following')
+        .get(activity.object)
         .put({
           id: activity.object,
           followed_at: new Date().toISOString()
         });
     }
 
-    // Se è un Create di Note, aggiorna anche la lista dei post
+    // Gestione specifica per Create (Note)
     if (activity.type === 'Create' && activity.object?.type === 'Note') {
+      const postId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${Date.now()}`;
+      
       await gun
         .get(DAPP_NAME)
         .get('activitypub')
         .get(username)
         .get('posts')
+        .get(postId)
         .put({
           ...activity.object,
-          id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${Date.now()}`,
+          id: postId,
           published: new Date().toISOString()
         });
     }
