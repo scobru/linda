@@ -129,7 +129,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             published: Date.now()
           }
         }
-      }, null, { opt: { cert: undefined, wait: 0 } });
+      }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
 
     // Gestione specifica per Follow
     if (activity.type === 'Follow' && enrichedActivity.object?.id) {
@@ -148,7 +148,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
               followed_at: Date.now()
             }
           }
-        }, null, { opt: { cert: undefined, wait: 0 } });
+        }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
     }
 
     // Gestione specifica per Create (Note)
@@ -171,7 +171,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
               published: Date.now()
             }
           }
-        }, null, { opt: { cert: undefined, wait: 0 } });
+        }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
     }
 
     return enrichedActivity;
