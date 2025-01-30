@@ -87,24 +87,36 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
     // Crea un ID univoco per l'attività
     const activityId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${Date.now()}`;
 
-    // Costruisci l'attività arricchita
+    // Costruisci l'attività arricchita con una struttura più robusta
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: activityId,
       type: activity.type,
       actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
       published: new Date().toISOString(),
-      ...activity
+      to: activity.to || ['https://www.w3.org/ns/activitystreams#Public'],
+      object: activity.object ? {
+        ...activity.object,
+        id: activity.object.id || `${activityId}/object`
+      } : undefined
     };
 
-    // Salva l'attività nel database
+    // Salva l'attività nel database con una struttura più chiara
     await gun
       .get(DAPP_NAME)
       .get('activitypub')
       .get(username)
       .get('outbox')
       .get(activityId)
-      .put(enrichedActivity);
+      .put({
+        ...enrichedActivity,
+        _: {
+          '#': `${DAPP_NAME}/activitypub/${username}/outbox/${activityId}`,
+          '>': {
+            published: Date.now()
+          }
+        }
+      });
 
     // Gestione specifica per Follow
     if (activity.type === 'Follow' && activity.object) {
@@ -116,7 +128,13 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         .get(activity.object)
         .put({
           id: activity.object,
-          followed_at: new Date().toISOString()
+          followed_at: new Date().toISOString(),
+          _: {
+            '#': `${DAPP_NAME}/activitypub/${username}/following/${activity.object}`,
+            '>': {
+              followed_at: Date.now()
+            }
+          }
         });
     }
 
@@ -133,7 +151,13 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         .put({
           ...activity.object,
           id: postId,
-          published: new Date().toISOString()
+          published: new Date().toISOString(),
+          _: {
+            '#': `${DAPP_NAME}/activitypub/${username}/posts/${postId}`,
+            '>': {
+              published: Date.now()
+            }
+          }
         });
     }
 
