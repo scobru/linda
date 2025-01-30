@@ -99,79 +99,81 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
     // Gestione specifica per il campo object
     if (activity.object) {
-      // Se l'oggetto è una stringa (come nel caso di Follow), convertilo in un oggetto
       if (typeof activity.object === 'string') {
-        enrichedActivity.object = {
-          id: activity.object
-        };
+        enrichedActivity.object = activity.object;
       } else if (typeof activity.object === 'object' && !Array.isArray(activity.object)) {
         enrichedActivity.object = {
           ...activity.object,
-          id: activity.object.id || `${activityId}/object`
+          id: activity.object.id || `${activityId}/object`,
+          published: activity.object.published || new Date().toISOString()
         };
       } else {
         throw new Error('Campo object non valido: deve essere un oggetto o una stringa');
       }
     }
 
-    // Salva l'attività nel database con una struttura più chiara
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(username)
-      .get('outbox')
-      .get(activityId)
-      .put({
-        ...enrichedActivity,
-        _: {
-          '#': `${DAPP_NAME}/activitypub/${username}/outbox/${activityId}`,
-          '>': {
-            published: Date.now()
-          }
-        }
-      }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
-
-    // Gestione specifica per Follow
-    if (activity.type === 'Follow' && enrichedActivity.object?.id) {
-      await gun
+    // Salva l'attività nel database
+    await new Promise((resolve, reject) => {
+      gun
         .get(DAPP_NAME)
         .get('activitypub')
         .get(username)
-        .get('following')
-        .get(enrichedActivity.object.id)
-        .put({
-          id: enrichedActivity.object.id,
-          followed_at: new Date().toISOString(),
-          _: {
-            '#': `${DAPP_NAME}/activitypub/${username}/following/${enrichedActivity.object.id}`,
-            '>': {
-              followed_at: Date.now()
-            }
+        .get('outbox')
+        .get(activityId)
+        .put(enrichedActivity, (ack) => {
+          if (ack.err) {
+            reject(new Error(ack.err));
+          } else {
+            resolve(ack);
           }
-        }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
+        });
+    });
+
+    // Gestione specifica per Follow
+    if (activity.type === 'Follow' && typeof activity.object === 'string') {
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('following')
+          .get(activity.object)
+          .put({
+            id: activity.object,
+            followed_at: new Date().toISOString()
+          }, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
+            }
+          });
+      });
     }
 
     // Gestione specifica per Create (Note)
     if (activity.type === 'Create' && activity.object?.type === 'Note') {
       const postId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${Date.now()}`;
       
-      await gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('posts')
-        .get(postId)
-        .put({
-          ...activity.object,
-          id: postId,
-          published: new Date().toISOString(),
-          _: {
-            '#': `${DAPP_NAME}/activitypub/${username}/posts/${postId}`,
-            '>': {
-              published: Date.now()
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('posts')
+          .get(postId)
+          .put({
+            ...activity.object,
+            id: postId,
+            published: new Date().toISOString()
+          }, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
             }
-          }
-        }, null, { opt: { cert: undefined, wait: 0 } }); // Aggiungi wait: 0 per migliorare la gestione dei dati
+          });
+      });
     }
 
     return enrichedActivity;

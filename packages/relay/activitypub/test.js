@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-const BASE_URL = process.env.BASE_URL || 'https://gun-relay.scobrudot.dev';
+const BASE_URL = 'http://localhost:8765';
 const TEST_USERNAME = 'scobru_test';
 
 async function runTests() {
@@ -12,32 +12,30 @@ async function runTests() {
       `${BASE_URL}/.well-known/webfinger?resource=acct:${TEST_USERNAME}@localhost`
     );
     
-    // Verifica il Content-Type della risposta
-    const contentType = webfingerResponse.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      const text = await webfingerResponse.text();
-      throw new Error(`Risposta non JSON: ${text}`);
+    if (!webfingerResponse.ok) {
+      throw new Error(`WebFinger request failed with status ${webfingerResponse.status}`);
     }
     
-    console.log('WebFinger Response:', await webfingerResponse.json(), '\n');
+    const webfingerData = await webfingerResponse.json();
+    console.log('WebFinger Response:', webfingerData, '\n');
 
     // Test 2: Profilo Utente
     console.log('Test 2: Profilo Utente');
     const profileResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}`);
     
-    // Verifica il Content-Type della risposta
-    const profileContentType = profileResponse.headers.get('content-type');
-    if (!profileContentType || !profileContentType.includes('application/json')) {
-      const text = await profileResponse.text();
-      throw new Error(`Risposta non JSON: ${text}`);
+    if (!profileResponse.ok) {
+      throw new Error(`Profile request failed with status ${profileResponse.status}`);
     }
     
-    console.log('Profile Response:', await profileResponse.json(), '\n');
+    const profileData = await profileResponse.json();
+    console.log('Profile Response:', profileData, '\n');
 
     // Test 3: Creazione Post
     console.log('Test 3: Creazione Post');
     const testPost = {
+      '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Create',
+      actor: `${BASE_URL}/users/${TEST_USERNAME}`,
       object: {
         type: 'Note',
         content: 'Questo è un post di test ActivityPub sul relay!',
@@ -52,24 +50,24 @@ async function runTests() {
         'Content-Type': 'application/activity+json',
         'Accept': 'application/activity+json'
       },
-      body: JSON.stringify(testPost),
-      timeout: 30000 // Aumenta il timeout a 30 secondi
+      body: JSON.stringify(testPost)
     });
     
-    // Verifica il Content-Type della risposta
-    const postContentType = postResponse.headers.get('content-type');
-    if (!postContentType || !postContentType.includes('application/json')) {
-      const text = await postResponse.text();
-      throw new Error(`Risposta non JSON: ${text}`);
+    if (!postResponse.ok) {
+      const errorText = await postResponse.text();
+      throw new Error(`Post creation failed with status ${postResponse.status}: ${errorText}`);
     }
     
-    console.log('Post Creation Response:', await postResponse.json(), '\n');
+    const postData = await postResponse.json();
+    console.log('Post Creation Response:', postData, '\n');
 
     // Test 4: Follow Request
     console.log('Test 4: Follow Request');
     const followActivity = {
+      '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Follow',
-      object: 'https://ftwr.scobrudot.dev/users/scobru'
+      actor: `${BASE_URL}/users/${TEST_USERNAME}`,
+      object: 'https://mastodon.social/users/test'
     };
     
     const followResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {
@@ -81,28 +79,40 @@ async function runTests() {
       body: JSON.stringify(followActivity)
     });
 
-    // Verifica il Content-Type della risposta
-    const followContentType = followResponse.headers.get('content-type');
-    if (!followContentType || !followContentType.includes('application/json')) {
-      const text = await followResponse.text();
-      throw new Error(`Risposta non JSON: ${text}`);
+    if (!followResponse.ok) {
+      const errorText = await followResponse.text();
+      throw new Error(`Follow request failed with status ${followResponse.status}: ${errorText}`);
     }
-
-    console.log('Follow Request Response:', await followResponse.json(), '\n');
+    
+    const followData = await followResponse.json();
+    console.log('Follow Request Response:', followData, '\n');
 
     // Test 5: Verifica Followers
     console.log('Test 5: Verifica Followers');
     const followersResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/followers`);
-    console.log('Followers Response:', await followersResponse.json(), '\n');
+    
+    if (!followersResponse.ok) {
+      throw new Error(`Followers request failed with status ${followersResponse.status}`);
+    }
+    
+    const followersData = await followersResponse.json();
+    console.log('Followers Response:', followersData, '\n');
 
     // Test 6: Verifica Following
     console.log('Test 6: Verifica Following');
     const followingResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/following`);
-    console.log('Following Response:', await followingResponse.json(), '\n');
+    
+    if (!followingResponse.ok) {
+      throw new Error(`Following request failed with status ${followingResponse.status}`);
+    }
+    
+    const followingData = await followingResponse.json();
+    console.log('Following Response:', followingData, '\n');
 
     console.log('Tutti i test completati con successo! 🎉');
   } catch (error) {
     console.error('Errore durante i test:', error);
+    process.exit(1);
   }
 }
 
