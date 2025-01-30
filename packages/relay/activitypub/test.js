@@ -1,10 +1,11 @@
 import fetch from 'node-fetch';
 import Gun from 'gun';
 import 'gun/sea';
+import { saveUserActivityPubKeys, getUserActivityPubKeys } from '../index.js';
 
 const BASE_URL = 'https://gun-relay.scobrudot.dev';
 const TEST_USERNAME = 'scobru_test';
-const TEST_PASSWORD = 'test123';
+const TEST_PASSWORD = 'test123456';
 
 async function createGunUser(gun, username, password) {
   return new Promise((resolve, reject) => {

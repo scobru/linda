@@ -799,7 +799,10 @@ export {
   globalMetrics,
   initializeServer,
   updateMetrics,
-  syncGlobalMetrics
+  syncGlobalMetrics,
+  generateActivityPubKeys,
+  saveUserActivityPubKeys,
+  getUserActivityPubKeys
 };
 
 // Funzione per gestire gli eventi di connessione

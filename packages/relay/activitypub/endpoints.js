@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createHash } from 'crypto';
+import { getUserActivityPubKeys } from '../index.js';
 
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
