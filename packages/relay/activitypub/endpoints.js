@@ -85,87 +85,24 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
     }
 
     // Crea un ID univoco per l'attività
-    const activityId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${Date.now()}`;
-
-    // Costruisci l'attività arricchita con una struttura più robusta
-    const enrichedActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: activityId,
-      type: activity.type,
-      actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
-      published: new Date().toISOString(),
-      to: activity.to || ['https://www.w3.org/ns/activitystreams#Public']
-    };
-
-    // Gestione specifica per il campo object
-    if (activity.object) {
-      if (typeof activity.object === 'string') {
-        enrichedActivity.object = activity.object;
-      } else if (typeof activity.object === 'object' && !Array.isArray(activity.object)) {
-        enrichedActivity.object = {
-          ...activity.object,
-          id: activity.object.id || `${activityId}/object`,
-          published: activity.object.published || new Date().toISOString()
-        };
-      } else {
-        throw new Error('Campo object non valido: deve essere un oggetto o una stringa');
-      }
-    }
-
-    // Salva l'attività nel database
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('outbox')
-        .get(activityId)
-        .put(enrichedActivity, (ack) => {
-          if (ack.err) {
-            reject(new Error(ack.err));
-          } else {
-            resolve(ack);
-          }
-        });
-    });
-
-    // Gestione specifica per Follow
-    if (activity.type === 'Follow' && typeof activity.object === 'string') {
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
-          .get('following')
-          .get(activity.object)
-          .put({
-            id: activity.object,
-            followed_at: new Date().toISOString()
-          }, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(ack);
-            }
-          });
-      });
-    }
+    const timestamp = Date.now();
 
     // Gestione specifica per Create (Note)
     if (activity.type === 'Create' && activity.object?.type === 'Note') {
-      const postId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${Date.now()}`;
-      
+      if (!activity.object.content) {
+        throw new Error('Content mancante per la nota');
+      }
+
+      // Salva il post
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
           .get('posts')
-          .get(postId)
+          .get(timestamp.toString())
           .put({
-            ...activity.object,
-            id: postId,
-            published: new Date().toISOString()
+            content: activity.object.content,
+            author: username,
+            timestamp: timestamp
           }, (ack) => {
             if (ack.err) {
               reject(new Error(ack.err));
@@ -174,9 +111,64 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             }
           });
       });
+
+      // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
+      return {
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        type: 'Create',
+        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        published: new Date(timestamp).toISOString(),
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        object: {
+          type: 'Note',
+          content: activity.object.content,
+          id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${timestamp}`,
+          published: new Date(timestamp).toISOString(),
+          attributedTo: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`
+        }
+      };
     }
 
-    return enrichedActivity;
+    // Gestione specifica per Follow
+    if (activity.type === 'Follow' && typeof activity.object === 'string') {
+      const targetUser = activity.object.split('/').pop();
+      if (!targetUser) {
+        throw new Error('Target user non valido');
+      }
+
+      // Salva il follow
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('follows')
+          .get(timestamp.toString())
+          .put({
+            follower: username,
+            following: targetUser,
+            timestamp: timestamp
+          }, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
+            }
+          });
+      });
+
+      // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
+      return {
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        type: 'Follow',
+        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        published: new Date(timestamp).toISOString(),
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        object: activity.object
+      };
+    }
+
+    throw new Error('Tipo di attività non supportato');
   } catch (error) {
     console.error('Errore nella pubblicazione dell\'attività:', error);
     throw error;

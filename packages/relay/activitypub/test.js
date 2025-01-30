@@ -33,22 +33,17 @@ async function runTests() {
     // Test 3: Creazione Post
     console.log('Test 3: Creazione Post');
     const testPost = {
-      '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Create',
-      actor: `${BASE_URL}/users/${TEST_USERNAME}`,
       object: {
         type: 'Note',
-        content: 'Questo è un post di test ActivityPub sul relay!',
-        published: new Date().toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public']
+        content: 'Questo è un post di test ActivityPub sul relay!'
       }
     };
     
     const postResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/activity+json',
-        'Accept': 'application/activity+json'
+        'Content-Type': 'application/activity+json'
       },
       body: JSON.stringify(testPost)
     });
@@ -64,17 +59,14 @@ async function runTests() {
     // Test 4: Follow Request
     console.log('Test 4: Follow Request');
     const followActivity = {
-      '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Follow',
-      actor: `${BASE_URL}/users/${TEST_USERNAME}`,
       object: 'https://mastodon.social/users/test'
     };
     
     const followResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/activity+json',
-        'Accept': 'application/activity+json'
+        'Content-Type': 'application/activity+json'
       },
       body: JSON.stringify(followActivity)
     });
