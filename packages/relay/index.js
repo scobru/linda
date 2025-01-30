@@ -27,7 +27,9 @@ import 'gun/sea.js';
 import 'gun/lib/axe.js';
 import 'gun/lib/radisk.js';
 
+const app = express();
 const server = http.createServer(app);
+server.setTimeout(30000); // 
 const port = 8765;
 
 // Configurazione Gun per il relay
