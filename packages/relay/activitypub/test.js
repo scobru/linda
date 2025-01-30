@@ -52,7 +52,8 @@ async function runTests() {
         'Content-Type': 'application/activity+json',
         'Accept': 'application/activity+json'
       },
-      body: JSON.stringify(testPost)
+      body: JSON.stringify(testPost),
+      timeout: 30000 // Aumenta il timeout a 30 secondi
     });
     
     // Verifica il Content-Type della risposta

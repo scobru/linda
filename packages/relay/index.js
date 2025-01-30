@@ -27,12 +27,12 @@ import 'gun/sea.js';
 import 'gun/lib/axe.js';
 import 'gun/lib/radisk.js';
 
-const app = express();
+const server = http.createServer(app);
 const port = 8765;
 
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
-  web: app,
+  web: server,
   multicast: {
     address: MULTICAST_ADDRESS,
     port: MULTICAST_PORT
@@ -257,6 +257,7 @@ async function performBackup() {
 async function initializeServer() {
   try {
     const server = http.createServer(app);
+    server.setTimeout(30000); // Aumenta il timeout del server a 30 secondi
     
     const gunConfig = {
       ...GUN_CONFIG,
