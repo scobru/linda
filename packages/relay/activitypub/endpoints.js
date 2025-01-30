@@ -4,22 +4,35 @@ import { createHash } from 'crypto';
 
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
-  const actorData = await gun
-    .get(DAPP_NAME)
-    .get('activitypub')
-    .get(username)
-    .then();
+  try {
+    // Recupera le chiavi dell'utente
+    const keys = await getUserActivityPubKeys(gun, username);
+    
+    const actorData = await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .then();
 
-  return actorData || {
-    '@context': ['https://www.w3.org/ns/activitystreams'],
-    type: 'Person',
-    id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
-    following: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/following`,
-    followers: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/followers`,
-    inbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox`,
-    outbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/outbox`,
-    preferredUsername: username
-  };
+    return actorData || {
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Person',
+      id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+      following: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/following`,
+      followers: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/followers`,
+      inbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox`,
+      outbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/outbox`,
+      preferredUsername: username,
+      publicKey: {
+        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`,
+        owner: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        publicKeyPem: keys.publicKey
+      }
+    };
+  } catch (error) {
+    console.error('Errore nel recupero delle chiavi ActivityPub:', error);
+    throw error;
+  }
 };
 
 // Endpoint per l'inbox
@@ -76,44 +89,50 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   }
 };
 
-// Funzione per firmare la richiesta
-function signRequest(request, keyId, privateKey) {
-  const url = new URL(request.url);
-  const digest = createHash('sha256').update(request.body).digest('base64');
-  
-  const headersToSign = [
-    '(request-target)',
-    'host',
-    'date',
-    'digest',
-    'content-type'
-  ];
+// Modifica la funzione signRequest per utilizzare le chiavi dell'utente
+async function signRequest(request, keyId, username, gun) {
+  try {
+    const keys = await getUserActivityPubKeys(gun, username);
+    const url = new URL(request.url);
+    const digest = createHash('sha256').update(request.body).digest('base64');
+    
+    const headersToSign = [
+      '(request-target)',
+      'host',
+      'date',
+      'digest',
+      'content-type'
+    ];
 
-  const signatureParams = headersToSign
-    .map(header => {
-      let value;
-      if (header === '(request-target)') {
-        value = `${request.method.toLowerCase()} ${url.pathname}`;
-      } else {
-        value = request.headers[header];
-      }
-      return `${header}: ${value}`;
-    })
-    .join('\n');
+    const signatureParams = headersToSign
+      .map(header => {
+        let value;
+        if (header === '(request-target)') {
+          value = `${request.method.toLowerCase()} ${url.pathname}`;
+        } else {
+          value = request.headers[header];
+        }
+        return `${header}: ${value}`;
+      })
+      .join('\n');
 
-  const signature = crypto
-    .createSign('sha256')
-    .update(signatureParams)
-    .sign(privateKey, 'base64');
+    const signature = crypto
+      .createSign('sha256')
+      .update(signatureParams)
+      .sign(keys.privateKey, 'base64');
 
-  const signatureHeader = [
-    `keyId="${keyId}"`,
-    'algorithm="rsa-sha256"',
-    `headers="${headersToSign.join(' ')}"`,
-    `signature="${signature}"`
-  ].join(',');
+    const signatureHeader = [
+      `keyId="${keyId}"`,
+      'algorithm="rsa-sha256"',
+      `headers="${headersToSign.join(' ')}"`,
+      `signature="${signature}"`
+    ].join(',');
 
-  return signatureHeader;
+    return signatureHeader;
+  } catch (error) {
+    console.error('Errore nella firma della richiesta:', error);
+    throw error;
+  }
 }
 
 // Endpoint per l'outbox
@@ -230,12 +249,12 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       // Se è configurata una chiave privata, firma la richiesta
       if (process.env.ACTIVITYPUB_PRIVATE_KEY) {
         const keyId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`;
-        headers['Signature'] = signRequest({
+        headers['Signature'] = await signRequest({
           method: 'POST',
           url: `${targetServer}/users/${targetUser}/inbox`,
           headers: headers,
           body: body
-        }, keyId, process.env.ACTIVITYPUB_PRIVATE_KEY);
+        }, keyId, username, gun);
       }
 
       const response = await fetch(`${targetServer}/users/${targetUser}/inbox`, {

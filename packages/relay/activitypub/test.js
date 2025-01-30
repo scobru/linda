@@ -1,11 +1,48 @@
 import fetch from 'node-fetch';
+import Gun from 'gun';
+import 'gun/sea';
+
 const BASE_URL = 'https://gun-relay.scobrudot.dev';
 const TEST_USERNAME = 'scobru_test';
+const TEST_PASSWORD = 'test123';
+
+async function createGunUser(gun, username, password) {
+  return new Promise((resolve, reject) => {
+    gun.user().create(username, password, (ack) => {
+      if (ack.err) {
+        reject(new Error(ack.err));
+      } else {
+        gun.user().auth(username, password, (ack) => {
+          if (ack.err) {
+            reject(new Error(ack.err));
+          } else {
+            resolve(ack);
+          }
+        });
+      }
+    });
+  });
+}
 
 async function runTests() {
   console.log('Inizio dei test ActivityPub sul relay...\n');
 
   try {
+    // Inizializza Gun
+    const gun = Gun({
+      peers: [BASE_URL + '/gun']
+    });
+
+    // Crea e autentica l'utente di test
+    console.log('Creazione utente Gun di test...');
+    await createGunUser(gun, TEST_USERNAME, TEST_PASSWORD);
+    console.log('Utente Gun creato e autenticato con successo\n');
+
+    // Genera e salva le chiavi ActivityPub
+    console.log('Generazione chiavi ActivityPub...');
+    const keys = await saveUserActivityPubKeys(gun, TEST_USERNAME);
+    console.log('Chiavi ActivityPub generate e salvate con successo\n');
+
     // Test 1: WebFinger
     console.log('Test 1: WebFinger');
     const webfingerResponse = await fetch(

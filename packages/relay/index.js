@@ -9,6 +9,7 @@ import { dirname } from 'path';
 import { Mogu } from '@scobru/mogu';
 import http from 'http';
 import WebSocket from 'ws';
+import { generateKeyPairSync } from 'crypto';
 
 // Configurazione ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -827,5 +828,57 @@ function setupConnectionHandlers(server, gun) {
     console.log(
       `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${metrics.connections}`
     );
+  });
+}
+
+// Funzione per generare chiavi RSA compatibili con ActivityPub
+function generateActivityPubKeys() {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: {
+      type: 'spki',
+      format: 'pem'
+    },
+    privateKeyEncoding: {
+      type: 'pkcs8',
+      format: 'pem'
+    }
+  });
+  
+  return {
+    privateKey,
+    publicKey
+  };
+}
+
+// Funzione per salvare le chiavi nel nodo utente
+async function saveUserActivityPubKeys(gun, username) {
+  const keys = generateActivityPubKeys();
+  
+  return new Promise((resolve, reject) => {
+    gun.user().get('activitypub').get('keys').put({
+      publicKey: keys.publicKey,
+      privateKey: keys.privateKey,
+      createdAt: Date.now()
+    }, (ack) => {
+      if (ack.err) {
+        reject(new Error(ack.err));
+      } else {
+        resolve(keys);
+      }
+    });
+  });
+}
+
+// Funzione per recuperare le chiavi dell'utente
+async function getUserActivityPubKeys(gun, username) {
+  return new Promise((resolve, reject) => {
+    gun.user().get('activitypub').get('keys').once((keys) => {
+      if (!keys) {
+        reject(new Error('Chiavi non trovate'));
+      } else {
+        resolve(keys);
+      }
+    });
   });
 }
