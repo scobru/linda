@@ -9,14 +9,36 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
     // Recupera le chiavi dell'utente
     const keys = await getUserActivityPubKeys(gun, username);
     
-    const actorData = await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(username)
-      .then();
+    // Recupera il profilo ActivityPub
+    const actorData = await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once((data) => {
+          if (!data) {
+            reject(new Error('Profilo non trovato'));
+          } else {
+            resolve(data);
+          }
+        });
+    });
 
-    return actorData || {
-      '@context': ['https://www.w3.org/ns/activitystreams'],
+    // Se abbiamo trovato il profilo, aggiungiamo la chiave pubblica
+    if (actorData) {
+      return {
+        ...actorData,
+        publicKey: {
+          id: `${actorData.id}#main-key`,
+          owner: actorData.id,
+          publicKeyPem: keys.publicKey
+        }
+      };
+    }
+
+    // Se non abbiamo trovato il profilo, creiamo uno di default
+    const defaultActor = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
       type: 'Person',
       id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
       following: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/following`,
@@ -24,14 +46,20 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
       inbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox`,
       outbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/outbox`,
       preferredUsername: username,
+      name: username,
+      summary: `Profilo ActivityPub di ${username}`,
+      url: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+      published: new Date().toISOString(),
       publicKey: {
         id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`,
         owner: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
         publicKeyPem: keys.publicKey
       }
     };
+
+    return defaultActor;
   } catch (error) {
-    console.error('Errore nel recupero delle chiavi ActivityPub:', error);
+    console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
   }
 };

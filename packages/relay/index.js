@@ -502,8 +502,13 @@ app.get('/.well-known/webfinger', async (req, res) => {
 app.get('/users/:username', async (req, res) => {
   try {
     const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
+    
+    // Imposta gli header corretti per ActivityPub
+    res.setHeader('Content-Type', 'application/activity+json');
+    res.setHeader('Cache-Control', 'no-cache');
     res.json(actorData);
   } catch (error) {
+    console.error('Errore nella gestione della richiesta actor:', error);
     res.status(500).json({ error: error.message });
   }
 });
