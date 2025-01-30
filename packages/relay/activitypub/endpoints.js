@@ -217,11 +217,14 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       };
 
       const body = JSON.stringify(followActivity);
+      const digest = createHash('sha256').update(body).digest('base64');
+
       const headers = {
         'Content-Type': 'application/activity+json',
         'Accept': 'application/activity+json',
         'Date': new Date().toUTCString(),
-        'Host': new URL(targetServer).host
+        'Host': new URL(targetServer).host,
+        'Digest': `SHA-256=${digest}`
       };
 
       // Se è configurata una chiave privata, firma la richiesta
