@@ -94,12 +94,20 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       type: activity.type,
       actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
       published: new Date().toISOString(),
-      to: activity.to || ['https://www.w3.org/ns/activitystreams#Public'],
-      object: activity.object ? {
+      to: activity.to || ['https://www.w3.org/ns/activitystreams#Public']
+    };
+
+    // Gestione specifica per il campo object
+    if (activity.object) {
+      if (typeof activity.object !== 'object' || Array.isArray(activity.object)) {
+        throw new Error('Campo object non valido: deve essere un oggetto');
+      }
+
+      enrichedActivity.object = {
         ...activity.object,
         id: activity.object.id || `${activityId}/object`
-      } : undefined
-    };
+      };
+    }
 
     // Salva l'attività nel database con una struttura più chiara
     await gun
