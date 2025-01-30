@@ -270,7 +270,8 @@ export default function Register() {
       // Usa le credenziali generate per registrare l'utente
       const result = await authentication.registerUser({
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
+        encryptionKeys: credentials.encryptionKeys
       }, (response) => {
         // Gestisci gli stati della registrazione come prima
         if (response.status) {

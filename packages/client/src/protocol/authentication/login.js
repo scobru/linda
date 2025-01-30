@@ -356,116 +356,76 @@ export const loginWithMetaMask = async (address) => {
   }
 };
 
-export const loginUser = async (credentials) => {
+export const loginUser = async (credentials = {}) => {
   try {
-    // Segnala che stiamo effettuando il login
-    localStorage.setItem('isLoggingIn', 'true');
+    console.log("Starting login process for:", credentials.username);
 
-    if (!credentials?.username || !credentials?.password) {
-      throw new Error('Username e password sono richiesti');
-    }
-
-    // Usa il WalletManager per il login
-    const pubKey = await walletManager.login(credentials.username, credentials.password);
-    
-    if (!pubKey) {
-      throw new Error('Login fallito');
-    }
-
-    // Verifica che l'autenticazione sia avvenuta con successo
+    // Verifica autenticazione
+    console.log("Verifica autenticazione...");
     const isAuthenticated = await verifyAuthentication();
     if (!isAuthenticated) {
-      throw new Error('Verifica autenticazione fallita');
+      throw new Error("Errore di autenticazione");
     }
 
+    console.log("Utente autenticato:", user.is.pub);
+
     // Recupera i dati utente
-    const userData = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get('users')
-        .get(pubKey)
-        .once((data) => {
-          resolve(data);
-        });
-    });
-
-    // Se non ci sono dati, usa dati base
-    const userDataToUse = userData || {
-      pub: pubKey,
-      username: credentials.username,
-      timestamp: Date.now(),
-      lastSeen: Date.now(),
-      authType: 'credentials'
-    };
-
-    // Aggiorna last seen
-    await gun
+    const userData = await gun
       .get(DAPP_NAME)
-      .get('users')
-      .get(pubKey)
-      .put({
-        ...userDataToUse,
-        lastSeen: Date.now(),
-        username: credentials.username,
-        nickname: credentials.username,
-        password: credentials.password // Necessario per il salvataggio della sessione
-      });
+      .get("users")
+      .get(user.is.pub)
+      .then();
+
+    if (!userData) {
+      throw new Error("Dati utente non trovati");
+    }
+
+    // Verifica se l'utente è WebAuthn
+    const isWebAuthn = userData.authType === "webauthn";
 
     // Recupera il wallet
-    const wallet = await walletManager.retrieveWallet(pubKey);
+    let wallet;
+    if (isWebAuthn) {
+      // Per utenti WebAuthn, prima cerca nel localStorage
+      const localWallet = localStorage.getItem(`gunWallet_${user.is.pub}`);
+      if (localWallet) {
+        wallet = JSON.parse(localWallet);
+      }
+    }
+
+    // Se non abbiamo trovato il wallet nel localStorage, lo creiamo
     if (!wallet) {
-      throw new Error('Wallet non trovato');
+      const walletResult = await walletManager.createWalletObj(user._.sea);
+      wallet = walletResult.walletObj;
+
+      // Salva il nuovo wallet nel localStorage per utenti WebAuthn
+      if (isWebAuthn) {
+        localStorage.setItem(
+          `gunWallet_${user.is.pub}`,
+          JSON.stringify({
+            internalWalletAddress: wallet.address,
+            internalWalletPk: wallet.privateKey
+          })
+        );
+      }
     }
 
     // Salva la sessione
-    const sessionSaved = await saveSession(userDataToUse, wallet);
-    if (!sessionSaved) {
-      throw new Error('Errore nel salvataggio della sessione');
-    }
-
-    // Verifica che la sessione sia valida prima di procedere
-    const isSessionValid = await sessionManager.validateSession();
-    if (!isSessionValid) {
-      throw new Error('Sessione non valida dopo il salvataggio');
-    }
-
-    // Aggiorna metriche e crea certificati
-    await updateGlobalMetrics('totalLogins', 1);
-    const certificatesCreated = await createCertificates();
-    if (!certificatesCreated) {
-      throw new Error('Errore nella creazione dei certificati');
-    }
-
-    // Verifica finale della sessione
-    const isFinalSessionValid = await sessionManager.validateSession();
-    if (!isFinalSessionValid) {
-      throw new Error('Sessione non valida dopo la creazione dei certificati');
-    }
-
-    // Rimuovi il flag di login solo dopo che tutto è completato con successo
-    localStorage.removeItem('isLoggingIn');
+    await saveSession(userData, wallet);
 
     return {
       success: true,
-      pub: pubKey,
+      pub: user.is.pub,
       userData: {
-        ...userDataToUse,
-        username: credentials.username,
-        nickname: credentials.username
+        ...userData,
+        wallet: {
+          address: wallet.address
+        }
       }
     };
   } catch (error) {
-    console.error('Errore login:', error);
-    if (user.is) {
-      user.leave();
-    }
-    sessionManager.clearSession();
-    localStorage.removeItem('isLoggingIn');
-    return {
-      success: false,
-      errMessage: error.message,
-      errCode: 'login-error'
-    };
+    console.error("Errore login:", error);
+    throw error;
   }
 };
 

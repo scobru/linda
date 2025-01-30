@@ -292,7 +292,7 @@ async function initializeServer() {
     initializeGunListeners(gun, mogu);
 
     // Avvia la sincronizzazione delle metriche
-    setInterval(syncGlobalMetrics, 5000);
+    //setInterval(syncGlobalMetrics, 5000);
 
     return { gun, mogu };
   } catch (error) {

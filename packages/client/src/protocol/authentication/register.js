@@ -188,9 +188,23 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
     // Usa il WalletManager per creare l'account
     await walletManager.createAccount(credentials.username, credentials.password);
 
+    // Se sono state fornite chiavi di cifratura (WebAuthn), usale
+    const userKeys = credentials.encryptionKeys || user._.sea;
+
     // Crea il wallet principale
-    const walletResult = await WalletManager.createWalletObj(user._.sea);
+    const walletResult = await WalletManager.createWalletObj(userKeys);
     const mainWallet = walletResult.walletObj;
+
+    // Salva il wallet nel localStorage per l'utente WebAuthn
+    if (credentials.encryptionKeys) {
+      localStorage.setItem(
+        `gunWallet_${userKeys.pub}`,
+        JSON.stringify({
+          internalWalletAddress: mainWallet.address,
+          internalWalletPk: mainWallet.privateKey
+        })
+      );
+    }
 
     // Genera le chiavi stealth
     const stealthKeys = await new Promise((resolve, reject) => {
@@ -211,15 +225,15 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
 
     // Prepara i dati utente
     const userDataToSave = {
-      pub: user._.sea.pub,
-      epub: user._.sea.epub,
+      pub: userKeys.pub,
+      epub: userKeys.epub,
       address: mainWallet.address,
       internalWalletAddress: mainWallet.address,
       externalWalletAddress: credentials.username,
       viewingPublicKey: stealthKeys.pub,
       spendingPublicKey: stealthKeys.epub,
       createdAt: Date.now(),
-      authType: "credentials",
+      authType: credentials.encryptionKeys ? "webauthn" : "credentials",
       lastSeen: Date.now(),
     };
 
@@ -227,12 +241,12 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
     const encryptedStealthKeys = await SEA.encrypt({
       viewingPrivateKey: stealthKeys.priv,
       spendingPrivateKey: stealthKeys.epriv
-    }, user._.sea);
+    }, userKeys);
 
     // Salva le chiavi private cifrate
     await gun.get(DAPP_NAME)
       .get("users")
-      .get(user._.sea.pub)
+      .get(userKeys.pub)
       .get("stealth-keys")
       .put(encryptedStealthKeys);
 
@@ -240,11 +254,11 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
     await gun
       .get(DAPP_NAME)
       .get("users")
-      .get(user._.sea.pub)
+      .get(userKeys.pub)
       .put(userDataToSave);
 
     // Salva il wallet localmente
-    await walletManager.saveWallet(mainWallet, user._.sea.pub);
+    await walletManager.saveWallet(mainWallet, userKeys.pub);
 
     // Aggiorna metriche e crea certificati
     await Promise.all([
@@ -263,11 +277,11 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
       reader.readAsDataURL(avatarBlob);
     });
 
-    await avatarService.saveAvatar(user._.sea.pub, avatarBase64);
+    await avatarService.saveAvatar(userKeys.pub, avatarBase64);
 
     callback({
       success: true,
-      pub: user._.sea.pub,
+      pub: userKeys.pub,
       userData: {
         ...userDataToSave,
         avatar: avatarBase64,
@@ -276,7 +290,7 @@ export const registerUser = async (credentials = {}, callback = () => {}) => {
 
     return {
       success: true,
-      pub: user._.sea.pub,
+      pub: userKeys.pub,
       userData: {
         ...userDataToSave,
         avatar: avatarBase64,
