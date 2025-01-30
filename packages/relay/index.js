@@ -505,7 +505,7 @@ app.get('/users/:username', async (req, res) => {
 });
 
 // Endpoint Inbox
-app.post('/users/:username/inbox', async (req, res) => {
+app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
     await handleInbox(gun, DAPP_NAME, req.params.username, req.body);
     res.status(200).json({ success: true });
@@ -515,7 +515,7 @@ app.post('/users/:username/inbox', async (req, res) => {
 });
 
 // Endpoint Outbox
-app.post('/users/:username/outbox', async (req, res) => {
+app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
     const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
     res.json(activity);

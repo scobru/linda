@@ -5,9 +5,7 @@ import SEA from "gun/sea";
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun",
-  "https://peer.wallie.io/gun"
-];
+const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
 
 let isConnected = false;
 

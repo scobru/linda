@@ -3007,6 +3007,15 @@
     winston "^3.17.0"
     zod "^3.23.8"
 
+"@scobru/shogun@^0.0.12-c":
+  version "0.0.12-c"
+  resolved "https://registry.yarnpkg.com/@scobru/shogun/-/shogun-0.0.12-c.tgz#59a26fe8f28af05cdfe3d03c670dd1e16f0427dc"
+  integrity sha512-mTF/HrQHoF3XMjqB0FOfv41l67MlElPoN5XHx0PqgrY8ps6u5c20D6q5coAaARn6ugzj4PBkBWFVYzfVcaQXvw==
+  dependencies:
+    ethers "^6.13.5"
+    gun "^0.2020.1239"
+    jest "^29.7.0"
+
 "@scobru/shogun@latest":
   version "0.0.9"
   resolved "https://registry.yarnpkg.com/@scobru/shogun/-/shogun-0.0.9.tgz#c6ca298aa1bb529aeb76f6da94d795c3cc1a9289"

@@ -21,6 +21,11 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
 // Endpoint per l'inbox
 export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   try {
+    // Verifica che l'attività sia definita
+    if (!activity || !activity.type) {
+      throw new Error('Attività non valida');
+    }
+
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       ...activity,
@@ -33,7 +38,7 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
       .get('activitypub')
       .get(username)
       .get('inbox')
-      .set(enrichedActivity);
+      .put(enrichedActivity);
 
     // Se è un Follow, aggiorna anche la lista followers
     if (activity.type === 'Follow') {
@@ -42,7 +47,7 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
         .get('activitypub')
         .get(username)
         .get('followers')
-        .set({
+        .put({
           id: activity.actor,
           followed_at: new Date().toISOString()
         });
@@ -58,12 +63,16 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 // Endpoint per l'outbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
   try {
+    // Verifica che l'attività sia definita
+    if (!activity || !activity.type) {
+      throw new Error('Attività non valida');
+    }
+
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       ...activity,
       actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
       published: new Date().toISOString(),
-      // Aggiungi un ID univoco per l'attività
       id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${Date.now()}`
     };
 
@@ -73,7 +82,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       .get('activitypub')
       .get(username)
       .get('outbox')
-      .set(enrichedActivity);
+      .put(enrichedActivity);
 
     // Se è un Follow, aggiorna anche la lista following
     if (activity.type === 'Follow') {
@@ -82,7 +91,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         .get('activitypub')
         .get(username)
         .get('following')
-        .set({
+        .put({
           id: activity.object,
           followed_at: new Date().toISOString()
         });
@@ -95,7 +104,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         .get('activitypub')
         .get(username)
         .get('posts')
-        .set({
+        .put({
           ...activity.object,
           id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${Date.now()}`,
           published: new Date().toISOString()

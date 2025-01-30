@@ -323,10 +323,26 @@ export default function SignIn() {
         throw new Error(credentials.error || "Errore durante l'accesso con WebAuthn");
       }
 
-      // Effettua il login con le credenziali generate
+      // Se l'utente è già autenticato, procedi direttamente
+      if (user.is && user.is.pub === credentials.encryptionKeys.pub) {
+        localStorage.setItem("isAuthenticated", "true");
+        localStorage.setItem("userPub", user.is.pub);
+        localStorage.setItem("username", credentials.username);
+        localStorage.setItem("webauthn_credential_id", credentials.credentialId);
+
+        toast.success("Accesso effettuato con successo!", { id: toastId });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
+        localStorage.removeItem("redirectAfterLogin");
+        window.location.replace(redirectPath);
+        return;
+      }
+
+      // Altrimenti effettua il login completo
       const result = await authentication.loginUser({
         username: credentials.username,
-        password: credentials.password
+        encryptionKeys: credentials.encryptionKeys
       });
 
       if (result.success) {

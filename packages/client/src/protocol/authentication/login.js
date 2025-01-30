@@ -5,14 +5,16 @@ import {
 } from '../security/index.js';
 import { updateGlobalMetrics } from '../system/systemService.js';
 import { sessionManager } from './sessionManager.js';
+import { WalletManager } from "@scobru/shogun";
 
 const LOGIN_TIMEOUT = 15000;
 
 const verifyAuthentication = async (maxAttempts = 30) => {
   console.log('Verifica autenticazione...');
   for (let i = 0; i < maxAttempts; i++) {
-    if (user.is?.pub) {
-      console.log('Utente autenticato:', user.is.pub);
+  
+    if (user) {
+      console.log('Utente autenticato:', user);
       return true;
     }
     console.log(`Tentativo ${i + 1}/${maxAttempts}...`);
@@ -173,7 +175,7 @@ const createCertificates = async () => {
     console.log('Flag creatingCertificates impostato');
 
     // Verifica che l'utente sia autenticato
-    if (!user.is?.pub) {
+    if (!user.pair().pub) {
       console.warn('Utente non autenticato, attendo...');
       const isAuthenticated = await verifyAuthentication();
       console.log('Risultato verifica autenticazione:', { isAuthenticated });
@@ -361,19 +363,15 @@ export const loginUser = async (credentials = {}) => {
     console.log("Starting login process for:", credentials.username);
 
     // Verifica autenticazione
-    console.log("Verifica autenticazione...");
-    const isAuthenticated = await verifyAuthentication();
-    if (!isAuthenticated) {
-      throw new Error("Errore di autenticazione");
-    }
+    const userPub = await walletManager.login(credentials.username, credentials.password);
 
-    console.log("Utente autenticato:", user.is.pub);
+    console.log("Utente autenticato:", userPub);
 
     // Recupera i dati utente
     const userData = await gun
       .get(DAPP_NAME)
       .get("users")
-      .get(user.is.pub)
+      .get(userPub)
       .then();
 
     if (!userData) {
@@ -387,7 +385,7 @@ export const loginUser = async (credentials = {}) => {
     let wallet;
     if (isWebAuthn) {
       // Per utenti WebAuthn, prima cerca nel localStorage
-      const localWallet = localStorage.getItem(`gunWallet_${user.is.pub}`);
+      const localWallet = localStorage.getItem(`gunWallet_${userPub}`);
       if (localWallet) {
         wallet = JSON.parse(localWallet);
       }
@@ -395,13 +393,13 @@ export const loginUser = async (credentials = {}) => {
 
     // Se non abbiamo trovato il wallet nel localStorage, lo creiamo
     if (!wallet) {
-      const walletResult = await walletManager.createWalletObj(user._.sea);
+      const walletResult = await WalletManager.createWalletObj(user._.sea);
       wallet = walletResult.walletObj;
 
       // Salva il nuovo wallet nel localStorage per utenti WebAuthn
       if (isWebAuthn) {
         localStorage.setItem(
-          `gunWallet_${user.is.pub}`,
+          `gunWallet_${userPub}`,
           JSON.stringify({
             internalWalletAddress: wallet.address,
             internalWalletPk: wallet.privateKey
@@ -415,7 +413,7 @@ export const loginUser = async (credentials = {}) => {
 
     return {
       success: true,
-      pub: user.is.pub,
+      pub: userPub,
       userData: {
         ...userData,
         wallet: {
