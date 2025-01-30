@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 const BASE_URL = process.env.BASE_URL || 'https://gun-relay.scobrudot.dev';
-const TEST_USERNAME = 'testuser';
+const TEST_USERNAME = 'scobru_test';
 
 async function runTests() {
   console.log('Inizio dei test ActivityPub sul relay...\n');
@@ -68,7 +68,7 @@ async function runTests() {
     console.log('Test 4: Follow Request');
     const followActivity = {
       type: 'Follow',
-      object: 'https://mastodon.social/users/someuser'
+      object: 'https://ftwr.scobrudot.dev/users/scobru'
     };
     
     const followResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {
@@ -79,6 +79,14 @@ async function runTests() {
       },
       body: JSON.stringify(followActivity)
     });
+
+    // Verifica il Content-Type della risposta
+    const followContentType = followResponse.headers.get('content-type');
+    if (!followContentType || !followContentType.includes('application/json')) {
+      const text = await followResponse.text();
+      throw new Error(`Risposta non JSON: ${text}`);
+    }
+
     console.log('Follow Request Response:', await followResponse.json(), '\n');
 
     // Test 5: Verifica Followers
