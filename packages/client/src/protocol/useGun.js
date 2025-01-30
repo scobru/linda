@@ -1,14 +1,15 @@
 import { WalletManager } from "@scobru/shogun";
-import SEA from "gun/sea.js ";
+import SEA from "gun/sea";
 
 // Non importare i moduli di storage
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
+const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun",
+  "https://peer.wallie.io/gun"
+];
 
 let isConnected = false;
-
 
 export { SEA }
 

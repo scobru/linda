@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import App from "./App";
-import reportWebVitals from "./reportWebVitals";
-import { gun } from "#protocol";
-import { AppProvider } from "./context/AppContext";
+import App from "./App.js";
+import reportWebVitals from "./reportWebVitals.js";
+import { gun } from "./protocol/index.js";
+import { AppProvider } from "./context/AppContext.js";
 
 // Funzione per verificare la connessione di Gun
 const waitForGunInitialization = () => {

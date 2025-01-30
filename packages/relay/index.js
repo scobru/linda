@@ -570,10 +570,10 @@ function initializeGunListeners(gun, mogu) {
     .map()
     .get("messages")
     .map()
-    .on((msg, key) => {
+    .on(async (msg, key) => {
       if (msg && !processedEvents.has(key)) {
         processedEvents.add(key);
-        updateGlobalMetric("totalMessagesSent", 1);
+        await updateGlobalMetric("totalMessagesSent", 1);
       }
     });
 
@@ -582,10 +582,10 @@ function initializeGunListeners(gun, mogu) {
     .get(DAPP_NAME)
     .get("friend_requests")
     .map()
-    .on((data, key) => {
+    .on(async (data, key) => {
       if (data && !processedEvents.has(key)) {
         processedEvents.add(key);
-        updateGlobalMetric("totalFriendRequests", 1);
+        await updateGlobalMetric("totalFriendRequests", 1);
       }
     });
 
@@ -594,10 +594,10 @@ function initializeGunListeners(gun, mogu) {
     .get(DAPP_NAME)
     .get("rejected_requests")
     .map()
-    .on((data, key) => {
+    .on(async (data, key) => {
       if (data && !processedEvents.has(key)) {
         processedEvents.add(key);
-        updateGlobalMetric("totalFriendRequestsRejected", 1);
+        await updateGlobalMetric("totalFriendRequestsRejected", 1);
       }
     });
 
@@ -605,16 +605,16 @@ function initializeGunListeners(gun, mogu) {
   gun.get(DAPP_NAME)
     .get('channels')
     .map()
-    .on((data, key) => {
+    .on(async (data, key) => {
       if (data && !processedEvents.has(key)) {
         processedEvents.add(key);
         
         // Verifica il tipo di canale
         if (data.type === 'channel') {
-          updateGlobalMetric('totalChannels', 1);
+          await updateGlobalMetric('totalChannels', 1);
           console.log('Nuovo canale creato:', data.name);
         } else if (data.type === 'board') {
-          updateGlobalMetric('totalBoards', 1);
+          await updateGlobalMetric('totalBoards', 1);
           console.log('Nuova board creata:', data.name);
         }
       }
@@ -624,23 +624,23 @@ function initializeGunListeners(gun, mogu) {
   gun.get(DAPP_NAME)
     .get('activitypub')
     .map()
-    .on((activity, key) => {
+    .on(async (activity, key) => {
       if (activity && !processedEvents.has(key)) {
         processedEvents.add(key);
         
         // Aggiorna le metriche in base al tipo di attività
         switch(activity.type) {
           case 'Create':
-            updateGlobalMetric('totalPosts', 1);
+            await updateGlobalMetric('totalPosts', 1);
             break;
           case 'Follow':
-            updateGlobalMetric('totalFollows', 1);
+            await updateGlobalMetric('totalFollows', 1);
             break;
           case 'Like':
-            updateGlobalMetric('totalLikes', 1);
+            await updateGlobalMetric('totalLikes', 1);
             break;
           case 'Announce':
-            updateGlobalMetric('totalBoosts', 1);
+            await updateGlobalMetric('totalBoosts', 1);
             break;
         }
       }
@@ -653,7 +653,7 @@ function initializeGunListeners(gun, mogu) {
 }
 
 // Modifica la funzione updateGlobalMetric
-function updateGlobalMetric(metric, value = 1) {
+async function updateGlobalMetric(metric, value = 1) {
   if (!metric || typeof value !== "number") return;
 
   gun
