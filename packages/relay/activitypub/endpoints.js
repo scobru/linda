@@ -161,15 +161,22 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
           if (!data) {
             reject(new Error('Profilo non trovato'));
           } else {
-            resolve(data);
+            // Converti i campi array in stringhe per Gun
+            const cleanData = {
+              ...data,
+              '@context': 'https://www.w3.org/ns/activitystreams'
+            };
+            resolve(cleanData);
           }
         });
     });
 
     // Se abbiamo trovato il profilo, aggiungiamo la chiave pubblica
     if (actorData) {
+      // Restituisci la risposta con array per ActivityPub
       return {
         ...actorData,
+        '@context': ['https://www.w3.org/ns/activitystreams'],
         publicKey: {
           id: `${actorData.id}#main-key`,
           owner: actorData.id,
@@ -191,15 +198,34 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
       name: username,
       summary: `Profilo ActivityPub di ${username}`,
       url: `${BASE_URL}/users/${username}`,
-      published: new Date().toISOString(),
+      published: new Date().toISOString()
+    };
+
+    // Salva il profilo in Gun
+    await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .put(defaultActor, (ack) => {
+          if (ack.err) {
+            reject(new Error(ack.err));
+          } else {
+            resolve(ack);
+          }
+        });
+    });
+
+    // Restituisci la risposta con array per ActivityPub
+    return {
+      ...defaultActor,
+      '@context': ['https://www.w3.org/ns/activitystreams'],
       publicKey: {
-        id: `${BASE_URL}/users/${username}#main-key`,
-        owner: `${BASE_URL}/users/${username}`,
+        id: `${defaultActor.id}#main-key`,
+        owner: defaultActor.id,
         publicKeyPem: keys.publicKey
       }
     };
-
-    return defaultActor;
   } catch (error) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
@@ -334,14 +360,14 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        to: 'https://www.w3.org/ns/activitystreams#Public',
         object: {
           type: 'Note',
           id: post.id,
           content: post.content,
           published: new Date(timestamp).toISOString(),
           attributedTo: `${BASE_URL}/users/${username}`,
-          to: ['https://www.w3.org/ns/activitystreams#Public']
+          to: 'https://www.w3.org/ns/activitystreams#Public'
         }
       };
 
@@ -357,12 +383,30 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             if (ack.err) {
               reject(new Error(ack.err));
             } else {
-              resolve(ack);
+              // Verifica che i dati siano stati salvati correttamente
+              gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(username)
+                .get('outbox')
+                .get(activityId)
+                .once((data) => {
+                  if (data) {
+                    resolve(data);
+                  } else {
+                    reject(new Error('Verifica salvataggio attività fallita'));
+                  }
+                });
             }
           });
       });
 
-      return activityPubResponse;
+      // Restituisci la risposta con array per ActivityPub ma stringa per Gun
+      return {
+        ...activityPubResponse,
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        to: [activityPubResponse.to]
+      };
     }
 
     // Gestione specifica per Follow
