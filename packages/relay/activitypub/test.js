@@ -1,5 +1,4 @@
 import fetch from 'node-fetch';
-
 const BASE_URL = process.env.BASE_URL || 'https://gun-relay.scobrudot.dev';
 const TEST_USERNAME = 'testuser';
 
@@ -12,11 +11,27 @@ async function runTests() {
     const webfingerResponse = await fetch(
       `${BASE_URL}/.well-known/webfinger?resource=acct:${TEST_USERNAME}@localhost`
     );
+    
+    // Verifica il Content-Type della risposta
+    const contentType = webfingerResponse.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await webfingerResponse.text();
+      throw new Error(`Risposta non JSON: ${text}`);
+    }
+    
     console.log('WebFinger Response:', await webfingerResponse.json(), '\n');
 
     // Test 2: Profilo Utente
     console.log('Test 2: Profilo Utente');
     const profileResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}`);
+    
+    // Verifica il Content-Type della risposta
+    const profileContentType = profileResponse.headers.get('content-type');
+    if (!profileContentType || !profileContentType.includes('application/json')) {
+      const text = await profileResponse.text();
+      throw new Error(`Risposta non JSON: ${text}`);
+    }
+    
     console.log('Profile Response:', await profileResponse.json(), '\n');
 
     // Test 3: Creazione Post
@@ -39,6 +54,14 @@ async function runTests() {
       },
       body: JSON.stringify(testPost)
     });
+    
+    // Verifica il Content-Type della risposta
+    const postContentType = postResponse.headers.get('content-type');
+    if (!postContentType || !postContentType.includes('application/json')) {
+      const text = await postResponse.text();
+      throw new Error(`Risposta non JSON: ${text}`);
+    }
+    
     console.log('Post Creation Response:', await postResponse.json(), '\n');
 
     // Test 4: Follow Request
