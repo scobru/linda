@@ -10,6 +10,141 @@ dotenv.config();
 // Usa l'URL dal file .env o un default
 const BASE_URL = process.env.BASE_URL || "http://localhost:8765";
 
+// Classe per gestire gli eventi ActivityPub
+class ActivityPubEventHandler {
+  constructor(gun, DAPP_NAME) {
+    this.gun = gun;
+    this.DAPP_NAME = DAPP_NAME;
+    this.handlers = new Map();
+  }
+
+  // Registra un handler per un tipo di attività
+  on(activityType, handler) {
+    this.handlers.set(activityType, handler);
+    return this;
+  }
+
+  // Gestisce un'attività in arrivo
+  async handleActivity(activity, username) {
+    const handler = this.handlers.get(activity.type);
+    if (handler) {
+      return await handler(activity, username, this.gun, this.DAPP_NAME);
+    }
+    throw new Error(`Handler non trovato per il tipo di attività: ${activity.type}`);
+  }
+}
+
+// Crea l'event handler globale
+const eventHandler = new ActivityPubEventHandler(null, null);
+
+// Registra gli handler per i vari tipi di attività
+eventHandler
+  .on('Follow', async (activity, username, gun, DAPP_NAME) => {
+    if (!activity.actor || !activity.object) {
+      throw new Error('Attività Follow non valida');
+    }
+
+    // Salva la relazione di follow
+    await Promise.all([
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('following')
+        .get(activity.object)
+        .put({
+          id: activity.object,
+          followed_at: new Date().toISOString()
+        }),
+      
+      // Invia l'Accept
+      sendAcceptActivity(activity, username, gun, DAPP_NAME)
+    ]);
+
+    return { success: true };
+  })
+  .on('Undo', async (activity, username, gun, DAPP_NAME) => {
+    if (!activity.object || activity.object.type !== 'Follow') {
+      throw new Error('Attività Undo non valida');
+    }
+
+    // Rimuovi la relazione di follow
+    await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('following')
+      .get(activity.object.object)
+      .put(null);
+
+    return { success: true };
+  })
+  .on('Accept', async (activity, username, gun, DAPP_NAME) => {
+    if (!activity.object || activity.object.type !== 'Follow') {
+      throw new Error('Attività Accept non valida');
+    }
+
+    // Aggiorna lo stato del follow
+    await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('following')
+      .get(activity.actor)
+      .put({
+        id: activity.actor,
+        accepted_at: new Date().toISOString(),
+        status: 'accepted'
+      });
+
+    return { success: true };
+  });
+
+// Funzione per inviare un'attività Accept
+async function sendAcceptActivity(followActivity, username, gun, DAPP_NAME) {
+  const acceptActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    type: 'Accept',
+    actor: `${BASE_URL}/users/${username}`,
+    object: followActivity,
+    id: `${BASE_URL}/users/${username}/activities/${Date.now()}`,
+    published: new Date().toISOString()
+  };
+
+  const targetServer = new URL(followActivity.actor).origin;
+  const body = JSON.stringify(acceptActivity);
+  const digest = createHash('sha256').update(body).digest('base64');
+
+  const headers = {
+    'Content-Type': 'application/activity+json',
+    'Accept': 'application/activity+json',
+    'Date': new Date().toUTCString(),
+    'Host': new URL(targetServer).host,
+    'Digest': `SHA-256=${digest}`
+  };
+
+  // Firma la richiesta
+  const keyId = `${BASE_URL}/users/${username}#main-key`;
+  headers['Signature'] = await signRequest({
+    method: 'POST',
+    url: `${targetServer}/inbox`,
+    headers,
+    body
+  }, keyId, username, gun);
+
+  const response = await fetch(`${targetServer}/inbox`, {
+    method: 'POST',
+    headers,
+    body
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to send Accept: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   try {
@@ -74,51 +209,27 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
 // Endpoint per l'inbox
 export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   try {
-    // Verifica che l'attività sia definita e valida
-    if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
-      throw new Error('Attività non valida: deve essere un oggetto');
-    }
+    // Inizializza l'event handler con le dipendenze correnti
+    eventHandler.gun = gun;
+    eventHandler.DAPP_NAME = DAPP_NAME;
 
-    if (!activity.type) {
-      throw new Error('Tipo di attività mancante');
-    }
-
-    // Crea un ID univoco per l'attività
-    const activityId = activity.id || `${BASE_URL}/users/${username}/inbox/${Date.now()}`;
-
-    // Costruisci l'attività arricchita
-    const enrichedActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: activityId,
-      type: activity.type,
-      received_at: new Date().toISOString(),
-      ...activity
-    };
+    // Gestisci l'attività
+    const result = await eventHandler.handleActivity(activity, username);
 
     // Salva l'attività nell'inbox
+    const activityId = activity.id || `${BASE_URL}/users/${username}/inbox/${Date.now()}`;
     await gun
       .get(DAPP_NAME)
       .get('activitypub')
       .get(username)
       .get('inbox')
       .get(activityId)
-      .put(enrichedActivity);
+      .put({
+        ...activity,
+        received_at: new Date().toISOString()
+      });
 
-    // Gestione specifica per Follow
-    if (activity.type === 'Follow' && activity.actor) {
-      await gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('followers')
-        .get(activity.actor)
-        .put({
-          id: activity.actor,
-          followed_at: new Date().toISOString()
-        });
-    }
-
-    return { success: true, activity: enrichedActivity };
+    return result;
   } catch (error) {
     console.error('Errore nella gestione dell\'attività in arrivo:', error);
     throw error;

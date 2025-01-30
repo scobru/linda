@@ -3,6 +3,8 @@ import Gun from "gun";
 import "gun/sea.js";
 import { generateKeyPairSync } from "crypto";
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import { createHash } from 'crypto';
 
 // Carica le variabili d'ambiente
 dotenv.config();
@@ -24,6 +26,9 @@ function generateActivityPubKeys() {
       format: "pem",
     },
   });
+
+  console.log("Chiave pubblica generata:", publicKey);
+  console.log("Chiave privata generata:", privateKey);
 
   return {
     privateKey,
@@ -74,21 +79,27 @@ async function createGunUser(gun, username, password) {
     gun.user().auth(username, password, (ack) => {
       if (ack.err) {
         // Se l'autenticazione fallisce, proviamo a creare l'utente
+        console.log("Autenticazione fallita, provo a creare l'utente...");
         gun.user().create(username, password, (createAck) => {
           if (createAck.err && createAck.err !== "User already created") {
+            console.error("Errore nella creazione dell'utente:", createAck.err);
             reject(new Error(createAck.err));
           } else {
+            console.log("Utente creato con successo, provo ad autenticare...");
             // Dopo la creazione, proviamo ad autenticare
             gun.user().auth(username, password, (authAck) => {
               if (authAck.err) {
+                console.error("Errore nell'autenticazione:", authAck.err);
                 reject(new Error(authAck.err));
               } else {
+                console.log("Utente autenticato con successo");
                 resolve(authAck);
               }
             });
           }
         });
       } else {
+        console.log("Utente autenticato con successo");
         resolve(ack);
       }
     });
@@ -137,19 +148,204 @@ async function initializeActivityPubProfile(gun, username) {
   });
 }
 
-async function runTests() {
-  console.log("Inizio dei test ActivityPub sul relay...\n");
-  console.log("Using BASE_URL:", BASE_URL); // Log dell'URL che stiamo usando
+async function verifyProfileSync(gun, username) {
+  return new Promise((resolve, reject) => {
+    gun
+      .get("linda-messenger")
+      .get("activitypub")
+      .get(username)
+      .once((data) => {
+        if (data && data.type === 'Person') {
+          console.log("Profilo sincronizzato con successo");
+          resolve(data);
+        } else {
+          reject(new Error("Profilo non sincronizzato"));
+        }
+      });
+  });
+}
+
+async function verifyActorEndpoint(username) {
+  const profileUrl = `${BASE_URL}/users/${username}`;
+  console.log("Richiesta profilo a:", profileUrl);
 
   try {
-    // Inizializza Gun connettendosi al relay esistente
+    const profileResponse = await fetch(profileUrl, {
+      headers: {
+        'Accept': 'application/activity+json'
+      }
+    });
+
+    if (!profileResponse.ok) {
+      const errorText = await profileResponse.text();
+      if (profileResponse.status === 502) {
+        throw new Error(`Errore 502 Bad Gateway: Verifica i log del server Gun e la configurazione del relay. Dettagli: ${errorText}`);
+      } else {
+        throw new Error(`Profile request failed with status ${profileResponse.status}: ${errorText}`);
+      }
+    }
+
+    const profileData = await profileResponse.json();
+    console.log("Profile Response:", profileData, "\n");
+
+    if (!profileData || profileData.type !== 'Person') {
+      throw new Error("Profilo non valido");
+    }
+
+    return profileData;
+  } catch (error) {
+    console.error("Errore nella richiesta del profilo:", error);
+    throw error;
+  }
+}
+
+async function checkRelayConnection() {
+  try {
+    const response = await fetch(`${BASE_URL}/gun`);
+    if (!response.ok) {
+      throw new Error(`Relay non raggiungibile: ${response.status}`);
+    }
+    console.log("Relay raggiungibile con successo");
+  } catch (error) {
+    console.error("Errore nella connessione al relay:", error);
+    process.exit(1);
+  }
+}
+
+async function verifyUserAuthentication(gun) {
+  return new Promise((resolve, reject) => {
+    if (gun.user().is) {
+      console.log("Utente autenticato con successo");
+      resolve();
+    } else {
+      console.error("Utente non autenticato");
+      reject(new Error("Utente non autenticato"));
+    }
+  });
+}
+
+async function signRequest(request, keyId, username, gun) {
+  const userData = await gun
+    .user()
+    .get("activitypub")
+    .get("keys")
+    .once();
+
+  if (!userData?.privateKey) {
+    throw new Error('Chiave privata non trovata per l\'utente');
+  }
+
+  const url = new URL(request.url);
+  const digest = createHash('sha256').update(request.body).digest('base64');
+
+  const headersToSign = [
+    '(request-target)',
+    'host',
+    'date',
+    'digest',
+    'content-type'
+  ];
+
+  const signatureParams = headersToSign
+    .map(header => {
+      let value;
+      if (header === '(request-target)') {
+        value = `${request.method.toLowerCase()} ${url.pathname}`;
+      } else {
+        value = request.headers[header];
+      }
+      return `${header}: ${value}`;
+    })
+    .join('\n');
+
+  const signature = crypto
+    .createSign('sha256')
+    .update(signatureParams)
+    .sign(userData.privateKey, 'base64');
+
+  const signatureHeader = [
+    `keyId="${keyId}"`,
+    'algorithm="rsa-sha256"',
+    `headers="${headersToSign.join(' ')}"`,
+    `signature="${signature}"`
+  ].join(',');
+
+  return signatureHeader;
+}
+
+async function testActivityPubEvents(username) {
+  console.log("\nTest Eventi ActivityPub");
+
+  // Test Follow e Accept
+  console.log("\nTest Follow e Accept");
+  const followActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    type: 'Follow',
+    actor: `${BASE_URL}/users/test_follower`,
+    object: `${BASE_URL}/users/${username}`,
+    id: `${BASE_URL}/users/test_follower/activities/${Date.now()}`
+  };
+
+  const followResponse = await fetch(`${BASE_URL}/users/${username}/inbox`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/activity+json'
+    },
+    body: JSON.stringify(followActivity)
+  });
+
+  if (!followResponse.ok) {
+    throw new Error(`Follow request failed: ${followResponse.statusText}`);
+  }
+
+  console.log("Follow accettato con successo");
+
+  // Test Undo Follow
+  console.log("\nTest Undo Follow");
+  const undoActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    type: 'Undo',
+    actor: `${BASE_URL}/users/test_follower`,
+    object: followActivity,
+    id: `${BASE_URL}/users/test_follower/activities/${Date.now()}`
+  };
+
+  const undoResponse = await fetch(`${BASE_URL}/users/${username}/inbox`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/activity+json'
+    },
+    body: JSON.stringify(undoActivity)
+  });
+
+  if (!undoResponse.ok) {
+    throw new Error(`Undo request failed: ${undoResponse.statusText}`);
+  }
+
+  console.log("Undo completato con successo");
+}
+
+async function runTests() {
+  console.log("Inizio dei test ActivityPub sul relay...\n");
+  console.log("Using BASE_URL:", BASE_URL);
+
+  try {
+    await checkRelayConnection();
+
+    // Inizializza Gun
     const gun = Gun({
       peers: [`${BASE_URL}/gun`],
+      multicast: {
+        address: '233.255.255.255',
+        port: 8765
+      },
+      axe: true
     });
 
     // Crea e autentica l'utente di test
     console.log("Creazione utente Gun di test...");
     await createGunUser(gun, TEST_USERNAME, TEST_PASSWORD);
+    await verifyUserAuthentication(gun);
     console.log("Utente Gun creato e autenticato con successo\n");
 
     // Genera e salva le chiavi ActivityPub
@@ -160,12 +356,12 @@ async function runTests() {
     // Inizializza il profilo ActivityPub
     console.log("Inizializzazione profilo ActivityPub...");
     const profile = await initializeActivityPubProfile(gun, TEST_USERNAME);
+    await verifyProfileSync(gun, TEST_USERNAME);
     console.log("Profilo ActivityPub creato:", profile, "\n");
 
-    // Aspetta un momento per assicurarsi che i dati siano sincronizzati
-    console.log("Attendo la sincronizzazione dei dati...");
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    console.log("Sincronizzazione completata\n");
+    // Verifica l'endpoint Actor
+    const actorData = await verifyActorEndpoint(TEST_USERNAME);
+    console.log("Actor Endpoint Response:", actorData, "\n");
 
     // Test 1: WebFinger
     console.log("Test 1: WebFinger");
@@ -295,7 +491,10 @@ async function runTests() {
     const followingData = await followingResponse.json();
     console.log("Following Response:", followingData, "\n");
 
-    console.log("Tutti i test completati con successo! 🎉");
+    // Aggiungi i nuovi test
+    await testActivityPubEvents(TEST_USERNAME);
+
+    console.log("\nTutti i test completati con successo! 🎉");
   } catch (error) {
     console.error("Errore durante i test:", error);
     process.exit(1);
