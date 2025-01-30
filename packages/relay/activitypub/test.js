@@ -9,8 +9,8 @@ import { createHash } from 'crypto';
 // Carica le variabili d'ambiente
 dotenv.config();
 
-// Usa l'URL dal file .env o un default
-const BASE_URL = process.env.BASE_URL || "https://gun-relay.scobrudot.dev";
+// Usa sempre il server locale per i test
+const BASE_URL = "http://localhost:8765";
 const TEST_USERNAME = "scobru_test3";
 const TEST_PASSWORD = "test12345678";
 
@@ -167,34 +167,38 @@ async function verifyProfileSync(gun, username) {
 
 async function verifyActorEndpoint(username) {
   const profileUrl = `${BASE_URL}/users/${username}`;
-  console.log("Richiesta profilo a:", profileUrl);
+  console.log("\nVerifica endpoint Actor");
+  console.log("URL:", profileUrl);
 
   try {
+    console.log("Invio richiesta GET...");
     const profileResponse = await fetch(profileUrl, {
       headers: {
         'Accept': 'application/activity+json'
       }
     });
 
+    console.log("Status:", profileResponse.status);
+    console.log("Headers:", profileResponse.headers);
+
+    const responseText = await profileResponse.text();
+    console.log("Response body:", responseText);
+
     if (!profileResponse.ok) {
-      const errorText = await profileResponse.text();
-      if (profileResponse.status === 502) {
-        throw new Error(`Errore 502 Bad Gateway: Verifica i log del server Gun e la configurazione del relay. Dettagli: ${errorText}`);
-      } else {
-        throw new Error(`Profile request failed with status ${profileResponse.status}: ${errorText}`);
-      }
+      throw new Error(`Errore ${profileResponse.status}: ${responseText}`);
     }
 
-    const profileData = await profileResponse.json();
-    console.log("Profile Response:", profileData, "\n");
-
+    const profileData = JSON.parse(responseText);
+    
     if (!profileData || profileData.type !== 'Person') {
+      console.error("Dati profilo non validi:", profileData);
       throw new Error("Profilo non valido");
     }
 
+    console.log("Profilo recuperato con successo");
     return profileData;
   } catch (error) {
-    console.error("Errore nella richiesta del profilo:", error);
+    console.error("Errore dettagliato:", error);
     throw error;
   }
 }
@@ -330,36 +334,37 @@ async function runTests() {
   console.log("Using BASE_URL:", BASE_URL);
 
   try {
+    // Verifica che il server sia in ascolto
+    console.log("\nVerifica connessione al server...");
     await checkRelayConnection();
 
     // Inizializza Gun
+    console.log("\nInizializzazione Gun...");
     const gun = Gun({
       peers: [`${BASE_URL}/gun`],
-      multicast: {
-        address: '233.255.255.255',
-        port: 8765
-      },
+      multicast: false, // Disabilita multicast per i test locali
       axe: true
     });
 
     // Crea e autentica l'utente di test
-    console.log("Creazione utente Gun di test...");
+    console.log("\nCreazione utente Gun di test...");
     await createGunUser(gun, TEST_USERNAME, TEST_PASSWORD);
     await verifyUserAuthentication(gun);
     console.log("Utente Gun creato e autenticato con successo\n");
 
     // Genera e salva le chiavi ActivityPub
-    console.log("Generazione chiavi ActivityPub...");
+    console.log("\nGenerazione chiavi ActivityPub...");
     const keys = await saveUserActivityPubKeys(gun, TEST_USERNAME);
     console.log("Chiavi ActivityPub generate e salvate con successo\n");
 
     // Inizializza il profilo ActivityPub
-    console.log("Inizializzazione profilo ActivityPub...");
+    console.log("\nInizializzazione profilo ActivityPub...");
     const profile = await initializeActivityPubProfile(gun, TEST_USERNAME);
     await verifyProfileSync(gun, TEST_USERNAME);
     console.log("Profilo ActivityPub creato:", profile, "\n");
 
     // Verifica l'endpoint Actor
+    console.log("\nVerifica endpoint Actor...");
     const actorData = await verifyActorEndpoint(TEST_USERNAME);
     console.log("Actor Endpoint Response:", actorData, "\n");
 
@@ -405,11 +410,18 @@ async function runTests() {
     // Test 3: Creazione Post
     console.log("Test 3: Creazione Post");
     const testPost = {
-      type: "Create",
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'Create',
+      actor: `${BASE_URL}/users/${TEST_USERNAME}`,
       object: {
-        type: "Note",
-        content: "Questo è un post di test ActivityPub sul relay!",
+        type: 'Note',
+        content: 'Questo è un post di test ActivityPub sul relay!',
+        published: new Date().toISOString(),
+        attributedTo: `${BASE_URL}/users/${TEST_USERNAME}`,
+        to: ['https://www.w3.org/ns/activitystreams#Public']
       },
+      published: new Date().toISOString(),
+      to: ['https://www.w3.org/ns/activitystreams#Public']
     };
 
     const postResponse = await fetch(
@@ -496,7 +508,7 @@ async function runTests() {
 
     console.log("\nTutti i test completati con successo! 🎉");
   } catch (error) {
-    console.error("Errore durante i test:", error);
+    console.error("\nErrore durante i test:", error);
     process.exit(1);
   }
 }

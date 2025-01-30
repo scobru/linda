@@ -296,6 +296,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
     // Crea un ID univoco per l'attività
     const timestamp = Date.now();
+    const activityId = `${BASE_URL}/users/${username}/activities/${timestamp}`;
 
     // Gestione specifica per Create (Note)
     if (activity.type === 'Create' && activity.object?.type === 'Note') {
@@ -303,17 +304,21 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error('Content mancante per la nota');
       }
 
+      // Crea l'oggetto post
+      const post = {
+        content: activity.object.content,
+        author: username,
+        timestamp: timestamp,
+        id: `${BASE_URL}/users/${username}/posts/${timestamp}`
+      };
+
       // Salva il post
       await new Promise((resolve, reject) => {
         gun
           .get(DAPP_NAME)
           .get('posts')
-          .get(timestamp.toString())
-          .put({
-            content: activity.object.content,
-            author: username,
-            timestamp: timestamp
-          }, (ack) => {
+          .get(post.id)
+          .put(post, (ack) => {
             if (ack.err) {
               reject(new Error(ack.err));
             } else {
@@ -322,22 +327,42 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
           });
       });
 
-      // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
-      return {
-        '@context': ['https://www.w3.org/ns/activitystreams'],
-        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
+      // Crea l'attività ActivityPub
+      const activityPubResponse = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: activityId,
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
         to: ['https://www.w3.org/ns/activitystreams#Public'],
         object: {
           type: 'Note',
-          content: activity.object.content,
-          id: `${BASE_URL}/users/${username}/posts/${timestamp}`,
+          id: post.id,
+          content: post.content,
           published: new Date(timestamp).toISOString(),
-          attributedTo: `${BASE_URL}/users/${username}`
+          attributedTo: `${BASE_URL}/users/${username}`,
+          to: ['https://www.w3.org/ns/activitystreams#Public']
         }
       };
+
+      // Salva l'attività nell'outbox
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('outbox')
+          .get(activityId)
+          .put(activityPubResponse, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
+            }
+          });
+      });
+
+      return activityPubResponse;
     }
 
     // Gestione specifica per Follow

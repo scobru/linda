@@ -144,6 +144,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware per il logging delle richieste
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
+  next();
+});
+
+// Middleware per gestire gli errori
+app.use((err, req, res, next) => {
+  console.error('Errore nel middleware:', err);
+  res.status(500).json({ error: err.message });
+});
+
 // Variabili globali
 let gun, mogu;
 const metrics = {
@@ -500,16 +513,22 @@ app.get('/.well-known/webfinger', async (req, res) => {
 
 // Endpoint Actor
 app.get('/users/:username', async (req, res) => {
+  console.log(`\nRichiesta profilo per utente: ${req.params.username}`);
   try {
     const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
+    console.log('Actor data:', actorData);
     
     // Imposta gli header corretti per ActivityPub
-    res.setHeader('Content-Type', 'application/activity+json');
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.json(actorData);
   } catch (error) {
     console.error('Errore nella gestione della richiesta actor:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      path: req.path
+    });
   }
 });
 
