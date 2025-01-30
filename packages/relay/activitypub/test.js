@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8765';
+const BASE_URL = process.env.BASE_URL || 'https://gun-relay.scobrudot.dev';
 const TEST_USERNAME = 'testuser';
 
 async function runTests() {
