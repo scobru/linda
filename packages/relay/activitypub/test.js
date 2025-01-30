@@ -2,8 +2,13 @@ import fetch from "node-fetch";
 import Gun from "gun";
 import "gun/sea.js";
 import { generateKeyPairSync } from "crypto";
+import dotenv from 'dotenv';
 
-const BASE_URL = "https://gun-relay.scobrudot.dev"; // Cambiato per usare sempre il server locale
+// Carica le variabili d'ambiente
+dotenv.config();
+
+// Usa l'URL dal file .env o un default
+const BASE_URL = process.env.BASE_URL || "https://gun-relay.scobrudot.dev";
 const TEST_USERNAME = "scobru_test3";
 const TEST_PASSWORD = "test12345678";
 
@@ -134,6 +139,7 @@ async function initializeActivityPubProfile(gun, username) {
 
 async function runTests() {
   console.log("Inizio dei test ActivityPub sul relay...\n");
+  console.log("Using BASE_URL:", BASE_URL); // Log dell'URL che stiamo usando
 
   try {
     // Inizializza Gun connettendosi al relay esistente

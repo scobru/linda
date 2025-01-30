@@ -2,6 +2,13 @@ import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createHash } from 'crypto';
 import { getUserActivityPubKeys } from '../index.js';
+import dotenv from 'dotenv';
+
+// Carica le variabili d'ambiente
+dotenv.config();
+
+// Usa l'URL dal file .env o un default
+const BASE_URL = process.env.BASE_URL || "http://localhost:8765";
 
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
@@ -40,19 +47,19 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
     const defaultActor = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       type: 'Person',
-      id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
-      following: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/following`,
-      followers: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/followers`,
-      inbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox`,
-      outbox: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/outbox`,
+      id: `${BASE_URL}/users/${username}`,
+      following: `${BASE_URL}/users/${username}/following`,
+      followers: `${BASE_URL}/users/${username}/followers`,
+      inbox: `${BASE_URL}/users/${username}/inbox`,
+      outbox: `${BASE_URL}/users/${username}/outbox`,
       preferredUsername: username,
       name: username,
       summary: `Profilo ActivityPub di ${username}`,
-      url: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+      url: `${BASE_URL}/users/${username}`,
       published: new Date().toISOString(),
       publicKey: {
-        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`,
-        owner: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        id: `${BASE_URL}/users/${username}#main-key`,
+        owner: `${BASE_URL}/users/${username}`,
         publicKeyPem: keys.publicKey
       }
     };
@@ -77,7 +84,7 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
     }
 
     // Crea un ID univoco per l'attività
-    const activityId = activity.id || `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/inbox/${Date.now()}`;
+    const activityId = activity.id || `${BASE_URL}/users/${username}/inbox/${Date.now()}`;
 
     // Costruisci l'attività arricchita
     const enrichedActivity = {
@@ -207,17 +214,17 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
       return {
         '@context': ['https://www.w3.org/ns/activitystreams'],
-        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
         type: 'Create',
-        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
         to: ['https://www.w3.org/ns/activitystreams#Public'],
         object: {
           type: 'Note',
           content: activity.object.content,
-          id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/posts/${timestamp}`,
+          id: `${BASE_URL}/users/${username}/posts/${timestamp}`,
           published: new Date(timestamp).toISOString(),
-          attributedTo: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`
+          attributedTo: `${BASE_URL}/users/${username}`
         }
       };
     }
@@ -258,9 +265,9 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       const targetServer = activity.object.split('/users/')[0];
       const followActivity = {
         '@context': 'https://www.w3.org/ns/activitystreams',
-        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
         type: 'Follow',
-        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        actor: `${BASE_URL}/users/${username}`,
         object: activity.object
       };
 
@@ -277,7 +284,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
       // Se è configurata una chiave privata, firma la richiesta
       if (process.env.ACTIVITYPUB_PRIVATE_KEY) {
-        const keyId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`;
+        const keyId = `${BASE_URL}/users/${username}#main-key`;
         headers['Signature'] = await signRequest({
           method: 'POST',
           url: `${targetServer}/users/${targetUser}/inbox`,
@@ -300,9 +307,9 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
       return {
         '@context': ['https://www.w3.org/ns/activitystreams'],
-        id: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}/activities/${timestamp}`,
+        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
         type: 'Follow',
-        actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}`,
+        actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
         to: ['https://www.w3.org/ns/activitystreams#Public'],
         object: activity.object
