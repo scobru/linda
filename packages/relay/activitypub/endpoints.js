@@ -1,4 +1,6 @@
 import fetch from 'node-fetch';
+import crypto from 'crypto';
+import { createHash } from 'crypto';
 
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
@@ -73,6 +75,46 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
     throw error;
   }
 };
+
+// Funzione per firmare la richiesta
+function signRequest(request, keyId, privateKey) {
+  const url = new URL(request.url);
+  const digest = createHash('sha256').update(request.body).digest('base64');
+  
+  const headersToSign = [
+    '(request-target)',
+    'host',
+    'date',
+    'digest',
+    'content-type'
+  ];
+
+  const signatureParams = headersToSign
+    .map(header => {
+      let value;
+      if (header === '(request-target)') {
+        value = `${request.method.toLowerCase()} ${url.pathname}`;
+      } else {
+        value = request.headers[header];
+      }
+      return `${header}: ${value}`;
+    })
+    .join('\n');
+
+  const signature = crypto
+    .createSign('sha256')
+    .update(signatureParams)
+    .sign(privateKey, 'base64');
+
+  const signatureHeader = [
+    `keyId="${keyId}"`,
+    'algorithm="rsa-sha256"',
+    `headers="${headersToSign.join(' ')}"`,
+    `signature="${signature}"`
+  ].join(',');
+
+  return signatureHeader;
+}
 
 // Endpoint per l'outbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
@@ -174,21 +216,29 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         object: activity.object
       };
 
-      // Aggiungi l'autenticazione (se richiesta dal server remoto)
+      const body = JSON.stringify(followActivity);
       const headers = {
         'Content-Type': 'application/activity+json',
-        'Accept': 'application/activity+json'
+        'Accept': 'application/activity+json',
+        'Date': new Date().toUTCString(),
+        'Host': new URL(targetServer).host
       };
 
-      // Se è configurata una chiave di firma, aggiungila agli header
-      if (process.env.ACTIVITYPUB_SIGNATURE_KEY) {
-        headers['Authorization'] = `Bearer ${process.env.ACTIVITYPUB_SIGNATURE_KEY}`;
+      // Se è configurata una chiave privata, firma la richiesta
+      if (process.env.ACTIVITYPUB_PRIVATE_KEY) {
+        const keyId = `${process.env.BASE_URL || 'http://localhost:8765'}/users/${username}#main-key`;
+        headers['Signature'] = signRequest({
+          method: 'POST',
+          url: `${targetServer}/users/${targetUser}/inbox`,
+          headers: headers,
+          body: body
+        }, keyId, process.env.ACTIVITYPUB_PRIVATE_KEY);
       }
 
       const response = await fetch(`${targetServer}/users/${targetUser}/inbox`, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify(followActivity)
+        body: body
       });
 
       if (!response.ok) {
