@@ -174,17 +174,26 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         object: activity.object
       };
 
+      // Aggiungi l'autenticazione (se richiesta dal server remoto)
+      const headers = {
+        'Content-Type': 'application/activity+json',
+        'Accept': 'application/activity+json'
+      };
+
+      // Se è configurata una chiave di firma, aggiungila agli header
+      if (process.env.ACTIVITYPUB_SIGNATURE_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.ACTIVITYPUB_SIGNATURE_KEY}`;
+      }
+
       const response = await fetch(`${targetServer}/users/${targetUser}/inbox`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/activity+json',
-          'Accept': 'application/activity+json'
-        },
+        headers: headers,
         body: JSON.stringify(followActivity)
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to send follow request: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
       }
 
       // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
