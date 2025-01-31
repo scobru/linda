@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from "../useGun.js";
 
 export const sessionManager = {
   /**
@@ -13,23 +13,23 @@ export const sessionManager = {
           const userData = await new Promise((res) => {
             gun
               .get(DAPP_NAME)
-              .get('users')
+              .get("users")
               .get(user.is.pub)
               .once((data) => {
                 res(data);
               });
           });
           if (userData) {
-            console.log('Utente già autenticato:', user.is.pub);
+            console.log("Utente già autenticato:", user.is.pub);
             resolve(true);
             return;
           }
         }
 
         // Verifica dati sessione
-        const sessionData = localStorage.getItem('sessionData');
+        const sessionData = localStorage.getItem("sessionData");
         if (!sessionData) {
-          console.log('Nessuna sessione trovata');
+          console.log("Nessuna sessione trovata");
           resolve(false);
           return;
         }
@@ -38,10 +38,10 @@ export const sessionManager = {
 
         // Riautenticazione con wallet
         if (!user.is && walletData?.pair) {
-          console.log('Tentativo riautenticazione con wallet');
+          console.log("Tentativo riautenticazione con wallet");
           user.auth(walletData.pair, async (ack) => {
             if (ack.err) {
-              console.error('Errore riautenticazione:', ack.err);
+              console.error("Errore riautenticazione:", ack.err);
               this.clearSession();
               resolve(false);
               return;
@@ -51,7 +51,7 @@ export const sessionManager = {
             const userData = await new Promise((res) => {
               gun
                 .get(DAPP_NAME)
-                .get('users')
+                .get("users")
                 .get(userPub)
                 .once((data) => {
                   res(data);
@@ -59,10 +59,10 @@ export const sessionManager = {
             });
 
             if (userData) {
-              console.log('Riautenticazione completata con successo');
+              console.log("Riautenticazione completata con successo");
               resolve(true);
             } else {
-              console.log('Dati utente non trovati dopo riautenticazione');
+              console.log("Dati utente non trovati dopo riautenticazione");
               this.clearSession();
               resolve(false);
             }
@@ -72,7 +72,7 @@ export const sessionManager = {
 
         resolve(false);
       } catch (error) {
-        console.error('Errore verifica autenticazione:', error);
+        console.error("Errore verifica autenticazione:", error);
         this.clearSession();
         resolve(false);
       }
@@ -86,17 +86,17 @@ export const sessionManager = {
    * @returns {Promise<boolean>}
    */
   async waitForAuthentication(maxAttempts = 30, interval = 200) {
-    console.log('Inizio attesa autenticazione...');
+    console.log("Inizio attesa autenticazione...");
     for (let i = 0; i < maxAttempts; i++) {
       console.log(`Tentativo ${i + 1}/${maxAttempts}`);
       const isAuthenticated = await this.verifyAuthentication();
       if (isAuthenticated) {
-        console.log('Autenticazione verificata con successo');
+        console.log("Autenticazione verificata con successo");
         return true;
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
     }
-    console.log('Timeout attesa autenticazione');
+    console.log("Timeout attesa autenticazione");
     return false;
   },
 
@@ -105,118 +105,124 @@ export const sessionManager = {
    */
   async validateSession() {
     try {
-      console.log('Inizio validazione sessione...');
-      
-      const sessionData = localStorage.getItem('sessionData');
+      console.log("Inizio validazione sessione...");
+
+      const sessionData = localStorage.getItem("sessionData");
       if (!sessionData) {
-        console.log('Dati sessione mancanti nel localStorage');
+        console.log("Dati sessione mancanti nel localStorage");
         return false;
       }
 
       const parsedSessionData = JSON.parse(sessionData);
 
-      console.log('Dati sessione trovati:', {
+      console.log("Dati sessione trovati:", {
         hasPub: !!parsedSessionData.pub,
         hasPair: !!parsedSessionData.pair,
-        pairDetails: parsedSessionData.pair ? {
-          hasPub: !!parsedSessionData.pair.pub,
-          hasPriv: !!parsedSessionData.pair.priv
-        } : null
+        pairDetails: parsedSessionData.pair
+          ? {
+              hasPub: !!parsedSessionData.pair.pub,
+              hasPriv: !!parsedSessionData.pair.priv,
+            }
+          : null,
       });
-      
+
       // Verifica base delle chiavi
-      const hasKeys = !!(parsedSessionData?.pair?.pub && parsedSessionData?.pair?.priv);
-      console.log('Verifica base chiavi:', { 
+      const hasKeys = !!(
+        parsedSessionData?.pair?.pub && parsedSessionData?.pair?.priv
+      );
+      console.log("Verifica base chiavi:", {
         hasKeys,
         pairExists: !!parsedSessionData?.pair,
         pubExists: !!parsedSessionData?.pair?.pub,
         privExists: !!parsedSessionData?.pair?.priv,
-        fullPair: parsedSessionData?.pair
+        fullPair: parsedSessionData?.pair,
       });
 
       if (!hasKeys) {
-        console.log('Chiavi di cifratura mancanti nella sessione');
+        console.log("Chiavi di cifratura mancanti nella sessione");
         return false;
       }
 
       // Se stiamo creando i certificati o siamo nel processo di login, verifica minima
-      const isCreatingCertificates = localStorage.getItem('creatingCertificates') === 'true';
-      const isLoggingIn = localStorage.getItem('isLoggingIn') === 'true';
-      
-      console.log('Stato processi:', { isCreatingCertificates, isLoggingIn });
-      
+      const isCreatingCertificates =
+        localStorage.getItem("creatingCertificates") === "true";
+      const isLoggingIn = localStorage.getItem("isLoggingIn") === "true";
+
+      console.log("Stato processi:", { isCreatingCertificates, isLoggingIn });
+
       if (isCreatingCertificates || isLoggingIn) {
-        console.log('Processo in corso, verifica minima della sessione');
+        console.log("Processo in corso, verifica minima della sessione");
         return hasKeys;
       }
 
-      const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-      const lastLogin = parseInt(localStorage.getItem('lastLogin') || '0');
+      const isAuthenticated =
+        localStorage.getItem("isAuthenticated") === "true";
+      const lastLogin = parseInt(localStorage.getItem("lastLogin") || "0");
       const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 ore
 
-      console.log('Stato autenticazione:', {
+      console.log("Stato autenticazione:", {
         isAuthenticated,
         lastLogin,
-        timeSinceLastLogin: Date.now() - lastLogin
+        timeSinceLastLogin: Date.now() - lastLogin,
       });
 
       if (!isAuthenticated || Date.now() - lastLogin > SESSION_TIMEOUT) {
-        console.log('Sessione non valida o scaduta');
+        console.log("Sessione non valida o scaduta");
         return false;
       }
 
       // Verifica che l'utente sia ancora autenticato
-      console.log('Verifica user.is:', {
+      console.log("Verifica user.is:", {
         exists: !!user.is,
         hasPub: !!user.is?.pub,
-        pub: user.is?.pub
+        pub: user.is?.pub,
       });
 
       // Se l'utente non è autenticato ma abbiamo le chiavi, proviamo la riautenticazione
       if (!user.is && parsedSessionData.pair) {
-        console.log('Tentativo riautenticazione automatica...');
+        console.log("Tentativo riautenticazione automatica...");
         try {
           await new Promise((resolve, reject) => {
             user.auth(parsedSessionData.pair, (ack) => {
               if (ack.err) {
-                console.error('Errore riautenticazione:', ack.err);
+                console.error("Errore riautenticazione:", ack.err);
                 reject(ack.err);
               } else {
-                console.log('Riautenticazione automatica completata');
+                console.log("Riautenticazione automatica completata");
                 resolve();
               }
             });
           });
-          
+
           // Verifica che l'utente sia stato effettivamente autenticato
           if (!user.is?.pub) {
-            console.log('Riautenticazione fallita - user.is non presente');
+            console.log("Riautenticazione fallita - user.is non presente");
             return false;
           }
-          
+
           // Verifica che il pub corrisponda
           if (user.is.pub !== parsedSessionData.pub) {
-            console.log('Riautenticazione fallita - pub non corrispondente');
+            console.log("Riautenticazione fallita - pub non corrispondente");
             return false;
           }
-          
+
           return true;
         } catch (error) {
-          console.error('Errore durante la riautenticazione:', error);
+          console.error("Errore durante la riautenticazione:", error);
           return false;
         }
       }
 
       if (!user.is?.pub) {
-        console.log('Utente non autenticato');
+        console.log("Utente non autenticato");
         return false;
       }
 
       // Se tutto è ok, aggiorna il timestamp
-      localStorage.setItem('lastLogin', Date.now().toString());
+      localStorage.setItem("lastLogin", Date.now().toString());
       return true;
     } catch (error) {
-      console.error('Errore nella validazione della sessione:', error);
+      console.error("Errore nella validazione della sessione:", error);
       return false;
     }
   },
@@ -228,32 +234,32 @@ export const sessionManager = {
   saveSession(sessionData) {
     try {
       if (!sessionData || !sessionData.pub) {
-        throw new Error('Dati sessione non validi');
+        throw new Error("Dati sessione non validi");
       }
 
       // Verifica che l'utente sia autenticato
       if (!user.is?.pub) {
-        throw new Error('Utente non autenticato');
+        throw new Error("Utente non autenticato");
       }
 
       // Verifica che il pub corrisponda
       if (sessionData.pub !== user.is.pub) {
-        throw new Error('Mismatch tra pub della sessione e utente corrente');
+        throw new Error("Mismatch tra pub della sessione e utente corrente");
       }
 
       // Verifica che le chiavi necessarie siano presenti
       if (!sessionData.pair?.pub || !sessionData.pair?.priv) {
-        throw new Error('Chiavi di cifratura mancanti');
+        throw new Error("Chiavi di cifratura mancanti");
       }
 
       // Salva i dati della sessione
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('sessionData', JSON.stringify(sessionData));
-      localStorage.setItem('userPub', sessionData.pub);
-      localStorage.setItem('username', sessionData.credentials.username);
-      localStorage.setItem('userAlias', sessionData.credentials.username);
-      localStorage.setItem('authType', sessionData.authType);
-      localStorage.setItem('lastLogin', Date.now().toString());
+      localStorage.setItem("isAuthenticated", "true");
+      localStorage.setItem("sessionData", JSON.stringify(sessionData));
+      localStorage.setItem("userPub", sessionData.pub);
+      localStorage.setItem("username", sessionData.credentials.username);
+      localStorage.setItem("userAlias", sessionData.credentials.username);
+      localStorage.setItem("authType", sessionData.authType);
+      localStorage.setItem("lastLogin", Date.now().toString());
 
       // Salva le chiavi per la riautenticazione
       localStorage.setItem(
@@ -264,26 +270,26 @@ export const sessionManager = {
             pub: sessionData.pair.pub,
             priv: sessionData.pair.priv,
             epub: sessionData.pair.epub,
-            epriv: sessionData.pair.epriv
-          }
+            epriv: sessionData.pair.epriv,
+          },
         })
       );
 
-      console.log('Session Data saved:', {
+      console.log("Session Data saved:", {
         ...sessionData,
         pair: {
           pub: sessionData.pair.pub,
           hasPriv: !!sessionData.pair.priv,
           hasEpub: !!sessionData.pair.epub,
-          hasEpriv: !!sessionData.pair.epriv
+          hasEpriv: !!sessionData.pair.epriv,
         },
-        credentials: 'HIDDEN'
+        credentials: "HIDDEN",
       });
 
-      console.log('Sessione salvata con successo');
+      console.log("Sessione salvata con successo");
       return true;
     } catch (error) {
-      console.error('Errore nel salvataggio della sessione:', error);
+      console.error("Errore nel salvataggio della sessione:", error);
       return false;
     }
   },
@@ -294,16 +300,17 @@ export const sessionManager = {
   clearSession() {
     try {
       // Non pulire la sessione se siamo in un processo critico
-      const isCreatingCertificates = localStorage.getItem('creatingCertificates') === 'true';
-      const isLoggingIn = localStorage.getItem('isLoggingIn') === 'true';
-      
+      const isCreatingCertificates =
+        localStorage.getItem("creatingCertificates") === "true";
+      const isLoggingIn = localStorage.getItem("isLoggingIn") === "true";
+
       if (isCreatingCertificates || isLoggingIn) {
-        console.log('Processo in corso, skip pulizia sessione');
+        console.log("Processo in corso, skip pulizia sessione");
         return;
       }
 
       // Salva le chiavi prima della pulizia
-      const sessionData = localStorage.getItem('sessionData');
+      const sessionData = localStorage.getItem("sessionData");
       let savedKeys = null;
       if (sessionData) {
         const parsed = JSON.parse(sessionData);
@@ -314,7 +321,7 @@ export const sessionManager = {
 
       // Verifica se l'utente è autenticato prima di disconnetterlo
       if (user.is) {
-        console.log('Disconnessione utente...');
+        console.log("Disconnessione utente...");
         // Non disconnettere l'utente se stiamo ancora creando i certificati
         if (!isCreatingCertificates && !isLoggingIn) {
           user.leave();
@@ -322,7 +329,12 @@ export const sessionManager = {
       }
 
       // Lista delle chiavi da preservare
-      const keysToKeep = ['theme', 'language', 'isLoggingIn', 'creatingCertificates'];
+      const keysToKeep = [
+        "theme",
+        "language",
+        "isLoggingIn",
+        "creatingCertificates",
+      ];
 
       // Salva i valori da preservare
       const preserved = {};
@@ -340,18 +352,21 @@ export const sessionManager = {
       });
 
       // Ripristina le chiavi se necessario
-      if (savedKeys && (user.is?.pub || isCreatingCertificates || isLoggingIn)) {
+      if (
+        savedKeys &&
+        (user.is?.pub || isCreatingCertificates || isLoggingIn)
+      ) {
         const minimalSession = {
           pub: user.is?.pub || savedKeys.pub,
-          pair: savedKeys
+          pair: savedKeys,
         };
-        localStorage.setItem('sessionData', JSON.stringify(minimalSession));
-        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem("sessionData", JSON.stringify(minimalSession));
+        localStorage.setItem("isAuthenticated", "true");
       }
 
-      console.log('Sessione pulita con successo');
+      console.log("Sessione pulita con successo");
     } catch (error) {
-      console.error('Errore nella pulizia della sessione:', error);
+      console.error("Errore nella pulizia della sessione:", error);
     }
   },
 
@@ -366,7 +381,9 @@ export const sessionManager = {
       const authState = {
         isAuthenticated: !!user.is && isValid,
         userPub: user.is?.pub,
-        sessionData: localStorage.getItem('sessionData') ? JSON.parse(localStorage.getItem('sessionData')) : null
+        sessionData: localStorage.getItem("sessionData")
+          ? JSON.parse(localStorage.getItem("sessionData"))
+          : null,
       };
       callback(authState);
     };
@@ -375,22 +392,22 @@ export const sessionManager = {
     checkState();
 
     // Osserva i cambiamenti dell'utente
-    const userObserver = user.on('auth', checkState);
-    
+    const userObserver = user.on("auth", checkState);
+
     // Osserva i cambiamenti del localStorage
     const storageListener = (event) => {
-      if (event.key === 'sessionData' || event.key === 'isAuthenticated') {
+      if (event.key === "sessionData" || event.key === "isAuthenticated") {
         checkState();
       }
     };
-    window.addEventListener('storage', storageListener);
+    window.addEventListener("storage", storageListener);
 
     // Ritorna una funzione per rimuovere gli observer
     return () => {
       user.off(userObserver);
-      window.removeEventListener('storage', storageListener);
+      window.removeEventListener("storage", storageListener);
     };
-  }
+  },
 };
 
 export default sessionManager;

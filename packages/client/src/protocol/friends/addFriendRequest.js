@@ -1,13 +1,13 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME } from "../useGun.js";
 import {
   generateAddFriendCertificate,
   createFriendRequestCertificate,
   createChatsCertificate,
   createMessagesCertificate,
-} from '../security/index.js';
-import { certificateManager } from '../security/certificateManager.js';
-import SEA from 'gun/sea.js';
-import { updateGlobalMetrics } from '../system/systemService.js';
+} from "../security/index.js";
+import { certificateManager } from "../security/certificateManager.js";
+import SEA from "gun/sea.js";
+import { updateGlobalMetrics } from "../system/systemService.js";
 
 /**
  * Sends a friend request to another user
@@ -28,13 +28,13 @@ import { updateGlobalMetrics } from '../system/systemService.js';
  */
 const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
   if (!user || !user.is) {
-    throw new Error('Utente non autenticato');
+    throw new Error("Utente non autenticato");
   }
 
   try {
     const userData = await new Promise((resolve, reject) => {
       gun.user().once((data) => {
-        console.log('User data:', data);
+        console.log("User data:", data);
         if (data) {
           resolve(data);
         } else {
@@ -44,7 +44,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
               if (retryData) {
                 resolve(retryData);
               } else {
-                reject(new Error('Impossibile recuperare i dati utente'));
+                reject(new Error("Impossibile recuperare i dati utente"));
               }
             });
           }, 1000);
@@ -52,7 +52,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       });
     });
 
-    console.log('User data:', userData);
+    console.log("User data:", userData);
 
     const userPub = userData.pub;
     const userAlias = userData.alias;
@@ -61,18 +61,18 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     let targetPub = publicKeyOrAlias;
 
     // Se l'input sembra un alias (non contiene caratteri tipici delle chiavi pubbliche)
-    if (!publicKeyOrAlias.includes('.') && !publicKeyOrAlias.includes('~')) {
+    if (!publicKeyOrAlias.includes(".") && !publicKeyOrAlias.includes("~")) {
       // Cerca l'utente per alias
       const foundUser = await new Promise((resolve) => {
         let found = null;
 
         // Cerca nell'indice degli alias
         gun.get(`~@${publicKeyOrAlias}`).once((data) => {
-          console.log('Data:', data);
+          console.log("Data:", data);
 
           // get the public key from the first key in data that starts with ~
-          const pub = Object.keys(data).find((key) => key.startsWith('~'));
-          console.log('Pub:', pub);
+          const pub = Object.keys(data).find((key) => key.startsWith("~"));
+          console.log("Pub:", pub);
 
           if (pub) {
             found = {
@@ -90,18 +90,18 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       });
 
       if (!foundUser) {
-        throw new Error('Utente non trovato con questo alias');
+        throw new Error("Utente non trovato con questo alias");
       }
 
       targetPub = foundUser.pub;
-      console.log('Found user by alias:', foundUser);
+      console.log("Found user by alias:", foundUser);
     }
 
     if (targetPub === userPub) {
-      throw new Error('Non puoi inviare una richiesta a te stesso');
+      throw new Error("Non puoi inviare una richiesta a te stesso");
     }
 
-    console.log('Target pub:', targetPub);
+    console.log("Target pub:", targetPub);
 
     // Verifica se l'utente esiste
     const targetUser = await new Promise((resolve) => {
@@ -111,10 +111,10 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     });
 
     if (!targetUser) {
-      throw new Error('Utente non trovato');
+      throw new Error("Utente non trovato");
     }
 
-    console.log('Target user:', targetUser);
+    console.log("Target user:", targetUser);
 
     // Verifica se esiste già una richiesta pendente
     const existingRequest = await new Promise((resolve) => {
@@ -124,11 +124,11 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
       gun
         .get(DAPP_NAME)
-        .get('all_friend_requests')
+        .get("all_friend_requests")
         .map()
         .once((request, key) => {
           totalChecked++;
-          if (request && !request._ && key !== '_') {
+          if (request && !request._ && key !== "_") {
             // Ignora i metadati
             if (
               (request.from === userPub && request.to === targetPub) ||
@@ -150,10 +150,10 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     });
 
     if (existingRequest) {
-      throw new Error('Esiste già una richiesta pendente');
+      throw new Error("Esiste già una richiesta pendente");
     }
 
-    console.log('Existing request:', existingRequest);
+    console.log("Existing request:", existingRequest);
 
     // Verifica se esiste già un'amicizia
     const existingFriendship = await new Promise((resolve) => {
@@ -163,11 +163,11 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
       gun
         .get(DAPP_NAME)
-        .get('friendships')
+        .get("friendships")
         .map()
         .once((friendship, key) => {
           totalChecked++;
-          if (friendship && !friendship._ && key !== '_') {
+          if (friendship && !friendship._ && key !== "_") {
             // Ignora i metadati
             if (
               (friendship.user1 === targetPub &&
@@ -190,10 +190,10 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
     });
 
     if (existingFriendship) {
-      throw new Error('Siete già amici');
+      throw new Error("Siete già amici");
     }
 
-    console.log('Existing friendship:', existingFriendship);
+    console.log("Existing friendship:", existingFriendship);
 
     // Prepara i dati della richiesta
     const requestId = `${userPub}_${targetPub}_${Date.now()}`;
@@ -217,15 +217,15 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       },
     };
 
-    console.log('Request data:', requestData);
-    console.log('Target pub:', targetPub);
+    console.log("Request data:", requestData);
+    console.log("Target pub:", targetPub);
 
     // Prima di salvare la richiesta, generiamo e verifichiamo i certificati
     try {
-      console.log('Verifica certificati esistenti...');
+      console.log("Verifica certificati esistenti...");
 
       // Genera certificati per chat e messaggi
-      console.log('Generazione certificati chat e messaggi...', {
+      console.log("Generazione certificati chat e messaggi...", {
         targetPub,
         userPub,
       });
@@ -235,7 +235,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       ]);
 
       if (!chatCertificate || !messageCertificate) {
-        throw new Error('Impossibile generare i certificati chat e messaggi');
+        throw new Error("Impossibile generare i certificati chat e messaggi");
       }
 
       // Salva i certificati pubblicamente
@@ -244,11 +244,11 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
-            .get('certificates')
-            .get('chats')
+            .get("certificates")
+            .get("chats")
             .get(targetPub)
             .put(chatCertificate, (ack) => {
-              console.log('Salvataggio certificato chat:', ack);
+              console.log("Salvataggio certificato chat:", ack);
               if (ack.err) reject(new Error(ack.err));
               else resolve();
             });
@@ -257,11 +257,11 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         new Promise((resolve, reject) => {
           gun
             .get(DAPP_NAME)
-            .get('certificates')
-            .get('messages')
+            .get("certificates")
+            .get("messages")
             .get(targetPub)
             .put(messageCertificate, (ack) => {
-              console.log('Salvataggio certificato messaggi:', ack);
+              console.log("Salvataggio certificato messaggi:", ack);
               if (ack.err) reject(new Error(ack.err));
               else resolve();
             });
@@ -273,33 +273,33 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
-            .get('certificates')
-            .get('chats')
+            .get("certificates")
+            .get("chats")
             .get(targetPub)
             .once((cert) => {
-              console.log('Certificato chat salvato:', cert);
+              console.log("Certificato chat salvato:", cert);
               resolve(cert);
             });
         }),
         new Promise((resolve) => {
           gun
             .get(DAPP_NAME)
-            .get('certificates')
-            .get('messages')
+            .get("certificates")
+            .get("messages")
             .get(targetPub)
             .once((cert) => {
-              console.log('Certificato messaggi salvato:', cert);
+              console.log("Certificato messaggi salvato:", cert);
               resolve(cert);
             });
         }),
       ]);
 
       if (!savedChatCert || !savedMessageCert) {
-        throw new Error('Errore nel salvataggio dei certificati');
+        throw new Error("Errore nel salvataggio dei certificati");
       }
 
       // Verifica la validità dei certificati
-      console.log('Verifica certificati con:', {
+      console.log("Verifica certificati con:", {
         targetPub,
         userPub,
         savedChatCert,
@@ -307,19 +307,19 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       });
 
       const [isChatValid, isMessageValid] = await Promise.all([
-        certificateManager.verifyCertificate(savedChatCert, targetPub, 'chats'),
+        certificateManager.verifyCertificate(savedChatCert, targetPub, "chats"),
         certificateManager.verifyCertificate(
           savedMessageCert,
           targetPub,
-          'messages'
+          "messages"
         ),
       ]);
 
       if (!isChatValid || !isMessageValid) {
-        throw new Error('I certificati generati non sono validi');
+        throw new Error("I certificati generati non sono validi");
       }
 
-      console.log('Certificati generati e verificati con successo:', {
+      console.log("Certificati generati e verificati con successo:", {
         chat: {
           cert: savedChatCert,
           valid: isChatValid,
@@ -337,8 +337,8 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         gun
           .user()
           .get(DAPP_NAME)
-          .get('certificates')
-          .get('friendRequests')
+          .get("certificates")
+          .get("friendRequests")
           .get(targetPub)
           .once((cert) => {
             if (!resolved) {
@@ -356,23 +356,23 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         }, 2000);
       });
 
-      console.log('Existing friend request cert:', existingFriendRequestCert);
+      console.log("Existing friend request cert:", existingFriendRequestCert);
 
       // Genera sempre un nuovo certificato se non esiste o non è valido
-      console.log('Generazione certificato richieste...');
+      console.log("Generazione certificato richieste...");
       const friendRequestCertificate = await createFriendRequestCertificate(
         targetPub
       );
       if (!friendRequestCertificate) {
-        throw new Error('Impossibile generare il certificato per le richieste');
+        throw new Error("Impossibile generare il certificato per le richieste");
       }
 
       // Salva esplicitamente il nuovo certificato
       await gun
         .user()
         .get(DAPP_NAME)
-        .get('certificates')
-        .get('friendRequests')
+        .get("certificates")
+        .get("friendRequests")
         .get(targetPub)
         .put(friendRequestCertificate);
 
@@ -383,8 +383,8 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
         gun
           .user()
           .get(DAPP_NAME)
-          .get('certificates')
-          .get('friendRequests')
+          .get("certificates")
+          .get("friendRequests")
           .get(targetPub)
           .once((cert) => {
             if (!resolved) {
@@ -402,19 +402,19 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       });
 
       if (!savedCert) {
-        throw new Error('Errore nel salvataggio del certificato');
+        throw new Error("Errore nel salvataggio del certificato");
       }
 
       // Genera certificato di autorizzazione
-      console.log('Generazione certificato di autorizzazione...');
+      console.log("Generazione certificato di autorizzazione...");
       const authCert = await generateAddFriendCertificate(targetPub);
       if (!authCert.success) {
         throw new Error(
-          authCert.errorMessage || 'Errore nella generazione del certificato'
+          authCert.errorMessage || "Errore nella generazione del certificato"
         );
       }
 
-      console.log('Certificati generati con successo:', {
+      console.log("Certificati generati con successo:", {
         friendRequestCertificate,
         authCert,
       });
@@ -422,7 +422,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       // Firma i dati della richiesta
       const signedData = await SEA.sign(
         {
-          type: 'friendRequest',
+          type: "friendRequest",
           from: userPub,
           to: targetPub,
           timestamp: Date.now(),
@@ -432,7 +432,7 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       );
 
       if (!signedData) {
-        throw new Error('Errore nella firma dei dati della richiesta');
+        throw new Error("Errore nella firma dei dati della richiesta");
       }
 
       // Prima generiamo la notifica cifrata
@@ -441,14 +441,14 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
       // Poi salviamo la richiesta con i dati firmati e la notifica cifrata
       const request = await gun
         .get(DAPP_NAME)
-        .get('all_friend_requests')
+        .get("all_friend_requests")
         .get(requestId)
         .put(
           {
             ...requestData,
             signedData,
             data: encryptedNotification,
-            type: 'friendRequest',
+            type: "friendRequest",
             senderInfo: {
               pub: user.is.pub,
               alias: user.is.alias,
@@ -456,19 +456,19 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
           },
           (ack) => {
             if (ack.err) {
-              console.error('Errore nel salvataggio:', ack.err);
+              console.error("Errore nel salvataggio:", ack.err);
               throw new Error(ack.err);
             }
-            console.log('Richiesta salvata con successo');
+            console.log("Richiesta salvata con successo");
             return true;
           }
         );
 
-      console.log('Request saved:', request);
+      console.log("Request saved:", request);
 
       // Infine inviamo la notifica diretta
-      gun.user(targetPub).get('notifications').set({
-        type: 'friendRequest',
+      gun.user(targetPub).get("notifications").set({
+        type: "friendRequest",
         from: user.is.pub,
         timestamp: Date.now(),
         data: encryptedNotification,
@@ -476,57 +476,77 @@ const addFriendRequest = async (publicKeyOrAlias, callback = () => {}) => {
 
       return callback({
         success: true,
-        message: 'Richiesta di amicizia inviata con successo',
+        message: "Richiesta di amicizia inviata con successo",
       });
     } catch (error) {
-      console.error('Errore nella gestione dei certificati:', error);
+      console.error("Errore nella gestione dei certificati:", error);
       return callback({
         success: false,
         errMessage: error.message || "Errore nell'invio della richiesta",
       });
     }
   } catch (error) {
-    console.error('Error in addFriendRequest:', error);
+    console.error("Error in addFriendRequest:", error);
     return callback({
       success: false,
       errMessage: error.message || "Errore nell'invio della richiesta",
     });
   } finally {
-    updateGlobalMetrics('totalFriendRequestsMade', 1);
+    updateGlobalMetrics("totalFriendRequestsMade", 1);
   }
 };
 
 const notifyUser = async (targetPub, signedRequestData) => {
   try {
     // Prima crea il certificato di autorizzazione se non esiste
-    const authCert = await gun
-      .user()
-      .get(DAPP_NAME)
-      .get('certificates')
-      .get('friendRequests')
-      .then();
+    const authCert = await new Promise((resolve) => {
+      gun
+        .user()
+        .get(DAPP_NAME)
+        .get("certificates")
+        .get("friendRequests")
+        .once((cert) => resolve(cert));
+    });
 
-    console.log('AuthCert:', authCert);
+    console.log("AuthCert:", authCert);
 
     if (!authCert) {
       // Crea un nuovo certificato di autorizzazione
       const newAuthCert = await createFriendRequestCertificate();
       if (!newAuthCert) {
-        throw new Error('Impossibile creare il certificato di autorizzazione');
+        throw new Error("Impossibile creare il certificato di autorizzazione");
       }
     }
 
-    // Ottieni la chiave pubblica del destinatario
-    const targetUser = await gun.get(`~${targetPub}`).then();
-    if (!targetUser || !targetUser.epub) {
-      throw new Error(
-        'Impossibile trovare la chiave di cifratura del destinatario'
-      );
-    }
+    // Ottieni la chiave pubblica del destinatario con timeout
+    const targetUser = await new Promise((resolve, reject) => {
+      let resolved = false;
+
+      gun.user(targetPub).once((user) => {
+        if (!resolved) {
+          resolved = true;
+          if (!user || !user.epub) {
+            reject(
+              new Error("Chiave di cifratura del destinatario non trovata")
+            );
+          } else {
+            resolve(user);
+          }
+        }
+      });
+
+      // Timeout di sicurezza
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("Timeout nel recupero della chiave di cifratura"));
+        }
+      }, 5000);
+    });
 
     // Prepara i dati della notifica
     const notificationData = {
-      type: 'friendRequest',
+      type: "friendRequest",
       from: user.is.pub,
       timestamp: Date.now(),
       data: signedRequestData,
@@ -538,7 +558,7 @@ const notifyUser = async (targetPub, signedRequestData) => {
       user._.sea
     );
 
-    console.log('SignedNotification:', signedNotification);
+    console.log("SignedNotification:", signedNotification);
 
     // Cifra la notifica firmata con la chiave condivisa
     const sharedSecret = await SEA.secret(targetUser.epub, user._.sea);
@@ -547,17 +567,17 @@ const notifyUser = async (targetPub, signedRequestData) => {
       sharedSecret
     );
 
-    console.log('EncryptedNotification:', encryptedNotification);
+    console.log("EncryptedNotification:", encryptedNotification);
 
     // Forza la sincronizzazione
     gun
       .get(DAPP_NAME)
-      .get('all_friend_requests')
+      .get("all_friend_requests")
       .once((data) => {
-        console.log('Verifica richieste pubbliche:', data);
+        console.log("Verifica richieste pubbliche:", data);
       });
 
-    console.log('Notifica inviata con successo a:', targetPub);
+    console.log("Notifica inviata con successo a:", targetPub);
     return encryptedNotification;
   } catch (error) {
     console.error("Errore dettagliato nell'invio della notifica:", error);
