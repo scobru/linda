@@ -457,14 +457,16 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
       method: request.method,
       url: request.url,
       headers: request.headers,
-      keyId
+      keyId,
+      username,
+      DAPP_NAME
     });
 
     // Recupera le chiavi dal database
     const keys = await new Promise((resolve, reject) => {
       gun
-        .get('linda-messenger')
-        .get('users')
+        .get(DAPP_NAME)
+        .get('activitypub')
         .get(username)
         .get('keys')
         .once((data) => {
@@ -501,10 +503,13 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
 
     // Genera la firma
     const signer = crypto.createSign('sha256');
-    signer.write(signedString);
+    signer.update(signedString, 'utf8');
     signer.end();
 
-    const signature = signer.sign(keys.privateKey);
+    const signature = signer.sign({
+      key: keys.privateKey,
+      padding: crypto.constants.RSA_PKCS1_PADDING
+    });
     const signature_b64 = signature.toString('base64');
 
     console.log('Firma generata (base64):', signature_b64);
