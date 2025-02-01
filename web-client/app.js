@@ -116,17 +116,27 @@ async function login(event) {
     try {
         setLoading(submitButton, true);
         
-        // Verifica le credenziali chiamando l'endpoint del profilo
-        const profile = await fetchWithError(`${RELAY_URL}/users/${username}`, {
-            headers: DEFAULT_HEADERS
-        });
-
-        // Verifica l'API key
-        await fetchWithError(`${RELAY_URL}/api/verify`, {
+        // Prima verifica l'API key
+        const verifyResponse = await fetch(`${RELAY_URL}/api/verify`, {
             method: 'POST',
             headers: JSON_HEADERS,
             body: JSON.stringify({ username, apikey: apiKey })
         });
+
+        if (!verifyResponse.ok) {
+            const error = await verifyResponse.json();
+            throw new Error(error.error || 'API key non valida');
+        }
+
+        // Poi recupera il profilo
+        const profileResponse = await fetch(`${RELAY_URL}/users/${username}`, {
+            headers: DEFAULT_HEADERS
+        });
+
+        if (!profileResponse.ok) {
+            const error = await profileResponse.json();
+            throw new Error(error.error || 'Profilo utente non trovato');
+        }
 
         // Salva le credenziali
         currentUser = { username, apiKey };
@@ -140,8 +150,11 @@ async function login(event) {
         // Carica la timeline
         showSection('timeline');
         await Promise.all([loadTimeline(), loadProfile()]);
+        
+        showNotification('Login effettuato con successo!');
     } catch (error) {
         showNotification(error.message, 'error');
+        console.error('Errore login:', error);
     } finally {
         setLoading(submitButton, false);
     }

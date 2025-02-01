@@ -995,3 +995,44 @@ app.use((err, req, res, next) => {
     error: 'Errore interno del server'
   });
 });
+
+// Endpoint per la verifica dell'API key
+app.post('/api/verify', async (req, res) => {
+    try {
+        const { username, apikey } = req.body;
+        
+        if (!username || !apikey) {
+            return res.status(400).json({ 
+                error: 'Username e API key sono richiesti' 
+            });
+        }
+
+        // Verifica l'API key nel database Gun
+        const isValid = await new Promise((resolve) => {
+            gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(username)
+                .get('apiKey')
+                .once((storedKey) => {
+                    resolve(storedKey === apikey);
+                });
+        });
+
+        if (!isValid) {
+            return res.status(401).json({ 
+                error: 'API key non valida' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            username 
+        });
+    } catch (error) {
+        console.error('Errore nella verifica dell\'API key:', error);
+        res.status(500).json({ 
+            error: error.message 
+        });
+    }
+});
