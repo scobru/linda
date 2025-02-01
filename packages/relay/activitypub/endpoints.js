@@ -180,21 +180,30 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
               }
             };
 
-            // Modifica: Aggiunto callback per conferma salvataggio
-            userNode.put(defaultActor, (ack) => {
-              if (ack.err) {
-                reject(new Error(`Errore nel salvataggio del profilo: ${ack.err}`));
-              } else {
-                console.log('Profilo salvato correttamente');
-                resolve(defaultActor);
-              }
+            // Salva il profilo di default
+            new Promise((resolvePut, rejectPut) => {
+              userNode.put(defaultActor, (ack) => {
+                if (ack.err) {
+                  rejectPut(ack.err);
+                } else {
+                  resolvePut();
+                }
+              });
+            }).then(() => {
+              resolve(defaultActor);
+            }).catch((err) => {
+              reject(new Error(`Errore nel salvataggio del profilo: ${err}`));
             });
           } else {
+            // Normalizza i dati esistenti
             const normalizedData = {
               ...data,
-              '@context': Array.isArray(data['@context']) ? 
-                data['@context'] : 
-                ['https://www.w3.org/ns/activitystreams']
+              id: `${BASE_URL}/users/${username}`,
+              following: `${BASE_URL}/users/${username}/following`,
+              followers: `${BASE_URL}/users/${username}/followers`,
+              inbox: `${BASE_URL}/users/${username}/inbox`,
+              outbox: `${BASE_URL}/users/${username}/outbox`,
+              url: `${BASE_URL}/users/${username}`
             };
             resolve(normalizedData);
           }
@@ -210,7 +219,7 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
       )
     ]);
 
-    // Modifica: Spostato il recupero delle chiavi dopo la creazione del profilo
+    // Recupera o genera le chiavi
     let keys = null;
     try {
       keys = await getUserActivityPubKeys(gun, username);
