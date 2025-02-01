@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createHash } from 'crypto';
-import { getUserActivityPubKeys } from '../index.js';
+import { getUserActivityPubKeys, saveUserActivityPubKeys } from '../index.js';
 import dotenv from 'dotenv';
 
 // Carica le variabili d'ambiente
@@ -150,87 +150,86 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   try {
     console.log(`Recupero profilo ActivityPub per ${username}`);
     
-    // Timeout per la promessa Gun
     const timeout = 5000;
     
     const actorData = await Promise.race([
       new Promise((resolve, reject) => {
-        gun
+        const userNode = gun
           .get(DAPP_NAME)
           .get('activitypub')
-          .get(username)
-          .once((data) => {
-            if (!data) {
-              console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
-              const defaultActor = {
-                '@context': ['https://www.w3.org/ns/activitystreams'],
-                type: 'Person',
-                id: `${BASE_URL}/users/${username}`,
-                following: `${BASE_URL}/users/${username}/following`,
-                followers: `${BASE_URL}/users/${username}/followers`,
-                inbox: `${BASE_URL}/users/${username}/inbox`,
-                outbox: `${BASE_URL}/users/${username}/outbox`,
-                preferredUsername: username,
-                name: username,
-                summary: `Profilo ActivityPub di ${username}`,
-                url: `${BASE_URL}/users/${username}`,
-                published: new Date().toISOString(),
-                endpoints: {
-                  sharedInbox: `${BASE_URL}/inbox`
-                }
-              };
-              
-              // Salva il profilo di default
-              gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .put(defaultActor);
-                
-              resolve(defaultActor);
-            } else {
-              // Assicurati che il contesto sia un array
-              const normalizedData = {
-                ...data,
-                '@context': Array.isArray(data['@context']) ? 
-                  data['@context'] : 
-                  ['https://www.w3.org/ns/activitystreams']
-              };
-              resolve(normalizedData);
-            }
-          });
+          .get(username);
+
+        userNode.once(async (data) => {
+          if (!data) {
+            console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
+            const defaultActor = {
+              '@context': ['https://www.w3.org/ns/activitystreams'],
+              type: 'Person',
+              id: `${BASE_URL}/users/${username}`,
+              following: `${BASE_URL}/users/${username}/following`,
+              followers: `${BASE_URL}/users/${username}/followers`,
+              inbox: `${BASE_URL}/users/${username}/inbox`,
+              outbox: `${BASE_URL}/users/${username}/outbox`,
+              preferredUsername: username,
+              name: username,
+              summary: `Profilo ActivityPub di ${username}`,
+              url: `${BASE_URL}/users/${username}`,
+              published: new Date().toISOString(),
+              endpoints: {
+                sharedInbox: `${BASE_URL}/inbox`
+              }
+            };
+
+            // Modifica: Aggiunto callback per conferma salvataggio
+            userNode.put(defaultActor, (ack) => {
+              if (ack.err) {
+                reject(new Error(`Errore nel salvataggio del profilo: ${ack.err}`));
+              } else {
+                console.log('Profilo salvato correttamente');
+                resolve(defaultActor);
+              }
+            });
+          } else {
+            const normalizedData = {
+              ...data,
+              '@context': Array.isArray(data['@context']) ? 
+                data['@context'] : 
+                ['https://www.w3.org/ns/activitystreams']
+            };
+            resolve(normalizedData);
+          }
+        });
+
+        // Gestione errori del nodo
+        userNode.on('error', (err) => {
+          reject(new Error(`Errore nel nodo utente: ${err}`));
+        });
       }),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Timeout nel recupero del profilo')), timeout)
       )
     ]);
 
-    // Prova a recuperare le chiavi solo se abbiamo un profilo
+    // Modifica: Spostato il recupero delle chiavi dopo la creazione del profilo
     let keys = null;
     try {
       keys = await getUserActivityPubKeys(gun, username);
-      console.log('Chiavi recuperate con successo:', keys ? 'SI' : 'NO');
+      console.log('Chiavi recuperate con successo');
     } catch (error) {
-      console.warn('Chiavi ActivityPub non trovate:', error.message);
+      console.warn('Chiavi non trovate, generazione nuove chiavi...');
+      keys = await saveUserActivityPubKeys(gun, username);
     }
 
-    // Costruisci la risposta
-    const response = {
+    // Restituisci il profilo con o senza chiavi
+    return {
       ...actorData,
-      '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1']
-    };
-
-    // Aggiungi le chiavi solo se disponibili
-    if (keys && keys.publicKey) {
-      response.publicKey = {
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      publicKey: keys ? {
         id: `${actorData.id}#main-key`,
         owner: actorData.id,
         publicKeyPem: keys.publicKey
-      };
-    }
-
-    console.log('Risposta finale actor:', response);
-    return response;
+      } : undefined
+    };
   } catch (error) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
@@ -271,11 +270,6 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 async function signRequest(request, keyId, username, gun) {
   try {
     const keys = await getUserActivityPubKeys(gun, username);
-    if (!keys || !keys.privateKey) {
-      console.warn('Chiavi non trovate per la firma della richiesta');
-      return null;
-    }
-
     const url = new URL(request.url);
     const digest = createHash('sha256').update(request.body).digest('base64');
     
@@ -287,13 +281,11 @@ async function signRequest(request, keyId, username, gun) {
       'content-type'
     ];
 
-    const signatureString = headersToSign
+    const signatureParams = headersToSign
       .map(header => {
         let value;
         if (header === '(request-target)') {
           value = `${request.method.toLowerCase()} ${url.pathname}`;
-        } else if (header === 'host') {
-          value = url.host;
         } else {
           value = request.headers[header];
         }
@@ -301,14 +293,10 @@ async function signRequest(request, keyId, username, gun) {
       })
       .join('\n');
 
-    console.log('Stringa da firmare:', signatureString);
-
     const signature = crypto
       .createSign('sha256')
-      .update(signatureString)
+      .update(signatureParams)
       .sign(keys.privateKey, 'base64');
-
-    console.log('Firma generata:', signature);
 
     const signatureHeader = [
       `keyId="${keyId}"`,
@@ -317,11 +305,10 @@ async function signRequest(request, keyId, username, gun) {
       `signature="${signature}"`
     ].join(',');
 
-    console.log('Header Signature:', signatureHeader);
     return signatureHeader;
   } catch (error) {
     console.error('Errore nella firma della richiesta:', error);
-    return null;
+    throw error;
   }
 }
 

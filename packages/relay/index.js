@@ -896,29 +896,35 @@ async function saveUserActivityPubKeys(gun, username) {
   const keys = generateActivityPubKeys();
   
   return new Promise((resolve, reject) => {
-    gun.user().get('activitypub').get('keys').put({
-      publicKey: keys.publicKey,
-      privateKey: keys.privateKey,
-      createdAt: Date.now()
-    }, (ack) => {
-      if (ack.err) {
-        reject(new Error(ack.err));
-      } else {
-        resolve(keys);
-      }
-    });
+    gun.get('activitypub')
+       .get(username)
+       .get('keys')
+       .put({
+         publicKey: keys.publicKey,
+         privateKey: keys.privateKey,
+         createdAt: Date.now()
+       }, (ack) => {
+         if (ack.err) {
+           reject(new Error(ack.err));
+         } else {
+           resolve(keys);
+         }
+       });
   });
 }
 
 // Funzione per recuperare le chiavi dell'utente
 async function getUserActivityPubKeys(gun, username) {
   return new Promise((resolve, reject) => {
-    gun.user().get('activitypub').get('keys').once((keys) => {
-      if (!keys) {
-        reject(new Error('Chiavi non trovate'));
-      } else {
-        resolve(keys);
-      }
-    });
+    gun.get('activitypub')
+       .get(username)
+       .get('keys')
+       .once((keys) => {
+          if (!keys) {
+            reject(new Error('Chiavi non trovate'));
+          } else {
+            resolve(keys);
+          }
+       });
   });
 }
