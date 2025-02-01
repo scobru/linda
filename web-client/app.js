@@ -1,6 +1,12 @@
 // Configurazione
 const RELAY_URL = 'https://gun-relay.scobrudot.dev';
 
+// Headers comuni per le richieste
+const DEFAULT_HEADERS = {
+    'Accept': 'application/activity+json',
+    'Content-Type': 'application/activity+json'
+};
+
 // Stato dell'applicazione
 let currentUser = null;
 
@@ -54,8 +60,7 @@ async function register(event) {
         const response = await fetch(`${RELAY_URL}/api/admin/create`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ account: username })
         });
@@ -86,12 +91,24 @@ async function login(event) {
         
         // Verifica le credenziali chiamando l'endpoint del profilo
         const response = await fetch(`${RELAY_URL}/users/${username}`, {
-            headers: {
-                'Accept': 'application/activity+json'
-            }
+            headers: DEFAULT_HEADERS
         });
 
         if (!response.ok) throw new Error('Credenziali non valide');
+
+        // Verifica l'API key
+        const verifyResponse = await fetch(`${RELAY_URL}/api/verify`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                username, 
+                apikey: apiKey 
+            })
+        });
+
+        if (!verifyResponse.ok) throw new Error('API key non valida');
 
         // Salva le credenziali
         currentUser = { username, apiKey };
@@ -130,16 +147,26 @@ async function createPost(event) {
     try {
         setLoading(submitButton, true);
         
-        const response = await fetch(`${RELAY_URL}/api/sendMessage`, {
+        // Crea l'attività Create con Note
+        const activity = {
+            '@context': 'https://www.w3.org/ns/activitystreams',
+            type: 'Create',
+            actor: `${RELAY_URL}/users/${currentUser.username}`,
+            object: {
+                type: 'Note',
+                content: content,
+                published: new Date().toISOString(),
+                to: ['https://www.w3.org/ns/activitystreams#Public']
+            }
+        };
+
+        const response = await fetch(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                ...DEFAULT_HEADERS,
+                'Authorization': `Bearer ${currentUser.apiKey}`
             },
-            body: JSON.stringify({
-                acct: currentUser.username,
-                apikey: currentUser.apiKey,
-                message: content
-            })
+            body: JSON.stringify(activity)
         });
 
         const data = await response.json();
@@ -163,11 +190,13 @@ async function loadTimeline() {
     postsContainer.innerHTML = '<div class="text-center">Caricamento posts...</div>';
     
     try {
-        const response = await fetch(`${RELAY_URL}/users/${currentUser.username}/outbox`);
-        const rawData = await response.json();
+        const response = await fetch(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
+            headers: DEFAULT_HEADERS
+        });
         
         if (!response.ok) throw new Error('Errore nel caricamento dei post');
         
+        const rawData = await response.json();
         postsContainer.innerHTML = '';
 
         // Funzione helper per deserializzare in modo sicuro
@@ -182,31 +211,20 @@ async function loadTimeline() {
         // Funzione helper per normalizzare un'attività
         const normalizeActivity = (activity) => {
             try {
-                // Deserializza l'attività se necessario
                 activity = safeJSONParse(activity);
-
-                // Normalizza il contesto
-                if (activity['@context']) {
-                    activity['@context'] = Array.isArray(activity['@context']) 
-                        ? activity['@context'] 
-                        : [safeJSONParse(activity['@context'])].flat();
+                
+                // Gestisci il caso in cui l'attività è già un oggetto Note
+                if (activity.type === 'Note') {
+                    return {
+                        type: 'Create',
+                        actor: `${RELAY_URL}/users/${currentUser.username}`,
+                        object: activity,
+                        published: activity.published
+                    };
                 }
 
-                // Normalizza l'oggetto
                 if (activity.object) {
                     activity.object = safeJSONParse(activity.object);
-                }
-
-                // Normalizza cc e to
-                if (activity.cc) {
-                    activity.cc = Array.isArray(activity.cc) 
-                        ? activity.cc 
-                        : [safeJSONParse(activity.cc)].flat();
-                }
-                if (activity.to) {
-                    activity.to = Array.isArray(activity.to) 
-                        ? activity.to 
-                        : [safeJSONParse(activity.to)].flat();
                 }
 
                 return activity;
@@ -216,7 +234,6 @@ async function loadTimeline() {
             }
         };
 
-        // Normalizza e filtra le attività
         const activities = (rawData.orderedItems || [])
             .map(normalizeActivity)
             .filter(activity => activity !== null)
@@ -229,37 +246,14 @@ async function loadTimeline() {
         if (activities.length > 0) {
             activities.forEach(activity => {
                 try {
-                    let post;
-                    if (activity.type === 'Create' && activity.object) {
-                        post = activity.object;
-                    } else if (activity.type === 'Note') {
-                        post = activity;
-                    } else {
-                        return;
-                    }
-
-                    // Verifica che il post abbia le proprietà necessarie
-                    if (!post.content) return;
+                    const post = activity.object;
+                    if (!post?.content) return;
 
                     const postElement = document.createElement('div');
                     postElement.className = 'post bg-white p-6 rounded-lg shadow-md';
                     
-                    // Estrai l'username dall'attributedTo o dall'actor
-                    let author = '';
-                    if (post.attributedTo) {
-                        author = typeof post.attributedTo === 'string' 
-                            ? post.attributedTo.split('/').pop()
-                            : post.attributedTo.id?.split('/').pop() || 'Anonimo';
-                    } else if (activity.actor) {
-                        author = typeof activity.actor === 'string'
-                            ? activity.actor.split('/').pop()
-                            : activity.actor.id?.split('/').pop() || 'Anonimo';
-                    } else {
-                        author = 'Anonimo';
-                    }
-                    
-                    // Formatta la data
-                    const publishedDate = new Date(post.published || activity.published || Date.now());
+                    const author = activity.actor.split('/').pop();
+                    const publishedDate = new Date(post.published || activity.published);
                     const formattedDate = publishedDate.toLocaleString('it-IT', {
                         year: 'numeric',
                         month: 'long',
@@ -282,11 +276,9 @@ async function loadTimeline() {
                     console.warn('Errore nel rendering del post:', error);
                 }
             });
+        }
 
-            if (postsContainer.children.length === 0) {
-                postsContainer.innerHTML = '<div class="text-center text-gray-500">Nessun post da mostrare</div>';
-            }
-        } else {
+        if (postsContainer.children.length === 0) {
             postsContainer.innerHTML = '<div class="text-center text-gray-500">Nessun post da mostrare</div>';
         }
     } catch (error) {

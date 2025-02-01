@@ -566,7 +566,6 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
     // Importa dinamicamente la configurazione
-    const { BASE_URL } = await import('./activitypub/endpoints.js');
     
     // Aggiungi header mancanti
     req.headers = {
