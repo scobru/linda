@@ -9,6 +9,74 @@ dotenv.config();
 // Usa l'URL dal file .env o un default
 const BASE_URL = process.env.BASE_URL || "http://localhost:8765";
 
+// Funzione di validazione per le attività ActivityPub
+function validateActivity(activity) {
+  // Verifica la presenza dei campi obbligatori
+  if (!activity['@context']) {
+    throw new Error('Campo @context mancante');
+  }
+
+  if (!activity.type) {
+    throw new Error('Campo type mancante');
+  }
+
+  if (!activity.actor) {
+    throw new Error('Campo actor mancante');
+  }
+
+  // Verifica il formato degli URL
+  const urlFields = ['actor', 'object', 'target'].filter(field => activity[field]);
+  for (const field of urlFields) {
+    try {
+      new URL(activity[field]);
+    } catch (error) {
+      throw new Error(`URL non valido per il campo ${field}`);
+    }
+  }
+
+  // Validazione specifica per tipo di attività
+  switch (activity.type) {
+    case 'Create':
+      if (!activity.object || typeof activity.object !== 'object') {
+        throw new Error('Campo object mancante o non valido per Create');
+      }
+      if (!activity.object.type) {
+        throw new Error('Tipo oggetto mancante per Create');
+      }
+      if (activity.object.type === 'Note' && !activity.object.content) {
+        throw new Error('Content mancante per Note');
+      }
+      break;
+
+    case 'Follow':
+      if (!activity.object || typeof activity.object !== 'string') {
+        throw new Error('Campo object mancante o non valido per Follow');
+      }
+      break;
+
+    case 'Like':
+    case 'Announce':
+      if (!activity.object) {
+        throw new Error(`Campo object mancante per ${activity.type}`);
+      }
+      break;
+
+    case 'Accept':
+      if (!activity.object || !activity.object.type) {
+        throw new Error('Campo object non valido per Accept');
+      }
+      break;
+
+    case 'Undo':
+      if (!activity.object || !activity.object.type) {
+        throw new Error('Campo object non valido per Undo');
+      }
+      break;
+  }
+
+  return true;
+}
+
 // Classe per gestire gli eventi ActivityPub
 class ActivityPubEventHandler {
   constructor(gun, DAPP_NAME) {
@@ -250,9 +318,87 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   }
 };
 
-// Endpoint per l'inbox
-export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
+// Funzione per verificare la firma di una richiesta ActivityPub
+async function verifySignature(req, publicKey) {
   try {
+    const signature = req.headers.signature;
+    if (!signature) {
+      throw new Error('Firma mancante');
+    }
+
+    // Parsing dell'header Signature
+    const sigParts = {};
+    signature.split(',').forEach(part => {
+      const [key, value] = part.split('=');
+      sigParts[key.trim()] = value.replace(/^"/, '').replace(/"$/, '');
+    });
+
+    if (!sigParts.headers || !sigParts.signature) {
+      throw new Error('Formato firma non valido');
+    }
+
+    // Costruisci la stringa da verificare
+    const signedHeaders = sigParts.headers.split(' ');
+    const signedString = signedHeaders
+      .map(header => {
+        if (header === '(request-target)') {
+          return `(request-target): ${req.method.toLowerCase()} ${req.path}`;
+        }
+        return `${header}: ${req.headers[header]}`;
+      })
+      .join('\n');
+
+    // Verifica la firma
+    const verifier = crypto.createVerify('sha256');
+    verifier.update(signedString);
+    const isValid = verifier.verify(publicKey, sigParts.signature, 'base64');
+
+    if (!isValid) {
+      throw new Error('Firma non valida');
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Errore nella verifica della firma:', error);
+    throw error;
+  }
+}
+
+// Funzione per recuperare la chiave pubblica di un attore remoto
+async function fetchActorPublicKey(actorUrl) {
+  try {
+    const response = await fetch(actorUrl, {
+      headers: { 'Accept': 'application/activity+json' }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const actor = await response.json();
+    if (!actor.publicKey?.publicKeyPem) {
+      throw new Error('Chiave pubblica non trovata nel profilo attore');
+    }
+
+    return actor.publicKey.publicKeyPem;
+  } catch (error) {
+    console.error('Errore nel recupero della chiave pubblica:', error);
+    throw error;
+  }
+}
+
+// Modifica nella funzione handleInbox per verificare le firme
+export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
+  try {
+    // Valida l'attività in arrivo
+    validateActivity(activity);
+
+    // Verifica la firma se presente
+    if (req?.headers?.signature) {
+      const actorPublicKey = await fetchActorPublicKey(activity.actor);
+      await verifySignature(req, actorPublicKey);
+    }
+
     // Inizializza l'event handler con le dipendenze correnti
     eventHandler.gun = gun;
     eventHandler.DAPP_NAME = DAPP_NAME;
@@ -369,14 +515,8 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
 // Endpoint per l'outbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
   try {
-    // Verifica che l'attività sia definita e valida
-    if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
-      throw new Error('Attività non valida: deve essere un oggetto');
-    }
-
-    if (!activity.type) {
-      throw new Error('Tipo di attività mancante');
-    }
+    // Valida l'attività in uscita
+    validateActivity(activity);
 
     // Crea un ID univoco per l'attività
     const timestamp = Date.now();
@@ -860,8 +1000,72 @@ async function handleFollowActivity(gun, activity) {
     if (!followerKey.publicKey || typeof followerKey.publicKey !== 'string') {
       throw new Error('Chiave pubblica non valida');
     }
-    
-    // ... resto del codice di verifica ...
+
+    // Verifica la validità dell'attività
+    if (!activity.actor || !activity.object) {
+      throw new Error('Attività Follow non valida: mancano actor o object');
+    }
+
+    // Crea l'attività Accept
+    const acceptActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'Accept',
+      actor: activity.object,
+      object: activity,
+      id: `${BASE_URL}/users/${targetUser}/activities/${Date.now()}`,
+      published: new Date().toISOString()
+    };
+
+    // Salva la relazione di follow
+    await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(targetUser)
+      .get('followers')
+      .get(activity.actor)
+      .put({
+        id: activity.actor,
+        followed_at: new Date().toISOString(),
+        status: 'accepted'
+      });
+
+    // Invia l'Accept al follower
+    const followerInbox = new URL(activity.actor).origin + '/inbox';
+    const body = JSON.stringify(acceptActivity);
+    const digest = createHash('sha256').update(body).digest('base64');
+
+    const headers = {
+      'Content-Type': 'application/activity+json',
+      'Accept': 'application/activity+json',
+      'Date': new Date().toUTCString(),
+      'Host': new URL(followerInbox).host,
+      'Digest': `SHA-256=${digest}`
+    };
+
+    // Firma la richiesta
+    const keyId = `${BASE_URL}/users/${targetUser}#main-key`;
+    headers['Signature'] = await signRequest({
+      method: 'POST',
+      url: followerInbox,
+      headers,
+      body
+    }, keyId, targetUser, gun, DAPP_NAME);
+
+    // Invia la risposta
+    const response = await fetch(followerInbox, {
+      method: 'POST',
+      headers,
+      body
+    });
+
+    if (!response.ok) {
+      throw new Error(`Errore nell'invio dell'Accept: ${response.statusText}`);
+    }
+
+    return { success: true, activity: acceptActivity };
+  } catch (error) {
+    console.error('Errore nella gestione del follow:', error);
+    throw error;
   }
 }
 

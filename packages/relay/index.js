@@ -548,10 +548,15 @@ app.get('/users/:username', async (req, res) => {
 // Endpoint Inbox
 app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
-    await handleInbox(gun, DAPP_NAME, req.params.username, req.body);
+    await handleInbox(gun, DAPP_NAME, req.params.username, req.body, req);
     res.status(200).json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Errore nella gestione dell\'inbox:', error);
+    res.status(500).json({ 
+      error: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
