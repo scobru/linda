@@ -658,8 +658,16 @@ async function getUserActivityPubKeys(gun, username) {
       .get(username)
       .get('keys')
       .once((data) => {
-        if (!data || !data.publicKey || !data.privateKey) {
-          reject(new Error('Chiavi non trovate nel database'));
+        if (!data) {
+          // Se non ci sono dati, prova a generare nuove chiavi
+          saveUserActivityPubKeys(gun, username)
+            .then(resolve)
+            .catch(reject);
+        } else if (!data.publicKey || !data.privateKey) {
+          // Se le chiavi sono incomplete, rigenerale
+          saveUserActivityPubKeys(gun, username)
+            .then(resolve)
+            .catch(reject);
         } else {
           resolve(data);
         }
@@ -669,9 +677,15 @@ async function getUserActivityPubKeys(gun, username) {
 
 async function sendFollowRequest(targetActor, username, gun) {
   try {
-    // Recupera le chiavi
-    const keys = await getUserActivityPubKeys(gun, username);
-    
+    // Recupera le chiavi con gestione degli errori migliorata
+    let keys;
+    try {
+      keys = await getUserActivityPubKeys(gun, username);
+    } catch (error) {
+      console.error('Errore nel recupero delle chiavi, generazione nuove chiavi...', error);
+      keys = await saveUserActivityPubKeys(gun, username);
+    }
+
     // Costruisci l'attività Follow
     const followActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
@@ -697,7 +711,8 @@ async function sendFollowRequest(targetActor, username, gun) {
     });
 
     if (!response.ok) {
-      throw new Error(`Follow request failed with status ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Follow request failed with status ${response.status}: ${errorText}`);
     }
 
     return await response.json();
