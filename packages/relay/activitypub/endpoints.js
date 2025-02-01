@@ -35,7 +35,7 @@ class ActivityPubEventHandler {
 }
 
 // Crea l'event handler globale
-const eventHandler = new ActivityPubEventHandler(null, null);
+const eventHandler = new ActivityPubEventHandler(null, null, 'linda-messenger');
 
 // Registra gli handler per i vari tipi di attività
 eventHandler
@@ -130,7 +130,7 @@ async function sendAcceptActivity(followActivity, username, gun, DAPP_NAME) {
     url: `${targetServer}/inbox`,
     headers,
     body
-  }, keyId, username, gun);
+  }, keyId, username, gun, DAPP_NAME);
 
   const response = await fetch(`${targetServer}/inbox`, {
     method: 'POST',
@@ -281,8 +281,8 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   }
 };
 
-// Modifica la funzione signRequest per utilizzare le chiavi dell'utente
-export async function signRequest(request, keyId, username, gun) {
+// Modifica la funzione signRequest per includere DAPP_NAME
+export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
   try {
     // Recupera le chiavi dal nodo corretto
     const keys = await new Promise((resolve, reject) => {
@@ -492,7 +492,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
           url: `${targetServer}/users/${targetUsername}/inbox`,
           headers,
           body
-        }, keyId, username, gun);
+        }, keyId, username, gun, DAPP_NAME);
 
         if (signature) {
           headers['Signature'] = signature;

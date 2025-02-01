@@ -14,6 +14,9 @@ const BASE_URL = "https://gun-relay.scobrudot.dev";
 const TEST_USERNAME = "scobru_test3";
 const TEST_PASSWORD = "test12345678";
 
+const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
+
+
 // Aggiungi timeout più lungo per le richieste
 const FETCH_TIMEOUT = 30000; // 30 secondi
 
