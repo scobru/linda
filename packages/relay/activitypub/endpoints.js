@@ -241,7 +241,7 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
     actorData.publicKey = {
       id: `${BASE_URL}/users/${username}#main-key`,
       owner: `${BASE_URL}/users/${username}`,
-      publicKeyPem: keys.publicKey.replace(/\\n/g, '\n')
+      publicKeyPem: keys.publicKey
     };
 
     return actorData;
@@ -578,3 +578,51 @@ export const handleFollowing = async (gun, DAPP_NAME, username) => {
     items: following
   };
 };
+
+async function getUserActivityPubProfile(gun, username) {
+  try {
+    // ... codice esistente ...
+
+    // Aggiungi la chiave pubblica al profilo
+    actorData.publicKey = {
+      id: `${BASE_URL}/users/${username}#main-key`,
+      owner: `${BASE_URL}/users/${username}`,
+      publicKeyPem: keys.publicKey  // Usa la chiave generata direttamente
+    };
+
+    return actorData;
+  } catch (error) {
+    console.error('Errore nel recupero del profilo ActivityPub:', error);
+    throw error;
+  }
+}
+
+async function saveUserActivityPubKeys(gun, username) {
+  try {
+    // Genera nuove chiavi
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: 'spki',
+        format: 'pem'
+      },
+      privateKeyEncoding: {
+        type: 'pkcs8',
+        format: 'pem'
+      }
+    });
+
+    // Salva le chiavi
+    await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .put({ publicKey, privateKey });
+
+    return { publicKey, privateKey };
+  } catch (error) {
+    console.error('Errore nella generazione delle chiavi:', error);
+    throw error;
+  }
+}
