@@ -284,53 +284,69 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 // Modifica la funzione signRequest per utilizzare le chiavi dell'utente
 async function signRequest(request, keyId, username, gun) {
   try {
-    const keys = await getUserActivityPubKeys(gun, username);
+    // Recupera le chiavi dal nodo corretto
+    const keys = await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('keys')
+        .once((data) => {
+          if (!data || !data.privateKey) {
+            reject(new Error('Chiavi non trovate'));
+          } else {
+            resolve(data);
+          }
+        });
+    });
+
+    if (!keys || !keys.privateKey) {
+      throw new Error('Chiavi non trovate per la firma');
+    }
+
     const url = new URL(request.url);
     
-    // 1. Normalizza il corpo della richiesta
+    // Normalizza il corpo della richiesta
     const bodyString = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
-    const digest = createHash('sha256').update(bodyString).digest('base64');
+    const digest = `SHA-256=${createHash('sha256').update(bodyString).digest('base64')}`;
 
-    // 2. Aggiungi header mancanti e verifica l'ordine
-    const headersToSign = [
-      '(request-target)',
-      'host',
-      'date',
-      'digest',
-      'content-type'
-    ];
+    // Prepara gli headers in ordine corretto
+    const date = new Date().toUTCString();
+    const requestTarget = `${request.method.toLowerCase()} ${url.pathname}`;
+    const host = url.host;
 
-    // 3. Costruisci la stringa di firma con formattazione corretta
-    const signatureParams = headersToSign
-      .map(header => {
-        let value;
-        switch(header) {
-          case '(request-target)':
-            value = `${request.method.toLowerCase()} ${url.pathname}${url.search}`;
-            break;
-          case 'host':
-            value = url.host;
-            break;
-          default:
-            value = request.headers[header.toLowerCase()];
-        }
-        return `${header.toLowerCase()}: ${value}`;
-      })
-      .join('\n');
+    // Costruisci la stringa da firmare
+    const signString = [
+      `(request-target): ${requestTarget}`,
+      `host: ${host}`,
+      `date: ${date}`,
+      `digest: ${digest}`
+    ].join('\n');
 
-    // 4. Usa la codifica corretta per la firma
-    const signer = crypto.createSign('RSA-SHA256');
-    signer.update(signatureParams);
+    console.log('Stringa da firmare:', signString);
+
+    // Crea la firma
+    const signer = crypto.createSign('sha256');
+    signer.update(signString);
     const signature = signer.sign(keys.privateKey, 'base64');
 
-    // 5. Costruisci l'header della firma
+    // Aggiungi gli headers necessari alla richiesta
+    request.headers = {
+      ...request.headers,
+      'Host': host,
+      'Date': date,
+      'Digest': digest
+    };
+
+    // Costruisci l'header Signature
     const signatureHeader = [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
-      `headers="${headersToSign.join(' ')}"`,
+      'headers="(request-target) host date digest"',
       `signature="${signature}"`
-    ].join(', ');
+    ].join(',');
 
+    console.log('Header Signature:', signatureHeader);
     return signatureHeader;
   } catch (error) {
     console.error('Errore nella firma della richiesta:', error);
@@ -354,159 +370,60 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
     const timestamp = Date.now();
     const activityId = `${BASE_URL}/users/${username}/activities/${timestamp}`;
 
-    // Gestione specifica per Create (Note)
-    if (activity.type === 'Create' && activity.object?.type === 'Note') {
-      if (!activity.object.content) {
-        throw new Error('Content mancante per la nota');
-      }
-
-      // Crea l'oggetto post
-      const post = {
-        content: activity.object.content,
-        author: username,
-        timestamp: timestamp,
-        id: `${BASE_URL}/users/${username}/posts/${timestamp}`
-      };
-
-      // Salva il post
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('posts')
-          .get(post.id)
-          .put(post, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(ack);
-            }
-          });
-      });
-
-      // Crea l'attività ActivityPub
-      const activityPubResponse = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityId,
-        type: 'Create',
-        actor: `${BASE_URL}/users/${username}`,
-        published: new Date(timestamp).toISOString(),
-        to: 'https://www.w3.org/ns/activitystreams#Public',
-        object: {
-          type: 'Note',
-          id: post.id,
-          content: post.content,
-          published: new Date(timestamp).toISOString(),
-          attributedTo: `${BASE_URL}/users/${username}`,
-          to: 'https://www.w3.org/ns/activitystreams#Public'
-        }
-      };
-
-      // Salva l'attività nell'outbox
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
-          .get('outbox')
-          .get(activityId)
-          .put(activityPubResponse, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              // Verifica che i dati siano stati salvati correttamente
-              gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .get('outbox')
-                .get(activityId)
-                .once((data) => {
-                  if (data) {
-                    resolve(data);
-                  } else {
-                    reject(new Error('Verifica salvataggio attività fallita'));
-                  }
-                });
-            }
-          });
-      });
-
-      // Restituisci la risposta con array per ActivityPub ma stringa per Gun
-      return {
-        ...activityPubResponse,
-        '@context': ['https://www.w3.org/ns/activitystreams'],
-        to: [activityPubResponse.to]
-      };
-    }
-
     // Gestione specifica per Follow
-    if (activity.type === 'Follow' && typeof activity.object === 'string') {
-      const targetUser = activity.object.split('/').pop();
-      if (!targetUser) {
-        throw new Error('Target user non valido');
+    if (activity.type === 'Follow') {
+      console.log('Gestione richiesta Follow:', activity);
+
+      const targetActor = activity.object;
+      if (!targetActor) {
+        throw new Error('Target actor mancante nella richiesta di follow');
       }
 
-      // Salva il follow localmente
-      await Promise.all([
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
-          .get('following')
-          .get(targetUser)
-          .put({
-            id: targetUser,
-            followed_at: new Date().toISOString()
-          }),
-          
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(targetUser)
-          .get('followers')
-          .get(username)
-          .put({
-            id: username,
-            followed_at: new Date().toISOString()
-          })
-      ]);
+      const targetUrl = new URL(targetActor);
+      const targetServer = targetUrl.origin;
+      const targetUsername = targetUrl.pathname.split('/').pop();
 
-      // Invia la richiesta di follow al server remoto
-      const targetServer = activity.object.split('/users/')[0];
+      console.log('Target server:', targetServer);
+      console.log('Target username:', targetUsername);
+
+      // Crea l'attività di follow
       const followActivity = {
         '@context': 'https://www.w3.org/ns/activitystreams',
-        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
+        id: activityId,
         type: 'Follow',
         actor: `${BASE_URL}/users/${username}`,
-        object: activity.object
+        object: targetActor,
+        published: new Date().toISOString()
       };
 
+      // Prepara la richiesta
       const body = JSON.stringify(followActivity);
-      const digest = createHash('sha256').update(body).digest('base64');
-
       const headers = {
         'Content-Type': 'application/activity+json',
-        'Accept': 'application/activity+json',
-        'Date': new Date().toUTCString(),
-        'Host': new URL(targetServer).host,
-        'Digest': `SHA-256=${digest}`
+        'Accept': 'application/activity+json'
       };
 
-      // Se è configurata una chiave privata, firma la richiesta
-      if (process.env.ACTIVITYPUB_PRIVATE_KEY) {
-        const keyId = `${BASE_URL}/users/${username}#main-key`;
-        headers['Signature'] = await signRequest({
-          method: 'POST',
-          url: `${targetServer}/users/${targetUser}/inbox`,
-          headers: headers,
-          body: body
-        }, keyId, username, gun);
+      // Firma la richiesta
+      const keyId = `${BASE_URL}/users/${username}#main-key`;
+      const signRequest = {
+        method: 'POST',
+        url: `${targetServer}/users/${targetUsername}/inbox`,
+        headers,
+        body
+      };
+
+      const signature = await signRequest(signRequest, keyId, username, gun);
+      if (signature) {
+        headers['Signature'] = signature;
       }
 
-      const response = await fetch(`${targetServer}/users/${targetUser}/inbox`, {
+      console.log('Invio richiesta follow con headers:', headers);
+
+      // Invia la richiesta
+      const response = await fetch(`${targetServer}/users/${targetUsername}/inbox`, {
         method: 'POST',
-        headers: headers,
-        body: body
+        headers,
+        body
       });
 
       if (!response.ok) {
@@ -514,18 +431,19 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
       }
 
-      // Restituisci una versione ActivityPub-compatibile per la risposta HTTP
-      return {
-        '@context': ['https://www.w3.org/ns/activitystreams'],
-        id: `${BASE_URL}/users/${username}/activities/${timestamp}`,
-        type: 'Follow',
-        actor: `${BASE_URL}/users/${username}`,
-        published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public'],
-        object: activity.object
-      };
+      // Salva l'attività localmente
+      await gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('outbox')
+        .get(activityId)
+        .put(followActivity);
+
+      return followActivity;
     }
 
+    // Gestione di altre attività...
     throw new Error('Tipo di attività non supportato');
   } catch (error) {
     console.error('Errore nella pubblicazione dell\'attività:', error);
