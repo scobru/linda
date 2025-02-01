@@ -2,12 +2,27 @@ import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createHash } from 'crypto';
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Carica le variabili d'ambiente
-dotenv.config();
+// Carica le variabili d'ambiente dal file .env nella cartella relay
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-// Usa l'URL dal file .env o un default
-const BASE_URL = process.env.BASE_URL || "http://localhost:8765";
+// Verifica e usa le variabili d'ambiente
+const BASE_URL = process.env.BASE_URL;
+const DAPP_NAME = process.env.DAPP_NAME;
+
+if (!BASE_URL || !DAPP_NAME) {
+  console.error('Errore: Variabili d\'ambiente mancanti:', {
+    BASE_URL: BASE_URL || 'mancante',
+    DAPP_NAME: DAPP_NAME || 'mancante'
+  });
+  throw new Error('Configurazione incompleta: BASE_URL e DAPP_NAME sono richiesti');
+}
+
+console.log('Inizializzazione endpoints con:', {
+  BASE_URL,
+  DAPP_NAME
+});
 
 // Funzione di validazione per le attività ActivityPub
 function validateActivity(activity) {
@@ -452,6 +467,15 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 
 // Funzione per salvare le chiavi ActivityPub
 async function saveUserActivityPubKeys(gun, username) {
+  if (!gun || !username || !DAPP_NAME) {
+    throw new Error('Parametri mancanti per il salvataggio delle chiavi');
+  }
+
+  console.log('Salvataggio chiavi per:', {
+    username,
+    DAPP_NAME
+  });
+
   const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -468,10 +492,16 @@ async function saveUserActivityPubKeys(gun, username) {
         privateKey: privateKey.toString()
       }, async (ack) => {
         if (ack.err) {
+          console.error('Errore nel salvataggio delle chiavi:', {
+            error: ack.err,
+            username,
+            DAPP_NAME
+          });
           reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
         } else {
           console.log('Chiavi salvate con successo:', {
             username,
+            DAPP_NAME,
             publicKeyStart: publicKey.toString().substring(0, 50) + '...'
           });
           resolve({ publicKey, privateKey });
@@ -482,6 +512,15 @@ async function saveUserActivityPubKeys(gun, username) {
 
 // Funzione per recuperare le chiavi ActivityPub
 async function getUserActivityPubKeys(gun, username) {
+  if (!gun || !username || !DAPP_NAME) {
+    throw new Error('Parametri mancanti per il recupero delle chiavi');
+  }
+
+  console.log('Recupero chiavi per:', {
+    username,
+    DAPP_NAME
+  });
+
   return new Promise((resolve, reject) => {
     gun.get(DAPP_NAME)
       .get('activitypub')
@@ -489,16 +528,25 @@ async function getUserActivityPubKeys(gun, username) {
       .get('keys')
       .once(async (data) => {
         if (!data || !data.publicKey || !data.privateKey) {
-          console.log('Chiavi non trovate, generazione nuove chiavi...');
+          console.log('Chiavi non trovate, generazione nuove chiavi...', {
+            username,
+            DAPP_NAME
+          });
           try {
             const newKeys = await saveUserActivityPubKeys(gun, username);
             resolve(newKeys);
           } catch (error) {
+            console.error('Errore nella generazione delle chiavi:', {
+              error: error.message,
+              username,
+              DAPP_NAME
+            });
             reject(error);
           }
         } else {
           console.log('Chiavi recuperate:', {
             username,
+            DAPP_NAME,
             publicKeyStart: data.publicKey.substring(0, 50) + '...'
           });
           resolve({
