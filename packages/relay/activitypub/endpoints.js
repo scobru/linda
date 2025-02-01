@@ -728,76 +728,60 @@ async function sendFollowRequest(targetActor, username, gun) {
   }
 }
 
+// Modifica nella funzione saveUserProfile
 async function saveUserProfile(gun, username, profileData) {
   try {
-    // Converti il contesto in stringa se è un array
+    // Converti il contesto in stringa in modo sicuro
     const context = Array.isArray(profileData['@context']) 
       ? profileData['@context'].join(', ')
-      : profileData['@context'];
+      : String(profileData['@context'] || '');
 
-    // Crea un oggetto semplificato compatibile con GUN
-    const gunProfile = {
-      ...profileData,
-      '@context': context,
-      publicKey: JSON.stringify(profileData.publicKey)
-    };
+    // Crea un clone dell'oggetto per evitare mutazioni
+    const sanitizedProfile = {...profileData};
+    delete sanitizedProfile._;
+    delete sanitizedProfile['#'];
+    
+    // Assegna il contesto convertito
+    sanitizedProfile['@context'] = context;
 
-    // Salva il profilo con struttura piatta
+    // Salva con struttura piatta
     await new Promise((resolve, reject) => {
       gun.get('linda-messenger')
         .get('activitypub')
         .get(username)
-        .put(gunProfile, (ack) => {
+        .put(sanitizedProfile, (ack) => {
           if (ack.err) {
-            reject(new Error(`Errore nel salvataggio: ${ack.err}`));
+            reject(new Error(`Dati non validi: ${ack.err}`));
           } else {
-            console.log('Profilo salvato in GUN:', Object.keys(gunProfile));
+            console.log('Profilo salvato con contesto:', context.substring(0, 50) + '...');
             resolve();
           }
         });
     });
 
-    return gunProfile;
+    return sanitizedProfile;
   } catch (error) {
-    console.error('Dettaglio errore salvataggio:', {
-      input: profileData,
-      error: error.message,
-      stack: error.stack
+    console.error('Errore di serializzazione:', {
+      originalContext: profileData['@context'],
+      error: error.message
     });
     throw new Error(`Errore nel salvataggio del profilo: ${error.message}`);
   }
 }
 
-// Modifica nella creazione del profilo
-async function createActivityPubProfile(gun, username) {
-  const profile = {
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    // ... resto delle proprietà ...
-  };
-
-  // Aggiungi questa validazione
-  if (Array.isArray(profile['@context'])) {
-    console.warn('Contesto è un array, conversione in stringa');
-    profile['@context'] = profile['@context'][0];
+// Aggiungi questa validazione prima di creare il profilo
+function validateActivityPubProfile(profile) {
+  if (!profile['@context']) {
+    throw new Error('Contesto ActivityPub mancante');
+  }
+  
+  if (typeof profile['@context'] !== 'string') {
+    throw new Error('Formato contesto non valido. Atteso stringa');
   }
 
-  return saveUserProfile(gun, username, profile);
-}
-
-// Aggiungi questa funzione di sanitizzazione
-function sanitizeProfile(profile) {
-  const allowedFields = [
-    '@context', 'type', 'id', 'following', 'followers',
-    'inbox', 'outbox', 'preferredUsername', 'name',
-    'summary', 'url', 'published', 'publicKey'
-  ];
-
-  return Object.keys(profile).reduce((acc, key) => {
-    if (allowedFields.includes(key) && !key.startsWith('_')) {
-      acc[key] = profile[key];
-    }
-    return acc;
-  }, {});
+  if (!profile.id || !profile.id.startsWith('http')) {
+    throw new Error('ID profilo non valido');
+  }
 }
 
 // Modifica nella funzione verifyActorEndpoint
