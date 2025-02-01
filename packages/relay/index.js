@@ -920,91 +920,60 @@ function generateActivityPubKeys() {
   };
 }
 
-// Endpoint per la creazione di un account
+// API Endpoints
 app.post('/api/admin/create', async (req, res) => {
-  try {
-    const { account } = req.body;
-    
-    if (!account) {
-      return res.status(400).json({
-        error: 'Nome account mancante'
-      });
-    }
+    try {
+        const { account } = req.body;
+        
+        if (!account) {
+            return res.status(400).json({
+                error: 'Nome account mancante'
+            });
+        }
 
-    // Validazione del nome account
-    if (!/^[a-zA-Z0-9_]+$/.test(account)) {
-      return res.status(400).json({
-        error: 'Il nome account può contenere solo lettere, numeri e underscore'
-      });
+        const result = await createAccount(gun, DAPP_NAME, account);
+        res.json(result);
+    } catch (error) {
+        console.error('Errore nella creazione dell\'account:', error);
+        res.status(500).json({
+            error: error.message
+        });
     }
-
-    const result = await createAccount(gun, DAPP_NAME, account);
-    res.json(result);
-  } catch (error) {
-    console.error('Errore nella creazione dell\'account:', error);
-    res.status(500).json({
-      error: error.message
-    });
-  }
 });
 
-// Endpoint per l'invio di un messaggio
 app.post('/api/sendMessage', async (req, res) => {
-  try {
-    const { acct, apikey, message } = req.body;
-    
-    if (!acct || !apikey || !message) {
-      return res.status(400).json({
-        error: 'Parametri mancanti'
-      });
+    try {
+        const { acct, apikey, message } = req.body;
+        
+        if (!acct || !apikey || !message) {
+            return res.status(400).json({
+                error: 'Parametri mancanti'
+            });
+        }
+
+        const result = await sendMessage(gun, DAPP_NAME, acct, apikey, message);
+        res.json(result);
+    } catch (error) {
+        console.error('Errore nell\'invio del messaggio:', error);
+        res.status(500).json({
+            error: error.message
+        });
     }
-
-    const result = await sendMessage(gun, DAPP_NAME, acct, apikey, message);
-    res.json(result);
-  } catch (error) {
-    console.error('Errore nell\'invio del messaggio:', error);
-    res.status(500).json({
-      error: error.message
-    });
-  }
-});
-// Endpoint per la home
-app.get('/', (req, res) => {
-  res.redirect('/admin.html');
 });
 
-// Gestione errori 404
-app.use((req, res) => {
-  console.log('404 - Endpoint non trovato:', req.path);
-  res.status(404).json({
-    error: 'Endpoint non trovato',
-    path: req.path
-  });
-});
-
-// Gestione errori generici
-app.use((err, req, res, next) => {
-  console.error('Errore del server:', err);
-  res.status(500).json({
-    error: 'Errore interno del server',
-    message: err.message
-  });
-});
-
-// Endpoint per la verifica dell'API key
 app.post('/api/verify', async (req, res) => {
     try {
         const { username, apikey } = req.body;
+        
+        console.log('Richiesta verifica API key:', {
+            username,
+            hasApiKey: !!apikey
+        });
         
         if (!username || !apikey) {
             return res.status(400).json({ 
                 error: 'Username e API key sono richiesti' 
             });
-        }
-
-        // Verifica che Gun sia inizializzato
-        if (!gun) {
-            throw new Error('Database non disponibile');
         }
 
         // Verifica l'API key nel database Gun
@@ -1017,7 +986,8 @@ app.post('/api/verify', async (req, res) => {
                 .once((storedKey) => {
                     console.log('Verifica API key:', {
                         username,
-                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]'
+                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]',
+                        matches: storedKey === apikey
                     });
                     resolve(storedKey === apikey);
                 });
@@ -1041,5 +1011,28 @@ app.post('/api/verify', async (req, res) => {
             error: error.message 
         });
     }
+});
+
+// Endpoint per la home
+app.get('/', (req, res) => {
+    res.redirect('/admin.html');
+});
+
+// Gestione errori 404 - DEVE ESSERE DOPO TUTTI GLI ALTRI ENDPOINT
+app.use((req, res) => {
+    console.log('404 - Endpoint non trovato:', req.path);
+    res.status(404).json({
+        error: 'Endpoint non trovato',
+        path: req.path
+    });
+});
+
+// Gestione errori generici - DEVE ESSERE L'ULTIMO MIDDLEWARE
+app.use((err, req, res, next) => {
+    console.error('Errore del server:', err);
+    res.status(500).json({
+        error: 'Errore interno del server',
+        message: err.message
+    });
 });
 
