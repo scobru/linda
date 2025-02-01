@@ -378,60 +378,72 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error('Content mancante per la nota');
       }
 
-      // Crea l'oggetto post
+      // Crea l'oggetto post con una struttura più semplice
       const post = {
         id: `${BASE_URL}/users/${username}/posts/${timestamp}`,
         type: 'Note',
-        content: activity.object.content,
         attributedTo: `${BASE_URL}/users/${username}`,
+        content: activity.object.content,
         published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public']
+        to: 'https://www.w3.org/ns/activitystreams#Public'
       };
 
       // Crea l'attività ActivityPub
       const createActivity = {
-        '@context': ['https://www.w3.org/ns/activitystreams'],
+        '@context': 'https://www.w3.org/ns/activitystreams',
         id: activityId,
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        to: 'https://www.w3.org/ns/activitystreams#Public',
         object: post
       };
 
-      // Salva il post
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('posts')
-          .get(post.id)
-          .put(post, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(ack);
-            }
-          });
-      });
+      console.log('Salvataggio post:', post);
+      console.log('Salvataggio attività:', createActivity);
 
-      // Salva l'attività nell'outbox
-      await new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
-          .get('outbox')
-          .get(activityId)
-          .put(createActivity, (ack) => {
-            if (ack.err) {
-              reject(new Error(ack.err));
-            } else {
-              resolve(ack);
-            }
-          });
-      });
+      try {
+        // Salva il post
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('posts')
+            .get(post.id)
+            .put(post, (ack) => {
+              if (ack.err) {
+                console.error('Errore nel salvataggio del post:', ack.err);
+                reject(new Error(ack.err));
+              } else {
+                console.log('Post salvato con successo');
+                resolve(ack);
+              }
+            });
+        });
 
-      return createActivity;
+        // Salva l'attività nell'outbox
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('activitypub')
+            .get(username)
+            .get('outbox')
+            .get(activityId)
+            .put(createActivity, (ack) => {
+              if (ack.err) {
+                console.error('Errore nel salvataggio dell\'attività:', ack.err);
+                reject(new Error(ack.err));
+              } else {
+                console.log('Attività salvata con successo');
+                resolve(ack);
+              }
+            });
+        });
+
+        return createActivity;
+      } catch (error) {
+        console.error('Errore durante il salvataggio:', error);
+        throw error;
+      }
     }
 
     // Gestione specifica per Follow
