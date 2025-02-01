@@ -651,3 +651,60 @@ async function saveUserActivityPubKeys(gun, username) {
   }
 }
 
+async function getUserActivityPubKeys(gun, username) {
+  return new Promise((resolve, reject) => {
+    gun
+      .get('linda-messenger')
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .once((data) => {
+        if (!data || !data.publicKey || !data.privateKey) {
+          reject(new Error('Chiavi non trovate nel database'));
+        } else {
+          resolve(data);
+        }
+      });
+  });
+}
+
+async function sendFollowRequest(targetActor, username, gun) {
+  try {
+    // Recupera le chiavi
+    const keys = await getUserActivityPubKeys(gun, username);
+    
+    // Costruisci l'attività Follow
+    const followActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'Follow',
+      actor: `${BASE_URL}/users/${username}`,
+      object: targetActor
+    };
+
+    // Firma e invia la richiesta
+    const signature = await signRequest({
+      method: 'POST',
+      url: `${targetActor}/inbox`,
+      body: followActivity
+    }, `${BASE_URL}/users/${username}#main-key`, username, gun);
+
+    const response = await fetch(`${targetActor}/inbox`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/activity+json',
+        'Signature': signature
+      },
+      body: JSON.stringify(followActivity)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Follow request failed with status ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Errore nella richiesta di follow:', error);
+    throw error;
+  }
+}
+
