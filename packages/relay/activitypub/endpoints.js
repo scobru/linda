@@ -458,50 +458,69 @@ async function signRequest(requestData, keyId, username, gun) {
   try {
     const { privateKey, publicKey } = await getUserKeys(gun, username);
     
-    // 1. Normalizzazione URL RFC 3986
+    // 1. Normalizzazione finale del percorso
     const url = new URL(requestData.url);
     const path = `${url.pathname}${url.search}`
       .replace(/\/{2,}/g, '/')
-      .replace(/(%[a-f0-9]{2})/g, (match) => match.toUpperCase());
+      .replace(/([a-z])\/+([A-Z])/g, '$1/$2')
+      .replace(/\/$/, '');
 
-    // 2. Generazione body canonico
-    const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
+    // 2. Generazione body con ordinamento profondo
+    const body = JSON.stringify(requestData.body, (key, value) => {
+      return value instanceof Object && !(value instanceof Array) 
+        ? Object.keys(value).sort().reduce((sorted, key) => {
+            sorted[key] = value[key];
+            return sorted;
+          }, {}) 
+        : value;
+    }, 2);
+
+    // 3. Calcolo digest con normalizzazione Unicode
     const digest = crypto.createHash('sha256')
-      .update(encoder.encode(body))
+      .update(encoder.encode(body.normalize('NFC')))
       .digest('base64');
 
-    // 3. Costruzione headers RFC 9421
+    // 4. Intestazioni firmate in ordine specifico
     const headers = [
       `(request-target): post ${path}`,
-      `host: ${url.host}`, // Include la porta se presente
+      `host: ${url.host}`,
       `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
       `content-type: application/activity+json`
     ];
 
-    // 4. Firma con PKCS#1 v1.5 per compatibilità
+    // 5. Firma con codifica esplicita
     const signer = crypto.createSign('RSA-SHA256');
-    signer.update(headers.join('\n'));
+    signer.update(headers.join('\n'), 'utf8');
     const signature = signer.sign({
       key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PADDING
+      padding: crypto.constants.RSA_PKCS1_PADDING,
+      passphrase: ''
     }, 'base64');
 
-    // 5. Verifica sincrona con logging esteso
+    // 6. Verifica incrociata con codifica alternativa
     const verifier = crypto.createVerify('RSA-SHA256');
-    verifier.update(headers.join('\n'));
+    verifier.update(headers.join('\n'), 'utf8');
     
-    if (!verifier.verify(publicKey, signature, 'base64')) {
+    if (!verifier.verify(
+      {
+        key: publicKey,
+        padding: crypto.constants.RSA_PKCS1_PADDING
+      },
+      signature,
+      'base64'
+    )) {
       debugInfo = {
         publicKey: publicKey.substring(0, 100),
-        signature: signature.substring(0, 50),
-        headers: headers.join('|'),
+        privateKey: privateKey.substring(0, 100),
+        signature,
+        headers,
         body
       };
-      throw new Error('Verifica locale fallita');
+      throw new Error('Verifica incrociata fallita');
     }
 
-    // 6. Formattazione firma senza URI encoding
+    // 7. Formattazione finale della firma
     return [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
@@ -510,7 +529,7 @@ async function signRequest(requestData, keyId, username, gun) {
     ].join(', ');
 
   } catch (error) {
-    console.error('Dettagli errore:', {
+    console.error('Dettagli errore finale:', {
       ...debugInfo,
       error: error.stack,
       timestamp: new Date().toISOString()
