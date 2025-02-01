@@ -565,22 +565,22 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 // Endpoint Outbox
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
-    // Normalizza gli header mancanti
-    const requiredHeaders = {
-      'Date': req.headers.date || new Date().toUTCString(),
-      'Host': new URL(BASE_URL).host,
-      'Content-Type': 'application/activity+json'
+    // Importa dinamicamente la configurazione
+    const { BASE_URL } = await import('./activitypub/endpoints.js');
+    
+    // Aggiungi header mancanti
+    req.headers = {
+      ...req.headers,
+      'Date': new Date().toUTCString(),
+      'Host': new URL(BASE_URL).host
     };
-
-    // Sostituisci gli header mancanti
-    req.headers = { ...req.headers, ...requiredHeaders };
 
     const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
     
     res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
     res.status(201).json(activity);
   } catch (error) {
-    console.error('Errore outbox:', { 
+    console.error('Errore outbox:', {
       error: error.stack,
       body: req.body,
       headers: req.headers 
