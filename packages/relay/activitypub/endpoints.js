@@ -3,6 +3,11 @@ import crypto from 'crypto';
 import { createHash } from 'crypto';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Ottieni l'equivalente di __dirname per ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Carica le variabili d'ambiente dal file .env nella cartella relay
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
