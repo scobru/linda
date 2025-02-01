@@ -784,3 +784,55 @@ async function createActivityPubProfile(gun, username) {
   return saveUserProfile(gun, username, profile);
 }
 
+// Aggiungi questa funzione di sanitizzazione
+function sanitizeProfile(profile) {
+  const allowedFields = [
+    '@context', 'type', 'id', 'following', 'followers',
+    'inbox', 'outbox', 'preferredUsername', 'name',
+    'summary', 'url', 'published', 'publicKey'
+  ];
+
+  return Object.keys(profile).reduce((acc, key) => {
+    if (allowedFields.includes(key) && !key.startsWith('_')) {
+      acc[key] = profile[key];
+    }
+    return acc;
+  }, {});
+}
+
+// Modifica nella funzione verifyActorEndpoint
+async function verifyActorEndpoint(url) {
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/activity+json' }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const profile = await response.json();
+    const cleanedProfile = sanitizeProfile(profile);
+
+    // Validazione essenziale
+    const requiredFields = ['@context', 'id', 'type', 'preferredUsername', 'publicKey'];
+    const missingFields = requiredFields.filter(field => !cleanedProfile[field]);
+
+    if (missingFields.length > 0) {
+      throw new Error(`Campi mancanti: ${missingFields.join(', ')}`);
+    }
+
+    if (cleanedProfile.type !== 'Person') {
+      throw new Error('Tipo profilo non valido');
+    }
+
+    return cleanedProfile;
+  } catch (error) {
+    console.error('Dettagli errore validazione:', {
+      error: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Profilo non valido: ${error.message}`);
+  }
+}
+
