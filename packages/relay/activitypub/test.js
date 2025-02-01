@@ -73,9 +73,10 @@ async function saveUserActivityPubKeys(gun, username) {
     }
 
     gun
-      .user()
-      .get("activitypub")
-      .get("keys")
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('keys')
       .put(
         {
           publicKey: keys.publicKey,
@@ -87,13 +88,18 @@ async function saveUserActivityPubKeys(gun, username) {
             reject(new Error(ack.err));
           } else {
             // Verifichiamo che le chiavi siano state salvate
-            gun.user().get("activitypub").get("keys").once((data) => {
-              if (data && data.publicKey === keys.publicKey) {
-                resolve(keys);
-              } else {
-                reject(new Error("Verifica salvataggio chiavi fallita"));
-              }
-            });
+            gun
+              .get(DAPP_NAME)
+              .get('activitypub')
+              .get(username)
+              .get('keys')
+              .once((data) => {
+                if (data && data.publicKey === keys.publicKey) {
+                  resolve(keys);
+                } else {
+                  reject(new Error("Verifica salvataggio chiavi fallita"));
+                }
+              });
           }
         }
       );
@@ -357,20 +363,39 @@ async function testActivityPubEvents(username) {
 
 // Funzione per salvare le chiavi
 async function saveKeys(gun, username, keys) {
+  console.log('Salvataggio chiavi per:', username);
+  console.log('Chiavi da salvare:', keys);
+
   return new Promise((resolve, reject) => {
-    gun
+    const keysNode = gun
       .get(DAPP_NAME)
       .get('activitypub')
       .get(username)
-      .get('keys')
-      .put(keys, (ack) => {
+      .get('keys');
+
+    // Prima verifica se le chiavi esistono già
+    keysNode.once((existingKeys) => {
+      console.log('Chiavi esistenti:', existingKeys);
+
+      // Salva le nuove chiavi
+      keysNode.put(keys, (ack) => {
         if (ack.err) {
+          console.error('Errore nel salvataggio delle chiavi:', ack.err);
           reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
         } else {
-          console.log('Chiavi salvate con successo');
-          resolve(ack);
+          // Verifica che le chiavi siano state salvate correttamente
+          keysNode.once((savedKeys) => {
+            console.log('Chiavi salvate:', savedKeys);
+            if (savedKeys && savedKeys.privateKey && savedKeys.publicKey) {
+              console.log('Chiavi salvate con successo');
+              resolve(savedKeys);
+            } else {
+              reject(new Error('Verifica del salvataggio chiavi fallita'));
+            }
+          });
         }
       });
+    });
   });
 }
 

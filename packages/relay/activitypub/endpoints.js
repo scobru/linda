@@ -288,22 +288,27 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     console.log('Username:', username);
     console.log('DAPP_NAME:', DAPP_NAME);
 
-    // Recupera le chiavi dal nodo corretto
-    const keys = await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('keys')
-        .once((data) => {
-          console.log('Dati chiavi recuperati:', data);
-          if (!data || !data.privateKey) {
-            reject(new Error('Chiavi non trovate nel database'));
-          } else {
-            resolve(data);
-          }
-        });
-    });
+    // Recupera le chiavi dal nodo corretto con un timeout
+    const keys = await Promise.race([
+      new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('keys')
+          .once((data) => {
+            console.log('Dati chiavi recuperati:', data);
+            if (!data || !data.privateKey) {
+              reject(new Error('Chiavi non trovate nel database'));
+            } else {
+              resolve(data);
+            }
+          });
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout nel recupero delle chiavi')), 10000)
+      )
+    ]);
 
     if (!keys || !keys.privateKey) {
       console.error('Chiavi mancanti:', keys);
