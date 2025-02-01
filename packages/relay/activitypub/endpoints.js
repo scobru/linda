@@ -452,63 +452,72 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 
 // Funzione per firmare una richiesta ActivityPub
 async function signRequest(requestData, keyId, username, gun) {
-  let headers = [];
-  let body;
-  let publicKey; // Dichiarazione anticipata
+  const encoder = new TextEncoder();
+  let debugData = {};
 
   try {
-    const keys = await getUserKeys(gun, username);
-    const { privateKey } = keys;
-    publicKey = keys.publicKey; // Assegnazione esplicita
+    const { privateKey, publicKey } = await getUserKeys(gun, username);
     
-    // 1. Controllo di integrità delle chiavi
-    if (!publicKey || !privateKey) {
-      throw new Error('Chiavi mancanti nel keyring');
-    }
+    // 1. Normalizzazione canonica RFC 3986
+    const url = new URL(requestData.url);
+    const path = `${url.pathname}${url.search}`
+      .replace(/\/{2,}/g, '/')
+      .replace(/\/$/, '');
 
-    // 1. Normalizzazione RFC 8785 per JSON
-    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
+    // 2. Costruzione header (request-target)
+    const requestTarget = `post ${path}`;
+    
+    // 3. Formattazione data RFC 1123
+    const date = new Date().toUTCString();
+    
+    // 4. Calcolo digest con codifica esplicita
+    const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
-      .update(body)
+      .update(encoder.encode(body))
       .digest('base64');
 
-    const url = new URL(requestData.url);
-    const path = `${url.pathname}${url.search}`.replace(/\/{2,}/g, '/');
-
-    headers = [
-      `(request-target): post ${path}`,
+    // 5. Intestazioni per la firma
+    const headers = [
+      `(request-target): ${requestTarget}`,
       `host: ${url.hostname}`,
-      `date: ${new Date().toUTCString()}`,
+      `date: ${date}`,
       `digest: SHA-256=${digest}`,
-      `content-type: ${requestData.headers['Content-Type']}`
-    ].map(h => h.toLowerCase());
+      `content-type: application/activity+json`
+    ];
 
-    // 3. Firma con codifica PKCS#1 v1.5
+    // 6. Firma con RSA-PSS (RFC 8017)
     const signer = crypto.createSign('RSA-SHA256');
     signer.update(headers.join('\n'));
     const signature = signer.sign({
       key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PADDING
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
     }, 'base64');
 
-    // 4. Verifica con gestione errori dedicata
-    try {
-      const verifier = crypto.createVerify('RSA-SHA256');
-      verifier.update(headers.join('\n'));
-      
-      if (!verifier.verify(publicKey, signature, 'base64')) {
-        throw new Error('Verifica fallita (firma non valida)');
-      }
-    } catch (verifyError) {
-      console.error('Dettagli verifica:', {
+    // 7. Verifica sincrona avanzata
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(headers.join('\n'));
+    const isValid = verifier.verify(
+      {
+        key: publicKey,
+        padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+        saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+      },
+      signature,
+      'base64'
+    );
+
+    if (!isValid) {
+      debugData = {
+        headers,
         publicKey: publicKey.substring(0, 100) + '...',
         signature: signature.substring(0, 50) + '...',
-        error: verifyError.stack
-      });
-      throw verifyError;
+        body
+      };
+      throw new Error('Verifica locale fallita');
     }
 
-    // 5. Formattazione header RFC 9421
+    // 8. Formattazione firma RFC 9421
     return [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
@@ -517,10 +526,10 @@ async function signRequest(requestData, keyId, username, gun) {
     ].join(', ');
 
   } catch (error) {
-    console.error('Dettagli errore:', {
-      publicKey: publicKey ? publicKey.substring(0, 50) + '...' : 'N/D',
-      privateKey: (await getUserKeys(gun, username).catch(() => ({})))?.privateKey?.substring(0, 50) + '...',
-      error: error.stack
+    console.error('Dettagli errore di firma:', {
+      ...debugData,
+      error: error.stack,
+      timestamp: new Date().toISOString()
     });
     throw new Error(`Errore di firma: ${error.message}`);
   }
