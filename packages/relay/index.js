@@ -35,6 +35,25 @@ const server = http.createServer(app);
 server.setTimeout(30000);
 const port = process.env.PORT || 8765;
 
+// Inizializza Gun PRIMA delle esportazioni
+const gun = Gun(GUN_CONFIG);
+let mogu;
+
+console.log('Gun inizializzato con configurazione:', GUN_CONFIG);
+
+// Inizializza Mogu se abilitato
+if (CONFIG.STORAGE.enabled) {
+    console.log('Inizializzazione Mogu...');
+    mogu = new Mogu({
+        key: "",
+        storageService: CONFIG.STORAGE.service,
+        storageConfig: CONFIG.STORAGE.config,
+        server: gun,
+        useIPFS: false
+    });
+    console.log("Mogu inizializzato con successo");
+}
+
 console.log('Starting server with configuration:');
 console.log('- DAPP_NAME:', DAPP_NAME);
 console.log('- PORT:', port);
