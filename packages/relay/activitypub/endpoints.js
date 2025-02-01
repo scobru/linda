@@ -282,7 +282,7 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 };
 
 // Modifica la funzione signRequest per utilizzare le chiavi dell'utente
-async function signRequest(request, keyId, username, gun) {
+export async function signRequest(request, keyId, username, gun) {
   try {
     // Recupera le chiavi dal nodo corretto
     const keys = await new Promise((resolve, reject) => {
@@ -474,49 +474,66 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
       // Prepara la richiesta
       const body = JSON.stringify(followActivity);
+      const digest = createHash('sha256').update(body).digest('base64');
+      
       const headers = {
         'Content-Type': 'application/activity+json',
-        'Accept': 'application/activity+json'
+        'Accept': 'application/activity+json',
+        'Date': new Date().toUTCString(),
+        'Host': new URL(targetServer).host,
+        'Digest': `SHA-256=${digest}`
       };
 
       // Firma la richiesta
       const keyId = `${BASE_URL}/users/${username}#main-key`;
-      const signRequest = {
-        method: 'POST',
-        url: `${targetServer}/users/${targetUsername}/inbox`,
-        headers,
-        body
-      };
+      try {
+        const signature = await signRequest({
+          method: 'POST',
+          url: `${targetServer}/users/${targetUsername}/inbox`,
+          headers,
+          body
+        }, keyId, username, gun);
 
-      const signature = await signRequest(signRequest, keyId, username, gun);
-      if (signature) {
-        headers['Signature'] = signature;
+        if (signature) {
+          headers['Signature'] = signature;
+        }
+
+        console.log('Invio richiesta follow con headers:', headers);
+
+        // Invia la richiesta
+        const response = await fetch(`${targetServer}/users/${targetUsername}/inbox`, {
+          method: 'POST',
+          headers,
+          body
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
+        }
+
+        // Salva l'attività localmente
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('activitypub')
+            .get(username)
+            .get('outbox')
+            .get(activityId)
+            .put(followActivity, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+              } else {
+                resolve(ack);
+              }
+            });
+        });
+
+        return followActivity;
+      } catch (error) {
+        console.error('Errore durante la firma o l\'invio della richiesta follow:', error);
+        throw error;
       }
-
-      console.log('Invio richiesta follow con headers:', headers);
-
-      // Invia la richiesta
-      const response = await fetch(`${targetServer}/users/${targetUsername}/inbox`, {
-        method: 'POST',
-        headers,
-        body
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
-      }
-
-      // Salva l'attività localmente
-      await gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('outbox')
-        .get(activityId)
-        .put(followActivity);
-
-      return followActivity;
     }
 
     throw new Error('Tipo di attività non supportato');
