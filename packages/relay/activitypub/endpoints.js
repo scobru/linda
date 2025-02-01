@@ -287,7 +287,7 @@ async function signRequest(request, keyId, username, gun) {
     const keys = await getUserActivityPubKeys(gun, username);
     const url = new URL(request.url);
     const digest = createHash('sha256').update(request.body).digest('base64');
-    
+
     const headersToSign = [
       '(request-target)',
       'host',
