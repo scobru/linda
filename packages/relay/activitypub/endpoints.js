@@ -455,44 +455,61 @@ async function signRequest(requestData, keyId, username, gun) {
   try {
     const { privateKey } = await getUserKeys(gun, username);
     
-    // 1. Normalizza il corpo della richiesta
-    const bodyString = typeof requestData.body === 'string' ? 
-      requestData.body : 
-      JSON.stringify(requestData.body);
-    
-    // 2. Calcola il digest con encoding corretto
+    // 1. Stringify coerente del body
+    const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
-      .update(bodyString)
+      .update(body)
       .digest('base64');
 
-    // 3. Costruisci l'URL correttamente
-    const targetUrl = new URL(requestData.url);
-    const pathname = targetUrl.pathname + targetUrl.search; // Include query params
+    // 2. Costruzione URL precisa
+    const url = new URL(requestData.url);
+    const path = `${url.pathname}${url.search}`; // Include query parameters
 
-    // 4. Crea la stringa di firma con ordine corretto
+    // 3. Formattazione RFC 9421
     const headers = [
-      '(request-target): post ' + pathname,
-      'host: ' + targetUrl.host,
-      'date: ' + new Date().toUTCString(),
-      'digest: SHA-256=' + digest,
-      'content-type: ' + requestData.headers['Content-Type']
-    ].join('\n');
+      `(request-target): post ${path}`,
+      `host: ${url.host}`,
+      `date: ${new Date().toUTCString()}`,
+      `digest: SHA-256=${digest}`,
+      `content-type: ${requestData.headers['Content-Type']}`
+    ];
 
-    // 5. Firma con encoding preciso
+    // 4. Creazione firma con encoding preciso
     const signer = crypto.createSign('RSA-SHA256');
-    signer.update(headers);
+    signer.update(headers.join('\n'));
+    
     const signature = signer.sign({
       key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PSS_PADDING
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_MAX_SIGN
     }, 'base64');
 
-    // 6. Costruisci l'header con parametri corretti
-    return `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest content-type",signature="${signature}"`;
+    // 5. Verifica locale della firma (solo per debug)
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(headers.join('\n'));
+    const isValid = verifier.verify(
+      crypto.createPublicKey(privateKey), 
+      signature, 
+      'base64'
+    );
+
+    if (!isValid) {
+      throw new Error('Firma localmente non valida');
+    }
+
+    // 6. Costruzione header conforme
+    return [
+      `keyId="${keyId}"`,
+      `algorithm="rsa-sha256"`,
+      `headers="(request-target) host date digest content-type"`,
+      `signature="${signature}"`
+    ].join(', ');
 
   } catch (error) {
     console.error('Dettagli errore firma:', {
-      keyId,
-      username,
+      headers,
+      digest,
+      privateKeySnippet: privateKey?.substring(0, 50) + '...',
       error: error.stack
     });
     throw new Error(`Errore nella generazione della firma: ${error.message}`);
