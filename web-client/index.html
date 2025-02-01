@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linda Messenger - Client ActivityPub</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-purple-600 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-2xl font-bold">Linda Messenger</h1>
+            <div id="userInfo" class="hidden">
+                <span id="username" class="mr-4"></span>
+                <button onclick="logout()" class="bg-purple-700 hover:bg-purple-800 px-4 py-2 rounded">Logout</button>
+            </div>
+            <div id="authButtons" class="space-x-4">
+                <button onclick="showLoginForm()" class="bg-purple-700 hover:bg-purple-800 px-4 py-2 rounded">Accedi</button>
+                <button onclick="showRegisterForm()" class="bg-white text-purple-600 hover:bg-gray-100 px-4 py-2 rounded">Registrati</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Auth Forms -->
+        <div id="loginForm" class="hidden max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
+            <h2 class="text-2xl font-bold mb-6">Accedi</h2>
+            <form onsubmit="login(event)">
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Username</label>
+                    <input type="text" id="loginUsername" class="w-full px-3 py-2 border rounded" required>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-gray-700 mb-2">API Key</label>
+                    <input type="password" id="loginApiKey" class="w-full px-3 py-2 border rounded" required>
+                </div>
+                <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700">Accedi</button>
+            </form>
+        </div>
+
+        <div id="registerForm" class="hidden max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
+            <h2 class="text-2xl font-bold mb-6">Registrati</h2>
+            <form onsubmit="register(event)">
+                <div class="mb-6">
+                    <label class="block text-gray-700 mb-2">Username</label>
+                    <input type="text" id="registerUsername" class="w-full px-3 py-2 border rounded" required>
+                </div>
+                <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700">Registrati</button>
+            </form>
+        </div>
+
+        <!-- Timeline -->
+        <div id="timeline" class="hidden max-w-2xl mx-auto">
+            <!-- New Post Form -->
+            <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+                <form onsubmit="createPost(event)">
+                    <textarea id="postContent" class="w-full px-3 py-2 border rounded resize-none mb-4" rows="4" placeholder="Cosa stai pensando?" required></textarea>
+                    <button type="submit" class="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700">Pubblica</button>
+                </form>
+            </div>
+
+            <!-- Posts Container -->
+            <div id="posts" class="space-y-6">
+                <!-- Posts will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Profile Section -->
+        <div id="profile" class="hidden max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-bold mb-6">Il tuo profilo</h2>
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <h3 class="font-bold mb-2">Following</h3>
+                    <div id="followingList" class="space-y-2">
+                        <!-- Following list will be inserted here -->
+                    </div>
+                </div>
+                <div>
+                    <h3 class="font-bold mb-2">Followers</h3>
+                    <div id="followersList" class="space-y-2">
+                        <!-- Followers list will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html> 

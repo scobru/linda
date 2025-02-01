@@ -1,0 +1,55 @@
+async function createAccount() {
+  const account = document.querySelector('#account').value;
+  const createError = document.querySelector('#createError');
+  const createSuccess = document.querySelector('#createSuccess');
+  const createOutput = document.querySelector('#createOutput');
+
+  createError.style.display = 'none';
+  createSuccess.style.display = 'none';
+  createOutput.innerHTML = '';
+
+  if (!account) {
+    createError.textContent = 'Inserisci un nome account';
+    createError.style.display = 'block';
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/admin/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ account })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Errore nella creazione dell\'account');
+    }
+
+    const data = await response.json();
+
+    if (data.msg === 'ok') {
+      createSuccess.textContent = 'Account creato con successo!';
+      createSuccess.style.display = 'block';
+      
+      const hostname = window.location.hostname;
+      createOutput.innerHTML = `
+        <p>Per confermare, verifica:</p>
+        <ul>
+          <li>Il profilo dell'account: <a href="/users/${account}" target="_blank">Visualizza JSON</a></li>
+          <li>WebFinger: <a href="/.well-known/webfinger?resource=acct:${account}@${hostname}" target="_blank">Verifica endpoint</a></li>
+        </ul>
+        <p>Il tuo account può essere trovato come: <strong>${account}@${hostname}</strong></p>
+        <p>La tua chiave API è: <strong>${data.apikey}</strong></p>
+        <p><em>Salva questa chiave in un posto sicuro!</em></p>
+      `;
+    } else {
+      throw new Error(data.error || 'Errore nella creazione dell\'account');
+    }
+  } catch (error) {
+    createError.textContent = error.message;
+    createError.style.display = 'block';
+  }
+} 
