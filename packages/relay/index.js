@@ -563,17 +563,23 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 // Endpoint Outbox
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
+    // Aggiungi header Date mancante
+    req.headers.date = new Date().toUTCString();
+    
     const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
+    
     res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
     res.status(201).json(activity);
   } catch (error) {
-    console.error('Errore nella gestione dell\'outbox:', error);
+    console.error('Errore outbox:', { 
+      error: error.stack,
+      body: req.body,
+      headers: req.headers 
+    });
     res.status(500).json({ 
       error: error.message,
       type: error.name,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-      details: error.stack
+      timestamp: new Date().toISOString()
     });
   }
 });

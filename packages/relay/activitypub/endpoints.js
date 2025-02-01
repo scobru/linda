@@ -458,58 +458,55 @@ async function signRequest(requestData, keyId, username, gun) {
   try {
     const { privateKey, publicKey } = await getUserKeys(gun, username);
     
-    // 1. Normalizzazione canonica del percorso URL
+    // 1. Normalizzazione URL RFC 3986
     const url = new URL(requestData.url);
-    const pathname = url.pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '');
-    const search = url.search.replace(/\+/g, '%20');
-    const path = `${pathname}${search}`;
+    const path = `${url.pathname}${url.search}`
+      .replace(/\/{2,}/g, '/')
+      .replace(/(%[a-f0-9]{2})/g, (match) => match.toUpperCase());
 
-    // 2. Costruzione headers con ordinamento specifico
+    // 2. Generazione body canonico
     const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
       .update(encoder.encode(body))
       .digest('base64');
-    
+
+    // 3. Costruzione headers RFC 9421
     const headers = [
       `(request-target): post ${path}`,
-      `host: ${url.host}`,
+      `host: ${url.host}`, // Include la porta se presente
       `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
       `content-type: application/activity+json`
     ];
 
-    // 3. Firma con codifica URI component
+    // 4. Firma con PKCS#1 v1.5 per compatibilità
     const signer = crypto.createSign('RSA-SHA256');
     signer.update(headers.join('\n'));
     const signature = signer.sign({
       key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto.constants.RSA_PKCS1_PADDING
     }, 'base64');
 
-    // 4. Verifica incrociata con chiave pubblica
+    // 5. Verifica sincrona con logging esteso
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(headers.join('\n'));
     
-    if (!verifier.verify(
-      { key: publicKey, padding: crypto.constants.RSA_PKCS1_PSS_PADDING },
-      signature,
-      'base64'
-    )) {
+    if (!verifier.verify(publicKey, signature, 'base64')) {
       debugInfo = {
         publicKey: publicKey.substring(0, 100),
         signature: signature.substring(0, 50),
-        headers
+        headers: headers.join('|'),
+        body
       };
-      throw new Error('Mismatch firma/chiave pubblica');
+      throw new Error('Verifica locale fallita');
     }
 
-    // 5. Codifica URI per valori signature
+    // 6. Formattazione firma senza URI encoding
     return [
-      `keyId="${encodeURIComponent(keyId)}"`,
+      `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
       'headers="(request-target) host date digest content-type"',
-      `signature="${encodeURIComponent(signature)}"`
+      `signature="${signature}"`
     ].join(', ');
 
   } catch (error) {
