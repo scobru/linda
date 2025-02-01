@@ -564,9 +564,16 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 // Endpoint Outbox
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
-    // Aggiungi header Date mancante
-    req.headers.date = new Date().toUTCString();
-    
+    // Normalizza gli header mancanti
+    const requiredHeaders = {
+      'Date': req.headers.date || new Date().toUTCString(),
+      'Host': new URL(BASE_URL).host,
+      'Content-Type': 'application/activity+json'
+    };
+
+    // Sostituisci gli header mancanti
+    req.headers = { ...req.headers, ...requiredHeaders };
+
     const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
     
     res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
