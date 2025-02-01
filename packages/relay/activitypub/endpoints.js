@@ -597,32 +597,3 @@ async function getUserActivityPubProfile(gun, username) {
   }
 }
 
-async function saveUserActivityPubKeys(gun, username) {
-  try {
-    // Genera nuove chiavi
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: {
-        type: 'spki',
-        format: 'pem'
-      },
-      privateKeyEncoding: {
-        type: 'pkcs8',
-        format: 'pem'
-      }
-    });
-
-    // Salva le chiavi
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(username)
-      .get('keys')
-      .put({ publicKey, privateKey });
-
-    return { publicKey, privateKey };
-  } catch (error) {
-    console.error('Errore nella generazione delle chiavi:', error);
-    throw error;
-  }
-}
