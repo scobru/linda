@@ -32,7 +32,7 @@ import 'gun/lib/radisk.js';
 
 const app = express();
 const server = http.createServer(app);
-server.setTimeout(30000); // 
+server.setTimeout(30000);
 const port = process.env.PORT || 8765;
 
 console.log('Starting server with configuration:');
@@ -983,8 +983,10 @@ app.get('/', (req, res) => {
 
 // Gestione errori 404
 app.use((req, res) => {
+  console.log('404 - Endpoint non trovato:', req.path);
   res.status(404).json({
-    error: 'Endpoint non trovato'
+    error: 'Endpoint non trovato',
+    path: req.path
   });
 });
 
@@ -992,7 +994,8 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('Errore del server:', err);
   res.status(500).json({
-    error: 'Errore interno del server'
+    error: 'Errore interno del server',
+    message: err.message
   });
 });
 
@@ -1007,6 +1010,11 @@ app.post('/api/verify', async (req, res) => {
             });
         }
 
+        // Verifica che Gun sia inizializzato
+        if (!gun) {
+            throw new Error('Database non disponibile');
+        }
+
         // Verifica l'API key nel database Gun
         const isValid = await new Promise((resolve) => {
             gun
@@ -1015,16 +1023,22 @@ app.post('/api/verify', async (req, res) => {
                 .get(username)
                 .get('apiKey')
                 .once((storedKey) => {
+                    console.log('Verifica API key:', {
+                        username,
+                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]'
+                    });
                     resolve(storedKey === apikey);
                 });
         });
 
         if (!isValid) {
+            console.log('API key non valida per:', username);
             return res.status(401).json({ 
                 error: 'API key non valida' 
             });
         }
 
+        console.log('API key verificata con successo per:', username);
         res.json({ 
             success: true, 
             username 
