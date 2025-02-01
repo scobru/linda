@@ -728,3 +728,59 @@ async function sendFollowRequest(targetActor, username, gun) {
   }
 }
 
+async function saveUserProfile(gun, username, profileData) {
+  try {
+    // Converti il contesto in stringa se è un array
+    const context = Array.isArray(profileData['@context']) 
+      ? profileData['@context'].join(', ')
+      : profileData['@context'];
+
+    // Crea un oggetto semplificato compatibile con GUN
+    const gunProfile = {
+      ...profileData,
+      '@context': context,
+      publicKey: JSON.stringify(profileData.publicKey)
+    };
+
+    // Salva il profilo con struttura piatta
+    await new Promise((resolve, reject) => {
+      gun.get('linda-messenger')
+        .get('activitypub')
+        .get(username)
+        .put(gunProfile, (ack) => {
+          if (ack.err) {
+            reject(new Error(`Errore nel salvataggio: ${ack.err}`));
+          } else {
+            console.log('Profilo salvato in GUN:', Object.keys(gunProfile));
+            resolve();
+          }
+        });
+    });
+
+    return gunProfile;
+  } catch (error) {
+    console.error('Dettaglio errore salvataggio:', {
+      input: profileData,
+      error: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Errore nel salvataggio del profilo: ${error.message}`);
+  }
+}
+
+// Modifica nella creazione del profilo
+async function createActivityPubProfile(gun, username) {
+  const profile = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    // ... resto delle proprietà ...
+  };
+
+  // Aggiungi questa validazione
+  if (Array.isArray(profile['@context'])) {
+    console.warn('Contesto è un array, conversione in stringa');
+    profile['@context'] = profile['@context'][0];
+  }
+
+  return saveUserProfile(gun, username, profile);
+}
+
