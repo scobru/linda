@@ -488,13 +488,13 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     });
 
     const url = new URL(request.url);
-    const date = request.headers.date || new Date().toUTCString();
+    const date = request.headers.date;
     const digest = request.headers.digest;
     
     // Prepara gli headers da firmare in ordine specifico
     const signedString = [
       `(request-target): ${request.method.toLowerCase()} ${url.pathname}`,
-      `host: ${url.host}`,
+      `host: ${request.headers.host}`,
       `date: ${date}`,
       `digest: ${digest}`
     ].join('\n');
@@ -503,13 +503,10 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
 
     // Genera la firma
     const signer = crypto.createSign('sha256');
-    signer.update(signedString, 'utf8');
+    signer.update(signedString);
     signer.end();
 
-    const signature = signer.sign({
-      key: keys.privateKey,
-      padding: crypto.constants.RSA_PKCS1_PADDING
-    });
+    const signature = signer.sign(keys.privateKey);
     const signature_b64 = signature.toString('base64');
 
     console.log('Firma generata (base64):', signature_b64);
@@ -523,10 +520,6 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     ].join(',');
 
     console.log('Header Signature completo:', signatureHeader);
-
-    // Aggiorna gli headers della richiesta
-    request.headers.date = date;
-    request.headers.host = url.host;
 
     return signatureHeader;
   } catch (error) {
@@ -682,34 +675,49 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
       // Prepara la richiesta
       const body = JSON.stringify(followActivity);
-      const digest = createHash('sha256').update(body).digest('base64');
+      const digest = `SHA-256=${createHash('sha256').update(body).digest('base64')}`;
+      const date = new Date().toUTCString();
+      const targetHost = new URL(targetServer).host;
+      const inboxUrl = `${targetServer}/users/${targetUsername}/inbox`;
       
       const headers = {
         'Content-Type': 'application/activity+json',
         'Accept': 'application/activity+json',
-        'Date': new Date().toUTCString(),
-        'Host': new URL(targetServer).host,
-        'Digest': `SHA-256=${digest}`
+        'Date': date,
+        'Host': targetHost,
+        'Digest': digest
       };
 
       // Firma la richiesta
       const keyId = `${BASE_URL}/users/${username}#main-key`;
       try {
+        console.log('Preparazione firma con:', {
+          method: 'POST',
+          url: inboxUrl,
+          headers,
+          keyId,
+          username,
+          DAPP_NAME
+        });
+
         const signature = await signRequest({
           method: 'POST',
-          url: `${targetServer}/users/${targetUsername}/inbox`,
-          headers,
+          url: inboxUrl,
+          headers: {
+            ...headers,
+            date: date,
+            host: targetHost,
+            digest: digest
+          },
           body
         }, keyId, username, gun, DAPP_NAME);
 
-        if (signature) {
-          headers['Signature'] = signature;
-        }
+        headers['Signature'] = signature;
 
-        console.log('Invio richiesta follow con headers:', headers);
+        console.log('Headers completi per la richiesta:', headers);
 
         // Invia la richiesta
-        const response = await fetch(`${targetServer}/users/${targetUsername}/inbox`, {
+        const response = await fetch(inboxUrl, {
           method: 'POST',
           headers,
           body
@@ -717,6 +725,11 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
         if (!response.ok) {
           const errorText = await response.text();
+          console.error('Risposta errore dal server:', {
+            status: response.status,
+            headers: Object.fromEntries(response.headers.entries()),
+            body: errorText
+          });
           throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
         }
 
@@ -739,7 +752,12 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
         return followActivity;
       } catch (error) {
-        console.error('Errore durante la firma o l\'invio della richiesta follow:', error);
+        console.error('Errore dettagliato nella richiesta follow:', {
+          error: error.message,
+          stack: error.stack,
+          headers,
+          body
+        });
         throw error;
       }
     }
