@@ -10,7 +10,7 @@ import { createHash } from 'crypto';
 dotenv.config();
 
 // Usa sempre il server locale per i test
-const BASE_URL = "http://localhost:8765";
+const BASE_URL = "https://gun-relay.scobrudot.dev";
 const TEST_USERNAME = "scobru_test3";
 const TEST_PASSWORD = "test12345678";
 
@@ -375,13 +375,13 @@ async function runTests() {
     
     const webfingerResponse = await fetch(webfingerUrl);
     console.log("Status WebFinger:", webfingerResponse.status);
-
+    
     if (!webfingerResponse.ok) {
       throw new Error(
         `WebFinger request failed with status ${webfingerResponse.status}`
       );
     }
-
+    
     const webfingerData = await webfingerResponse.json();
     console.log("WebFinger Response:", webfingerData, "\n");
 
@@ -396,14 +396,14 @@ async function runTests() {
       }
     });
     console.log("Status profilo:", profileResponse.status);
-
+    
     if (!profileResponse.ok) {
       const errorText = await profileResponse.text();
       throw new Error(
         `Profile request failed with status ${profileResponse.status}: ${errorText}`
       );
     }
-
+    
     const profileData = await profileResponse.json();
     console.log("Profile Response:", profileData, "\n");
 
@@ -428,20 +428,20 @@ async function runTests() {
       `${BASE_URL}/users/${TEST_USERNAME}/outbox`,
       {
         method: "POST",
-        headers: {
+      headers: {
           "Content-Type": "application/activity+json",
-        },
+      },
         body: JSON.stringify(testPost),
       }
     );
-
+    
     if (!postResponse.ok) {
       const errorText = await postResponse.text();
       throw new Error(
         `Post creation failed with status ${postResponse.status}: ${errorText}`
       );
     }
-
+    
     const postData = await postResponse.json();
     console.log("Post Creation Response:", postData, "\n");
 
@@ -456,9 +456,9 @@ async function runTests() {
       `${BASE_URL}/users/${TEST_USERNAME}/outbox`,
       {
         method: "POST",
-        headers: {
+      headers: {
           "Content-Type": "application/activity+json",
-        },
+      },
         body: JSON.stringify(followActivity),
       }
     );
@@ -469,7 +469,7 @@ async function runTests() {
         `Follow request failed with status ${followResponse.status}: ${errorText}`
       );
     }
-
+    
     const followData = await followResponse.json();
     console.log("Follow Request Response:", followData, "\n");
 
@@ -478,13 +478,13 @@ async function runTests() {
     const followersResponse = await fetch(
       `${BASE_URL}/users/${TEST_USERNAME}/followers`
     );
-
+    
     if (!followersResponse.ok) {
       throw new Error(
         `Followers request failed with status ${followersResponse.status}`
       );
     }
-
+    
     const followersData = await followersResponse.json();
     console.log("Followers Response:", followersData, "\n");
 
@@ -493,13 +493,13 @@ async function runTests() {
     const followingResponse = await fetch(
       `${BASE_URL}/users/${TEST_USERNAME}/following`
     );
-
+    
     if (!followingResponse.ok) {
       throw new Error(
         `Following request failed with status ${followingResponse.status}`
       );
     }
-
+    
     const followingData = await followingResponse.json();
     console.log("Following Response:", followingData, "\n");
 
@@ -514,4 +514,4 @@ async function runTests() {
 }
 
 // Esegui i test
-runTests();
+runTests(); 

@@ -9,6 +9,16 @@ class WebAuthnManager {
     return this.walletManager.isWebAuthnSupported();
   }
 
+  async checkExistingUser(username) {
+    try {
+      // Chiama Shogun per verificare se l'utente esiste
+      return await this.walletManager.webAuthnService.checkExistingUser(username);
+    } catch (error) {
+      console.error('Errore verifica esistenza utente:', error);
+      return false;
+    }
+  }
+
   async generateCredentials(username) {
     try {
       if (!this.isSupported()) {

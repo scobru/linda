@@ -42,52 +42,60 @@ const saveSession = async (userData, wallet) => {
     let attempts = 0;
     const maxAttempts = 3;
 
-    while (!keyPair && attempts < maxAttempts) {
-      attempts++;
-      console.log(`Tentativo ${attempts}/${maxAttempts} di ottenere le chiavi`);
+    // Se abbiamo chiavi WebAuthn, usiamo quelle
+    if (userData.encryptionKeys) {
+      console.log('Uso chiavi WebAuthn fornite');
+      keyPair = userData.encryptionKeys;
+      // Assicurati che il walletManager abbia le chiavi corrette
+      walletManager.setCurrentUserKeyPair(userData.encryptionKeys);
+    } else {
+      while (!keyPair && attempts < maxAttempts) {
+        attempts++;
+        console.log(`Tentativo ${attempts}/${maxAttempts} di ottenere le chiavi`);
 
-      try {
-        // Prima prova dal WalletManager
-        keyPair = walletManager.getCurrentUserKeyPair();
-        if (keyPair) {
-          console.log('Chiavi ottenute dal WalletManager');
-          break;
-        }
-
-        // Se non disponibile, prova da user._.sea
-        if (user._.sea) {
-          console.log('Tentativo recupero chiavi da user._.sea');
-          keyPair = {
-            pub: user._.sea.pub,
-            priv: user._.sea.priv,
-            epub: user._.sea.epub,
-            epriv: user._.sea.epriv
-          };
-          if (Object.values(keyPair).every(k => k)) {
-            console.log('Chiavi recuperate da user._.sea');
+        try {
+          // Prima prova dal WalletManager
+          keyPair = walletManager.getCurrentUserKeyPair();
+          if (keyPair) {
+            console.log('Chiavi ottenute dal WalletManager');
             break;
           }
-        }
 
-        // Se ancora non disponibile, prova da user.is
-        if (user.is) {
-          console.log('Tentativo recupero chiavi da user.is');
-          keyPair = {
-            pub: user.is.pub,
-            priv: user.is.priv,
-            epub: user.is.epub,
-            epriv: user.is.epriv
-          };
-          if (Object.values(keyPair).every(k => k)) {
-            console.log('Chiavi recuperate da user.is');
-            break;
+          // Se non disponibile, prova da user._.sea
+          if (user._.sea) {
+            console.log('Tentativo recupero chiavi da user._.sea');
+            keyPair = {
+              pub: user._.sea.pub,
+              priv: user._.sea.priv,
+              epub: user._.sea.epub,
+              epriv: user._.sea.epriv
+            };
+            if (Object.values(keyPair).every(k => k)) {
+              console.log('Chiavi recuperate da user._.sea');
+              break;
+            }
           }
-        }
 
-        console.log('Attendo prima del prossimo tentativo...');
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (err) {
-        console.warn(`Errore nel tentativo ${attempts}:`, err);
+          // Se ancora non disponibile, prova da user.is
+          if (user.is) {
+            console.log('Tentativo recupero chiavi da user.is');
+            keyPair = {
+              pub: user.is.pub,
+              priv: user.is.priv,
+              epub: user.is.epub,
+              epriv: user.is.epriv
+            };
+            if (Object.values(keyPair).every(k => k)) {
+              console.log('Chiavi recuperate da user.is');
+              break;
+            }
+          }
+
+          console.log('Attendo prima del prossimo tentativo...');
+          await new Promise(r => setTimeout(r, 1000));
+        } catch (err) {
+          console.warn(`Errore nel tentativo ${attempts}:`, err);
+        }
       }
     }
 
@@ -145,6 +153,19 @@ const saveSession = async (userData, wallet) => {
       },
       credentials: 'HIDDEN'
     });
+
+    // Per WebAuthn, salva anche le chiavi nel localStorage
+    if (userData.authType === 'webauthn') {
+      localStorage.setItem(
+        `webauthn_keys_${sessionData.pub}`,
+        JSON.stringify({
+          pub: keyPair.pub,
+          priv: keyPair.priv,
+          epub: keyPair.epub,
+          epriv: keyPair.epriv
+        })
+      );
+    }
 
     const saved = await sessionManager.saveSession(sessionData);
     if (!saved) {
@@ -362,6 +383,13 @@ export const loginUser = async (credentials = {}) => {
   try {
     console.log("Starting login process for:", credentials.username);
 
+    // Se abbiamo le chiavi di cifratura WebAuthn, le usiamo direttamente
+    if (credentials.encryptionKeys) {
+      console.log("Usando chiavi WebAuthn fornite");
+      // Imposta le chiavi nel walletManager
+      walletManager.setCurrentUserKeyPair(credentials.encryptionKeys);
+    }
+
     // Verifica autenticazione
     const userPub = await walletManager.login(credentials.username, credentials.password);
 
@@ -381,19 +409,39 @@ export const loginUser = async (credentials = {}) => {
     // Verifica se l'utente è WebAuthn
     const isWebAuthn = userData.authType === "webauthn";
 
-    // Recupera il wallet
+    // Recupera il wallet e le chiavi
     let wallet;
+    let encryptionKeys = credentials.encryptionKeys;
+    
     if (isWebAuthn) {
       // Per utenti WebAuthn, prima cerca nel localStorage
       const localWallet = localStorage.getItem(`gunWallet_${userPub}`);
       if (localWallet) {
-        wallet = JSON.parse(localWallet);
+        const walletData = JSON.parse(localWallet);
+        wallet = {
+          address: walletData.internalWalletAddress,
+          privateKey: walletData.internalWalletPk
+        };
+        
+        // Se non abbiamo già le chiavi, le recuperiamo
+        if (!encryptionKeys) {
+          encryptionKeys = walletManager.getCurrentUserKeyPair();
+          if (!encryptionKeys) {
+            throw new Error("Chiavi di cifratura WebAuthn non trovate");
+          }
+        }
       }
     }
 
     // Se non abbiamo trovato il wallet nel localStorage, lo creiamo
     if (!wallet) {
-      const walletResult = await WalletManager.createWalletObj(user._.sea);
+      // Per WebAuthn usa le chiavi di cifratura specifiche
+      const keysToUse = isWebAuthn ? encryptionKeys : user._.sea;
+      if (!keysToUse) {
+        throw new Error("Chiavi di cifratura non disponibili");
+      }
+
+      const walletResult = await WalletManager.createWalletObj(keysToUse);
       wallet = walletResult.walletObj;
 
       // Salva il nuovo wallet nel localStorage per utenti WebAuthn
@@ -406,6 +454,11 @@ export const loginUser = async (credentials = {}) => {
           })
         );
       }
+    }
+
+    // Aggiorna userData con le chiavi di cifratura per WebAuthn
+    if (isWebAuthn && encryptionKeys) {
+      userData.encryptionKeys = encryptionKeys;
     }
 
     // Salva la sessione

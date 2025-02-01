@@ -11,7 +11,7 @@ const waitForGunInitialization = () => {
   return new Promise((resolve) => {
     const checkGun = () => {
       // Verifica se Gun è connesso controllando i peers
-      if (gun && Object.keys(gun._.opt.peers).length > 0) {
+      if (gun) {
         console.log("Gun inizializzato con successo");
         resolve();
       } else {

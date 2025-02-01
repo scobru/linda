@@ -11,8 +11,14 @@ let isConnected = false;
 
 export { SEA }
 
+const gunOptions = {
+  peers: DEFAULT_PEERS,
+  radisk: false,
+  localStorage: false,
+};
+
 // Inizializza il WalletManager
-const walletManager = new WalletManager();
+const walletManager = new WalletManager(gunOptions);
 
 // Inizializza Gun con le opzioni
 export const gun = walletManager.getGun();

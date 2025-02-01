@@ -320,37 +320,85 @@ export default function SignIn() {
       const credentials = await webAuthnService.login(username.trim());
       
       if (!credentials.success) {
+        if (credentials.error?.includes("Nessuna credenziale WebAuthn trovata")) {
+          // Verifica se l'utente esiste
+          const userExists = await webAuthnService.checkExistingUser(username.trim());
+          
+          if (userExists) {
+            // L'utente esiste ma questo dispositivo non è registrato
+            toast.error(
+              (t) => (
+                <div>
+                  <p>Questo dispositivo non è ancora registrato per l'accesso WebAuthn.</p>
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      navigate('/register', { 
+                        state: { 
+                          username: username.trim(),
+                          isNewDevice: true 
+                        } 
+                      });
+                    }}
+                    className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-full text-sm"
+                  >
+                    Registra questo dispositivo
+                  </button>
+                </div>
+              ),
+              { id: toastId, duration: 5000 }
+            );
+          } else {
+            // L'utente non esiste proprio
+            toast.error(
+              (t) => (
+                <div>
+                  <p>Nessun account trovato con questo username.</p>
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      navigate('/register', { 
+                        state: { 
+                          username: username.trim(),
+                          isNewDevice: false 
+                        } 
+                      });
+                    }}
+                    className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-full text-sm"
+                  >
+                    Registrati come nuovo utente
+                  </button>
+                </div>
+              ),
+              { id: toastId, duration: 5000 }
+            );
+          }
+          return;
+        }
         throw new Error(credentials.error || "Errore durante l'accesso con WebAuthn");
       }
 
-      // Se l'utente è già autenticato, procedi direttamente
-      if (user.is && user.is.pub === credentials.encryptionKeys.pub) {
-        localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userPub", user.is.pub);
-        localStorage.setItem("username", credentials.username);
-        localStorage.setItem("webauthn_credential_id", credentials.credentialId);
-
-        toast.success("Accesso effettuato con successo!", { id: toastId });
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
-        localStorage.removeItem("redirectAfterLogin");
-        window.location.replace(redirectPath);
-        return;
-      }
-
-      // Altrimenti effettua il login completo
+      // Effettua il login completo usando le credenziali generate dal salt
       const result = await authentication.loginUser({
         username: credentials.username,
-        encryptionKeys: credentials.encryptionKeys
+        password: credentials.password, // Password generata dal salt
+        authType: 'webauthn'
       });
 
       if (result.success) {
         // Salva lo stato di autenticazione
         localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userPub", user.is.pub);
+        localStorage.setItem("userPub", result.pub); // Usa il pub dal risultato del login
         localStorage.setItem("username", credentials.username);
         localStorage.setItem("webauthn_credential_id", credentials.credentialId);
+
+        // Se abbiamo le chiavi di cifratura dal risultato del login, salviamole
+        if (result.encryptionKeys) {
+          localStorage.setItem(
+            `webauthn_keys_${result.pub}`,
+            JSON.stringify(result.encryptionKeys)
+          );
+        }
 
         // Verifica che la sessione sia stata salvata correttamente
         const isSessionValid = await sessionManager.validateSession();
