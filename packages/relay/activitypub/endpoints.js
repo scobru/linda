@@ -456,13 +456,10 @@ async function signRequest(requestData, keyId, username, gun) {
   let body;
 
   try {
-    const { privateKey, publicKey } = await getUserKeys(gun, username);
+    const { privateKey } = await getUserKeys(gun, username);
     
     // 1. Normalizzazione RFC 8785 per JSON
-    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort(), 2)
-      .replace(/\//g, '\\/')
-      .replace(/\n/g, '');
-    
+    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
       .update(body)
       .digest('base64');
@@ -470,14 +467,13 @@ async function signRequest(requestData, keyId, username, gun) {
     const url = new URL(requestData.url);
     const path = `${url.pathname}${url.search}`.replace(/\/{2,}/g, '/');
 
-    // 2. Costruzione header con versione protocollo
     headers = [
       `(request-target): post ${path}`,
-      `host: ${url.host}`,
+      `host: ${url.hostname}`,
       `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
-      `content-type: application/activity+json`
-    ];
+      `content-type: ${requestData.headers['Content-Type']}`
+    ].map(h => h.toLowerCase());
 
     // 3. Firma con codifica PKCS#1 v1.5
     const signer = crypto.createSign('RSA-SHA256');
@@ -510,9 +506,9 @@ async function signRequest(requestData, keyId, username, gun) {
 
   } catch (error) {
     console.error('Dettagli errore:', {
-      headers: headers.join('|'),
-      body,
-      digest: crypto.createHash('sha256').update(body).digest('base64'),
+      headers,
+      digest: body ? crypto.createHash('sha256').update(body).digest('base64') : 'N/A',
+      publicKey: (await getUserKeys(gun, username))?.publicKey?.substring(0, 50) + '...',
       error: error.stack
     });
     throw new Error(`Errore di firma: ${error.message}`);
