@@ -4,7 +4,15 @@ const RELAY_URL = 'https://gun-relay.scobrudot.dev';
 // Headers comuni per le richieste
 const DEFAULT_HEADERS = {
     'Accept': 'application/activity+json',
-    'Content-Type': 'application/activity+json'
+    'Content-Type': 'application/activity+json',
+    'Origin': window.location.origin
+};
+
+// Headers per richieste JSON standard
+const JSON_HEADERS = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'Origin': window.location.origin
 };
 
 // Stato dell'applicazione
@@ -49,6 +57,31 @@ function showRegisterForm() {
     showSection('registerForm');
 }
 
+// Funzione helper per le richieste
+async function fetchWithError(url, options = {}) {
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                ...(options.headers || {}),
+                'Origin': window.location.origin
+            },
+            credentials: 'omit' // Importante per CORS
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        }
+        
+        return data;
+    } catch (error) {
+        console.error('Fetch error:', error);
+        throw new Error(error.message || 'Errore di rete');
+    }
+}
+
 async function register(event) {
     event.preventDefault();
     const username = document.getElementById('registerUsername').value;
@@ -57,17 +90,11 @@ async function register(event) {
     try {
         setLoading(submitButton, true);
         
-        const response = await fetch(`${RELAY_URL}/api/admin/create`, {
+        const data = await fetchWithError(`${RELAY_URL}/api/admin/create`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: JSON_HEADERS,
             body: JSON.stringify({ account: username })
         });
-
-        const data = await response.json();
-        
-        if (!response.ok) throw new Error(data.error || 'Errore durante la registrazione');
         
         showNotification(`Registrazione completata! La tua API key è: ${data.apikey}`);
         document.getElementById('loginUsername').value = username;
@@ -90,25 +117,16 @@ async function login(event) {
         setLoading(submitButton, true);
         
         // Verifica le credenziali chiamando l'endpoint del profilo
-        const response = await fetch(`${RELAY_URL}/users/${username}`, {
+        const profile = await fetchWithError(`${RELAY_URL}/users/${username}`, {
             headers: DEFAULT_HEADERS
         });
 
-        if (!response.ok) throw new Error('Credenziali non valide');
-
         // Verifica l'API key
-        const verifyResponse = await fetch(`${RELAY_URL}/api/verify`, {
+        await fetchWithError(`${RELAY_URL}/api/verify`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-                username, 
-                apikey: apiKey 
-            })
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ username, apikey: apiKey })
         });
-
-        if (!verifyResponse.ok) throw new Error('API key non valida');
 
         // Salva le credenziali
         currentUser = { username, apiKey };
@@ -121,8 +139,7 @@ async function login(event) {
         
         // Carica la timeline
         showSection('timeline');
-        loadTimeline();
-        loadProfile();
+        await Promise.all([loadTimeline(), loadProfile()]);
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {
@@ -147,7 +164,6 @@ async function createPost(event) {
     try {
         setLoading(submitButton, true);
         
-        // Crea l'attività Create con Note
         const activity = {
             '@context': 'https://www.w3.org/ns/activitystreams',
             type: 'Create',
@@ -160,7 +176,7 @@ async function createPost(event) {
             }
         };
 
-        const response = await fetch(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
+        await fetchWithError(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
             method: 'POST',
             headers: {
                 ...DEFAULT_HEADERS,
@@ -168,14 +184,10 @@ async function createPost(event) {
             },
             body: JSON.stringify(activity)
         });
-
-        const data = await response.json();
-        
-        if (!response.ok) throw new Error(data.error || 'Errore durante la pubblicazione');
         
         showNotification('Post pubblicato con successo!');
         document.getElementById('postContent').value = '';
-        loadTimeline();
+        await loadTimeline();
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {
