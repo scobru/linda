@@ -241,7 +241,7 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
     actorData.publicKey = {
       id: `${BASE_URL}/users/${username}#main-key`,
       owner: `${BASE_URL}/users/${username}`,
-      publicKeyPem: keys.publicKey
+      publicKeyPem: keys.publicKey.replace(/\\n/g, '\n')
     };
 
     return actorData;
@@ -286,8 +286,12 @@ async function signRequest(request, keyId, username, gun) {
   try {
     const keys = await getUserActivityPubKeys(gun, username);
     const url = new URL(request.url);
-    const digest = createHash('sha256').update(request.body).digest('base64');
+    
+    // 1. Normalizza il corpo della richiesta
+    const bodyString = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+    const digest = createHash('sha256').update(bodyString).digest('base64');
 
+    // 2. Aggiungi header mancanti e verifica l'ordine
     const headersToSign = [
       '(request-target)',
       'host',
@@ -296,29 +300,36 @@ async function signRequest(request, keyId, username, gun) {
       'content-type'
     ];
 
+    // 3. Costruisci la stringa di firma con formattazione corretta
     const signatureParams = headersToSign
       .map(header => {
         let value;
-        if (header === '(request-target)') {
-          value = `${request.method.toLowerCase()} ${url.pathname}`;
-        } else {
-          value = request.headers[header];
+        switch(header) {
+          case '(request-target)':
+            value = `${request.method.toLowerCase()} ${url.pathname}${url.search}`;
+            break;
+          case 'host':
+            value = url.host;
+            break;
+          default:
+            value = request.headers[header.toLowerCase()];
         }
-        return `${header}: ${value}`;
+        return `${header.toLowerCase()}: ${value}`;
       })
       .join('\n');
 
-    const signature = crypto
-      .createSign('sha256')
-      .update(signatureParams)
-      .sign(keys.privateKey, 'base64');
+    // 4. Usa la codifica corretta per la firma
+    const signer = crypto.createSign('RSA-SHA256');
+    signer.update(signatureParams);
+    const signature = signer.sign(keys.privateKey, 'base64');
 
+    // 5. Costruisci l'header della firma
     const signatureHeader = [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
       `headers="${headersToSign.join(' ')}"`,
       `signature="${signature}"`
-    ].join(',');
+    ].join(', ');
 
     return signatureHeader;
   } catch (error) {
