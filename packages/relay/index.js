@@ -125,17 +125,28 @@ function getRadataSize() {
   }
 }
 
+// Middleware per CORS - deve essere prima di tutti gli altri middleware
+app.use((req, res, next) => {
+    // Abilita CORS per tutte le origini in sviluppo
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    
+    // Gestisci le richieste OPTIONS (preflight)
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    next();
+});
+
+// Middleware per il parsing del body
+app.use(express.json({ 
+    type: ['application/json', 'application/activity+json']
+}));
+
 // Middleware
 app.use(express.static("dashboard"));
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  next();
-});
 
 // Middleware Gun
 app.head('/gun', (req, res) => {
