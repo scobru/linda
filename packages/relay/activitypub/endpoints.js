@@ -220,16 +220,14 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
       keys = await saveUserActivityPubKeys(gun, username);
     }
 
-    // Restituisci il profilo con o senza chiavi
-    return {
-      ...actorData,
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      publicKey: keys ? {
-        id: `${actorData.id}#main-key`,
-        owner: actorData.id,
-        publicKeyPem: keys.publicKey
-      } : undefined
+    // Aggiungi la chiave pubblica al profilo
+    actorData.publicKey = {
+      id: `${BASE_URL}/users/${username}#main-key`,
+      owner: `${BASE_URL}/users/${username}`,
+      publicKeyPem: keys.publicKey
     };
+
+    return actorData;
   } catch (error) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
