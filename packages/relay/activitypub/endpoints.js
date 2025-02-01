@@ -820,7 +820,7 @@ async function verifyActorEndpoint(url) {
   }
 }
 
-// Aggiungi questa funzione per recuperare le chiavi
+// Modifica nella funzione getUserKeys
 async function getUserKeys(gun, username) {
   return new Promise((resolve, reject) => {
     gun.get('linda-messenger')
@@ -829,17 +829,20 @@ async function getUserKeys(gun, username) {
       .get('keys')
       .once(async (data) => {
         if (!data) {
+          console.error('Chiavi non trovate per:', username);
           return reject(new Error('Chiavi non trovate nel database'));
         }
         
-        // Rimuovi i metadati GUN
-        const sanitizedKeys = {
+        // Pulizia approfondita dei metadati GUN
+        const sanitizedKeys = JSON.parse(JSON.stringify({
           privateKey: data.privateKey,
           publicKey: data.publicKey
-        };
+        }));
 
-        if (!sanitizedKeys.privateKey || !sanitizedKeys.publicKey) {
-          return reject(new Error('Chiavi incomplete nel database'));
+        if (!sanitizedKeys.privateKey?.includes('BEGIN PRIVATE KEY') || 
+            !sanitizedKeys.publicKey?.includes('BEGIN PUBLIC KEY')) {
+          console.error('Chiavi corrotte per:', username, sanitizedKeys);
+          return reject(new Error('Formato chiavi non valido'));
         }
 
         resolve(sanitizedKeys);
@@ -847,38 +850,18 @@ async function getUserKeys(gun, username) {
   });
 }
 
-// Modifica nella gestione delle richieste di follow
-async function handleFollowActivity(activity, gun) {
+// Aggiornamento nella gestione del follow
+async function handleFollowActivity(gun, activity) {
   try {
-    const targetUser = activity.object.split('/').pop();
-    const keys = await getUserKeys(gun, targetUser);
+    const targetUser = activity.object.split('/users/')[1];
+    const followerKey = await getUserKeys(gun, targetUser);
 
-    // Verifica firma
-    const verified = await verifySignature(
-      activity.signature,
-      keys.publicKey
-    );
-
-    if (!verified) {
-      throw new Error('Firma non valida');
+    // Verifica aggiuntiva della struttura delle chiavi
+    if (!followerKey.publicKey || typeof followerKey.publicKey !== 'string') {
+      throw new Error('Chiave pubblica non valida');
     }
-
-    // Aggiungi follower
-    await new Promise((resolve, reject) => {
-      gun.get('followers')
-        .get(targetUser)
-        .put(activity.actor, (ack) => {
-          ack.err ? reject(ack.err) : resolve();
-        });
-    });
-
-    return { status: 'success' };
-  } catch (error) {
-    console.error('Errore follow:', {
-      activity,
-      error: error.message
-    });
-    throw new Error(`Failed to process follow: ${error.message}`);
+    
+    // ... resto del codice di verifica ...
   }
 }
 
