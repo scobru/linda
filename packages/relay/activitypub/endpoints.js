@@ -370,6 +370,70 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
     const timestamp = Date.now();
     const activityId = `${BASE_URL}/users/${username}/activities/${timestamp}`;
 
+    // Gestione specifica per Create (Note)
+    if (activity.type === 'Create' && activity.object?.type === 'Note') {
+      console.log('Gestione creazione nota:', activity);
+
+      if (!activity.object.content) {
+        throw new Error('Content mancante per la nota');
+      }
+
+      // Crea l'oggetto post
+      const post = {
+        id: `${BASE_URL}/users/${username}/posts/${timestamp}`,
+        type: 'Note',
+        content: activity.object.content,
+        attributedTo: `${BASE_URL}/users/${username}`,
+        published: new Date(timestamp).toISOString(),
+        to: ['https://www.w3.org/ns/activitystreams#Public']
+      };
+
+      // Crea l'attività ActivityPub
+      const createActivity = {
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        id: activityId,
+        type: 'Create',
+        actor: `${BASE_URL}/users/${username}`,
+        published: new Date(timestamp).toISOString(),
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        object: post
+      };
+
+      // Salva il post
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('posts')
+          .get(post.id)
+          .put(post, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
+            }
+          });
+      });
+
+      // Salva l'attività nell'outbox
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('outbox')
+          .get(activityId)
+          .put(createActivity, (ack) => {
+            if (ack.err) {
+              reject(new Error(ack.err));
+            } else {
+              resolve(ack);
+            }
+          });
+      });
+
+      return createActivity;
+    }
+
     // Gestione specifica per Follow
     if (activity.type === 'Follow') {
       console.log('Gestione richiesta Follow:', activity);
@@ -443,7 +507,6 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       return followActivity;
     }
 
-    // Gestione di altre attività...
     throw new Error('Tipo di attività non supportato');
   } catch (error) {
     console.error('Errore nella pubblicazione dell\'attività:', error);
