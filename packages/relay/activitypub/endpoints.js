@@ -621,67 +621,56 @@ async function getUserActivityPubProfile(gun, username) {
 
 // Modifica la funzione esistente
 async function saveUserActivityPubKeys(gun, username) {
-  try {
-    // Genera nuove chiavi
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: {
-        type: 'spki',
-        format: 'pem'
-      },
-      privateKeyEncoding: {
-        type: 'pkcs8',
-        format: 'pem'
-      }
-    });
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  });
 
-    // Salva le chiavi
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
+  return new Promise((resolve, reject) => {
+    // Salva le chiavi nel nodo utente principale
+    gun.get('linda-messenger')
+      .get('users')
       .get(username)
       .get('keys')
-      .put({ publicKey, privateKey });
-
-    return { publicKey, privateKey };
-  } catch (error) {
-    console.error('Errore nella generazione delle chiavi:', error);
-    throw error;
-  }
+      .put({
+        publicKey: publicKey.toString(),
+        privateKey: privateKey.toString()
+      }, async (ack) => {
+        if (ack.err) {
+          reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
+        } else {
+          console.log('Chiavi salvate nel nodo utente GUN');
+          resolve({ publicKey, privateKey });
+        }
+      });
+  });
 }
 
 async function getUserActivityPubKeys(gun, username) {
   return new Promise((resolve, reject) => {
-    const keysNode = gun
-      .get('linda-messenger')
-      .get('activitypub')
+    // Cerca le chiavi nel nodo utente principale
+    gun.get('linda-messenger')
+      .get('users')
       .get(username)
-      .get('keys');
-
-    // Aggiungi un timeout per la lettura
-    const timeout = setTimeout(() => {
-      reject(new Error('Timeout nel recupero delle chiavi'));
-    }, 3000);
-
-    keysNode.once(async (data) => {
-      clearTimeout(timeout);
-      
-      if (!data || !data.publicKey || !data.privateKey) {
-        console.log('Chiavi mancanti, rigenerazione...');
-        try {
-          const newKeys = await saveUserActivityPubKeys(gun, username);
-          resolve(newKeys);
-        } catch (error) {
-          reject(error);
+      .get('keys')
+      .once(async (data) => {
+        if (!data || !data.publicKey || !data.privateKey) {
+          console.log('Chiavi non trovate, rigenerazione...');
+          try {
+            const newKeys = await saveUserActivityPubKeys(gun, username);
+            resolve(newKeys);
+          } catch (error) {
+            reject(error);
+          }
+        } else {
+          console.log('Chiavi recuperate dal nodo utente');
+          resolve({
+            publicKey: data.publicKey,
+            privateKey: data.privateKey
+          });
         }
-      } else {
-        console.log('Chiavi trovate nel database:', {
-          publicKey: data.publicKey.substring(0, 50) + '...',
-          privateKey: data.privateKey.substring(0, 50) + '...'
-        });
-        resolve(data);
-      }
-    });
+      });
   });
 }
 
