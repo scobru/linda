@@ -59,6 +59,56 @@ console.log('- DAPP_NAME:', DAPP_NAME);
 console.log('- PORT:', port);
 console.log('- NODE_ENV:', process.env.NODE_ENV);
 
+// Definizione delle metriche
+const metrics = {
+    connections: 0,
+    putOperations: 0,
+    getOperations: 0,
+    bytesTransferred: 0,
+    protocol: {
+        messages: {
+            sent: 0,
+            received: 0,
+            encrypted: 0,
+            failed: 0,
+        },
+        authentication: {
+            logins: 0,
+            registrations: 0,
+            failures: 0,
+        },
+        friends: {
+            requests: 0,
+            accepted: 0,
+            rejected: 0,
+        },
+        channels: {
+            created: 0,
+            messages: 0,
+            members: 0,
+        },
+    },
+    storage: {
+        radata: 0,
+        nodes: 0,
+        backups: 0,
+        total: 0,
+    },
+    backups: {
+        lastBackup: {
+            hash: null,
+            time: null,
+            size: 0,
+            link: "#",
+        },
+        stats: {
+            total: 0,
+            successful: 0,
+            failed: 0,
+        },
+    },
+};
+
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: server,
