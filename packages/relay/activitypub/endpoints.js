@@ -451,90 +451,101 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 };
 
 // Funzione per firmare una richiesta ActivityPub
-async function signRequest(requestData, keyId, username, gun) {
-  const encoder = new TextEncoder();
-  let debugInfo = {};
-
+async function signRequest(requestData, keyId, username, gun, DAPP_NAME) {
   try {
-    const { privateKey, publicKey } = await getUserKeys(gun, username);
-    
-    // 1. Normalizzazione finale del percorso
-    const url = new URL(requestData.url);
-    const path = `${url.pathname}${url.search}`
-      .replace(/\/{2,}/g, '/')
-      .replace(/([a-z])\/+([A-Z])/g, '$1/$2')
-      .replace(/\/$/, '');
+    console.log('Generazione firma per la richiesta:', {
+      method: requestData.method,
+      url: requestData.url,
+      headers: requestData.headers,
+      keyId,
+      username,
+      DAPP_NAME
+    });
 
-    // 2. Generazione body con ordinamento profondo
-    const body = JSON.stringify(requestData.body, (key, value) => {
-      return value instanceof Object && !(value instanceof Array) 
-        ? Object.keys(value).sort().reduce((sorted, key) => {
-            sorted[key] = value[key];
-            return sorted;
-          }, {}) 
-        : value;
-    }, 2);
+    // Recupera le chiavi dal database
+    const keys = await new Promise((resolve, reject) => {
+      gun
+        .get('linda-messenger')
+        .get('users')
+        .get(username)
+        .get('keys')
+        .once((data) => {
+          if (!data || !data.privateKey) {
+            reject(new Error('Chiavi non trovate'));
+          } else {
+            resolve(data);
+          }
+        });
+    });
 
-    // 3. Calcolo digest con normalizzazione Unicode
-    const digest = crypto.createHash('sha256')
-      .update(encoder.encode(body.normalize('NFC')))
-      .digest('base64');
-
-    // 4. Intestazioni firmate in ordine specifico
-    const headers = [
-      `(request-target): post ${path}`,
-      `host: ${url.host}`,
-      `date: ${new Date().toUTCString()}`,
-      `digest: SHA-256=${digest}`,
-      `content-type: application/activity+json`
-    ];
-
-    // 5. Firma con codifica esplicita
-    const signer = crypto.createSign('RSA-SHA256');
-    signer.update(headers.join('\n'), 'utf8');
-    const signature = signer.sign({
-      key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PADDING,
-      passphrase: ''
-    }, 'base64');
-
-    // 6. Verifica incrociata con codifica alternativa
-    const verifier = crypto.createVerify('RSA-SHA256');
-    verifier.update(headers.join('\n'), 'utf8');
-    
-    if (!verifier.verify(
-      {
-        key: publicKey,
-        padding: crypto.constants.RSA_PKCS1_PADDING
-      },
-      signature,
-      'base64'
-    )) {
-      debugInfo = {
-        publicKey: publicKey.substring(0, 100),
-        privateKey: privateKey.substring(0, 100),
-        signature,
-        headers,
-        body
-      };
-      throw new Error('Verifica incrociata fallita');
+    if (!keys || !keys.privateKey) {
+      throw new Error('Chiavi non valide');
     }
 
-    // 7. Formattazione finale della firma
-    return [
+    console.log('Chiavi recuperate:', {
+      privateKeyStart: keys.privateKey.substring(0, 50) + '...',
+      publicKeyStart: keys.publicKey.substring(0, 50) + '...'
+    });
+
+    const url = new URL(requestData.url);
+    const date = requestData.headers.date;
+    const digest = requestData.headers.digest;
+    const contentType = requestData.headers['content-type'] || 'application/activity+json';
+    
+    // Prepara gli headers da firmare in ordine specifico
+    const signedString = [
+      `(request-target): ${requestData.method.toLowerCase()} ${url.pathname}`,
+      `host: ${requestData.headers.host}`,
+      `date: ${date}`,
+      `digest: ${digest}`,
+      `content-type: ${contentType}`
+    ].join('\n');
+
+    console.log('Stringa da firmare:', signedString);
+
+    // Genera la firma
+    const signer = crypto.createSign('sha256');
+    signer.write(signedString);
+    signer.end();
+
+    const signature = signer.sign({
+      key: keys.privateKey,
+      padding: crypto.constants.RSA_PKCS1_PADDING
+    });
+    const signature_b64 = signature.toString('base64');
+
+    console.log('Firma generata (base64):', signature_b64);
+
+    // Verifica la firma generata
+    const verifier = crypto.createVerify('sha256');
+    verifier.write(signedString);
+    verifier.end();
+
+    const isValid = verifier.verify({
+      key: keys.publicKey,
+      padding: crypto.constants.RSA_PKCS1_PADDING
+    }, signature);
+
+    if (!isValid) {
+      throw new Error('Verifica della firma fallita');
+    }
+
+    console.log('Verifica firma:', isValid);
+
+    // Costruisci l'header Signature
+    const signatureHeader = [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
       'headers="(request-target) host date digest content-type"',
-      `signature="${signature}"`
-    ].join(', ');
+      `signature="${signature_b64}"`
+    ].join(',');
 
+    console.log('Header Signature completo:', signatureHeader);
+
+    return signatureHeader;
   } catch (error) {
-    console.error('Dettagli errore finale:', {
-      ...debugInfo,
-      error: error.stack,
-      timestamp: new Date().toISOString()
-    });
-    throw new Error(`Errore di firma: ${error.message}`);
+    console.error('Errore nella generazione della firma:', error);
+    throw error;
   }
 }
 
