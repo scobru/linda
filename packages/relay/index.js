@@ -35,79 +35,10 @@ const server = http.createServer(app);
 server.setTimeout(30000);
 const port = process.env.PORT || 8765;
 
-// Inizializza Gun PRIMA delle esportazioni
-const gun = Gun(GUN_CONFIG);
-let mogu;
-
-console.log('Gun inizializzato con configurazione:', GUN_CONFIG);
-
-// Inizializza Mogu se abilitato
-if (CONFIG.STORAGE.enabled) {
-    console.log('Inizializzazione Mogu...');
-    mogu = new Mogu({
-        key: "",
-        storageService: CONFIG.STORAGE.service,
-        storageConfig: CONFIG.STORAGE.config,
-        server: gun,
-        useIPFS: false
-    });
-    console.log("Mogu inizializzato con successo");
-}
-
 console.log('Starting server with configuration:');
 console.log('- DAPP_NAME:', DAPP_NAME);
 console.log('- PORT:', port);
 console.log('- NODE_ENV:', process.env.NODE_ENV);
-
-// Definizione delle metriche
-const metrics = {
-    connections: 0,
-    putOperations: 0,
-    getOperations: 0,
-    bytesTransferred: 0,
-    protocol: {
-        messages: {
-            sent: 0,
-            received: 0,
-            encrypted: 0,
-            failed: 0,
-        },
-        authentication: {
-            logins: 0,
-            registrations: 0,
-            failures: 0,
-        },
-        friends: {
-            requests: 0,
-            accepted: 0,
-            rejected: 0,
-        },
-        channels: {
-            created: 0,
-            messages: 0,
-            members: 0,
-        },
-    },
-    storage: {
-        radata: 0,
-        nodes: 0,
-        backups: 0,
-        total: 0,
-    },
-    backups: {
-        lastBackup: {
-            hash: null,
-            time: null,
-            size: 0,
-            link: "#",
-        },
-        stats: {
-            total: 0,
-            successful: 0,
-            failed: 0,
-        },
-    },
-};
 
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
@@ -196,17 +127,16 @@ function getRadataSize() {
 
 // Middleware per CORS - deve essere prima di tutti gli altri middleware
 app.use((req, res, next) => {
+    // Abilita CORS per tutte le origini in sviluppo
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
     
-    // Log delle richieste
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-    console.log('Headers:', req.headers);
-    
+    // Gestisci le richieste OPTIONS (preflight)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
+    
     next();
 });
 
@@ -218,198 +148,211 @@ app.use(express.json({
 // Middleware
 app.use(express.static("dashboard"));
 
-// API Endpoints
-app.post('/api/verify', async (req, res) => {
-    try {
-        const { username, apikey } = req.body;
-        
-        console.log('Richiesta verifica API key:', {
-            username,
-            hasApiKey: !!apikey
-        });
-        
-        if (!username || !apikey) {
-            return res.status(400).json({ 
-                error: 'Username e API key sono richiesti' 
-            });
-        }
-
-        // Verifica l'API key nel database Gun
-        const isValid = await new Promise((resolve) => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .get('apiKey')
-                .once((storedKey) => {
-                    console.log('Verifica API key:', {
-                        username,
-                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]',
-                        matches: storedKey === apikey
-                    });
-                    resolve(storedKey === apikey);
-                });
-        });
-
-        if (!isValid) {
-            console.log('API key non valida per:', username);
-            return res.status(401).json({ 
-                error: 'API key non valida' 
-            });
-        }
-
-        console.log('API key verificata con successo per:', username);
-        res.json({ 
-            success: true, 
-            username 
-        });
-    } catch (error) {
-        console.error('Errore nella verifica dell\'API key:', error);
-        res.status(500).json({ 
-            error: error.message 
-        });
-    }
-});
-
-app.post('/api/admin/create', async (req, res) => {
-    try {
-        const { account } = req.body;
-        
-        if (!account) {
-            return res.status(400).json({
-                error: 'Nome account mancante'
-            });
-        }
-
-        const result = await createAccount(gun, DAPP_NAME, account);
-        res.json(result);
-    } catch (error) {
-        console.error('Errore nella creazione dell\'account:', error);
-        res.status(500).json({
-            error: error.message
-        });
-    }
-});
-
-// ActivityPub Endpoints
-app.get('/users/:username', async (req, res) => {
-  console.log(`\nRichiesta profilo per utente: ${req.params.username}`);
-  try {
-    const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
-    console.log('Actor data:', actorData);
-    
-    // Imposta gli header corretti per ActivityPub
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.json(actorData);
-  } catch (error) {
-    console.error('Errore nella gestione della richiesta actor:', error);
-    res.status(500).json({ 
-      error: error.message,
-      timestamp: new Date().toISOString(),
-      path: req.path
-    });
-  }
-});
-
-app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
-  try {
-    await handleInbox(gun, DAPP_NAME, req.params.username, req.body, req);
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Errore nella gestione dell\'inbox:', error);
-    res.status(500).json({ 
-      error: error.message,
-      type: error.name,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
-  try {
-    // Importa dinamicamente la configurazione
-    
-    // Aggiungi header mancanti
-    req.headers = {
-      ...req.headers,
-      'Date': new Date().toUTCString(),
-      'Host': new URL(BASE_URL).host
-    };
-
-    const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
-    
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.status(201).json(activity);
-  } catch (error) {
-    console.error('Errore outbox:', {
-      error: error.stack,
-      body: req.body,
-      headers: req.headers 
-    });
-    res.status(500).json({ 
-      error: error.message,
-      type: error.name,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/users/:username/followers', async (req, res) => {
-  try {
-    const followers = await handleFollowers(gun, DAPP_NAME, req.params.username);
-    res.json(followers);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/users/:username/following', async (req, res) => {
-  try {
-    const following = await handleFollowing(gun, DAPP_NAME, req.params.username);
-    res.json(following);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Gun Endpoints
+// Middleware Gun
 app.head('/gun', (req, res) => {
-    res.status(200).end();
+  res.status(200).end();
 });
 
 app.get('/gun', (req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: Date.now() });
+  res.status(200).json({ status: 'ok', timestamp: Date.now() });
 });
 
-// Endpoint per la home
-app.get('/', (req, res) => {
-    res.redirect('/admin.html');
+app.use((req, res, next) => {
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+  next();
 });
 
-// Gestione errori 404 - DEVE ESSERE DOPO TUTTI GLI ALTRI ENDPOINT
-app.use((req, res) => {
-    console.log('404 - Endpoint non trovato:', req.path);
-    res.status(404).json({
-        error: 'Endpoint non trovato',
-        path: req.path
-    });
+// Middleware per il logging delle richieste
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
+  next();
 });
 
-// Gestione errori generici - DEVE ESSERE L'ULTIMO MIDDLEWARE
+// Middleware per gestire gli errori
 app.use((err, req, res, next) => {
-    console.error('Errore del server:', err);
-    res.status(500).json({
-        error: 'Errore interno del server',
-        message: err.message
-    });
+  console.error('Errore nel middleware:', err);
+  res.status(500).json({ error: err.message });
 });
+
+// Variabili globali
+let gun, mogu;
+const metrics = {
+  connections: 0,
+  putOperations: 0,
+  getOperations: 0,
+  bytesTransferred: 0,
+  protocol: {
+    messages: {
+      sent: 0,
+      received: 0,
+      encrypted: 0,
+      failed: 0,
+    },
+    authentication: {
+      logins: 0,
+      registrations: 0,
+      failures: 0,
+    },
+    friends: {
+      requests: 0,
+      accepted: 0,
+      rejected: 0,
+    },
+    channels: {
+      created: 0,
+      messages: 0,
+      members: 0,
+    },
+  },
+  storage: {
+    radata: 0,
+    nodes: 0,
+    backups: 0,
+    total: 0,
+  },
+  backups: {
+    lastBackup: {
+      hash: null,
+      time: null,
+      size: 0,
+      link: "#",
+    },
+    stats: {
+      total: 0,
+      successful: 0,
+      failed: 0,
+    },
+  },
+};
+
+// Aggiungi variabile per tracciare l'ultimo backup
+let lastBackupTime = 0;
+const BACKUP_COOLDOWN = 2 * 60 * 1000; // 2 minuti di cooldown tra i backup
+
+// Aggiungi le costanti per il retry
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+// Modifica la funzione performBackup per gestire correttamente l'hash
+async function performBackup() {
+  if (!mogu || !CONFIG.STORAGE.enabled) {
+    console.log("Backup skipped: mogu not initialized or storage disabled");
+    return;
+  }
+
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    try {
+      console.log(`Tentativo di backup ${retries + 1}/${MAX_RETRIES}`);
+      const backupResult = await mogu.backup();
+
+      // Estrai l'hash dal risultato del backup
+      const hash = backupResult?.hash || backupResult;
+      
+      if (hash) {
+        console.log("New backup created with hash:", hash);
+        lastBackupTime = Date.now();
+        
+        const radataSize = getRadataSize();
+        
+        // Aggiorna le metriche con l'hash corretto
+        metrics.backups.lastBackup = {
+          hash: typeof hash === 'object' ? JSON.stringify(hash) : hash,
+          time: new Date().toISOString(),
+          size: radataSize,
+          link: `https://gateway.pinata.cloud/ipfs/${typeof hash === 'object' ? hash.hash || hash : hash}`
+        };
+        
+        metrics.backups.stats.successful++;
+        metrics.backups.stats.total++;
+        
+        return true;
+      }
+    } catch (error) {
+      retries++;
+      console.error(`Tentativo di backup ${retries} fallito:`, error);
+
+      if (retries < MAX_RETRIES) {
+        console.log(`Attendo ${RETRY_DELAY}ms prima del prossimo tentativo...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      } else {
+        console.error("Tutti i tentativi di backup sono falliti");
+        metrics.backups.stats.failed++;
+        metrics.backups.stats.total++;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Modifica la funzione principale di inizializzazione
+async function initializeServer() {
+  try {
+    console.log('Initializing server...');
+    
+    const server = http.createServer(app);
+    server.setTimeout(30000);
+    
+    const gunConfig = {
+      ...GUN_CONFIG,
+      web: server
+    };
+
+    console.log('Creating Gun instance...');
+    gun = new Gun(gunConfig);
+    console.log("Gun server started");
+
+    app.use(Gun.serve);
+    console.log('Gun middleware configured');
+
+    setupConnectionHandlers(server, gun);
+    console.log('Connection handlers configured');
+
+    await new Promise((resolve, reject) => {
+      server.listen(port, () => {
+        console.log(`Relay listening at http://localhost:${port}`);
+        resolve();
+      }).on('error', (error) => {
+        console.error('Server failed to start:', error);
+        reject(error);
+      });
+    });
+
+    if (CONFIG.STORAGE.enabled) {
+      console.log('Initializing Mogu...');
+      mogu = new Mogu({
+        key: "",
+        storageService: CONFIG.STORAGE.service,
+        storageConfig: CONFIG.STORAGE.config,
+        server: gun,
+        useIPFS: false
+      });
+      console.log("Mogu initialized successfully");
+    }
+
+    initializeGunListeners(gun, mogu);
+    console.log('Gun listeners initialized');
+
+    return { gun, mogu };
+  } catch (error) {
+    console.error("Error initializing server:", error);
+    process.exit(1);
+  }
+}
 
 // Avvia il server
-server.listen(port, () => {
-    console.log(`Server in ascolto sulla porta ${port}`);
-    console.log(`Gun relay disponibile su http://localhost:${port}/gun`);
-});
+initializeServer()
+  .then(() => {
+    console.log("Server initialized successfully");
+  })
+  .catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
 
 // Variabili per il monitoraggio CPU
 let lastCPUUsage = process.cpuUsage();
@@ -593,6 +536,200 @@ app.get('/.well-known/webfinger', async (req, res) => {
     }]
   });
 });
+
+// Endpoint Actor
+app.get('/users/:username', async (req, res) => {
+  console.log(`\nRichiesta profilo per utente: ${req.params.username}`);
+  try {
+    const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
+    console.log('Actor data:', actorData);
+    
+    // Imposta gli header corretti per ActivityPub
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(actorData);
+  } catch (error) {
+    console.error('Errore nella gestione della richiesta actor:', error);
+    res.status(500).json({ 
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      path: req.path
+    });
+  }
+});
+
+// Endpoint Inbox
+app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
+  try {
+    await handleInbox(gun, DAPP_NAME, req.params.username, req.body, req);
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Errore nella gestione dell\'inbox:', error);
+    res.status(500).json({ 
+      error: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Endpoint Outbox
+app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
+  try {
+    // Importa dinamicamente la configurazione
+    
+    // Aggiungi header mancanti
+    req.headers = {
+      ...req.headers,
+      'Date': new Date().toUTCString(),
+      'Host': new URL(BASE_URL).host
+    };
+
+    const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
+    
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.status(201).json(activity);
+  } catch (error) {
+    console.error('Errore outbox:', {
+      error: error.stack,
+      body: req.body,
+      headers: req.headers 
+    });
+    res.status(500).json({ 
+      error: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Endpoint Followers
+app.get('/users/:username/followers', async (req, res) => {
+  try {
+    const followers = await handleFollowers(gun, DAPP_NAME, req.params.username);
+    res.json(followers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint Following
+app.get('/users/:username/following', async (req, res) => {
+  try {
+    const following = await handleFollowing(gun, DAPP_NAME, req.params.username);
+    res.json(following);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Aggiungi il tracking delle attività ActivityPub nelle metriche
+function initializeGunListeners(gun, mogu) {
+  const processedEvents = new Set();
+
+  // Tracking operazioni put/get
+  gun._.on("in", function (msg) {
+    if (msg.put) {
+      metrics.putOperations++;
+      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.put)).length;
+    }
+  });
+
+  gun._.on("out", function (msg) {
+    if (msg.get) {
+      metrics.getOperations++;
+      metrics.bytesTransferred += Buffer.from(JSON.stringify(msg.get)).length;
+    }
+  });
+
+  // Tracking messaggi
+  gun
+    .get(DAPP_NAME)
+    .get("chats")
+    .map()
+    .get("messages")
+    .map()
+    .on(async (msg, key) => {
+      if (msg && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        await updateGlobalMetric("totalMessagesSent", 1);
+      }
+    });
+
+  // Tracking richieste di amicizia
+  gun
+    .get(DAPP_NAME)
+    .get("friend_requests")
+    .map()
+    .on(async (data, key) => {
+      if (data && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        await updateGlobalMetric("totalFriendRequests", 1);
+      }
+    });
+
+  // Tracking richieste rifiutate
+  gun
+    .get(DAPP_NAME)
+    .get("rejected_requests")
+    .map()
+    .on(async (data, key) => {
+      if (data && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        await updateGlobalMetric("totalFriendRequestsRejected", 1);
+      }
+    });
+
+  // Tracking separato per board e canali
+  gun.get(DAPP_NAME)
+    .get('channels')
+    .map()
+    .on(async (data, key) => {
+      if (data && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        
+        // Verifica il tipo di canale
+        if (data.type === 'channel') {
+          await updateGlobalMetric('totalChannels', 1);
+          console.log('Nuovo canale creato:', data.name);
+        } else if (data.type === 'board') {
+          await updateGlobalMetric('totalBoards', 1);
+          console.log('Nuova board creata:', data.name);
+        }
+      }
+    });
+
+  // Tracking attività ActivityPub
+  gun.get(DAPP_NAME)
+    .get('activitypub')
+    .map()
+    .on(async (activity, key) => {
+      if (activity && !processedEvents.has(key)) {
+        processedEvents.add(key);
+        
+        // Aggiorna le metriche in base al tipo di attività
+        switch(activity.type) {
+          case 'Create':
+            await updateGlobalMetric('totalPosts', 1);
+            break;
+          case 'Follow':
+            await updateGlobalMetric('totalFollows', 1);
+            break;
+          case 'Like':
+            await updateGlobalMetric('totalLikes', 1);
+            break;
+          case 'Announce':
+            await updateGlobalMetric('totalBoosts', 1);
+            break;
+        }
+      }
+    });
+
+  // Pulizia periodica degli eventi processati
+  setInterval(() => {
+    processedEvents.clear();
+  }, 60000); // Pulisci ogni minuto
+}
 
 // Modifica la funzione updateGlobalMetric
 async function updateGlobalMetric(metric, value = 1) {
@@ -790,6 +927,34 @@ function generateActivityPubKeys() {
   };
 }
 
+// Endpoint per la creazione di un account
+app.post('/api/admin/create', async (req, res) => {
+  try {
+    const { account } = req.body;
+    
+    if (!account) {
+      return res.status(400).json({
+        error: 'Nome account mancante'
+      });
+    }
+
+    // Validazione del nome account
+    if (!/^[a-zA-Z0-9_]+$/.test(account)) {
+      return res.status(400).json({
+        error: 'Il nome account può contenere solo lettere, numeri e underscore'
+      });
+    }
+
+    const result = await createAccount(gun, DAPP_NAME, account);
+    res.json(result);
+  } catch (error) {
+    console.error('Errore nella creazione dell\'account:', error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
 // Endpoint per l'invio di un messaggio
 app.post('/api/sendMessage', async (req, res) => {
   try {
@@ -810,3 +975,78 @@ app.post('/api/sendMessage', async (req, res) => {
     });
   }
 });
+// Endpoint per la home
+app.get('/', (req, res) => {
+  res.redirect('/admin.html');
+});
+
+// Gestione errori 404
+app.use((req, res) => {
+  console.log('404 - Endpoint non trovato:', req.path);
+  res.status(404).json({
+    error: 'Endpoint non trovato',
+    path: req.path
+  });
+});
+
+// Gestione errori generici
+app.use((err, req, res, next) => {
+  console.error('Errore del server:', err);
+  res.status(500).json({
+    error: 'Errore interno del server',
+    message: err.message
+  });
+});
+
+// Endpoint per la verifica dell'API key
+app.post('/api/verify', async (req, res) => {
+    try {
+        const { username, apikey } = req.body;
+        
+        if (!username || !apikey) {
+            return res.status(400).json({ 
+                error: 'Username e API key sono richiesti' 
+            });
+        }
+
+        // Verifica che Gun sia inizializzato
+        if (!gun) {
+            throw new Error('Database non disponibile');
+        }
+
+        // Verifica l'API key nel database Gun
+        const isValid = await new Promise((resolve) => {
+            gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(username)
+                .get('apiKey')
+                .once((storedKey) => {
+                    console.log('Verifica API key:', {
+                        username,
+                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]'
+                    });
+                    resolve(storedKey === apikey);
+                });
+        });
+
+        if (!isValid) {
+            console.log('API key non valida per:', username);
+            return res.status(401).json({ 
+                error: 'API key non valida' 
+            });
+        }
+
+        console.log('API key verificata con successo per:', username);
+        res.json({ 
+            success: true, 
+            username 
+        });
+    } catch (error) {
+        console.error('Errore nella verifica dell\'API key:', error);
+        res.status(500).json({ 
+            error: error.message 
+        });
+    }
+});
+
