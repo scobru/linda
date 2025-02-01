@@ -652,39 +652,53 @@ async function saveUserActivityPubKeys(gun, username) {
 
 async function getUserActivityPubKeys(gun, username) {
   return new Promise((resolve, reject) => {
-    gun
+    const keysNode = gun
       .get('linda-messenger')
       .get('activitypub')
       .get(username)
-      .get('keys')
-      .once((data) => {
-        if (!data) {
-          // Se non ci sono dati, prova a generare nuove chiavi
-          saveUserActivityPubKeys(gun, username)
-            .then(resolve)
-            .catch(reject);
-        } else if (!data.publicKey || !data.privateKey) {
-          // Se le chiavi sono incomplete, rigenerale
-          saveUserActivityPubKeys(gun, username)
-            .then(resolve)
-            .catch(reject);
-        } else {
-          resolve(data);
+      .get('keys');
+
+    // Aggiungi un timeout per la lettura
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout nel recupero delle chiavi'));
+    }, 3000);
+
+    keysNode.once(async (data) => {
+      clearTimeout(timeout);
+      
+      if (!data || !data.publicKey || !data.privateKey) {
+        console.log('Chiavi mancanti, rigenerazione...');
+        try {
+          const newKeys = await saveUserActivityPubKeys(gun, username);
+          resolve(newKeys);
+        } catch (error) {
+          reject(error);
         }
-      });
+      } else {
+        console.log('Chiavi trovate nel database:', {
+          publicKey: data.publicKey.substring(0, 50) + '...',
+          privateKey: data.privateKey.substring(0, 50) + '...'
+        });
+        resolve(data);
+      }
+    });
   });
 }
 
 async function sendFollowRequest(targetActor, username, gun) {
   try {
-    // Recupera le chiavi con gestione degli errori migliorata
-    let keys;
-    try {
-      keys = await getUserActivityPubKeys(gun, username);
-    } catch (error) {
-      console.error('Errore nel recupero delle chiavi, generazione nuove chiavi...', error);
-      keys = await saveUserActivityPubKeys(gun, username);
-    }
+    console.log(`Inizio follow request verso: ${targetActor}`);
+    
+    // Verifica iniziale dell'esistenza delle chiavi
+    let keys = await getUserActivityPubKeys(gun, username)
+      .catch(async (error) => {
+        console.log('Primo tentativo fallito, riprovo...', error.message);
+        return await getUserActivityPubKeys(gun, username);
+      });
+
+    console.log('Chiavi utilizzate per la firma:', {
+      publicKey: keys.publicKey.substring(0, 50) + '...'
+    });
 
     // Costruisci l'attività Follow
     const followActivity = {
@@ -717,7 +731,10 @@ async function sendFollowRequest(targetActor, username, gun) {
 
     return await response.json();
   } catch (error) {
-    console.error('Errore nella richiesta di follow:', error);
+    console.error('Errore dettagliato:', {
+      message: error.message,
+      stack: error.stack
+    });
     throw error;
   }
 }
