@@ -518,6 +518,20 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
   }
 }
 
+// Funzione per serializzare i dati per Gun
+function serializeForGun(data) {
+  if (Array.isArray(data)) {
+    return JSON.stringify(data);
+  } else if (typeof data === 'object' && data !== null) {
+    const serialized = {};
+    for (const [key, value] of Object.entries(data)) {
+      serialized[key] = serializeForGun(value);
+    }
+    return serialized;
+  }
+  return data;
+}
+
 // Endpoint per l'outbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
   try {
@@ -544,12 +558,12 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         attributedTo: `${BASE_URL}/users/${username}`,
         content: activity.object.content,
         published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public'],
-        cc: [],
+        to: JSON.stringify(['https://www.w3.org/ns/activitystreams#Public']),
+        cc: JSON.stringify([]),
         sensitive: activity.object.sensitive || false,
         summary: activity.object.summary || null,
-        attachment: activity.object.attachment || [],
-        tag: activity.object.tag || []
+        attachment: JSON.stringify(activity.object.attachment || []),
+        tag: JSON.stringify(activity.object.tag || [])
       };
 
       // Crea l'attività ActivityPub
@@ -559,9 +573,9 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
-        to: ['https://www.w3.org/ns/activitystreams#Public'],
-        cc: [],
-        object: post
+        to: JSON.stringify(['https://www.w3.org/ns/activitystreams#Public']),
+        cc: JSON.stringify([]),
+        object: serializeForGun(post)
       };
 
       console.log('Salvataggio post:', post);
@@ -574,7 +588,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             .get(DAPP_NAME)
             .get('posts')
             .get(post.id)
-            .put(post, (ack) => {
+            .put(serializeForGun(post), (ack) => {
               if (ack.err) {
                 console.error('Errore nel salvataggio del post:', ack.err);
                 reject(new Error(ack.err));
@@ -593,7 +607,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             .get(username)
             .get('outbox')
             .get(activityId)
-            .put(createActivity, (ack) => {
+            .put(serializeForGun(createActivity), (ack) => {
               if (ack.err) {
                 console.error('Errore nel salvataggio dell\'attività:', ack.err);
                 reject(new Error(ack.err));
@@ -604,7 +618,19 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             });
         });
 
-        return createActivity;
+        // Restituisci l'attività originale (non serializzata) per la risposta HTTP
+        return {
+          ...createActivity,
+          to: ['https://www.w3.org/ns/activitystreams#Public'],
+          cc: [],
+          object: {
+            ...post,
+            to: ['https://www.w3.org/ns/activitystreams#Public'],
+            cc: [],
+            attachment: activity.object.attachment || [],
+            tag: activity.object.tag || []
+          }
+        };
       } catch (error) {
         console.error('Errore durante il salvataggio:', error);
         throw error;
