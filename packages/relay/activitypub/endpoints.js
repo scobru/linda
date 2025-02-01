@@ -281,9 +281,13 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
   }
 };
 
-// Modifica la funzione signRequest per includere DAPP_NAME
+// Modifica la funzione signRequest per gestire meglio il recupero delle chiavi
 export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
   try {
+    console.log('Recupero chiavi per la firma...');
+    console.log('Username:', username);
+    console.log('DAPP_NAME:', DAPP_NAME);
+
     // Recupera le chiavi dal nodo corretto
     const keys = await new Promise((resolve, reject) => {
       gun
@@ -292,8 +296,9 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
         .get(username)
         .get('keys')
         .once((data) => {
+          console.log('Dati chiavi recuperati:', data);
           if (!data || !data.privateKey) {
-            reject(new Error('Chiavi non trovate'));
+            reject(new Error('Chiavi non trovate nel database'));
           } else {
             resolve(data);
           }
@@ -301,8 +306,11 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     });
 
     if (!keys || !keys.privateKey) {
-      throw new Error('Chiavi non trovate per la firma');
+      console.error('Chiavi mancanti:', keys);
+      throw new Error('Chiavi non trovate o non valide');
     }
+
+    console.log('Chiavi recuperate con successo');
 
     const url = new URL(request.url);
     

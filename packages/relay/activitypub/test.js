@@ -355,6 +355,25 @@ async function testActivityPubEvents(username) {
   console.log("Undo completato con successo");
 }
 
+// Funzione per salvare le chiavi
+async function saveKeys(gun, username, keys) {
+  return new Promise((resolve, reject) => {
+    gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .put(keys, (ack) => {
+        if (ack.err) {
+          reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
+        } else {
+          console.log('Chiavi salvate con successo');
+          resolve(ack);
+        }
+      });
+  });
+}
+
 async function runTests() {
   console.log("Inizio dei test ActivityPub sul relay...\n");
   console.log("Using BASE_URL:", BASE_URL);
@@ -379,9 +398,10 @@ async function runTests() {
     console.log("Utente Gun creato e autenticato con successo\n");
 
     // Genera e salva le chiavi ActivityPub
-    console.log("\nGenerazione chiavi ActivityPub...");
-    const keys = await saveUserActivityPubKeys(gun, TEST_USERNAME);
-    console.log("Chiavi ActivityPub generate e salvate con successo\n");
+    console.log('\n\nGenerazione chiavi ActivityPub...');
+    const keys = generateActivityPubKeys();
+    await saveKeys(gun, TEST_USERNAME, keys);
+    console.log('Chiavi ActivityPub generate e salvate con successo\n\n');
 
     // Inizializza il profilo ActivityPub
     console.log("\nInizializzazione profilo ActivityPub...");
@@ -472,32 +492,28 @@ async function runTests() {
     console.log("Post Creation Response:", postData, "\n");
 
     // Test 4: Follow Request
-    console.log("Test 4: Follow Request");
-    const followActivity = {
-      type: "Follow",
-      object: "https://ftwr.scobrudot.dev/users/scobru",
-    };
-
-    const followResponse = await fetch(
-      `${BASE_URL}/users/${TEST_USERNAME}/outbox`,
-      {
-        method: "POST",
+    console.log('\nTest 4: Follow Request');
+    const followResponse = await fetch(`${BASE_URL}/users/${TEST_USERNAME}/outbox`, {
+      method: 'POST',
       headers: {
-          "Content-Type": "application/activity+json",
+        'Content-Type': 'application/activity+json',
+        'Accept': 'application/activity+json'
       },
-        body: JSON.stringify(followActivity),
-      }
-    );
+      body: JSON.stringify({
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        type: 'Follow',
+        actor: `${BASE_URL}/users/${TEST_USERNAME}`,
+        object: `${BASE_URL}/users/test_user2`
+      })
+    });
 
     if (!followResponse.ok) {
       const errorText = await followResponse.text();
-      throw new Error(
-        `Follow request failed with status ${followResponse.status}: ${errorText}`
-      );
+      throw new Error(`Follow request failed with status ${followResponse.status}: ${errorText}`);
     }
-    
-    const followData = await followResponse.json();
-    console.log("Follow Request Response:", followData, "\n");
+
+    const followResult = await followResponse.json();
+    console.log('Follow Response:', followResult);
 
     // Test 5: Verifica Followers
     console.log("Test 5: Verifica Followers");
