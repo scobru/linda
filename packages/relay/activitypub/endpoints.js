@@ -450,6 +450,66 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
   }
 };
 
+// Funzione per salvare le chiavi ActivityPub
+async function saveUserActivityPubKeys(gun, username) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  });
+
+  return new Promise((resolve, reject) => {
+    gun.get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .put({
+        publicKey: publicKey.toString(),
+        privateKey: privateKey.toString()
+      }, async (ack) => {
+        if (ack.err) {
+          reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
+        } else {
+          console.log('Chiavi salvate con successo:', {
+            username,
+            publicKeyStart: publicKey.toString().substring(0, 50) + '...'
+          });
+          resolve({ publicKey, privateKey });
+        }
+      });
+  });
+}
+
+// Funzione per recuperare le chiavi ActivityPub
+async function getUserActivityPubKeys(gun, username) {
+  return new Promise((resolve, reject) => {
+    gun.get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .once(async (data) => {
+        if (!data || !data.publicKey || !data.privateKey) {
+          console.log('Chiavi non trovate, generazione nuove chiavi...');
+          try {
+            const newKeys = await saveUserActivityPubKeys(gun, username);
+            resolve(newKeys);
+          } catch (error) {
+            reject(error);
+          }
+        } else {
+          console.log('Chiavi recuperate:', {
+            username,
+            publicKeyStart: data.publicKey.substring(0, 50) + '...'
+          });
+          resolve({
+            publicKey: data.publicKey,
+            privateKey: data.privateKey
+          });
+        }
+      });
+  });
+}
+
 // Funzione per firmare una richiesta ActivityPub
 async function signRequest(requestData, keyId, username, gun, DAPP_NAME) {
   try {
@@ -463,20 +523,7 @@ async function signRequest(requestData, keyId, username, gun, DAPP_NAME) {
     });
 
     // Recupera le chiavi dal database
-    const keys = await new Promise((resolve, reject) => {
-      gun
-        .get('linda-messenger')
-        .get('users')
-        .get(username)
-        .get('keys')
-        .once((data) => {
-          if (!data || !data.privateKey) {
-            reject(new Error('Chiavi non trovate'));
-          } else {
-            resolve(data);
-          }
-        });
-    });
+    const keys = await getUserActivityPubKeys(gun, username);
 
     if (!keys || !keys.privateKey) {
       throw new Error('Chiavi non valide');
@@ -852,61 +899,6 @@ async function getUserActivityPubProfile(gun, username) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
   }
-}
-
-// Modifica la funzione esistente
-async function saveUserActivityPubKeys(gun, username) {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
-  });
-
-  return new Promise((resolve, reject) => {
-    // Salva le chiavi nel nodo utente principale
-    gun.get('linda-messenger')
-      .get('users')
-      .get(username)
-      .get('keys')
-      .put({
-        publicKey: publicKey.toString(),
-        privateKey: privateKey.toString()
-      }, async (ack) => {
-        if (ack.err) {
-          reject(new Error(`Errore nel salvataggio delle chiavi: ${ack.err}`));
-        } else {
-          console.log('Chiavi salvate nel nodo utente GUN');
-          resolve({ publicKey, privateKey });
-        }
-      });
-  });
-}
-
-async function getUserActivityPubKeys(gun, username) {
-  return new Promise((resolve, reject) => {
-    // Cerca le chiavi nel nodo utente principale
-    gun.get('linda-messenger')
-      .get('users')
-      .get(username)
-      .get('keys')
-      .once(async (data) => {
-        if (!data || !data.publicKey || !data.privateKey) {
-          console.log('Chiavi non trovate, rigenerazione...');
-          try {
-            const newKeys = await saveUserActivityPubKeys(gun, username);
-            resolve(newKeys);
-          } catch (error) {
-            reject(error);
-          }
-        } else {
-          console.log('Chiavi recuperate dal nodo utente');
-          resolve({
-            publicKey: data.publicKey,
-            privateKey: data.privateKey
-          });
-        }
-      });
-  });
 }
 
 async function sendFollowRequest(targetActor, username, gun) {
