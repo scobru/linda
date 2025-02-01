@@ -453,39 +453,32 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 // Funzione per firmare una richiesta ActivityPub
 async function signRequest(requestData, keyId, username, gun) {
   const encoder = new TextEncoder();
-  let debugData = {};
+  let debugInfo = {};
 
   try {
     const { privateKey, publicKey } = await getUserKeys(gun, username);
     
-    // 1. Normalizzazione canonica RFC 3986
+    // 1. Normalizzazione canonica del percorso URL
     const url = new URL(requestData.url);
-    const path = `${url.pathname}${url.search}`
-      .replace(/\/{2,}/g, '/')
-      .replace(/\/$/, '');
+    const pathname = url.pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    const search = url.search.replace(/\+/g, '%20');
+    const path = `${pathname}${search}`;
 
-    // 2. Costruzione header (request-target)
-    const requestTarget = `post ${path}`;
-    
-    // 3. Formattazione data RFC 1123
-    const date = new Date().toUTCString();
-    
-    // 4. Calcolo digest con codifica esplicita
+    // 2. Costruzione headers con ordinamento specifico
     const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
       .update(encoder.encode(body))
       .digest('base64');
-
-    // 5. Intestazioni per la firma
+    
     const headers = [
-      `(request-target): ${requestTarget}`,
-      `host: ${url.hostname}`,
-      `date: ${date}`,
+      `(request-target): post ${path}`,
+      `host: ${url.host}`,
+      `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
       `content-type: application/activity+json`
     ];
 
-    // 6. Firma con RSA-PSS (RFC 8017)
+    // 3. Firma con codifica URI component
     const signer = crypto.createSign('RSA-SHA256');
     signer.update(headers.join('\n'));
     const signature = signer.sign({
@@ -494,40 +487,34 @@ async function signRequest(requestData, keyId, username, gun) {
       saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
     }, 'base64');
 
-    // 7. Verifica sincrona avanzata
+    // 4. Verifica incrociata con chiave pubblica
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(headers.join('\n'));
-    const isValid = verifier.verify(
-      {
-        key: publicKey,
-        padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-        saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
-      },
+    
+    if (!verifier.verify(
+      { key: publicKey, padding: crypto.constants.RSA_PKCS1_PSS_PADDING },
       signature,
       'base64'
-    );
-
-    if (!isValid) {
-      debugData = {
-        headers,
-        publicKey: publicKey.substring(0, 100) + '...',
-        signature: signature.substring(0, 50) + '...',
-        body
+    )) {
+      debugInfo = {
+        publicKey: publicKey.substring(0, 100),
+        signature: signature.substring(0, 50),
+        headers
       };
-      throw new Error('Verifica locale fallita');
+      throw new Error('Mismatch firma/chiave pubblica');
     }
 
-    // 8. Formattazione firma RFC 9421
+    // 5. Codifica URI per valori signature
     return [
-      `keyId="${keyId}"`,
+      `keyId="${encodeURIComponent(keyId)}"`,
       'algorithm="rsa-sha256"',
       'headers="(request-target) host date digest content-type"',
-      `signature="${signature}"`
+      `signature="${encodeURIComponent(signature)}"`
     ].join(', ');
 
   } catch (error) {
-    console.error('Dettagli errore di firma:', {
-      ...debugData,
+    console.error('Dettagli errore:', {
+      ...debugInfo,
       error: error.stack,
       timestamp: new Date().toISOString()
     });
