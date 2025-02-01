@@ -119,78 +119,154 @@ class ActivityPubEventHandler {
 
   // Gestisce un'attività in arrivo
   async handleActivity(activity, username) {
+    console.log('Gestione attività:', {
+      type: activity.type,
+      actor: activity.actor,
+      object: activity.object,
+      username
+    });
+
     const handler = this.handlers.get(activity.type);
-    if (handler) {
-      return await handler(activity, username, this.gun, this.DAPP_NAME);
+    if (!handler) {
+      throw new Error(`Handler non trovato per il tipo di attività: ${activity.type}`);
     }
-    throw new Error(`Handler non trovato per il tipo di attività: ${activity.type}`);
+
+    try {
+      return await handler(activity, username, this.gun, this.DAPP_NAME);
+    } catch (error) {
+      console.error('Errore nella gestione dell\'attività:', error);
+      throw error;
+    }
   }
 }
 
 // Crea l'event handler globale
-const eventHandler = new ActivityPubEventHandler(null, null, 'linda-messenger');
+const eventHandler = new ActivityPubEventHandler(null, null);
 
 // Registra gli handler per i vari tipi di attività
 eventHandler
   .on('Follow', async (activity, username, gun, DAPP_NAME) => {
+    console.log('Gestione Follow:', { activity, username });
+
     if (!activity.actor || !activity.object) {
-      throw new Error('Attività Follow non valida');
+      throw new Error('Attività Follow non valida: mancano actor o object');
     }
 
-    // Salva la relazione di follow
-    await Promise.all([
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('following')
-        .get(activity.object)
-        .put({
-          id: activity.object,
-          followed_at: new Date().toISOString()
-        }),
-      
+    try {
+      // Crea l'attività Accept
+      const acceptActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        type: 'Accept',
+        actor: `${BASE_URL}/users/${username}`,
+        object: activity,
+        id: `${BASE_URL}/users/${username}/activities/${Date.now()}`,
+        published: new Date().toISOString()
+      };
+
+      // Salva il follower
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('followers')
+          .get(activity.actor)
+          .put({
+            id: activity.actor,
+            followed_at: new Date().toISOString(),
+            status: 'accepted'
+          }, (ack) => {
+            if (ack.err) reject(new Error(ack.err));
+            else resolve();
+          });
+      });
+
+      // Prepara l'invio dell'Accept
+      const targetInbox = new URL(activity.actor).origin + '/inbox';
+      const body = JSON.stringify(acceptActivity);
+      const digest = `SHA-256=${createHash('sha256').update(body).digest('base64')}`;
+      const date = new Date().toUTCString();
+      const targetHost = new URL(targetInbox).host;
+
+      const headers = {
+        'Content-Type': 'application/activity+json',
+        'Accept': 'application/activity+json',
+        'Date': date,
+        'Host': targetHost,
+        'Digest': digest
+      };
+
+      // Firma la richiesta
+      const keyId = `${BASE_URL}/users/${username}#main-key`;
+      const signature = await signRequest({
+        method: 'POST',
+        url: targetInbox,
+        headers,
+        body
+      }, keyId, username, gun, DAPP_NAME);
+
+      headers['Signature'] = signature;
+
+      console.log('Invio Accept con:', {
+        url: targetInbox,
+        headers,
+        body: acceptActivity
+      });
+
       // Invia l'Accept
-      sendAcceptActivity(activity, username, gun, DAPP_NAME)
-    ]);
+      const response = await fetch(targetInbox, {
+        method: 'POST',
+        headers,
+        body
+      });
 
-    return { success: true };
-  })
-  .on('Undo', async (activity, username, gun, DAPP_NAME) => {
-    if (!activity.object || activity.object.type !== 'Follow') {
-      throw new Error('Attività Undo non valida');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Errore risposta Accept:', {
+          status: response.status,
+          body: errorText,
+          headers: response.headers
+        });
+        throw new Error(`Errore nell'invio dell'Accept: ${response.statusText} - ${errorText}`);
+      }
+
+      return { success: true, activity: acceptActivity };
+    } catch (error) {
+      console.error('Errore nella gestione del Follow:', error);
+      throw error;
     }
-
-    // Rimuovi la relazione di follow
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(username)
-      .get('following')
-      .get(activity.object.object)
-      .put(null);
-
-    return { success: true };
   })
   .on('Accept', async (activity, username, gun, DAPP_NAME) => {
+    console.log('Gestione Accept:', { activity, username });
+
     if (!activity.object || activity.object.type !== 'Follow') {
       throw new Error('Attività Accept non valida');
     }
 
-    // Aggiorna lo stato del follow
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(username)
-      .get('following')
-      .get(activity.actor)
-      .put({
-        id: activity.actor,
-        accepted_at: new Date().toISOString(),
-        status: 'accepted'
+    try {
+      // Aggiorna lo stato del following
+      await new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .get('following')
+          .get(activity.actor)
+          .put({
+            id: activity.actor,
+            accepted_at: new Date().toISOString(),
+            status: 'accepted'
+          }, (ack) => {
+            if (ack.err) reject(new Error(ack.err));
+            else resolve();
+          });
       });
 
-    return { success: true };
+      return { success: true };
+    } catch (error) {
+      console.error('Errore nella gestione dell\'Accept:', error);
+      throw error;
+    }
   });
 
 // Funzione per inviare un'attività Accept
