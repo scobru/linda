@@ -450,70 +450,57 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
   }
 };
 
-// Modifica la funzione signRequest per gestire meglio il recupero delle chiavi
+// Funzione per firmare una richiesta ActivityPub
 export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
   try {
-    console.log('Recupero chiavi per la firma...');
-    console.log('Username:', username);
-    console.log('DAPP_NAME:', DAPP_NAME);
+    console.log('Generazione firma per la richiesta:', {
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      keyId
+    });
 
-    // Recupera le chiavi dal nodo corretto con un timeout
-    const keys = await Promise.race([
-      new Promise((resolve, reject) => {
-        gun
-          .get(DAPP_NAME)
-          .get('activitypub')
-          .get(username)
-          .get('keys')
-          .once((data) => {
-            console.log('Dati chiavi recuperati:', data);
-            if (!data || !data.privateKey) {
-              reject(new Error('Chiavi non trovate nel database'));
-            } else {
-              resolve(data);
-            }
-          });
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout nel recupero delle chiavi')), 10000)
-      )
-    ]);
+    // Recupera le chiavi dal database
+    const keys = await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('keys')
+        .once((data) => {
+          if (!data || !data.privateKey) {
+            reject(new Error('Chiavi non trovate'));
+          } else {
+            resolve(data);
+          }
+        });
+    });
 
     if (!keys || !keys.privateKey) {
-      console.error('Chiavi mancanti:', keys);
-      throw new Error('Chiavi non trovate o non valide');
+      throw new Error('Chiavi non valide');
     }
 
-    console.log('Chiavi recuperate con successo');
-
     const url = new URL(request.url);
-    
-    // Normalizza il corpo della richiesta
-    const bodyString = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
-    const digest = `SHA-256=${createHash('sha256').update(bodyString).digest('base64')}`;
-
-    // Prepara gli headers in ordine corretto
     const date = request.headers.date || new Date().toUTCString();
-    const requestTarget = `${request.method.toLowerCase()} ${url.pathname}`;
-    const host = url.host;
-
-    // Costruisci la stringa da firmare
-    const signString = [
-      `(request-target): ${requestTarget}`,
-      `host: ${host}`,
+    const digest = request.headers.digest;
+    
+    // Prepara gli headers da firmare in ordine specifico
+    const signedString = [
+      `(request-target): ${request.method.toLowerCase()} ${url.pathname}`,
+      `host: ${url.host}`,
       `date: ${date}`,
       `digest: ${digest}`
     ].join('\n');
 
-    console.log('Stringa da firmare:', signString);
+    console.log('Stringa da firmare:', signedString);
 
-    // Crea la firma
+    // Genera la firma
     const signer = crypto.createSign('sha256');
-    signer.update(signString);
-    signer.end();
-
+    signer.update(signedString, 'utf8');
     const signature = signer.sign(keys.privateKey);
     const signature_b64 = signature.toString('base64');
+
+    console.log('Firma generata (base64):', signature_b64);
 
     // Costruisci l'header Signature
     const signatureHeader = [
@@ -523,15 +510,11 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
       `signature="${signature_b64}"`
     ].join(',');
 
-    console.log('Header Signature:', signatureHeader);
-    
-    // Aggiorna gli headers della richiesta
-    request.headers['date'] = date;
-    request.headers['digest'] = digest;
+    console.log('Header Signature completo:', signatureHeader);
 
     return signatureHeader;
   } catch (error) {
-    console.error('Errore nella firma della richiesta:', error);
+    console.error('Errore nella generazione della firma:', error);
     throw error;
   }
 }
