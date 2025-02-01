@@ -148,10 +148,13 @@ async function sendAcceptActivity(followActivity, username, gun, DAPP_NAME) {
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   try {
-    // Recupera le chiavi dell'utente
-    const keys = await getUserActivityPubKeys(gun, username);
+    console.log(`Recupero profilo ActivityPub per ${username}`);
     
-    // Recupera il profilo ActivityPub
+    const keys = await getUserActivityPubKeys(gun, username);
+    if (!keys) {
+      throw new Error('Chiavi ActivityPub non trovate');
+    }
+
     const actorData = await new Promise((resolve, reject) => {
       gun
         .get(DAPP_NAME)
@@ -159,70 +162,34 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
         .get(username)
         .once((data) => {
           if (!data) {
-            reject(new Error('Profilo non trovato'));
-          } else {
-            // Converti i campi array in stringhe per Gun
-            const cleanData = {
-              ...data,
-              '@context': 'https://www.w3.org/ns/activitystreams'
+            console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
+            const defaultActor = {
+              '@context': 'https://www.w3.org/ns/activitystreams',
+              type: 'Person',
+              id: `${BASE_URL}/users/${username}`,
+              following: `${BASE_URL}/users/${username}/following`,
+              followers: `${BASE_URL}/users/${username}/followers`,
+              inbox: `${BASE_URL}/users/${username}/inbox`,
+              outbox: `${BASE_URL}/users/${username}/outbox`,
+              preferredUsername: username,
+              name: username,
+              summary: `Profilo ActivityPub di ${username}`,
+              url: `${BASE_URL}/users/${username}`,
+              published: new Date().toISOString()
             };
-            resolve(cleanData);
-          }
-        });
-    });
-
-    // Se abbiamo trovato il profilo, aggiungiamo la chiave pubblica
-    if (actorData) {
-      // Restituisci la risposta con array per ActivityPub
-      return {
-        ...actorData,
-        '@context': ['https://www.w3.org/ns/activitystreams'],
-        publicKey: {
-          id: `${actorData.id}#main-key`,
-          owner: actorData.id,
-          publicKeyPem: keys.publicKey
-        }
-      };
-    }
-
-    // Se non abbiamo trovato il profilo, creiamo uno di default
-    const defaultActor = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      type: 'Person',
-      id: `${BASE_URL}/users/${username}`,
-      following: `${BASE_URL}/users/${username}/following`,
-      followers: `${BASE_URL}/users/${username}/followers`,
-      inbox: `${BASE_URL}/users/${username}/inbox`,
-      outbox: `${BASE_URL}/users/${username}/outbox`,
-      preferredUsername: username,
-      name: username,
-      summary: `Profilo ActivityPub di ${username}`,
-      url: `${BASE_URL}/users/${username}`,
-      published: new Date().toISOString()
-    };
-
-    // Salva il profilo in Gun
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .put(defaultActor, (ack) => {
-          if (ack.err) {
-            reject(new Error(ack.err));
+            resolve(defaultActor);
           } else {
-            resolve(ack);
+            resolve(data);
           }
         });
     });
 
-    // Restituisci la risposta con array per ActivityPub
     return {
-      ...defaultActor,
+      ...actorData,
       '@context': ['https://www.w3.org/ns/activitystreams'],
       publicKey: {
-        id: `${defaultActor.id}#main-key`,
-        owner: defaultActor.id,
+        id: `${actorData.id}#main-key`,
+        owner: actorData.id,
         publicKeyPem: keys.publicKey
       }
     };
