@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>ActivityPub Admin</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 20px;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+
+    h1, h2 {
+      color: #1a73e8;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .input-group {
+      margin-bottom: 15px;
+    }
+
+    input {
+      width: 100%;
+      max-width: 400px;
+      padding: 10px;
+      font-size: 1em;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+
+    .hint {
+      font-size: 0.8em;
+      color: #666;
+      margin-top: 5px;
+      display: block;
+    }
+
+    button {
+      background-color: #1a73e8;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 1em;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #1557b0;
+    }
+
+    .output {
+      margin-top: 15px;
+      padding: 10px;
+      border-left: 4px solid #1a73e8;
+      background-color: #f8f9fa;
+    }
+
+    .error {
+      color: #d32f2f;
+      background-color: #fde8e8;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .success {
+      color: #2e7d32;
+      background-color: #e8f5e9;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>ActivityPub Admin</h1>
+
+  <div class="container">
+    <h2>Crea Account</h2>
+    <p>Crea un nuovo attore ActivityPub (account). Richiede credenziali di amministratore.</p>
+    
+    <div class="input-group">
+      <input id="account" type="text" placeholder="Nome account"/>
+      <span class="hint">Inserisci il nome dell'account senza spazi o caratteri speciali</span>
+    </div>
+    
+    <button onclick="createAccount()">Crea Account</button>
+    <div id="createError" class="error"></div>
+    <div id="createSuccess" class="success"></div>
+    <div id="createOutput" class="output"></div>
+  </div>
+
+  <div class="container">
+    <h2>Invia Messaggio ai Follower</h2>
+    <p>Inserisci un nome account, la sua chiave API e un messaggio. Il messaggio verrà inviato a tutti i follower.</p>
+    
+    <div class="input-group">
+      <input id="acct" type="text" placeholder="Nome account"/>
+    </div>
+    
+    <div class="input-group">
+      <input id="apikey" type="text" placeholder="Chiave API"/>
+      <span class="hint">La chiave esadecimale lunga ricevuta alla creazione dell'account</span>
+    </div>
+    
+    <div class="input-group">
+      <input id="message" type="text" placeholder="Il tuo messaggio..."/>
+      <span class="hint">Il messaggio da inviare ai follower</span>
+    </div>
+    
+    <button onclick="sendMessage()">Invia Messaggio</button>
+    <div id="sendError" class="error"></div>
+    <div id="sendSuccess" class="success"></div>
+    <div id="sendOutput" class="output"></div>
+  </div>
+
+  <script>
+    function queryStringFromObject(obj) {
+      return Object.keys(obj)
+        .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(obj[key]))
+        .join('&');
+    }
+
+    async function createAccount() {
+      const account = document.querySelector('#account').value;
+      const createError = document.querySelector('#createError');
+      const createSuccess = document.querySelector('#createSuccess');
+      const createOutput = document.querySelector('#createOutput');
+
+      createError.style.display = 'none';
+      createSuccess.style.display = 'none';
+      createOutput.innerHTML = '';
+
+      if (!account) {
+        createError.textContent = 'Inserisci un nome account';
+        createError.style.display = 'block';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/admin/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: queryStringFromObject({ account })
+        });
+
+        const data = await response.json();
+
+        if (data.msg === 'ok') {
+          createSuccess.textContent = 'Account creato con successo!';
+          createSuccess.style.display = 'block';
+          
+          const hostname = window.location.hostname;
+          createOutput.innerHTML = `
+            <p>Per confermare, verifica:</p>
+            <ul>
+              <li>Il profilo dell'account: <a href="/users/${account}" target="_blank">Visualizza JSON</a></li>
+              <li>WebFinger: <a href="/.well-known/webfinger?resource=acct:${account}@${hostname}" target="_blank">Verifica endpoint</a></li>
+            </ul>
+            <p>Il tuo account può essere trovato come: <strong>${account}@${hostname}</strong></p>
+            <p>La tua chiave API è: <strong>${data.apikey}</strong></p>
+            <p><em>Salva questa chiave in un posto sicuro!</em></p>
+          `;
+        } else {
+          throw new Error(data.error || 'Errore nella creazione dell\'account');
+        }
+      } catch (error) {
+        createError.textContent = error.message;
+        createError.style.display = 'block';
+      }
+    }
+
+    async function sendMessage() {
+      const acct = document.querySelector('#acct').value;
+      const apikey = document.querySelector('#apikey').value;
+      const message = document.querySelector('#message').value;
+      const sendError = document.querySelector('#sendError');
+      const sendSuccess = document.querySelector('#sendSuccess');
+      const sendOutput = document.querySelector('#sendOutput');
+
+      sendError.style.display = 'none';
+      sendSuccess.style.display = 'none';
+      sendOutput.innerHTML = '';
+
+      if (!acct || !apikey || !message) {
+        sendError.textContent = 'Tutti i campi sono obbligatori';
+        sendError.style.display = 'block';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/sendMessage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: queryStringFromObject({ acct, apikey, message })
+        });
+
+        const data = await response.json();
+
+        if (data.msg === 'ok') {
+          sendSuccess.textContent = 'Messaggio inviato con successo!';
+          sendSuccess.style.display = 'block';
+          sendOutput.innerHTML = `
+            <p>Il messaggio è stato inviato a tutti i follower di ${acct}</p>
+            <p>ID Attività: ${data.activityId || 'N/A'}</p>
+          `;
+        } else {
+          throw new Error(data.error || 'Errore nell\'invio del messaggio');
+        }
+      } catch (error) {
+        sendError.textContent = error.message;
+        sendError.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html> 
