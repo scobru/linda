@@ -124,31 +124,15 @@ function getRadataSize() {
   }
 }
 
-// Middleware per il parsing del body
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Middleware per CORS e logging
+// Middleware
+app.use(express.static("dashboard"));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
   res.header(
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept"
   );
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  // Log della richiesta
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  console.log('Headers:', req.headers);
-  if (req.body) {
-    console.log('Body:', req.body);
-  }
-  
   next();
 });
 
@@ -165,6 +149,13 @@ app.use((req, res, next) => {
   if (req.method === 'HEAD') {
     return res.status(200).end();
   }
+  next();
+});
+
+// Middleware per il logging delle richieste
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
   next();
 });
 
@@ -921,12 +912,9 @@ function generateActivityPubKeys() {
 // Endpoint per la creazione di un account
 app.post('/api/admin/create', async (req, res) => {
   try {
-    console.log('Ricevuta richiesta di creazione account:', req.body);
-    
     const { account } = req.body;
     
     if (!account) {
-      console.error('Nome account mancante');
       return res.status(400).json({
         error: 'Nome account mancante'
       });
@@ -934,21 +922,17 @@ app.post('/api/admin/create', async (req, res) => {
 
     // Validazione del nome account
     if (!/^[a-zA-Z0-9_]+$/.test(account)) {
-      console.error('Nome account non valido:', account);
       return res.status(400).json({
         error: 'Il nome account può contenere solo lettere, numeri e underscore'
       });
     }
 
-    console.log('Creazione account:', account);
     const result = await createAccount(gun, DAPP_NAME, account);
-    console.log('Account creato con successo:', result);
-    
     res.json(result);
   } catch (error) {
     console.error('Errore nella creazione dell\'account:', error);
     res.status(500).json({
-      error: error.message || 'Errore interno del server'
+      error: error.message
     });
   }
 });
