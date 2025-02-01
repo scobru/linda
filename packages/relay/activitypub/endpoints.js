@@ -1138,8 +1138,11 @@ async function handleFollowActivity(gun, activity) {
     // Invia la risposta
     const response = await fetch(followerInbox, {
       method: 'POST',
-      headers,
-      body
+      headers: {
+        ...headers,
+        'Content-Length': Buffer.byteLength(body)
+      },
+      body: body
     });
 
     if (!response.ok) {
