@@ -528,7 +528,7 @@ async function runTests() {
         '@context': 'https://www.w3.org/ns/activitystreams',
         type: 'Follow',
         actor: `${BASE_URL}/users/${TEST_USERNAME}`,
-        object: `${BASE_URL}/users/test_user2`
+        object: `https://ftwr.scobrudot.dev/users/scobru`
       })
     });
 

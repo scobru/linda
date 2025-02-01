@@ -921,48 +921,92 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
 // Endpoint per i follower
 export const handleFollowers = async (gun, DAPP_NAME, username) => {
-  const followers = await gun
-    .get(DAPP_NAME)
-    .get('activitypub')
-    .get(username)
-    .get('followers')
-    .then(data => {
-      if (!data) return [];
-      return Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      }));
+  try {
+    console.log('Recupero followers per:', username);
+
+    const followers = await new Promise((resolve) => {
+      const followersArray = [];
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('followers')
+        .map()
+        .once((data, key) => {
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            // Rimuovi i metadati di Gun
+            const cleanData = { ...data };
+            delete cleanData._ 
+            delete cleanData['#'];
+            delete cleanData['>'];
+            
+            if (Object.keys(cleanData).length > 0) {
+              followersArray.push(cleanData);
+            }
+          }
+        });
+
+      // Aspetta un po' per raccogliere i dati
+      setTimeout(() => resolve(followersArray), 100);
     });
 
-  return {
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    type: 'OrderedCollection',
-    totalItems: followers.length,
-    items: followers
-  };
+    console.log('Followers recuperati:', followers);
+
+    return {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'OrderedCollection',
+      totalItems: followers.length,
+      orderedItems: followers
+    };
+  } catch (error) {
+    console.error('Errore nel recupero dei followers:', error);
+    throw error;
+  }
 };
 
 // Endpoint per i following
 export const handleFollowing = async (gun, DAPP_NAME, username) => {
-  const following = await gun
-    .get(DAPP_NAME)
-    .get('activitypub')
-    .get(username)
-    .get('following')
-    .then(data => {
-      if (!data) return [];
-      return Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      }));
+  try {
+    console.log('Recupero following per:', username);
+
+    const following = await new Promise((resolve) => {
+      const followingArray = [];
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('following')
+        .map()
+        .once((data, key) => {
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            // Rimuovi i metadati di Gun
+            const cleanData = { ...data };
+            delete cleanData._ 
+            delete cleanData['#'];
+            delete cleanData['>'];
+            
+            if (Object.keys(cleanData).length > 0) {
+              followingArray.push(cleanData);
+            }
+          }
+        });
+
+      // Aspetta un po' per raccogliere i dati
+      setTimeout(() => resolve(followingArray), 100);
     });
 
-  return {
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    type: 'OrderedCollection',
-    totalItems: following.length,
-    items: following
-  };
+    console.log('Following recuperati:', following);
+
+    return {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'OrderedCollection',
+      totalItems: following.length,
+      orderedItems: following
+    };
+  } catch (error) {
+    console.error('Errore nel recupero dei following:', error);
+    throw error;
+  }
 };
 
 async function getUserActivityPubProfile(gun, username) {
@@ -1159,16 +1203,13 @@ async function getUserKeys(gun, username) {
   });
 }
 
-// Aggiornamento nella gestione del follow
-async function handleFollowActivity(gun, activity) {
+// Funzione per gestire il follow
+async function handleFollowActivity(gun, activity, username) {
   try {
-    const targetUser = activity.object.split('/users/')[1];
-    const followerKey = await getUserKeys(gun, targetUser);
-
-    // Verifica aggiuntiva della struttura delle chiavi
-    if (!followerKey.publicKey || typeof followerKey.publicKey !== 'string') {
-      throw new Error('Chiave pubblica non valida');
-    }
+    console.log('Gestione follow activity:', {
+      activity,
+      username
+    });
 
     // Verifica la validità dell'attività
     if (!activity.actor || !activity.object) {
@@ -1181,57 +1222,75 @@ async function handleFollowActivity(gun, activity) {
       type: 'Accept',
       actor: activity.object,
       object: activity,
-      id: `${BASE_URL}/users/${targetUser}/activities/${Date.now()}`,
+      id: `${BASE_URL}/users/${username}/activities/${Date.now()}`,
       published: new Date().toISOString()
     };
 
+    // Recupera le chiavi
+    const keys = await getUserActivityPubKeys(gun, username);
+    if (!keys || !keys.privateKey) {
+      throw new Error('Chiavi non trovate per la firma');
+    }
+
     // Salva la relazione di follow
-    await gun
-      .get(DAPP_NAME)
-      .get('activitypub')
-      .get(targetUser)
-      .get('followers')
-      .get(activity.actor)
-      .put({
-        id: activity.actor,
-        followed_at: new Date().toISOString(),
-        status: 'accepted'
-      });
+    await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('followers')
+        .get(activity.actor)
+        .put({
+          id: activity.actor,
+          followed_at: new Date().toISOString(),
+          status: 'accepted'
+        }, (ack) => {
+          if (ack.err) reject(new Error(ack.err));
+          else resolve();
+        });
+    });
 
     // Invia l'Accept al follower
     const followerInbox = new URL(activity.actor).origin + '/inbox';
     const body = JSON.stringify(acceptActivity);
-    const digest = createHash('sha256').update(body).digest('base64');
+    const digest = `SHA-256=${createHash('sha256').update(body).digest('base64')}`;
+    const date = new Date().toUTCString();
 
     const headers = {
       'Content-Type': 'application/activity+json',
       'Accept': 'application/activity+json',
-      'Date': new Date().toUTCString(),
+      'Date': date,
       'Host': new URL(followerInbox).host,
-      'Digest': `SHA-256=${digest}`
+      'Digest': digest
     };
 
     // Firma la richiesta
-    const keyId = `${BASE_URL}/users/${targetUser}#main-key`;
-    headers['Signature'] = await signRequest({
+    const keyId = `${BASE_URL}/users/${username}#main-key`;
+    const signature = await signRequest({
       method: 'POST',
       url: followerInbox,
       headers,
       body
-    }, keyId, targetUser, gun, DAPP_NAME);
+    }, keyId, username, gun, DAPP_NAME);
+
+    headers['Signature'] = signature;
+
+    console.log('Invio Accept con headers:', headers);
 
     // Invia la risposta
     const response = await fetch(followerInbox, {
       method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Length': Buffer.byteLength(body)
-      },
-      body: body
+      headers,
+      body
     });
 
     if (!response.ok) {
-      throw new Error(`Errore nell'invio dell'Accept: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Errore nella risposta Accept:', {
+        status: response.status,
+        body: errorText
+      });
+      throw new Error(`Errore nell'invio dell'Accept: ${response.statusText} - ${errorText}`);
     }
 
     return { success: true, activity: acceptActivity };
