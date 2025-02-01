@@ -514,27 +514,20 @@ import {
   handleInbox, 
   handleOutbox,
   handleFollowers,
-  handleFollowing 
+  handleFollowing,
+  handleWebfinger
 } from './activitypub/endpoints.js';
 
 // ActivityPub Endpoints
 app.get('/.well-known/webfinger', async (req, res) => {
-  const resource = req.query.resource;
-  if (!resource) {
-    return res.status(400).json({ error: 'Resource parameter required' });
+  try {
+    const resource = req.query.resource;
+    const response = await handleWebfinger(resource);
+    res.json(response);
+  } catch (error) {
+    console.error('Errore nella gestione webfinger:', error);
+    res.status(400).json({ error: error.message });
   }
-
-  const [, username] = resource.split(':');
-  const [handle] = username.split('@');
-
-  res.json({
-    subject: resource,
-    links: [{
-      rel: 'self',
-      type: 'application/activity+json',
-      href: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${handle}`
-    }]
-  });
 });
 
 // Endpoint Actor

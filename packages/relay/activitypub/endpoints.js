@@ -1376,3 +1376,22 @@ async function handleFollowActivity(gun, activity, username) {
   }
 }
 
+// Aggiungi l'endpoint webfinger
+export const handleWebfinger = async (resource) => {
+  if (!resource) {
+    throw new Error('Resource parameter required');
+  }
+
+  const [, username] = resource.split(':');
+  const [handle] = username.split('@');
+
+  return {
+    subject: resource,
+    links: [{
+      rel: 'self',
+      type: 'application/activity+json',
+      href: `${BASE_URL}/users/${handle}`
+    }]
+  };
+};
+
