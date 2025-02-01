@@ -24,8 +24,14 @@ function validateActivity(activity) {
     throw new Error('Campo actor mancante');
   }
 
-  // Verifica il formato degli URL
-  const urlFields = ['actor', 'object', 'target'].filter(field => activity[field]);
+  // Verifica il formato degli URL, escludendo l'object per le Note
+  const urlFields = ['actor', 'target'].filter(field => activity[field]);
+  if (activity.type !== 'Create' || (activity.object && activity.object.type !== 'Note')) {
+    if (activity.object && typeof activity.object === 'string') {
+      urlFields.push('object');
+    }
+  }
+
   for (const field of urlFields) {
     try {
       new URL(activity[field]);
@@ -530,14 +536,20 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         throw new Error('Content mancante per la nota');
       }
 
-      // Crea l'oggetto post con una struttura più semplice
+      // Crea l'oggetto post con una struttura più completa
       const post = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
         id: `${BASE_URL}/users/${username}/posts/${timestamp}`,
         type: 'Note',
         attributedTo: `${BASE_URL}/users/${username}`,
         content: activity.object.content,
         published: new Date(timestamp).toISOString(),
-        to: 'https://www.w3.org/ns/activitystreams#Public'
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [],
+        sensitive: activity.object.sensitive || false,
+        summary: activity.object.summary || null,
+        attachment: activity.object.attachment || [],
+        tag: activity.object.tag || []
       };
 
       // Crea l'attività ActivityPub
@@ -547,7 +559,8 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
-        to: 'https://www.w3.org/ns/activitystreams#Public',
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [],
         object: post
       };
 

@@ -564,9 +564,17 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
     const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
-    res.json(activity);
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.status(201).json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Errore nella gestione dell\'outbox:', error);
+    res.status(500).json({ 
+      error: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      details: error.stack
+    });
   }
 });
 
