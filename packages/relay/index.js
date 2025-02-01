@@ -125,7 +125,9 @@ function getRadataSize() {
 }
 
 // Middleware
-app.use(express.static("dashboard"));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
@@ -133,6 +135,15 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept"
   );
+  next();
+});
+
+// Middleware per il logging delle richieste
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  if (req.body) {
+    console.log('Body:', req.body);
+  }
   next();
 });
 
@@ -149,13 +160,6 @@ app.use((req, res, next) => {
   if (req.method === 'HEAD') {
     return res.status(200).end();
   }
-  next();
-});
-
-// Middleware per il logging delle richieste
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  console.log('Headers:', req.headers);
   next();
 });
 

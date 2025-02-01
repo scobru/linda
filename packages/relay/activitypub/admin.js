@@ -23,10 +23,29 @@ async function verifyApiKey(gun, DAPP_NAME, username, apiKey) {
 // Crea un nuovo account ActivityPub
 export async function createAccount(gun, DAPP_NAME, username) {
   try {
-    console.log('Creazione account:', username);
+    console.log('Creazione account:', {
+      username,
+      DAPP_NAME
+    });
+
+    // Verifica se l'account esiste già
+    const exists = await new Promise(resolve => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once(data => {
+          resolve(!!data);
+        });
+    });
+
+    if (exists) {
+      throw new Error('Account già esistente');
+    }
 
     // Genera una nuova chiave API
     const apiKey = generateApiKey();
+    console.log('Chiave API generata');
 
     // Salva la chiave API
     await new Promise((resolve, reject) => {
@@ -36,13 +55,20 @@ export async function createAccount(gun, DAPP_NAME, username) {
         .get(username)
         .get('apiKey')
         .put(apiKey, (ack) => {
-          if (ack.err) reject(new Error(ack.err));
-          else resolve();
+          if (ack.err) {
+            console.error('Errore nel salvataggio della chiave API:', ack.err);
+            reject(new Error(ack.err));
+          } else {
+            console.log('Chiave API salvata');
+            resolve();
+          }
         });
     });
 
     // Inizializza il profilo ActivityPub
+    console.log('Inizializzazione profilo ActivityPub');
     await handleActorEndpoint(gun, DAPP_NAME, username);
+    console.log('Profilo ActivityPub creato');
 
     return {
       msg: 'ok',
