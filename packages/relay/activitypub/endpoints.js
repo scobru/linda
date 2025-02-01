@@ -454,10 +454,18 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 async function signRequest(requestData, keyId, username, gun) {
   let headers = [];
   let body;
+  let publicKey; // Dichiarazione anticipata
 
   try {
-    const { privateKey } = await getUserKeys(gun, username);
+    const keys = await getUserKeys(gun, username);
+    const { privateKey } = keys;
+    publicKey = keys.publicKey; // Assegnazione esplicita
     
+    // 1. Controllo di integrità delle chiavi
+    if (!publicKey || !privateKey) {
+      throw new Error('Chiavi mancanti nel keyring');
+    }
+
     // 1. Normalizzazione RFC 8785 per JSON
     body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
@@ -483,17 +491,21 @@ async function signRequest(requestData, keyId, username, gun) {
       padding: crypto.constants.RSA_PKCS1_PADDING
     }, 'base64');
 
-    // 4. Verifica sincrona con ottimizzazioni
-    const verifier = crypto.createVerify('RSA-SHA256');
-    verifier.update(headers.join('\n'));
-    
-    if (!verifier.verify(publicKey, signature, 'base64')) {
-      const keyDetails = {
+    // 4. Verifica con gestione errori dedicata
+    try {
+      const verifier = crypto.createVerify('RSA-SHA256');
+      verifier.update(headers.join('\n'));
+      
+      if (!verifier.verify(publicKey, signature, 'base64')) {
+        throw new Error('Verifica fallita (firma non valida)');
+      }
+    } catch (verifyError) {
+      console.error('Dettagli verifica:', {
         publicKey: publicKey.substring(0, 100) + '...',
-        privateKey: privateKey.substring(0, 100) + '...',
-        signature
-      };
-      throw new Error(`Mismatch chiavi: ${JSON.stringify(keyDetails)}`);
+        signature: signature.substring(0, 50) + '...',
+        error: verifyError.stack
+      });
+      throw verifyError;
     }
 
     // 5. Formattazione header RFC 9421
@@ -506,9 +518,8 @@ async function signRequest(requestData, keyId, username, gun) {
 
   } catch (error) {
     console.error('Dettagli errore:', {
-      headers,
-      digest: body ? crypto.createHash('sha256').update(body).digest('base64') : 'N/A',
-      publicKey: (await getUserKeys(gun, username))?.publicKey?.substring(0, 50) + '...',
+      publicKey: publicKey ? publicKey.substring(0, 50) + '...' : 'N/D',
+      privateKey: (await getUserKeys(gun, username).catch(() => ({})))?.privateKey?.substring(0, 50) + '...',
       error: error.stack
     });
     throw new Error(`Errore di firma: ${error.message}`);
