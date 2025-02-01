@@ -189,13 +189,10 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
                   resolvePut();
                 }
               });
-            }).then(() => {
-              resolve(defaultActor);
-            }).catch((err) => {
-              reject(new Error(`Errore nel salvataggio del profilo: ${err}`));
-            });
+            }).then(() => resolve(defaultActor))
+              .catch((err) => reject(new Error(`Errore nel salvataggio del profilo: ${err}`)));
           } else {
-            // Normalizza i dati esistenti
+            // Se il profilo esiste già, normalizza gli URL
             const normalizedData = {
               ...data,
               id: `${BASE_URL}/users/${username}`,
@@ -205,7 +202,18 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
               outbox: `${BASE_URL}/users/${username}/outbox`,
               url: `${BASE_URL}/users/${username}`
             };
-            resolve(normalizedData);
+
+            // Salva il profilo normalizzato
+            new Promise((resolvePut, rejectPut) => {
+              userNode.put(normalizedData, (ack) => {
+                if (ack.err) {
+                  rejectPut(ack.err);
+                } else {
+                  resolvePut();
+                }
+              });
+            }).then(() => resolve(normalizedData))
+              .catch((err) => reject(new Error(`Errore nel salvataggio del profilo normalizzato: ${err}`)));
           }
         });
 
@@ -558,4 +566,4 @@ export const handleFollowing = async (gun, DAPP_NAME, username) => {
     totalItems: following.length,
     items: following
   };
-}; 
+};
