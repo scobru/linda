@@ -838,8 +838,6 @@ export {
   updateMetrics,
   syncGlobalMetrics,
   generateActivityPubKeys,
-  saveUserActivityPubKeys,
-  getUserActivityPubKeys
 };
 
 // Funzione per gestire gli eventi di connessione
