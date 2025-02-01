@@ -332,6 +332,13 @@ async function verifySignature(req, publicKey) {
       throw new Error('Firma mancante');
     }
 
+    console.log('Verifica firma:', {
+      signature,
+      headers: req.headers,
+      path: req.path,
+      method: req.method
+    });
+
     // Parsing dell'header Signature
     const sigParts = {};
     signature.split(',').forEach(part => {
@@ -343,6 +350,8 @@ async function verifySignature(req, publicKey) {
       throw new Error('Formato firma non valido');
     }
 
+    console.log('Parti firma:', sigParts);
+
     // Costruisci la stringa da verificare
     const signedHeaders = sigParts.headers.split(' ');
     const signedString = signedHeaders
@@ -350,14 +359,23 @@ async function verifySignature(req, publicKey) {
         if (header === '(request-target)') {
           return `(request-target): ${req.method.toLowerCase()} ${req.path}`;
         }
-        return `${header}: ${req.headers[header]}`;
+        return `${header}: ${req.headers[header.toLowerCase()]}`;
       })
       .join('\n');
+
+    console.log('Stringa da verificare:', signedString);
 
     // Verifica la firma
     const verifier = crypto.createVerify('sha256');
     verifier.update(signedString);
-    const isValid = verifier.verify(publicKey, sigParts.signature, 'base64');
+    verifier.end();
+
+    const isValid = verifier.verify(
+      publicKey,
+      Buffer.from(sigParts.signature, 'base64')
+    );
+
+    console.log('Risultato verifica:', isValid);
 
     if (!isValid) {
       throw new Error('Firma non valida');
@@ -475,7 +493,7 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     const digest = `SHA-256=${createHash('sha256').update(bodyString).digest('base64')}`;
 
     // Prepara gli headers in ordine corretto
-    const date = new Date().toUTCString();
+    const date = request.headers.date || new Date().toUTCString();
     const requestTarget = `${request.method.toLowerCase()} ${url.pathname}`;
     const host = url.host;
 
@@ -492,25 +510,25 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     // Crea la firma
     const signer = crypto.createSign('sha256');
     signer.update(signString);
-    const signature = signer.sign(keys.privateKey, 'base64');
+    signer.end();
 
-    // Aggiungi gli headers necessari alla richiesta
-    request.headers = {
-      ...request.headers,
-      'Host': host,
-      'Date': date,
-      'Digest': digest
-    };
+    const signature = signer.sign(keys.privateKey);
+    const signature_b64 = signature.toString('base64');
 
     // Costruisci l'header Signature
     const signatureHeader = [
       `keyId="${keyId}"`,
       'algorithm="rsa-sha256"',
       'headers="(request-target) host date digest"',
-      `signature="${signature}"`
+      `signature="${signature_b64}"`
     ].join(',');
 
     console.log('Header Signature:', signatureHeader);
+    
+    // Aggiorna gli headers della richiesta
+    request.headers['date'] = date;
+    request.headers['digest'] = digest;
+
     return signatureHeader;
   } catch (error) {
     console.error('Errore nella firma della richiesta:', error);
