@@ -13,8 +13,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Verifica e usa le variabili d'ambiente
-const BASE_URL = process.env.BASE_URL;
-const DAPP_NAME = process.env.DAPP_NAME;
+const BASE_URL = process.env.BASE_URL || 'https://gun-relay.scobrudot.dev';
+const DAPP_NAME = process.env.DAPP_NAME || 'linda-messenger';
 
 if (!BASE_URL || !DAPP_NAME) {
   console.error('Errore: Variabili d\'ambiente mancanti:', {
