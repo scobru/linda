@@ -452,23 +452,23 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 
 // Funzione per firmare una richiesta ActivityPub
 async function signRequest(requestData, keyId, username, gun) {
+  let headers = [];
+  let body;
+
   try {
     const { privateKey } = await getUserKeys(gun, username);
     
-    // 1. Normalizzazione canonica del body
-    const body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
+    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
     const digest = crypto.createHash('sha256')
       .update(body)
       .digest('base64');
 
-    // 2. Costruzione URL RFC-compliant
     const url = new URL(requestData.url);
     const path = `${url.pathname}${url.search}`.replace(/\/{2,}/g, '/');
 
-    // 3. Intestazioni ordinamento rigoroso
-    const headers = [
+    headers = [
       `(request-target): post ${path}`,
-      `host: ${url.hostname}`, // Rimuove la porta per HTTPS standard
+      `host: ${url.hostname}`,
       `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
       `content-type: ${requestData.headers['Content-Type']}`
@@ -503,8 +503,8 @@ async function signRequest(requestData, keyId, username, gun) {
   } catch (error) {
     console.error('Dettagli errore firma:', {
       headers,
-      digest: crypto.createHash('sha256').update(body).digest('base64'),
-      publicKey: (await getUserKeys(gun, username)).publicKey,
+      digest: body ? crypto.createHash('sha256').update(body).digest('base64') : 'N/A',
+      publicKey: (await getUserKeys(gun, username))?.publicKey?.substring(0, 50) + '...',
       error: error.stack
     });
     throw new Error(`Errore di firma: ${error.message}`);
