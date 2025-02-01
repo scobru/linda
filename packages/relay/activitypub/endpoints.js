@@ -434,6 +434,12 @@ async function fetchActorPublicKey(actorUrl) {
 // Modifica nella funzione handleInbox per verificare le firme
 export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
   try {
+    console.log('Gestione attività in arrivo:', {
+      type: activity.type,
+      actor: activity.actor,
+      object: activity.object
+    });
+
     // Valida l'attività in arrivo
     validateActivity(activity);
 
@@ -779,10 +785,9 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
 
       const targetUrl = new URL(targetActor);
       const targetServer = targetUrl.origin;
-      const targetUsername = targetUrl.pathname.split('/').pop();
 
       console.log('Target server:', targetServer);
-      console.log('Target username:', targetUsername);
+      console.log('Target actor URL:', targetActor);
 
       // Crea l'attività di follow
       const followActivity = {
@@ -798,14 +803,15 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
       const body = JSON.stringify(followActivity);
       const digest = `SHA-256=${createHash('sha256').update(body).digest('base64')}`;
       const date = new Date().toUTCString();
-      const targetHost = new URL(targetServer).host;
-      const inboxUrl = `${targetServer}/users/${targetUsername}/inbox`;
+      
+      // Usa direttamente /inbox invece di /users/{username}/inbox
+      const inboxUrl = `${targetServer}/inbox`;
       
       const headers = {
         'Content-Type': 'application/activity+json',
         'Accept': 'application/activity+json',
         'Date': date,
-        'Host': targetHost,
+        'Host': new URL(targetServer).host,
         'Digest': digest
       };
 
@@ -827,7 +833,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
           headers: {
             ...headers,
             date: date,
-            host: targetHost,
+            host: new URL(targetServer).host,
             digest: digest
           },
           body
@@ -849,7 +855,8 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
           console.error('Risposta errore dal server:', {
             status: response.status,
             headers: Object.fromEntries(response.headers.entries()),
-            body: errorText
+            body: errorText,
+            inboxUrl
           });
           throw new Error(`Failed to send follow request: ${response.statusText} - ${errorText}`);
         }
@@ -871,13 +878,35 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             });
         });
 
+        // Salva anche lo stato del following
+        await new Promise((resolve, reject) => {
+          gun
+            .get(DAPP_NAME)
+            .get('activitypub')
+            .get(username)
+            .get('following')
+            .get(targetActor)
+            .put({
+              id: targetActor,
+              status: 'pending',
+              requested_at: new Date().toISOString()
+            }, (ack) => {
+              if (ack.err) {
+                reject(new Error(ack.err));
+              } else {
+                resolve(ack);
+              }
+            });
+        });
+
         return followActivity;
       } catch (error) {
         console.error('Errore dettagliato nella richiesta follow:', {
           error: error.message,
           stack: error.stack,
           headers,
-          body
+          body,
+          inboxUrl
         });
         throw error;
       }
