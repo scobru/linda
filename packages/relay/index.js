@@ -20,6 +20,7 @@ dotenv.config();
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
+const BASE_URL = process.env.BASE_URL || "https://gun-relay.scobrudot.dev";
 const MULTICAST_ADDRESS = '239.255.255.250';
 const MULTICAST_PORT = 8765;
 
