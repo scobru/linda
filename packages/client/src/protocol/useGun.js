@@ -12,7 +12,7 @@ let isConnected = false;
 export { SEA }
 
 const gunOptions = {
-  peers: DEFAULT_PEERS,
+  peers: ["https://gun-relay.scobrudot.dev/gun"],
   radisk: false,
   localStorage: false,
 };
@@ -22,6 +22,8 @@ const walletManager = new WalletManager(gunOptions);
 
 // Inizializza Gun con le opzioni
 export const gun = walletManager.getGun();
+
+console.log(gun);
 
 // Inizializza l'utente
 export const user = walletManager.getUser();
