@@ -163,7 +163,7 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
             if (!data) {
               console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
               const defaultActor = {
-                '@context': 'https://www.w3.org/ns/activitystreams',
+                '@context': ['https://www.w3.org/ns/activitystreams'],
                 type: 'Person',
                 id: `${BASE_URL}/users/${username}`,
                 following: `${BASE_URL}/users/${username}/following`,
@@ -174,7 +174,10 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
                 name: username,
                 summary: `Profilo ActivityPub di ${username}`,
                 url: `${BASE_URL}/users/${username}`,
-                published: new Date().toISOString()
+                published: new Date().toISOString(),
+                endpoints: {
+                  sharedInbox: `${BASE_URL}/inbox`
+                }
               };
               
               // Salva il profilo di default
@@ -186,7 +189,14 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
                 
               resolve(defaultActor);
             } else {
-              resolve(data);
+              // Assicurati che il contesto sia un array
+              const normalizedData = {
+                ...data,
+                '@context': Array.isArray(data['@context']) ? 
+                  data['@context'] : 
+                  ['https://www.w3.org/ns/activitystreams']
+              };
+              resolve(normalizedData);
             }
           });
       }),
@@ -199,20 +209,28 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
     let keys = null;
     try {
       keys = await getUserActivityPubKeys(gun, username);
+      console.log('Chiavi recuperate con successo:', keys ? 'SI' : 'NO');
     } catch (error) {
       console.warn('Chiavi ActivityPub non trovate:', error.message);
     }
 
-    // Restituisci il profilo con o senza chiavi
-    return {
+    // Costruisci la risposta
+    const response = {
       ...actorData,
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      publicKey: keys ? {
+      '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1']
+    };
+
+    // Aggiungi le chiavi solo se disponibili
+    if (keys && keys.publicKey) {
+      response.publicKey = {
         id: `${actorData.id}#main-key`,
         owner: actorData.id,
         publicKeyPem: keys.publicKey
-      } : undefined
-    };
+      };
+    }
+
+    console.log('Risposta finale actor:', response);
+    return response;
   } catch (error) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
     throw error;
@@ -253,6 +271,11 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity) => {
 async function signRequest(request, keyId, username, gun) {
   try {
     const keys = await getUserActivityPubKeys(gun, username);
+    if (!keys || !keys.privateKey) {
+      console.warn('Chiavi non trovate per la firma della richiesta');
+      return null;
+    }
+
     const url = new URL(request.url);
     const digest = createHash('sha256').update(request.body).digest('base64');
     
@@ -264,11 +287,13 @@ async function signRequest(request, keyId, username, gun) {
       'content-type'
     ];
 
-    const signatureParams = headersToSign
+    const signatureString = headersToSign
       .map(header => {
         let value;
         if (header === '(request-target)') {
           value = `${request.method.toLowerCase()} ${url.pathname}`;
+        } else if (header === 'host') {
+          value = url.host;
         } else {
           value = request.headers[header];
         }
@@ -276,10 +301,14 @@ async function signRequest(request, keyId, username, gun) {
       })
       .join('\n');
 
+    console.log('Stringa da firmare:', signatureString);
+
     const signature = crypto
       .createSign('sha256')
-      .update(signatureParams)
+      .update(signatureString)
       .sign(keys.privateKey, 'base64');
+
+    console.log('Firma generata:', signature);
 
     const signatureHeader = [
       `keyId="${keyId}"`,
@@ -288,10 +317,11 @@ async function signRequest(request, keyId, username, gun) {
       `signature="${signature}"`
     ].join(',');
 
+    console.log('Header Signature:', signatureHeader);
     return signatureHeader;
   } catch (error) {
     console.error('Errore nella firma della richiesta:', error);
-    throw error;
+    return null;
   }
 }
 
