@@ -31,7 +31,12 @@ import 'gun/lib/radisk.js';
 const app = express();
 const server = http.createServer(app);
 server.setTimeout(30000); // 
-const port = 8765;
+const port = process.env.PORT || 8765;
+
+console.log('Starting server with configuration:');
+console.log('- DAPP_NAME:', DAPP_NAME);
+console.log('- PORT:', port);
+console.log('- NODE_ENV:', process.env.NODE_ENV);
 
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
@@ -48,6 +53,8 @@ const GUN_CONFIG = {
   axe: true,
   peers: process.env.PEERS ? process.env.PEERS.split(',') : []
 };
+
+console.log('Gun configuration:', GUN_CONFIG);
 
 // Configurazione
 const CONFIG = {
@@ -269,32 +276,41 @@ async function performBackup() {
   return false;
 }
 
-// Funzione principale di inizializzazione
+// Modifica la funzione principale di inizializzazione
 async function initializeServer() {
   try {
+    console.log('Initializing server...');
+    
     const server = http.createServer(app);
-    server.setTimeout(30000); // Aumenta il timeout del server a 30 secondi
+    server.setTimeout(30000);
     
     const gunConfig = {
       ...GUN_CONFIG,
       web: server
     };
 
+    console.log('Creating Gun instance...');
     gun = new Gun(gunConfig);
     console.log("Gun server started");
 
-    // Aggiungi il middleware Gun.serve
     app.use(Gun.serve);
+    console.log('Gun middleware configured');
 
-    // Configura gli handler delle connessioni
     setupConnectionHandlers(server, gun);
+    console.log('Connection handlers configured');
 
-    server.listen(port, () => {
-      console.log(`Relay listening at http://localhost:${port}`);
+    await new Promise((resolve, reject) => {
+      server.listen(port, () => {
+        console.log(`Relay listening at http://localhost:${port}`);
+        resolve();
+      }).on('error', (error) => {
+        console.error('Server failed to start:', error);
+        reject(error);
+      });
     });
 
-    // Inizializza Mogu se abilitato
     if (CONFIG.STORAGE.enabled) {
+      console.log('Initializing Mogu...');
       mogu = new Mogu({
         key: "",
         storageService: CONFIG.STORAGE.service,
@@ -305,11 +321,8 @@ async function initializeServer() {
       console.log("Mogu initialized successfully");
     }
 
-    // Inizializza i listener di Gun
     initializeGunListeners(gun, mogu);
-
-    // Avvia la sincronizzazione delle metriche
-    //setInterval(syncGlobalMetrics, 5000);
+    console.log('Gun listeners initialized');
 
     return { gun, mogu };
   } catch (error) {

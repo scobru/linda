@@ -14,6 +14,29 @@ const BASE_URL = "https://gun-relay.scobrudot.dev";
 const TEST_USERNAME = "scobru_test3";
 const TEST_PASSWORD = "test12345678";
 
+// Aggiungi timeout più lungo per le richieste
+const FETCH_TIMEOUT = 30000; // 30 secondi
+
+// Funzione per gestire le richieste con timeout
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, FETCH_TIMEOUT);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return response;
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
+  }
+}
+
 function generateActivityPubKeys() {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", {
     modulusLength: 2048,

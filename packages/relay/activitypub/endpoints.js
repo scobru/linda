@@ -150,48 +150,68 @@ export const handleActorEndpoint = async (gun, DAPP_NAME, username) => {
   try {
     console.log(`Recupero profilo ActivityPub per ${username}`);
     
-    const keys = await getUserActivityPubKeys(gun, username);
-    if (!keys) {
-      throw new Error('Chiavi ActivityPub non trovate');
+    // Timeout per la promessa Gun
+    const timeout = 5000;
+    
+    const actorData = await Promise.race([
+      new Promise((resolve, reject) => {
+        gun
+          .get(DAPP_NAME)
+          .get('activitypub')
+          .get(username)
+          .once((data) => {
+            if (!data) {
+              console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
+              const defaultActor = {
+                '@context': 'https://www.w3.org/ns/activitystreams',
+                type: 'Person',
+                id: `${BASE_URL}/users/${username}`,
+                following: `${BASE_URL}/users/${username}/following`,
+                followers: `${BASE_URL}/users/${username}/followers`,
+                inbox: `${BASE_URL}/users/${username}/inbox`,
+                outbox: `${BASE_URL}/users/${username}/outbox`,
+                preferredUsername: username,
+                name: username,
+                summary: `Profilo ActivityPub di ${username}`,
+                url: `${BASE_URL}/users/${username}`,
+                published: new Date().toISOString()
+              };
+              
+              // Salva il profilo di default
+              gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(username)
+                .put(defaultActor);
+                
+              resolve(defaultActor);
+            } else {
+              resolve(data);
+            }
+          });
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout nel recupero del profilo')), timeout)
+      )
+    ]);
+
+    // Prova a recuperare le chiavi solo se abbiamo un profilo
+    let keys = null;
+    try {
+      keys = await getUserActivityPubKeys(gun, username);
+    } catch (error) {
+      console.warn('Chiavi ActivityPub non trovate:', error.message);
     }
 
-    const actorData = await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .once((data) => {
-          if (!data) {
-            console.log(`Profilo non trovato per ${username}, creazione profilo di default`);
-            const defaultActor = {
-              '@context': 'https://www.w3.org/ns/activitystreams',
-              type: 'Person',
-              id: `${BASE_URL}/users/${username}`,
-              following: `${BASE_URL}/users/${username}/following`,
-              followers: `${BASE_URL}/users/${username}/followers`,
-              inbox: `${BASE_URL}/users/${username}/inbox`,
-              outbox: `${BASE_URL}/users/${username}/outbox`,
-              preferredUsername: username,
-              name: username,
-              summary: `Profilo ActivityPub di ${username}`,
-              url: `${BASE_URL}/users/${username}`,
-              published: new Date().toISOString()
-            };
-            resolve(defaultActor);
-          } else {
-            resolve(data);
-          }
-        });
-    });
-
+    // Restituisci il profilo con o senza chiavi
     return {
       ...actorData,
       '@context': ['https://www.w3.org/ns/activitystreams'],
-      publicKey: {
+      publicKey: keys ? {
         id: `${actorData.id}#main-key`,
         owner: actorData.id,
         publicKeyPem: keys.publicKey
-      }
+      } : undefined
     };
   } catch (error) {
     console.error('Errore nel recupero del profilo ActivityPub:', error);
