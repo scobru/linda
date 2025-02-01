@@ -463,8 +463,8 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     // Recupera le chiavi dal database
     const keys = await new Promise((resolve, reject) => {
       gun
-        .get(DAPP_NAME)
-        .get('activitypub')
+        .get('linda-messenger')
+        .get('users')
         .get(username)
         .get('keys')
         .once((data) => {
@@ -479,6 +479,11 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     if (!keys || !keys.privateKey) {
       throw new Error('Chiavi non valide');
     }
+
+    console.log('Chiavi recuperate:', {
+      privateKeyStart: keys.privateKey.substring(0, 50) + '...',
+      publicKeyStart: keys.publicKey.substring(0, 50) + '...'
+    });
 
     const url = new URL(request.url);
     const date = request.headers.date || new Date().toUTCString();
@@ -496,7 +501,9 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
 
     // Genera la firma
     const signer = crypto.createSign('sha256');
-    signer.update(signedString, 'utf8');
+    signer.write(signedString);
+    signer.end();
+
     const signature = signer.sign(keys.privateKey);
     const signature_b64 = signature.toString('base64');
 
@@ -511,6 +518,10 @@ export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
     ].join(',');
 
     console.log('Header Signature completo:', signatureHeader);
+
+    // Aggiorna gli headers della richiesta
+    request.headers.date = date;
+    request.headers.host = url.host;
 
     return signatureHeader;
   } catch (error) {
