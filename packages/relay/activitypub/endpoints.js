@@ -456,9 +456,13 @@ async function signRequest(requestData, keyId, username, gun) {
   let body;
 
   try {
-    const { privateKey } = await getUserKeys(gun, username);
+    const { privateKey, publicKey } = await getUserKeys(gun, username);
     
-    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort());
+    // 1. Normalizzazione RFC 8785 per JSON
+    body = JSON.stringify(requestData.body, Object.keys(requestData.body).sort(), 2)
+      .replace(/\//g, '\\/')
+      .replace(/\n/g, '');
+    
     const digest = crypto.createHash('sha256')
       .update(body)
       .digest('base64');
@@ -466,45 +470,49 @@ async function signRequest(requestData, keyId, username, gun) {
     const url = new URL(requestData.url);
     const path = `${url.pathname}${url.search}`.replace(/\/{2,}/g, '/');
 
+    // 2. Costruzione header con versione protocollo
     headers = [
       `(request-target): post ${path}`,
-      `host: ${url.hostname}`,
+      `host: ${url.host}`,
       `date: ${new Date().toUTCString()}`,
       `digest: SHA-256=${digest}`,
-      `content-type: ${requestData.headers['Content-Type']}`
-    ].map(h => h.toLowerCase());
+      `content-type: application/activity+json`
+    ];
 
-    // 4. Firma con codifica esplicita
+    // 3. Firma con codifica PKCS#1 v1.5
     const signer = crypto.createSign('RSA-SHA256');
     signer.update(headers.join('\n'));
     const signature = signer.sign({
       key: privateKey,
-      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto.constants.RSA_PKCS1_PADDING
     }, 'base64');
 
-    // 5. Verifica sincrona con chiave pubblica
-    const publicKey = crypto.createPublicKey(privateKey);
+    // 4. Verifica sincrona con ottimizzazioni
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(headers.join('\n'));
     
     if (!verifier.verify(publicKey, signature, 'base64')) {
-      throw new Error('Verifica locale fallita');
+      const keyDetails = {
+        publicKey: publicKey.substring(0, 100) + '...',
+        privateKey: privateKey.substring(0, 100) + '...',
+        signature
+      };
+      throw new Error(`Mismatch chiavi: ${JSON.stringify(keyDetails)}`);
     }
 
-    // 6. Formattazione header RFC 9421
+    // 5. Formattazione header RFC 9421
     return [
       `keyId="${keyId}"`,
-      `algorithm="rsa-sha256"`,
-      `headers="(request-target) host date digest content-type"`,
+      'algorithm="rsa-sha256"',
+      'headers="(request-target) host date digest content-type"',
       `signature="${signature}"`
     ].join(', ');
 
   } catch (error) {
-    console.error('Dettagli errore firma:', {
-      headers,
-      digest: body ? crypto.createHash('sha256').update(body).digest('base64') : 'N/A',
-      publicKey: (await getUserKeys(gun, username))?.publicKey?.substring(0, 50) + '...',
+    console.error('Dettagli errore:', {
+      headers: headers.join('|'),
+      body,
+      digest: crypto.createHash('sha256').update(body).digest('base64'),
       error: error.stack
     });
     throw new Error(`Errore di firma: ${error.message}`);
