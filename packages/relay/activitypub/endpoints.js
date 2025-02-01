@@ -820,3 +820,65 @@ async function verifyActorEndpoint(url) {
   }
 }
 
+// Aggiungi questa funzione per recuperare le chiavi
+async function getUserKeys(gun, username) {
+  return new Promise((resolve, reject) => {
+    gun.get('linda-messenger')
+      .get('activitypub')
+      .get(username)
+      .get('keys')
+      .once(async (data) => {
+        if (!data) {
+          return reject(new Error('Chiavi non trovate nel database'));
+        }
+        
+        // Rimuovi i metadati GUN
+        const sanitizedKeys = {
+          privateKey: data.privateKey,
+          publicKey: data.publicKey
+        };
+
+        if (!sanitizedKeys.privateKey || !sanitizedKeys.publicKey) {
+          return reject(new Error('Chiavi incomplete nel database'));
+        }
+
+        resolve(sanitizedKeys);
+      });
+  });
+}
+
+// Modifica nella gestione delle richieste di follow
+async function handleFollowActivity(activity, gun) {
+  try {
+    const targetUser = activity.object.split('/').pop();
+    const keys = await getUserKeys(gun, targetUser);
+
+    // Verifica firma
+    const verified = await verifySignature(
+      activity.signature,
+      keys.publicKey
+    );
+
+    if (!verified) {
+      throw new Error('Firma non valida');
+    }
+
+    // Aggiungi follower
+    await new Promise((resolve, reject) => {
+      gun.get('followers')
+        .get(targetUser)
+        .put(activity.actor, (ack) => {
+          ack.err ? reject(ack.err) : resolve();
+        });
+    });
+
+    return { status: 'success' };
+  } catch (error) {
+    console.error('Errore follow:', {
+      activity,
+      error: error.message
+    });
+    throw new Error(`Failed to process follow: ${error.message}`);
+  }
+}
+
