@@ -1,7 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createHash } from 'crypto';
-import { getUserActivityPubKeys } from '../index.js';
 import dotenv from 'dotenv';
 
 // Carica le variabili d'ambiente
