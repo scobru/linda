@@ -451,80 +451,40 @@ export const handleInbox = async (gun, DAPP_NAME, username, activity, req) => {
 };
 
 // Funzione per firmare una richiesta ActivityPub
-export async function signRequest(request, keyId, username, gun, DAPP_NAME) {
+async function signRequest(requestData, keyId, username, gun) {
   try {
-    console.log('Generazione firma per la richiesta:', {
-      method: request.method,
-      url: request.url,
-      headers: request.headers,
-      keyId,
-      username,
-      DAPP_NAME
-    });
-
-    // Recupera le chiavi dal database
-    const keys = await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .get('keys')
-        .once((data) => {
-          if (!data || !data.privateKey) {
-            reject(new Error('Chiavi non trovate'));
-          } else {
-            resolve(data);
-          }
-        });
-    });
-
-    if (!keys || !keys.privateKey) {
-      throw new Error('Chiavi non valide');
-    }
-
-    console.log('Chiavi recuperate:', {
-      privateKeyStart: keys.privateKey.substring(0, 50) + '...',
-      publicKeyStart: keys.publicKey.substring(0, 50) + '...'
-    });
-
-    const url = new URL(request.url);
-    const date = request.headers.date;
-    const digest = request.headers.digest;
+    // 1. Recupera le chiavi dal percorso corretto
+    const { privateKey } = await getUserKeys(gun, username);
     
-    // Prepara gli headers da firmare in ordine specifico
-    const signedString = [
-      `(request-target): ${request.method.toLowerCase()} ${url.pathname}`,
-      `host: ${request.headers.host}`,
-      `date: ${date}`,
-      `digest: ${digest}`
+    // 2. Calcola il digest SHA-256
+    const digest = crypto.createHash('sha256')
+      .update(JSON.stringify(requestData.body))
+      .digest('base64');
+
+    // 3. Crea la stringa da firmare
+    const signingString = [
+      `(request-target): post ${new URL(requestData.url).pathname}`,
+      `host: ${new URL(requestData.url).host}`,
+      `date: ${new Date().toUTCString()}`,
+      `digest: SHA-256=${digest}`,
+      `content-type: ${requestData.headers['Content-Type']}`
     ].join('\n');
 
-    console.log('Stringa da firmare:', signedString);
+    // 4. Firma con algoritmo corretto
+    const signer = crypto.createSign('rsa-sha256');
+    signer.update(signingString);
+    const signature = signer.sign(privateKey, 'base64');
 
-    // Genera la firma
-    const signer = crypto.createSign('sha256');
-    signer.update(signedString);
-    signer.end();
+    // 5. Costruisci header Signature
+    return `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest content-type",signature="${signature}"`;
 
-    const signature = signer.sign(keys.privateKey);
-    const signature_b64 = signature.toString('base64');
-
-    console.log('Firma generata (base64):', signature_b64);
-
-    // Costruisci l'header Signature
-    const signatureHeader = [
-      `keyId="${keyId}"`,
-      'algorithm="rsa-sha256"',
-      'headers="(request-target) host date digest"',
-      `signature="${signature_b64}"`
-    ].join(',');
-
-    console.log('Header Signature completo:', signatureHeader);
-
-    return signatureHeader;
   } catch (error) {
-    console.error('Errore nella generazione della firma:', error);
-    throw error;
+    console.error('Errore firma:', {
+      keyId,
+      username,
+      error: error.message
+    });
+    throw new Error(`Firma fallita: ${error.message}`);
   }
 }
 
