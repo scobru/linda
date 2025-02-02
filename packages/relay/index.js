@@ -1099,7 +1099,7 @@ app.post('/api/admin/create', async (req, res) => {
 
         // Crea il profilo ActivityPub di default
         const actorData = {
-            '@context': ['https://www.w3.org/ns/activitystreams'],
+            '@context': JSON.stringify(['https://www.w3.org/ns/activitystreams']),
             type: 'Person',
             id: `${process.env.BASE_URL}/users/${account}`,
             following: `${process.env.BASE_URL}/users/${account}/following`,
