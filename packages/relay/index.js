@@ -566,6 +566,47 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
   }
 });
 
+// Endpoint POST outbox
+app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
+  try {
+    const { username } = req.params;
+    const activity = req.body;
+
+    // Verifica che l'utente esista
+    const userExists = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once((data) => resolve(!!data));
+    });
+
+    if (!userExists) {
+      return res.status(404).json({ 
+        error: 'Utente non trovato',
+        username
+      });
+    }
+
+    // Gestisci l'attività
+    const result = await handleOutbox(gun, DAPP_NAME, username, activity);
+    
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Errore nel salvataggio dell\'attività:', {
+      error: error.stack,
+      params: req.params,
+      body: req.body
+    });
+    res.status(500).json({ 
+      error: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Endpoint Outbox
 app.get('/users/:username/outbox', async (req, res) => {
   try {
