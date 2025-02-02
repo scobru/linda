@@ -470,11 +470,16 @@ const updateMetrics = () => {
 // Funzione per attendere l'inizializzazione di Gun
 const waitForGunInit = () => {
   return new Promise((resolve) => {
-    if (gun && gun._.opt.peers && Object.keys(gun._.opt.peers).length > 0) {
-      resolve();
-    } else {
-      gun.on('hi', resolve);
+    if (gun && gun._.opt) {
+      return resolve();
     }
+    
+    const interval = setInterval(() => {
+      if (gun && gun._.opt) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
   });
 };
 
@@ -1093,6 +1098,9 @@ app.post('/api/verify', async (req, res) => {
                 error: 'Username e API key sono richiesti' 
             });
         }
+
+        // Verifica che Gun sia inizializzato
+        await waitForGunInit();
 
         // Verifica l'API key nel database Gun
         const isValid = await new Promise((resolve) => {

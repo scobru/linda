@@ -108,10 +108,15 @@ async function register(event) {
             body: JSON.stringify({ account: username })
         });
         
-        showNotification(`Registrazione completata! La tua API key è: ${data.apikey}`);
-        document.getElementById('loginUsername').value = username;
-        document.getElementById('loginApiKey').value = data.apikey;
-        showLoginForm();
+        showNotification('Registrazione completata!');
+        currentUser = { username };
+        localStorage.setItem('user', JSON.stringify(currentUser));
+        document.getElementById('username').textContent = username;
+        document.getElementById('userInfo').classList.remove('hidden');
+        document.getElementById('authButtons').classList.add('hidden');
+        showSection('timeline');
+        loadTimeline();
+        loadProfile();
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {
@@ -129,7 +134,7 @@ async function login(event) {
         setLoading(submitButton, true);
         
         // Prima verifica l'API key
-        const verifyResponse = await fetch(`${RELAY_URL}/api/verify`, {
+        const verifyResponse = await fetchWithError(`${RELAY_URL}/api/verify`, {
             method: 'POST',
             headers: JSON_HEADERS,
             body: JSON.stringify({ username, apikey: apiKey })
@@ -141,7 +146,7 @@ async function login(event) {
         }
 
         // Poi recupera il profilo
-        const profileResponse = await fetch(`${RELAY_URL}/users/${username}`, {
+        const profileResponse = await fetchWithError(`${RELAY_URL}/users/${username}`, {
             headers: DEFAULT_HEADERS
         });
 
