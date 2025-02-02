@@ -567,26 +567,35 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
 });
 
 // Endpoint Outbox
-app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
+app.get('/users/:username/outbox', async (req, res) => {
   try {
-    // Importa dinamicamente la configurazione
+    const { username } = req.params;
     
-    // Aggiungi header mancanti
-    req.headers = {
-      ...req.headers,
-      'Date': new Date().toUTCString(),
-      'Host': new URL(BASE_URL).host
-    };
+    // Verifica che l'utente esista
+    const userExists = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once((data) => resolve(!!data));
+    });
 
-    const activity = await handleOutbox(gun, DAPP_NAME, req.params.username, req.body);
+    if (!userExists) {
+      return res.status(404).json({ 
+        error: 'Utente non trovato',
+        username
+      });
+    }
+
+    // Recupera le attività dall'outbox
+    const outbox = await handleOutbox(gun, DAPP_NAME, username);
     
     res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.status(201).json(activity);
+    res.json(outbox);
   } catch (error) {
-    console.error('Errore outbox:', {
+    console.error('Errore nel recupero dell\'outbox:', {
       error: error.stack,
-      body: req.body,
-      headers: req.headers 
+      params: req.params
     });
     res.status(500).json({ 
       error: error.message,
