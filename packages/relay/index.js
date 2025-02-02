@@ -1188,37 +1188,27 @@ app.post("/api/activitypub/accounts", async (req, res) => {
 
     while (saveAttempts < maxSaveAttempts) {
       try {
-        await new Promise((resolve, reject) => {
-          let responded = false;
-          
-          const timeout = setTimeout(() => {
-            if (!responded) {
-              responded = true;
-              reject(new Error('Timeout salvataggio GunDB'));
-            }
-          }, 5000);
 
-          gun.get(DAPP_NAME)
-            .get('activitypub')
-            .get(account)
-            .put({
-              publicKey,
-              apiKey,
-              createdAt: Date.now()
-            }, (ack) => {
-              if (!responded) {
-                responded = true;
-                clearTimeout(timeout);
-                
-                if (ack.err) {
-                  console.error('Errore salvataggio su GunDB:', ack.err);
-                  reject(ack.err);
-                } else {
-                  console.log('Salvataggio su GunDB completato');
-                  resolve();
-                }
-              }
-            });
+        await gun.get(DAPP_NAME)
+        .get('activitypub')
+        .get(account)
+        .put({
+          publicKey,
+          apiKey,
+          createdAt: Date.now()
+        }, (ack) => {
+          if (!responded) {
+            responded = true;
+            clearTimeout(timeout);
+            
+            if (ack.err) {
+              console.error('Errore salvataggio su GunDB:', ack.err);
+              reject(ack.err);
+            } else {
+              console.log('Salvataggio su GunDB completato');
+              resolve();
+            }
+          }
         });
         
         break; // Se il salvataggio è riuscito, esci dal ciclo
