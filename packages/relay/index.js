@@ -680,11 +680,16 @@ app.post('/users/:username/outbox', express.json({ type: 'application/activity+j
   }
 });
 
-// Endpoint Outbox
+// Migliora l'endpoint outbox
 app.get('/users/:username/outbox', async (req, res) => {
   try {
     const { username } = req.params;
     
+    console.log('Richiesta outbox per:', username);
+    
+    // Verifica che Gun sia inizializzato
+    await waitForGunInit();
+
     // Verifica che l'utente esista
     const userExists = await new Promise((resolve) => {
       gun
@@ -695,6 +700,7 @@ app.get('/users/:username/outbox', async (req, res) => {
     });
 
     if (!userExists) {
+      console.log('Utente non trovato:', username);
       return res.status(404).json({ 
         error: 'Utente non trovato',
         username
@@ -702,10 +708,30 @@ app.get('/users/:username/outbox', async (req, res) => {
     }
 
     // Recupera le attività dall'outbox
-    const outbox = await handleOutbox(gun, DAPP_NAME, username);
-    
+    const activities = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .get('outbox')
+        .once(resolve);
+    });
+
+    console.log('Attività trovate:', {
+      username,
+      count: activities ? Object.keys(activities).length : 0
+    });
+
+    // Formatta la risposta secondo ActivityPub
+    const response = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'OrderedCollection',
+      totalItems: activities ? Object.keys(activities).length : 0,
+      orderedItems: activities ? Object.values(activities) : []
+    };
+
     res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.json(outbox);
+    res.json(response);
   } catch (error) {
     console.error('Errore nel recupero dell\'outbox:', {
       error: error.stack,
