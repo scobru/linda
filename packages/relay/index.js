@@ -1126,33 +1126,16 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     let verificationError = null;
 
     try {
-      let responded = false;
-
-      // Timeout più lungo per la verifica
-      const timeout = setTimeout(() => {
-        if (!responded) {
-          responded = true;
-          console.log(
-            "Timeout verifica account - assumendo account non esistente"
-          );
-          existingAccount = null;
-        }
-      }, 5000);
-
       gun
         .get(DAPP_NAME)
         .get("activitypub")
         .get(account)
         .once((data) => {
-          if (!responded) {
-            responded = true;
-            clearTimeout(timeout);
-            console.log(
-              "Risultato verifica account:",
-              data ? "Esistente" : "Non trovato"
-            );
-            existingAccount = data;
-          }
+          console.log(
+            "Risultato verifica account:",
+            data ? "Esistente" : "Non trovato"
+          );
+          existingAccount = data;
         });
     } catch (err) {
       console.warn("Errore durante verifica account:", err);
