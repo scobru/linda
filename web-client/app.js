@@ -66,19 +66,31 @@ async function fetchWithError(url, options = {}) {
                 ...(options.headers || {}),
                 'Origin': window.location.origin
             },
-            credentials: 'omit' // Importante per CORS
+            credentials: 'omit'
         });
 
-        const data = await response.json();
-        
+        // Verifica se la risposta è OK
         if (!response.ok) {
-            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+            let errorData;
+            try {
+                errorData = await response.json();
+            } catch {
+                errorData = { error: `HTTP error! status: ${response.status}` };
+            }
+            
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
-        
-        return data;
+
+        return await response.json();
     } catch (error) {
-        console.error('Fetch error:', error);
-        throw new Error(error.message || 'Errore di rete');
+        console.error('Fetch error details:', {
+            url,
+            method: options.method || 'GET',
+            error: error.stack,
+            message: error.message
+        });
+        
+        throw new Error(`Errore di rete: ${error.message}`);
     }
 }
 
@@ -184,23 +196,19 @@ async function createPost(event) {
             object: {
                 type: 'Note',
                 content: content,
-                published: new Date().toISOString(),
                 to: ['https://www.w3.org/ns/activitystreams#Public']
             }
         };
 
-        await fetchWithError(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
+        const data = await fetchWithError(`${RELAY_URL}/users/${currentUser.username}/outbox`, {
             method: 'POST',
-            headers: {
-                ...DEFAULT_HEADERS,
-                'Authorization': `Bearer ${currentUser.apiKey}`
-            },
+            headers: DEFAULT_HEADERS,
             body: JSON.stringify(activity)
         });
         
-        showNotification('Post pubblicato con successo!');
+        showNotification('Post creato con successo!');
+        loadTimeline();
         document.getElementById('postContent').value = '';
-        await loadTimeline();
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {

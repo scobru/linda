@@ -554,10 +554,36 @@ app.get('/users/:username', async (req, res) => {
 // Endpoint Inbox
 app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
   try {
-    await handleInbox(gun, DAPP_NAME, req.params.username, req.body, req);
-    res.status(200).json({ success: true });
+    const { username } = req.params;
+    const activity = req.body;
+
+    // Verifica che l'utente esista
+    const userExists = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once((data) => resolve(!!data));
+    });
+
+    if (!userExists) {
+      return res.status(404).json({ 
+        error: 'Utente non trovato',
+        username
+      });
+    }
+
+    // Salva l'attività nella inbox
+    const result = await handleInbox(gun, DAPP_NAME, username, activity);
+    
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.status(201).json(result);
   } catch (error) {
-    console.error('Errore nella gestione dell\'inbox:', error);
+    console.error('Errore nella gestione dell\'inbox:', {
+      error: error.stack,
+      params: req.params,
+      body: req.body
+    });
     res.status(500).json({ 
       error: error.message,
       type: error.name,
@@ -565,6 +591,42 @@ app.post('/users/:username/inbox', express.json({ type: 'application/activity+js
     });
   }
 });
+
+app.get('/users/:username/activities', async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    // Verifica che l'utente esista
+    const userExists = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get('activitypub')
+        .get(username)
+        .once((data) => resolve(!!data));
+    });
+
+    if (!userExists) {
+      return res.status(404).json({ 
+        error: 'Utente non trovato',
+        username
+      });
+    }
+
+    // Recupera le attività
+    const activities = await gun
+      .get(DAPP_NAME)
+      .get('activitypub')
+      .get(username)
+      .get('activities')
+      .once();
+
+    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.json({
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      type: 'OrderedCollection',
+      totalItems: activities ? Object.keys(activities).length : 0,
+      orderedItems: activities ? Object.values(activities) : []
+    });
 
 // Endpoint POST outbox
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
