@@ -1108,6 +1108,9 @@ function setupConnectionHandlers(server, gun) {
 
 // Endpoint per la creazione degli account ActivityPub
 app.post("/api/activitypub/accounts", async (req, res) => {
+  const startTime = Date.now();
+  console.log(`[${new Date().toISOString()}] Inizio creazione account`);
+  
   try {
     const { account } = req.body;
     
@@ -1122,12 +1125,21 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     console.log('Creazione account ActivityPub:', { account });
 
     // Verifica se l'account esiste già
-    const existingAccount = await new Promise(resolve => {
-      gun.get(DAPP_NAME)
-        .get('activitypub')
-        .get(account)
-        .once(data => resolve(data));
-    });
+    console.log('Verifica esistenza account...');
+    const existingAccount = await Promise.race([
+      new Promise(resolve => {
+        gun.get(DAPP_NAME)
+          .get('activitypub')
+          .get(account)
+          .once(data => {
+            console.log('Risultato verifica account:', data ? 'Esistente' : 'Non trovato');
+            resolve(data);
+          });
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout verifica account')), 3000)
+      )
+    ]);
 
     if (existingAccount) {
       console.log('Account già esistente:', account);
@@ -1138,12 +1150,21 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     }
 
     // Genera chiavi
-    const { publicKey, privateKey } = await relayWalletManager.generateActivityPubKeys();
+    console.log('Generazione chiavi...');
+    const keys = await relayWalletManager.generateActivityPubKeys();
+    console.log('Chiavi generate con successo');
+    
+    const { publicKey, privateKey } = keys;
     const apiKey = crypto.randomBytes(32).toString('hex');
 
     // Salva su GunDB con timeout
+    console.log('Salvataggio su GunDB...');
     await Promise.race([
       new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout salvataggio GunDB'));
+        }, 5000);
+
         gun.get(DAPP_NAME)
           .get('activitypub')
           .get(account)
@@ -1152,33 +1173,40 @@ app.post("/api/activitypub/accounts", async (req, res) => {
             apiKey,
             createdAt: Date.now()
           }, (ack) => {
+            clearTimeout(timeout);
             if (ack.err) {
               console.error('Errore salvataggio su GunDB:', ack.err);
               reject(ack.err);
             } else {
+              console.log('Salvataggio su GunDB completato');
               resolve();
             }
           });
       }),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout salvataggio GunDB")), 5000)
+        setTimeout(() => reject(new Error('Timeout globale operazione')), 10000)
       )
     ]);
 
-    console.log(`Account creato con successo: ${account}`);
+    const duration = Date.now() - startTime;
+    console.log(`Account creato con successo: ${account} (durata: ${duration}ms)`);
+    
     res.json({ 
       success: true, 
       username: account, 
       publicKey, 
       privateKey, 
-      apiKey 
+      apiKey,
+      duration
     });
 
   } catch (error) {
-    console.error('Errore creazione account:', error);
+    const duration = Date.now() - startTime;
+    console.error(`Errore creazione account (durata: ${duration}ms):`, error);
     res.status(500).json({ 
       error: "Errore interno del server",
-      message: error.message
+      message: error.message,
+      duration
     });
   }
 });
