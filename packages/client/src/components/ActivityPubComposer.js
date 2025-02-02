@@ -35,16 +35,13 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
         throw new Error('API key non trovata. Effettua nuovamente l\'accesso.');
       }
 
-      const signature = await walletManager.signData(activity, username);
-      
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}/outbox`,
+        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/activity+json',
-            'Authorization': `Bearer ${apiKey}`,
-            'X-Signature': signature
+            'Authorization': `Bearer ${apiKey}`
           },
           body: JSON.stringify(activity)
         }

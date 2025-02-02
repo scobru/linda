@@ -27,64 +27,30 @@ const ActivityPubPage = () => {
       }
       console.log('Alias ottenuto:', alias);
 
-      // Genera le chiavi RSA per ActivityPub
-      console.log('Generazione chiavi RSA...');
-      const activityPubKeys = await walletManager.generateActivityPubKeys();
-      
-      // Salva le chiavi
-      console.log('Salvataggio chiavi...');
-      await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
-
-      // Crea la richiesta
-      const apiUrl = `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`;
-      console.log('Invio richiesta a:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
+      // Usa il nuovo endpoint
+      const response = await fetch(`${ACTIVITYPUB_URL}/api/activitypub/accounts`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('apiKey') || ''}`
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          account: alias,
-          privateKey: activityPubKeys.privateKey
-        })
+        body: JSON.stringify({ account: alias })
       });
 
-      console.log('Ricevuta risposta:', {
-        status: response.status,
-        statusText: response.statusText
-      });
+      const accountData = await response.json();
+      
+      // Salva tutto localmente
+      await walletManager.saveActivityPubKeys(
+        {
+          publicKey: accountData.publicKey,
+          privateKey: accountData.privateKey
+        },
+        StorageType.LOCAL
+      );
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('Dettaglio errore:', errorData);
-        throw new Error(`Errore HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const createData = await response.json();
-      console.log('Dati creazione:', createData);
-
-      // Se l'account esiste già, recupera l'API key esistente
-      if (createData.message === 'Account già esistente') {
-        console.log('Account già esistente:', createData.account);
-        // Recupera l'API key dal nodo privato
-        const existingApiKey = await new Promise((resolve) => {
-          user.get('apiKeys').get(alias).once(resolve);
-        });
-        if (existingApiKey) {
-          localStorage.setItem('apiKey', existingApiKey);
-        }
-      } else {
-        // Salva la nuova API key
-        if (createData.apiKey) {
-          localStorage.setItem('apiKey', createData.apiKey);
-        }
-      }
-
-      // Imposta l'username corrente
+      localStorage.setItem('apiKey', accountData.apiKey);
       setCurrentUsername(alias);
       setError(null);
+
     } catch (err) {
       console.error('Errore completo:', {
         name: err.name,

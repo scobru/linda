@@ -1,17 +1,18 @@
-import dotenv from 'dotenv';
-import express from 'express';
-import Gun from 'gun';
-import os from 'os';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { Mogu } from '@scobru/mogu';
-import http from 'http';
-import WebSocket from 'ws';
-import { generateKeyPairSync } from 'crypto';
-import { createAccount, sendMessage } from './activitypub/admin.js';
-import crypto from 'crypto';
+import dotenv from "dotenv";
+import express from "express";
+import Gun from "gun";
+import os from "os";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import { Mogu } from "@scobru/mogu";
+import http from "http";
+import WebSocket from "ws";
+import { generateKeyPairSync } from "crypto";
+import { createAccount, sendMessage } from "./activitypub/admin.js";
+import { WalletManager } from '@scobru/shogun';
+
 
 // Configurazione ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -22,42 +23,44 @@ dotenv.config();
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
 const BASE_URL = process.env.BASE_URL || "https://gun-relay.scobrudot.dev";
-const MULTICAST_ADDRESS = '239.255.255.250';
+const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
 
 // Importazioni Gun necessarie
-import 'gun/gun.js';
-import 'gun/sea.js';
-import 'gun/lib/axe.js';
-import 'gun/lib/radisk.js';
+import "gun/gun.js";
+import "gun/sea.js";
+import "gun/lib/axe.js";
+import "gun/lib/radisk.js";
 
 const app = express();
 const server = http.createServer(app);
 server.setTimeout(30000);
 const port = process.env.PORT || 8765;
 
-console.log('Starting server with configuration:');
-console.log('- DAPP_NAME:', DAPP_NAME);
-console.log('- PORT:', port);
-console.log('- NODE_ENV:', process.env.NODE_ENV);
+console.log("Starting server with configuration:");
+console.log("- DAPP_NAME:", DAPP_NAME);
+console.log("- PORT:", port);
+console.log("- NODE_ENV:", process.env.NODE_ENV);
 
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: server,
   multicast: {
     address: MULTICAST_ADDRESS,
-    port: MULTICAST_PORT
+    port: MULTICAST_PORT,
   },
-  radisk: true,           // mantieni radisk per la persistenza su filesystem
-  localStorage: false,     // disabilita localStorage
-  store: false,           // disabilita store generico
-  rindexed: false,        // disabilita IndexedDB
-  file: "./radata",       // mantieni il path per radisk
+  radisk: true, // mantieni radisk per la persistenza su filesystem
+  localStorage: false, // disabilita localStorage
+  store: false, // disabilita store generico
+  rindexed: false, // disabilita IndexedDB
+  file: "./radata", // mantieni il path per radisk
   axe: true,
-  peers: process.env.PEERS ? process.env.PEERS.split(',') : []
+  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
 };
 
-console.log('Gun configuration:', GUN_CONFIG);
+
+
+console.log("Gun configuration:", GUN_CONFIG);
 
 // Configurazione
 const CONFIG = {
@@ -128,38 +131,43 @@ function getRadataSize() {
 
 // Middleware per CORS - deve essere prima di tutti gli altri middleware
 app.use((req, res, next) => {
-    // Abilita CORS per tutte le origini in sviluppo
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    
-    // Gestisci le richieste OPTIONS (preflight)
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    
-    next();
+  // Abilita CORS per tutte le origini in sviluppo
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  // Gestisci le richieste OPTIONS (preflight)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  next();
 });
 
 // Middleware per il parsing del body
-app.use(express.json({ 
-    type: ['application/json', 'application/activity+json']
-}));
+app.use(
+  express.json({
+    type: ["application/json", "application/activity+json"],
+  })
+);
 
 // Middleware
 app.use(express.static("dashboard"));
 
 // Middleware Gun
-app.head('/gun', (req, res) => {
+app.head("/gun", (req, res) => {
   res.status(200).end();
 });
 
-app.get('/gun', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: Date.now() });
+app.get("/gun", (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: Date.now() });
 });
 
 app.use((req, res, next) => {
-  if (req.method === 'HEAD') {
+  if (req.method === "HEAD") {
     return res.status(200).end();
   }
   next();
@@ -168,18 +176,18 @@ app.use((req, res, next) => {
 // Middleware per il logging delle richieste
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  console.log('Headers:', req.headers);
+  console.log("Headers:", req.headers);
   next();
 });
 
 // Middleware per gestire gli errori
 app.use((err, req, res, next) => {
-  console.error('Errore nel middleware:', err);
+  console.error("Errore nel middleware:", err);
   res.status(500).json({ error: err.message });
 });
 
 // Variabili globali
-let gun, mogu;
+let gun, mogu, relayWalletManager;
 const metrics = {
   connections: 0,
   putOperations: 0,
@@ -252,24 +260,26 @@ async function performBackup() {
 
       // Estrai l'hash dal risultato del backup
       const hash = backupResult?.hash || backupResult;
-      
+
       if (hash) {
         console.log("New backup created with hash:", hash);
         lastBackupTime = Date.now();
-        
+
         const radataSize = getRadataSize();
-        
+
         // Aggiorna le metriche con l'hash corretto
         metrics.backups.lastBackup = {
-          hash: typeof hash === 'object' ? JSON.stringify(hash) : hash,
+          hash: typeof hash === "object" ? JSON.stringify(hash) : hash,
           time: new Date().toISOString(),
           size: radataSize,
-          link: `https://gateway.pinata.cloud/ipfs/${typeof hash === 'object' ? hash.hash || hash : hash}`
+          link: `https://gateway.pinata.cloud/ipfs/${
+            typeof hash === "object" ? hash.hash || hash : hash
+          }`,
         };
-        
+
         metrics.backups.stats.successful++;
         metrics.backups.stats.total++;
-        
+
         return true;
       }
     } catch (error) {
@@ -278,7 +288,7 @@ async function performBackup() {
 
       if (retries < MAX_RETRIES) {
         console.log(`Attendo ${RETRY_DELAY}ms prima del prossimo tentativo...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
       } else {
         console.error("Tutti i tentativi di backup sono falliti");
         metrics.backups.stats.failed++;
@@ -293,50 +303,56 @@ async function performBackup() {
 // Modifica la funzione principale di inizializzazione
 async function initializeServer() {
   try {
-    console.log('Initializing server...');
-    
+    console.log("Initializing server...");
+
     const server = http.createServer(app);
     server.setTimeout(30000);
-    
+
     const gunConfig = {
       ...GUN_CONFIG,
-      web: server
+      web: server,
     };
 
-    console.log('Creating Gun instance...');
-    gun = new Gun(gunConfig);
+    console.log("Creating Gun instance...");
+
+    relayWalletManager = new WalletManager(gunConfig);
+
+    gun = relayWalletManager.getGun();
+
     console.log("Gun server started");
 
     app.use(Gun.serve);
-    console.log('Gun middleware configured');
+    console.log("Gun middleware configured");
 
     setupConnectionHandlers(server, gun);
-    console.log('Connection handlers configured');
+    console.log("Connection handlers configured");
 
     await new Promise((resolve, reject) => {
-      server.listen(port, () => {
-        console.log(`Relay listening at http://localhost:${port}`);
-        resolve();
-      }).on('error', (error) => {
-        console.error('Server failed to start:', error);
-        reject(error);
-      });
+      server
+        .listen(port, () => {
+          console.log(`Relay listening at http://localhost:${port}`);
+          resolve();
+        })
+        .on("error", (error) => {
+          console.error("Server failed to start:", error);
+          reject(error);
+        });
     });
 
     if (CONFIG.STORAGE.enabled) {
-      console.log('Initializing Mogu...');
+      console.log("Initializing Mogu...");
       mogu = new Mogu({
         key: "",
         storageService: CONFIG.STORAGE.service,
         storageConfig: CONFIG.STORAGE.config,
         server: gun,
-        useIPFS: false
+        useIPFS: false,
       });
       console.log("Mogu initialized successfully");
     }
 
     initializeGunListeners(gun, mogu);
-    console.log('Gun listeners initialized');
+    console.log("Gun listeners initialized");
 
     return { gun, mogu };
   } catch (error) {
@@ -364,21 +380,22 @@ function getCPUUsage() {
   try {
     const currentUsage = process.cpuUsage();
     const currentTime = Date.now();
-    
+
     const userDiff = currentUsage.user - lastCPUUsage.user;
     const systemDiff = currentUsage.system - lastCPUUsage.system;
     const timeDiff = currentTime - lastCPUTime;
-    
-    const cpuPercent = Math.min(100, Math.max(0, 
-      (userDiff + systemDiff) / (timeDiff * 1000) * 100
-    ));
-    
+
+    const cpuPercent = Math.min(
+      100,
+      Math.max(0, ((userDiff + systemDiff) / (timeDiff * 1000)) * 100)
+    );
+
     lastCPUUsage = currentUsage;
     lastCPUTime = currentTime;
-    
+
     return cpuPercent;
   } catch (error) {
-    console.error('Error getting CPU usage:', error);
+    console.error("Error getting CPU usage:", error);
     return 0;
   }
 }
@@ -392,22 +409,22 @@ function getMemoryUsage() {
       heapTotal: used.heapTotal || 0,
       external: used.external || 0,
       rss: used.rss || 0,
-      arrayBuffers: used.arrayBuffers || 0
+      arrayBuffers: used.arrayBuffers || 0,
     };
   } catch (error) {
-    console.error('Error getting memory usage:', error);
+    console.error("Error getting memory usage:", error);
     return {
       heapUsed: 0,
       heapTotal: 0,
       external: 0,
       rss: 0,
-      arrayBuffers: 0
+      arrayBuffers: 0,
     };
   }
 }
 
 // Modifica l'endpoint delle metriche
-app.get('/metrics', (req, res) => {
+app.get("/metrics", (req, res) => {
   try {
     const memUsage = getMemoryUsage();
     const cpuUsage = getCPUUsage();
@@ -420,7 +437,7 @@ app.get('/metrics', (req, res) => {
       bytesTransferred: metrics.bytesTransferred || 0,
       storage: {
         radata: formatBytes(radataSize),
-        total: formatBytes(radataSize)
+        total: formatBytes(radataSize),
       },
       system: {
         cpu: [cpuUsage],
@@ -429,31 +446,31 @@ app.get('/metrics', (req, res) => {
           heapTotal: memUsage.heapTotal,
           formatted: {
             heapUsed: formatBytes(memUsage.heapUsed),
-            heapTotal: formatBytes(memUsage.heapTotal)
-          }
-        }
+            heapTotal: formatBytes(memUsage.heapTotal),
+          },
+        },
       },
       backups: metrics.backups || {
         lastBackup: {
           hash: null,
           time: null,
           size: 0,
-          link: '#'
+          link: "#",
         },
         stats: {
           total: 0,
           successful: 0,
-          failed: 0
-        }
-      }
+          failed: 0,
+        },
+      },
     };
 
     res.json(currentMetrics);
   } catch (error) {
-    console.error('Error serving metrics:', error);
+    console.error("Error serving metrics:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: "Internal server error",
     });
   }
 });
@@ -474,7 +491,7 @@ const waitForGunInit = () => {
     if (gun && gun._.opt) {
       return resolve();
     }
-    
+
     const interval = setInterval(() => {
       if (gun && gun._.opt) {
         clearInterval(interval);
@@ -515,203 +532,210 @@ async function syncGlobalMetrics() {
 }
 
 // Import degli endpoint ActivityPub locali
-import { 
-  handleActorEndpoint, 
-  handleInbox, 
+import {
+  handleActorEndpoint,
+  handleInbox,
   handleOutbox,
   handleFollowers,
   handleFollowing,
-  handleWebfinger
-} from './activitypub/endpoints.js';
+  handleWebfinger,
+} from "./activitypub/endpoints.js";
 
 // ActivityPub Endpoints
-app.get('/.well-known/webfinger', async (req, res) => {
+app.get("/.well-known/webfinger", async (req, res) => {
   try {
     const resource = req.query.resource;
     const response = await handleWebfinger(resource);
     res.json(response);
   } catch (error) {
-    console.error('Errore nella gestione webfinger:', error);
+    console.error("Errore nella gestione webfinger:", error);
     res.status(400).json({ error: error.message });
   }
 });
 
 // Endpoint Actor
-app.get('/users/:username', async (req, res) => {
+app.get("/users/:username", async (req, res) => {
   console.log(`\nRichiesta profilo per utente: ${req.params.username}`);
   try {
-    const actorData = await handleActorEndpoint(gun, DAPP_NAME, req.params.username);
-    console.log('Actor data:', actorData);
-    
+    const actorData = await handleActorEndpoint(
+      gun,
+      DAPP_NAME,
+      req.params.username
+    );
+    console.log("Actor data:", actorData);
+
     // Imposta gli header corretti per ActivityPub
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
     res.json(actorData);
   } catch (error) {
-    console.error('Errore nella gestione della richiesta actor:', error);
-    res.status(500).json({ 
+    console.error("Errore nella gestione della richiesta actor:", error);
+    res.status(500).json({
       error: error.message,
       timestamp: new Date().toISOString(),
-      path: req.path
+      path: req.path,
     });
   }
 });
 
 // Endpoint Inbox
-app.post('/users/:username/inbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
-  try {
-    const { username } = req.params;
-    const activity = req.body;
+app.post(
+  "/users/:username/inbox",
+  express.json({ type: "application/activity+json" }),
+  async (req, res) => {
+    try {
+      const { username } = req.params;
+      const activity = req.body;
 
-    // Verifica che l'utente esista
-    const userExists = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get('activitypub')
-        .get(username)
-        .once((data) => resolve(!!data));
-    });
+      // Verifica che l'utente esista
+      const userExists = await new Promise((resolve) => {
+        gun
+          .get(DAPP_NAME)
+          .get("activitypub")
+          .get(username)
+          .once((data) => resolve(!!data));
+      });
 
-    if (!userExists) {
-      return res.status(404).json({ 
-        error: 'Utente non trovato',
-        username
+      if (!userExists) {
+        return res.status(404).json({
+          error: "Utente non trovato",
+          username,
+        });
+      }
+
+      // Salva l'attività nella inbox
+      const result = await handleInbox(gun, DAPP_NAME, username, activity);
+
+      res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Errore nella gestione dell'inbox:", {
+        error: error.stack,
+        params: req.params,
+        body: req.body,
+      });
+      res.status(500).json({
+        error: error.message,
+        type: error.name,
+        timestamp: new Date().toISOString(),
       });
     }
-
-    // Salva l'attività nella inbox
-    const result = await handleInbox(gun, DAPP_NAME, username, activity);
-    
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
-    res.status(201).json(result);
-  } catch (error) {
-    console.error('Errore nella gestione dell\'inbox:', {
-      error: error.stack,
-      params: req.params,
-      body: req.body
-    });
-    res.status(500).json({ 
-      error: error.message,
-      type: error.name,
-      timestamp: new Date().toISOString()
-    });
   }
-});
+);
 
-app.get('/users/:username/activities', async (req, res) => {
+app.get("/users/:username/activities", async (req, res) => {
   try {
     const { username } = req.params;
-    
+
     // Verifica che l'utente esista
     const userExists = await new Promise((resolve) => {
       gun
         .get(DAPP_NAME)
-        .get('activitypub')
+        .get("activitypub")
         .get(username)
         .once((data) => resolve(!!data));
     });
 
     if (!userExists) {
-      return res.status(404).json({ 
-        error: 'Utente non trovato',
-        username
+      return res.status(404).json({
+        error: "Utente non trovato",
+        username,
       });
     }
 
     // Recupera le attività
     const activities = await gun
       .get(DAPP_NAME)
-      .get('activitypub')
+      .get("activitypub")
       .get(username)
-      .get('activities')
+      .get("activities")
       .once();
 
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
     res.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      type: 'OrderedCollection',
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "OrderedCollection",
       totalItems: activities ? Object.keys(activities).length : 0,
-      orderedItems: activities ? Object.values(activities) : []
+      orderedItems: activities ? Object.values(activities) : [],
     });
   } catch (error) {
-    console.error('Errore nel recupero delle attività:', error);
+    console.error("Errore nel recupero delle attività:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-
 // Endpoint POST outbox
-app.post('/users/:username/outbox', async (req, res) => {
-    try {
-        const { username } = req.params;
-        const activity = req.body;
+app.post("/users/:username/outbox", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const activity = req.body;
 
-        // Verifica che l'attività sia valida
-        if (!activity || !activity['@context']) {
-            return res.status(400).json({
-                error: 'Campo @context mancante'
-            });
-        }
-
-        // Verifica l'autenticazione
-        const apiKey = req.headers['authorization']?.split(' ')[1];
-        if (!apiKey) {
-            return res.status(401).json({
-                error: 'API key mancante'
-            });
-        }
-
-        // Verifica che l'API key sia valida
-        const isValid = await new Promise((resolve) => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .get('apiKey')
-                .once((storedKey) => {
-                    resolve(storedKey === apiKey);
-                });
-        });
-
-        if (!isValid) {
-            return res.status(401).json({
-                error: 'API key non valida'
-            });
-        }
-
-        // Salva l'attività su Gun
-        await new Promise((resolve, reject) => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .get('outbox')
-                .get('orderedItems')
-                .set(activity, (ack) => {
-                    if (ack.err) {
-                        reject(ack.err);
-                    } else {
-                        resolve();
-                    }
-                });
-        });
-
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Errore nel salvataggio dell\'attività:', error);
-        res.status(500).json({
-            error: error.message
-        });
+    // Verifica che l'attività sia valida
+    if (!activity || !activity["@context"]) {
+      return res.status(400).json({
+        error: "Campo @context mancante",
+      });
     }
+
+    // Verifica l'autenticazione
+    const apiKey = req.headers["authorization"]?.split(" ")[1];
+    if (!apiKey) {
+      return res.status(401).json({
+        error: "API key mancante",
+      });
+    }
+
+    // Verifica che l'API key sia valida
+    const isValid = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("activitypub")
+        .get(username)
+        .get("apiKey")
+        .once((storedKey) => {
+          resolve(storedKey === apiKey);
+        });
+    });
+
+    if (!isValid) {
+      return res.status(401).json({
+        error: "API key non valida",
+      });
+    }
+
+    // Salva l'attività su Gun
+    await new Promise((resolve, reject) => {
+      gun
+        .get(DAPP_NAME)
+        .get("activitypub")
+        .get(username)
+        .get("outbox")
+        .get("orderedItems")
+        .set(activity, (ack) => {
+          if (ack.err) {
+            reject(ack.err);
+          } else {
+            resolve();
+          }
+        });
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Errore nel salvataggio dell'attività:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
 });
 
 // Migliora l'endpoint outbox
-app.get('/users/:username/outbox', async (req, res) => {
+app.get("/users/:username/outbox", async (req, res) => {
   try {
     const { username } = req.params;
-    
-    console.log('Richiesta outbox per:', username);
-    
+
+    console.log("Richiesta outbox per:", username);
+
     // Verifica che Gun sia inizializzato
     await waitForGunInit();
 
@@ -719,16 +743,16 @@ app.get('/users/:username/outbox', async (req, res) => {
     const userExists = await new Promise((resolve) => {
       gun
         .get(DAPP_NAME)
-        .get('activitypub')
+        .get("activitypub")
         .get(username)
         .once((data) => resolve(!!data));
     });
 
     if (!userExists) {
-      console.log('Utente non trovato:', username);
-      return res.status(404).json({ 
-        error: 'Utente non trovato',
-        username
+      console.log("Utente non trovato:", username);
+      return res.status(404).json({
+        error: "Utente non trovato",
+        username,
       });
     }
 
@@ -736,44 +760,48 @@ app.get('/users/:username/outbox', async (req, res) => {
     const activities = await new Promise((resolve) => {
       gun
         .get(DAPP_NAME)
-        .get('activitypub')
+        .get("activitypub")
         .get(username)
-        .get('outbox')
+        .get("outbox")
         .once(resolve);
     });
 
-    console.log('Attività trovate:', {
+    console.log("Attività trovate:", {
       username,
-      count: activities ? Object.keys(activities).length : 0
+      count: activities ? Object.keys(activities).length : 0,
     });
 
     // Formatta la risposta secondo ActivityPub
     const response = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      type: 'OrderedCollection',
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "OrderedCollection",
       totalItems: activities ? Object.keys(activities).length : 0,
-      orderedItems: activities ? Object.values(activities) : []
+      orderedItems: activities ? Object.values(activities) : [],
     };
 
-    res.setHeader('Content-Type', 'application/activity+json; charset=utf-8');
+    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
     res.json(response);
   } catch (error) {
-    console.error('Errore nel recupero dell\'outbox:', {
+    console.error("Errore nel recupero dell'outbox:", {
       error: error.stack,
-      params: req.params
+      params: req.params,
     });
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
       type: error.name,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
 
 // Endpoint Followers
-app.get('/users/:username/followers', async (req, res) => {
+app.get("/users/:username/followers", async (req, res) => {
   try {
-    const followers = await handleFollowers(gun, DAPP_NAME, req.params.username);
+    const followers = await handleFollowers(
+      gun,
+      DAPP_NAME,
+      req.params.username
+    );
     res.json(followers);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -781,9 +809,13 @@ app.get('/users/:username/followers', async (req, res) => {
 });
 
 // Endpoint Following
-app.get('/users/:username/following', async (req, res) => {
+app.get("/users/:username/following", async (req, res) => {
   try {
-    const following = await handleFollowing(gun, DAPP_NAME, req.params.username);
+    const following = await handleFollowing(
+      gun,
+      DAPP_NAME,
+      req.params.username
+    );
     res.json(following);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -848,45 +880,47 @@ function initializeGunListeners(gun, mogu) {
     });
 
   // Tracking separato per board e canali
-  gun.get(DAPP_NAME)
-    .get('channels')
+  gun
+    .get(DAPP_NAME)
+    .get("channels")
     .map()
     .on(async (data, key) => {
       if (data && !processedEvents.has(key)) {
         processedEvents.add(key);
-        
+
         // Verifica il tipo di canale
-        if (data.type === 'channel') {
-          await updateGlobalMetric('totalChannels', 1);
-          console.log('Nuovo canale creato:', data.name);
-        } else if (data.type === 'board') {
-          await updateGlobalMetric('totalBoards', 1);
-          console.log('Nuova board creata:', data.name);
+        if (data.type === "channel") {
+          await updateGlobalMetric("totalChannels", 1);
+          console.log("Nuovo canale creato:", data.name);
+        } else if (data.type === "board") {
+          await updateGlobalMetric("totalBoards", 1);
+          console.log("Nuova board creata:", data.name);
         }
       }
     });
 
   // Tracking attività ActivityPub
-  gun.get(DAPP_NAME)
-    .get('activitypub')
+  gun
+    .get(DAPP_NAME)
+    .get("activitypub")
     .map()
     .on(async (activity, key) => {
       if (activity && !processedEvents.has(key)) {
         processedEvents.add(key);
-        
+
         // Aggiorna le metriche in base al tipo di attività
-        switch(activity.type) {
-          case 'Create':
-            await updateGlobalMetric('totalPosts', 1);
+        switch (activity.type) {
+          case "Create":
+            await updateGlobalMetric("totalPosts", 1);
             break;
-          case 'Follow':
-            await updateGlobalMetric('totalFollows', 1);
+          case "Follow":
+            await updateGlobalMetric("totalFollows", 1);
             break;
-          case 'Like':
-            await updateGlobalMetric('totalLikes', 1);
+          case "Like":
+            await updateGlobalMetric("totalLikes", 1);
             break;
-          case 'Announce':
-            await updateGlobalMetric('totalBoosts', 1);
+          case "Announce":
+            await updateGlobalMetric("totalBoosts", 1);
             break;
         }
       }
@@ -918,10 +952,7 @@ async function updateGlobalMetric(metric, value = 1) {
       const newValue = current + value;
 
       // Usa gun direttamente invece di mogu
-      gun.get(DAPP_NAME)
-        .get("globalMetrics")
-        .get(metric)
-        .put(newValue);
+      gun.get(DAPP_NAME).get("globalMetrics").get(metric).put(newValue);
 
       // Aggiorna anche la metrica locale
       globalMetrics[metric] = newValue;
@@ -937,14 +968,14 @@ app.get("/global-metrics", (req, res) => {
   try {
     const cleanMetrics = {};
     Object.entries(globalMetrics).forEach(([key, value]) => {
-      cleanMetrics[key] = typeof value === 'number' ? value : 0;
+      cleanMetrics[key] = typeof value === "number" ? value : 0;
     });
-    
+
     // Aggiungi il totale combinato di canali e board per retrocompatibilità
-    cleanMetrics.totalChannelsAndBoards = 
+    cleanMetrics.totalChannelsAndBoards =
       (cleanMetrics.totalChannels || 0) + (cleanMetrics.totalBoards || 0);
-    
-    console.log('Sending global metrics:', cleanMetrics);
+
+    console.log("Sending global metrics:", cleanMetrics);
     res.json(cleanMetrics);
   } catch (error) {
     console.error("Error fetching global metrics:", error);
@@ -992,44 +1023,44 @@ app.use((req, res, next) => {
 });
 
 // Endpoint per le statistiche
-app.get('/stats', (req, res) => {
+app.get("/stats", (req, res) => {
   try {
     const stats = {
       peers: {
         count: Object.keys(gun._.opt.peers || {}).length,
-        time: Date.now()
+        time: Date.now(),
       },
       node: {
-        count: Object.keys(gun._.graph || {}).length
+        count: Object.keys(gun._.graph || {}).length,
       },
       dam: {
         in: {
           count: metrics.getOperations,
-          done: metrics.bytesTransferred
+          done: metrics.bytesTransferred,
         },
         out: {
           count: metrics.putOperations,
-          done: metrics.bytesTransferred
-        }
+          done: metrics.bytesTransferred,
+        },
       },
       memory: process.memoryUsage(),
       cpu: {
-        stack: getCPUUsage()
+        stack: getCPUUsage(),
       },
       storage: {
         radata: formatBytes(getRadataSize()),
-        total: formatBytes(getRadataSize())
+        total: formatBytes(getRadataSize()),
       },
       up: {
-        time: process.uptime()
+        time: process.uptime(),
       },
-      over: 15000
+      over: 15000,
     };
 
     res.json(stats);
   } catch (error) {
-    console.error('Errore nel recupero delle statistiche:', error);
-    res.status(500).json({ error: 'Errore interno del server' });
+    console.error("Errore nel recupero delle statistiche:", error);
+    res.status(500).json({ error: "Errore interno del server" });
   }
 });
 
@@ -1042,7 +1073,6 @@ export {
   initializeServer,
   updateMetrics,
   syncGlobalMetrics,
-  generateActivityPubKeys,
 };
 
 // Funzione per gestire gli eventi di connessione
@@ -1069,244 +1099,148 @@ function setupConnectionHandlers(server, gun) {
   gun.on("bye", (peer) => {
     metrics.connections = Math.max(0, metrics.connections - 1);
     console.log(
-      `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${metrics.connections}`
+      `Peer disconnesso: ${peer.id || "unknown"} - Totale: ${
+        metrics.connections
+      }`
     );
   });
 }
 
-// Funzione per generare chiavi RSA compatibili con ActivityPub
-function generateActivityPubKeys() {
-  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'pem'
-    },
-    privateKeyEncoding: {
-      type: 'pkcs8',
-      format: 'pem'
-    }
-  });
-  
-  return {
-    privateKey,
-    publicKey
-  };
-}
-
 // Endpoint per la creazione degli account ActivityPub
-app.post('/api/admin/create', async (req, res) => {
-    try {
-        const { account } = req.body;
-        
-        if (!account) {
-            return res.status(400).json({
-                error: 'Nome account mancante'
-            });
-        }
+app.post("/api/activitypub/accounts", async (req, res) => {
+  try {
+    const { account } = req.body;
 
-        // Verifica che l'utente non esista già
-        const exists = await new Promise(resolve => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(account)
-                .once(data => {
-                    resolve(!!data);
-                });
-        });
-
-        if (exists) {
-            // Se l'account esiste già, restituisci i dati esistenti
-            const existingAccount = await new Promise(resolve => {
-                gun
-                    .get(DAPP_NAME)
-                    .get('activitypub')
-                    .get(account)
-                    .once(resolve);
-            });
-
-            return res.json({
-                success: true,
-                message: 'Account già esistente',
-                account: existingAccount
-            });
-        }
-
-        // Genera una nuova API key derivandola dalla chiave RSA dell'utente
-        const user = gun.user();
-        const privateKey = await new Promise((resolve, reject) => {
-            user.get('privateKey').once((data) => {
-                if (data) {
-                    resolve(data);
-                } else {
-                    reject(new Error('Chiave privata non trovata'));
-                }
-            });
-        });
-
-        const apiKey = require('crypto')
-            .createHash('sha256')
-            .update(privateKey)
-            .digest('hex');
-
-        // Salva la chiave privata RSA nel nodo privato dell'utente
-        await new Promise((resolve, reject) => {
-            user.get('privateKeys').get(account).put(privateKey, (ack) => {
-                if (ack.err) {
-                    reject(ack.err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-
-        // Crea il profilo ActivityPub di default
-        const actorData = {
-            '@context': JSON.stringify(['https://www.w3.org/ns/activitystreams']),
-            type: 'Person',
-            id: `${process.env.BASE_URL}/users/${account}`,
-            following: `${process.env.BASE_URL}/users/${account}/following`,
-            followers: `${process.env.BASE_URL}/users/${account}/followers`,
-            inbox: `${process.env.BASE_URL}/users/${account}/inbox`,
-            outbox: `${process.env.BASE_URL}/users/${account}/outbox`,
-            preferredUsername: account,
-            name: account,
-            summary: `Profilo ActivityPub di ${account}`,
-            url: `${process.env.BASE_URL}/users/${account}`,
-            published: new Date().toISOString()
-        };
-
-        // Salva il profilo pubblico
-        await new Promise((resolve, reject) => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(account)
-                .put(actorData, (ack) => {
-                    if (ack.err) {
-                        reject(ack.err);
-                    } else {
-                        resolve();
-                    }
-                });
-        });
-
-        // Salva l'API key in un nodo privato
-        await new Promise((resolve, reject) => {
-            user.get('apiKeys').get(account).put(apiKey, (ack) => {
-                if (ack.err) {
-                    reject(ack.err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-
-        res.json({ success: true, account: actorData, apiKey });
-    } catch (error) {
-        console.error('Errore nella creazione dell\'account:', error);
-        res.status(500).json({
-            error: error.message
-        });
+    if (!account) {
+      return res.status(400).json({ error: "Nome account richiesto" });
     }
+
+    // 1. Genera chiavi
+    const { publicKey, privateKey } = await relayWalletManager.generateActivityPubKeys();
+    
+    // 2. Crea account
+    const actorData = await createAccount({
+      gun,
+      dappName: DAPP_NAME,
+      username: account,
+      publicKey
+    });
+
+    // 3. Genera API key
+    const apiKey = crypto
+      .createHash('sha256')
+      .update(publicKey)
+      .digest('hex');
+
+    res.json({
+      success: true,
+      username: account,
+      publicKey,
+      privateKey, // Solo per il client
+      apiKey
+    });
+
+  } catch (error) {
+    console.error('Errore creazione account:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/sendMessage', async (req, res) => {
-    try {
-        const { acct, apikey, message } = req.body;
-        
-        if (!acct || !apikey || !message) {
-            return res.status(400).json({
-                error: 'Parametri mancanti'
-            });
-        }
 
-        const result = await sendMessage(gun, DAPP_NAME, acct, apikey, message);
-        res.json(result);
-    } catch (error) {
-        console.error('Errore nell\'invio del messaggio:', error);
-        res.status(500).json({
-            error: error.message
-        });
+app.post("/api/sendMessage", async (req, res) => {
+  try {
+    const { acct, apikey, message } = req.body;
+
+    if (!acct || !apikey || !message) {
+      return res.status(400).json({
+        error: "Parametri mancanti",
+      });
     }
+
+    const result = await sendMessage(gun, DAPP_NAME, acct, apikey, message);
+    res.json(result);
+  } catch (error) {
+    console.error("Errore nell'invio del messaggio:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
 });
 
-app.post('/api/verify', async (req, res) => {
-    try {
-        const { username, apikey } = req.body;
-        
-        console.log('Richiesta verifica API key:', {
+app.post("/api/verify", async (req, res) => {
+  try {
+    const { username, apikey } = req.body;
+
+    console.log("Richiesta verifica API key:", {
+      username,
+      hasApiKey: !!apikey,
+    });
+
+    if (!username || !apikey) {
+      return res.status(400).json({
+        error: "Username e API key sono richiesti",
+      });
+    }
+
+    // Verifica che Gun sia inizializzato
+    await waitForGunInit();
+
+    // Verifica l'API key nel database Gun
+    const isValid = await new Promise((resolve) => {
+      gun
+        .get(DAPP_NAME)
+        .get("activitypub")
+        .get(username)
+        .get("apiKey")
+        .once((storedKey) => {
+          console.log("Verifica API key:", {
             username,
-            hasApiKey: !!apikey
+            storedKey: storedKey ? "[PRESENTE]" : "[NON TROVATA]",
+            matches: storedKey === apikey,
+          });
+          resolve(storedKey === apikey);
         });
-        
-        if (!username || !apikey) {
-            return res.status(400).json({ 
-                error: 'Username e API key sono richiesti' 
-            });
-        }
+    });
 
-        // Verifica che Gun sia inizializzato
-        await waitForGunInit();
-
-        // Verifica l'API key nel database Gun
-        const isValid = await new Promise((resolve) => {
-            gun
-                .get(DAPP_NAME)
-                .get('activitypub')
-                .get(username)
-                .get('apiKey')
-                .once((storedKey) => {
-                    console.log('Verifica API key:', {
-                        username,
-                        storedKey: storedKey ? '[PRESENTE]' : '[NON TROVATA]',
-                        matches: storedKey === apikey
-                    });
-                    resolve(storedKey === apikey);
-                });
-        });
-
-        if (!isValid) {
-            console.log('API key non valida per:', username);
-            return res.status(401).json({ 
-                error: 'API key non valida' 
-            });
-        }
-
-        console.log('API key verificata con successo per:', username);
-        res.json({ 
-            success: true, 
-            username 
-        });
-    } catch (error) {
-        console.error('Errore nella verifica dell\'API key:', error);
-        res.status(500).json({ 
-            error: error.message 
-        });
+    if (!isValid) {
+      console.log("API key non valida per:", username);
+      return res.status(401).json({
+        error: "API key non valida",
+      });
     }
+
+    console.log("API key verificata con successo per:", username);
+    res.json({
+      success: true,
+      username,
+    });
+  } catch (error) {
+    console.error("Errore nella verifica dell'API key:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
 });
 
 // Endpoint per la home
-app.get('/', (req, res) => {
-    res.redirect('/admin.html');
+app.get("/", (req, res) => {
+  res.redirect("/admin.html");
 });
 
 // Gestione errori 404 - DEVE ESSERE DOPO TUTTI GLI ALTRI ENDPOINT
 app.use((req, res) => {
-    console.log('404 - Endpoint non trovato:', req.path);
-    res.status(404).json({
-        error: 'Endpoint non trovato',
-        path: req.path
-    });
+  console.log("404 - Endpoint non trovato:", req.path);
+  res.status(404).json({
+    error: "Endpoint non trovato",
+    path: req.path,
+  });
 });
 
 // Gestione errori generici - DEVE ESSERE L'ULTIMO MIDDLEWARE
 app.use((err, req, res, next) => {
-    console.error('Errore del server:', err);
-    res.status(500).json({
-        error: 'Errore interno del server',
-        message: err.message
-    });
+  console.error("Errore del server:", err);
+  res.status(500).json({
+    error: "Errore interno del server",
+    message: err.message,
+  });
 });
-
