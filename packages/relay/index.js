@@ -1097,11 +1097,11 @@ function generateActivityPubKeys() {
 // Endpoint per la creazione degli account ActivityPub
 app.post('/api/admin/create', async (req, res) => {
     try {
-        const { account } = req.body;
+        const { account, privateKey } = req.body;
         
-        if (!account) {
+        if (!account || !privateKey) {
             return res.status(400).json({
-                error: 'Nome account mancante'
+                error: 'Nome account o chiave privata mancanti'
             });
         }
 
@@ -1117,11 +1117,10 @@ app.post('/api/admin/create', async (req, res) => {
         });
 
         if (exists) {
-            // Se l'account esiste già, restituisci i dati esistenti
-            const existingAccount = await new Promise(resolve => {
-                gun
-                    .get(DAPP_NAME)
-                    .get('activitypub')
+            // Recupera l'API key esistente dal nodo privato
+            const existingApiKey = await new Promise(resolve => {
+                gun.user()
+                    .get('apiKeys')
                     .get(account)
                     .once(resolve);
             });
@@ -1129,7 +1128,8 @@ app.post('/api/admin/create', async (req, res) => {
             return res.json({
                 success: true,
                 message: 'Account già esistente',
-                account: existingAccount
+                account: await gun.get(DAPP_NAME).get('activitypub').get(account).once(),
+                apiKey: existingApiKey // Invia l'API key esistente
             });
         }
 

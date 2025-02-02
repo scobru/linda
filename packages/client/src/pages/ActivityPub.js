@@ -31,7 +31,7 @@ const ActivityPubPage = () => {
       await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
 
       // Crea l'account ActivityPub
-      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/api/admin/create`, {
+      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -48,14 +48,21 @@ const ActivityPubPage = () => {
         throw new Error(createData.error || 'Errore nella creazione dell\'account');
       }
 
-      // Se l'account esiste già, usa i dati esistenti
+      // Se l'account esiste già, recupera l'API key esistente
       if (createData.message === 'Account già esistente') {
         console.log('Account già esistente:', createData.account);
-      }
-
-      // Salva l'API key nel localStorage
-      if (createData.apiKey) {
-        localStorage.setItem('apiKey', createData.apiKey);
+        // Recupera l'API key dal nodo privato
+        const existingApiKey = await new Promise((resolve) => {
+          user.get('apiKeys').get(alias).once(resolve);
+        });
+        if (existingApiKey) {
+          localStorage.setItem('apiKey', existingApiKey);
+        }
+      } else {
+        // Salva la nuova API key
+        if (createData.apiKey) {
+          localStorage.setItem('apiKey', createData.apiKey);
+        }
       }
 
       // Imposta l'username corrente

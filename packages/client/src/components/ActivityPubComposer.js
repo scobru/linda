@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Alert, CircularProgress, Typography } from '@mui/material';
 import { ACTIVITYPUB_URL } from '../protocol/useGun';
+import { walletManager } from '../utils/walletManager';
 
 const ActivityPubComposer = ({ username, onPostCreated }) => {
   const [content, setContent] = useState('');
@@ -20,7 +21,7 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       const activity = {
         '@context': 'https://www.w3.org/ns/activitystreams',
         type: 'Create',
-        actor: `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}`,
+        actor: `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}`,
         object: {
           type: 'Note',
           content: content.trim(),
@@ -35,13 +36,16 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
         throw new Error('API key non trovata. Effettua nuovamente l\'accesso.');
       }
 
+      const signature = await walletManager.signData(activity, username);
+      
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}/outbox`,
+        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/activity+json',
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`,
+            'X-Signature': signature
           },
           body: JSON.stringify(activity)
         }
