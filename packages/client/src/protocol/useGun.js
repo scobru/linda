@@ -7,14 +7,14 @@ import SEA from "gun/sea";
 
 export const ACTIVITYPUB_URL = "https://gun-relay.scobrudot.dev";
 
-const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
+const DEFAULT_PEERS = [`${ACTIVITYPUB_URL}/gun`];
 
 let isConnected = false;
 
 export { SEA }
 
 const gunOptions = {
-  peers: ["https://gun-relay.scobrudot.dev/gun"],
+  peers: DEFAULT_PEERS,
   radisk: false,
   localStorage: false,
 };

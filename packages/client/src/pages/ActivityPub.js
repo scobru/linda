@@ -24,7 +24,8 @@ const ActivityPubPage = () => {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'X-User-Pub': user._.sea.pub // Aggiungi firma
+          'X-User-Pub': user._.sea.pub, // Aggiungi firma
+          'Access-Control-Allow-Origin': '*', // Risolvi errore CORS
         },
         body: JSON.stringify({ account: alias })
       });
