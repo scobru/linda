@@ -25,7 +25,7 @@ const ActivityPubPage = () => {
       }
 
       // Crea l'account ActivityPub
-      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`, {
+      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/api/admin/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
