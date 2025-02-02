@@ -1126,16 +1126,12 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     let verificationError = null;
 
     try {
-      gun
+      existingAccount =gun
         .get(DAPP_NAME)
         .get("activitypub")
         .get(account)
         .once((data) => {
-          console.log(
-            "Risultato verifica account:",
-            data ? "Esistente" : "Non trovato"
-          );
-          existingAccount = data;
+          return data;
         });
     } catch (err) {
       console.warn("Errore durante verifica account:", err);
