@@ -13,17 +13,11 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
     if (!content.trim()) return;
 
     try {
-      setLoading(true);
-      setError(null);
-      setSuccess(false);
-
       const apiKey = localStorage.getItem('apiKey');
-      if (!apiKey) {
-        throw new Error('API key non trovata. Effettua nuovamente l\'accesso.');
-      }
+      if (!apiKey) throw new Error('API key non trovata');
 
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}/outbox`,
+        `${ACTIVITYPUB_URL}/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
@@ -45,14 +39,12 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
 
       setContent('');
       setSuccess(true);
-      if (onPostCreated) {
-        onPostCreated();
-      }
+      onPostCreated?.();
+
     } catch (err) {
-      console.error('Errore nella pubblicazione:', err);
+      console.error('Errore pubblicazione:', err);
       setError(err.message);
-    } finally {
-      setLoading(false);
+      setSuccess(false);
     }
   };
 

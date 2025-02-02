@@ -11,53 +11,41 @@ const ActivityPubPage = () => {
 
   const handleConnect = async (e) => {
     e.preventDefault();
-    console.log('Tentativo di connessione...');
+    console.log('Avvio connessione...');
 
     try {
-      // Verifica che l'utente sia autenticato
-      if (!user?._.sea?.pub) {
-        throw new Error('Utente non autenticato');
-      }
-      console.log('Utente autenticato:', user.is?.alias);
-
-      // Ottieni l'alias dell'utente
+      if (!user?._.sea?.pub) throw new Error('Utente non autenticato');
       const alias = user.is?.alias;
-      if (!alias) {
-        throw new Error('Alias non trovato');
-      }
-      console.log('Alias ottenuto:', alias);
+      if (!alias) throw new Error('Alias non trovato');
 
-      // Usa il nuovo endpoint
+      // Crea l'account e ottieni le chiavi
       const response = await fetch(`${ACTIVITYPUB_URL}/api/activitypub/accounts`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ account: alias })
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Errore creazione account');
+      }
+
       const accountData = await response.json();
       
-      // Salva tutto localmente
-      await walletManager.saveActivityPubKeys(
-        {
-          publicKey: accountData.publicKey,
-          privateKey: accountData.privateKey
-        },
-        StorageType.LOCAL
-      );
+      // Salva i dati crittografati
+      await walletManager.saveActivityPubKeys({
+        publicKey: accountData.publicKey,
+        privateKey: accountData.privateKey
+      }, StorageType.LOCAL);
 
       localStorage.setItem('apiKey', accountData.apiKey);
+      console.log('Connessione riuscita per:', alias);
       setCurrentUsername(alias);
       setError(null);
 
     } catch (err) {
-      console.error('Errore completo:', {
-        name: err.name,
-        message: err.message,
-        stack: err.stack
-      });
-      setError(`Errore di connessione: ${err.message}`);
+      console.error('Errore di connessione:', err);
+      setError(err.message);
     }
   };
 

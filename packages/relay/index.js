@@ -175,8 +175,7 @@ app.use((req, res, next) => {
 
 // Middleware per il logging delle richieste
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  console.log("Headers:", req.headers);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -1110,45 +1109,38 @@ function setupConnectionHandlers(server, gun) {
 app.post("/api/activitypub/accounts", async (req, res) => {
   try {
     const { account } = req.body;
+    console.log(`Creazione account per: ${account}`);
 
     if (!account) {
       return res.status(400).json({ error: "Nome account richiesto" });
     }
 
-    // 1. Genera chiavi
+    // Genera chiavi
     const { publicKey, privateKey } = await relayWalletManager.generateActivityPubKeys();
-    
-    // 2. Genera API key
-    const apiKey = crypto
-      .createHash('sha256')
-      .update(publicKey)
-      .digest('hex');
+    const apiKey = crypto.createHash('sha256').update(publicKey).digest('hex');
 
-    // 3. Salva su GunDB
-    await new Promise((resolve, reject) => {
-      gun.get(DAPP_NAME)
-        .get('activitypub')
-        .get(account)
-        .put({
-          publicKey,
-          apiKey,
-          createdAt: Date.now()
-        }, (ack) => {
-          if (ack.err) reject(ack.err);
-          else resolve();
-        });
-    });
+    // Salva su GunDB con timeout
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        gun.get(DAPP_NAME)
+          .get('activitypub')
+          .get(account)
+          .put({
+            publicKey,
+            apiKey,
+            createdAt: Date.now()
+          }, (ack) => ack.err ? reject(ack.err) : resolve());
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout salvataggio GunDB")), 5000)
+      )
+    ]);
 
-    res.json({
-      success: true,
-      username: account,
-      publicKey,
-      privateKey,
-      apiKey
-    });
+    console.log(`Account creato con successo: ${account}`);
+    res.json({ success: true, username: account, publicKey, privateKey, apiKey });
 
   } catch (error) {
-    console.error('Errore creazione account:', error);
+    console.error(`Errore creazione account ${account}:`, error);
     res.status(500).json({ error: error.message });
   }
 });
