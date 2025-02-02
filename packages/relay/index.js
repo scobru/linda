@@ -11,9 +11,8 @@ import http from "http";
 import WebSocket from "ws";
 import { generateKeyPairSync } from "crypto";
 import { createAccount, sendMessage } from "./activitypub/admin.js";
-import { WalletManager } from '@scobru/shogun';
-import crypto from 'crypto';
-
+import { WalletManager } from "@scobru/shogun";
+import crypto from "crypto";
 
 // Configurazione ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -56,8 +55,6 @@ const GUN_CONFIG = {
   peers: [], // Usa solo il peer locale
   timeout: 30000, // Aumenta il timeout
 };
-
-
 
 console.log("Gun configuration:", GUN_CONFIG);
 
@@ -1111,140 +1108,156 @@ function setupConnectionHandlers(server, gun) {
 app.post("/api/activitypub/accounts", async (req, res) => {
   const startTime = Date.now();
   console.log(`[${new Date().toISOString()}] Inizio creazione account`);
-  
+
   try {
     const { account } = req.body;
-    
+
     if (!account) {
-      console.error('Account name non fornito nella richiesta');
-      return res.status(400).json({ 
+      console.error("Account name non fornito nella richiesta");
+      return res.status(400).json({
         error: "Nome account richiesto",
-        details: "Il campo 'account' è obbligatorio nel body della richiesta"
+        details: "Il campo 'account' è obbligatorio nel body della richiesta",
       });
     }
 
-    console.log('Creazione account ActivityPub:', { account });
+    console.log("Creazione account ActivityPub:", { account });
 
     // Verifica se l'account esiste già
-    console.log('Verifica esistenza account...');
+    console.log("Verifica esistenza account...");
     let existingAccount = null;
     let verificationError = null;
 
     try {
       await new Promise((resolve, reject) => {
         let responded = false;
-        
+
         // Timeout più lungo per la verifica
         const timeout = setTimeout(() => {
           if (!responded) {
             responded = true;
-            console.log('Timeout verifica account - assumendo account non esistente');
+            console.log(
+              "Timeout verifica account - assumendo account non esistente"
+            );
             resolve(null);
           }
         }, 5000);
 
-        gun.get(DAPP_NAME)
-          .get('activitypub')
+        gun
+          .get(DAPP_NAME)
+          .get("activitypub")
           .get(account)
           .once((data) => {
             if (!responded) {
               responded = true;
               clearTimeout(timeout);
-              console.log('Risultato verifica account:', data ? 'Esistente' : 'Non trovato');
+              console.log(
+                "Risultato verifica account:",
+                data ? "Esistente" : "Non trovato"
+              );
               existingAccount = data;
               resolve(data);
             }
           });
       });
     } catch (err) {
-      console.warn('Errore durante verifica account:', err);
+      console.warn("Errore durante verifica account:", err);
       verificationError = err;
     }
 
     if (verificationError) {
-      console.log('Proseguo nonostante errore verifica:', verificationError.message);
+      console.log(
+        "Proseguo nonostante errore verifica:",
+        verificationError.message
+      );
     }
 
     if (existingAccount) {
-      console.log('Account già esistente:', account);
+      console.log("Account già esistente:", account);
       return res.status(409).json({
         error: "Account già esistente",
-        account
+        account,
       });
     }
 
     // Genera chiavi
-    console.log('Generazione chiavi...');
+    console.log("Generazione chiavi...");
     const keys = await relayWalletManager.generateActivityPubKeys();
-    console.log('Chiavi generate con successo');
-    
+    console.log("Chiavi generate con successo");
+
     const { publicKey, privateKey } = keys;
-    const apiKey = crypto.randomBytes(32).toString('hex');
+    const apiKey = crypto.randomBytes(32).toString("hex");
 
     // Salva su GunDB con retry
-    console.log('Salvataggio su GunDB...');
+    console.log("Salvataggio su GunDB...");
     let saveAttempts = 0;
     const maxSaveAttempts = 3;
 
     while (saveAttempts < maxSaveAttempts) {
       try {
+        gun
+          .get(DAPP_NAME)
+          .get("activitypub")
+          .get(account)
+          .put(
+            {
+              publicKey,
+              apiKey,
+              createdAt: Date.now(),
+            },
+            (ack) => {
+              if (!responded) {
+                responded = true;
+                clearTimeout(timeout);
 
-        await gun.get(DAPP_NAME)
-        .get('activitypub')
-        .get(account)
-        .put({
-          publicKey,
-          apiKey,
-          createdAt: Date.now()
-        }, (ack) => {
-          if (!responded) {
-            responded = true;
-            clearTimeout(timeout);
-            
-            if (ack.err) {
-              console.error('Errore salvataggio su GunDB:', ack.err);
-              reject(ack.err);
-            } else {
-              console.log('Salvataggio su GunDB completato');
-              resolve();
+                if (ack.err) {
+                  console.error("Errore salvataggio su GunDB:", ack.err);
+                  reject(ack.err);
+                } else {
+                  console.log("Salvataggio su GunDB completato");
+                  resolve();
+                }
+              }
             }
-          }
-        });
-        
+          );
+
         break; // Se il salvataggio è riuscito, esci dal ciclo
       } catch (error) {
         saveAttempts++;
         if (saveAttempts === maxSaveAttempts) {
-          throw new Error(`Falliti ${maxSaveAttempts} tentativi di salvataggio: ${error.message}`);
+          throw new Error(
+            `Falliti ${maxSaveAttempts} tentativi di salvataggio: ${error.message}`
+          );
         }
-        console.log(`Tentativo ${saveAttempts}/${maxSaveAttempts} fallito, riprovo...`);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Attendi 1s prima di riprovare
+        console.log(
+          `Tentativo ${saveAttempts}/${maxSaveAttempts} fallito, riprovo...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // Attendi 1s prima di riprovare
       }
     }
 
     const duration = Date.now() - startTime;
-    console.log(`Account creato con successo: ${account} (durata: ${duration}ms)`);
-    
-    res.json({ 
-      success: true, 
-      username: account, 
-      publicKey, 
-      privateKey, 
-      apiKey,
-      duration
-    });
+    console.log(
+      `Account creato con successo: ${account} (durata: ${duration}ms)`
+    );
 
+    res.json({
+      success: true,
+      username: account,
+      publicKey,
+      privateKey,
+      apiKey,
+      duration,
+    });
   } catch (error) {
     const duration = Date.now() - startTime;
     console.error(`Errore creazione account (durata: ${duration}ms):`, error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Errore interno del server",
       message: error.message,
-      duration
+      duration,
     });
   }
 });
-
 
 app.post("/api/sendMessage", async (req, res) => {
   try {
