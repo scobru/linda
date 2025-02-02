@@ -23,8 +23,6 @@ const walletManager = new WalletManager(gunOptions);
 // Inizializza Gun con le opzioni
 export const gun = walletManager.getGun();
 
-console.log(gun);
-
 // Inizializza l'utente
 export const user = walletManager.getUser();
 
