@@ -2,15 +2,52 @@ import React, { useState } from 'react';
 import { Container, Paper, Box, Typography, TextField, Button } from '@mui/material';
 import ActivityPubFeed from '../components/ActivityPubFeed';
 import ActivityPubComposer from '../components/ActivityPubComposer';
+import { WalletManager, StorageType } from '@scobru/shogun';
+import { gun, user , walletManager, ACTIVITYPUB_URL} from '../protocol/useGun';
 
 const ActivityPubPage = () => {
   const [username, setUsername] = useState('');
   const [currentUsername, setCurrentUsername] = useState('');
+  const [error, setError] = useState(null);
 
-  const handleConnect = (e) => {
+  const handleConnect = async (e) => {
     e.preventDefault();
-    if (username.trim()) {
+    if (!username.trim()) return;
+
+    try {
+      // Verifica che l'utente sia autenticato
+      if (!user._.sea.pub) {
+        throw new Error('Utente non autenticato');
+      }
+
+      // Crea l'account ActivityPub
+      const createResponse = await fetch(`${ACTIVITYPUB_URL}/api/admin/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          account: username.trim()
+        })
+      });
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json();
+        throw new Error(errorData.error || 'Errore nella creazione dell\'account');
+      }
+
+      // Genera le chiavi RSA per ActivityPub
+      const activityPubKeys = await walletManager.generateActivityPubKeys();
+      
+      // Salva le chiavi sia su Gun che localmente
+      await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
+
+      // Imposta l'username corrente
       setCurrentUsername(username.trim());
+      setError(null);
+    } catch (err) {
+      console.error('Errore nella creazione dell\'utente:', err);
+      setError(err.message);
     }
   };
 
@@ -33,6 +70,8 @@ const ActivityPubPage = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="es. scobru_test"
+                error={!!error}
+                helperText={error}
               />
               <Button
                 variant="contained"

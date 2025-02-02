@@ -3062,10 +3062,10 @@
     winston "^3.17.0"
     zod "^3.23.8"
 
-"@scobru/shogun@^0.0.14-a":
-  version "0.0.14-a"
-  resolved "https://registry.yarnpkg.com/@scobru/shogun/-/shogun-0.0.14-a.tgz#82ba1cd446ad830ab9693a6ed6fa724ff4370786"
-  integrity sha512-eZCJzJigaWfwhUsanCqqlb1NRS2ca9oBe2EeqTVOjeBxeIYkxfGbuAPPDk39aeG+5bPwSj4IQMEKa0aewGZTNA==
+"@scobru/shogun@^0.0.14-b":
+  version "0.0.14-b"
+  resolved "https://registry.yarnpkg.com/@scobru/shogun/-/shogun-0.0.14-b.tgz#81f7c69bfa5ffbf91288609570fcc4c1fdb0ea3b"
+  integrity sha512-RQIPXRQYhCwHNYjV27b7zDo/8b3jnJRZKWOTeVcRqtSD+lcXSCBCuWvxdJLgH+2ma+0DRsshwFCYardcpP9x/A==
   dependencies:
     ethers "^6.13.5"
     gun "^0.2020.1239"

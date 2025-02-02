@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, TextField, Button, Alert, CircularProgress } from '@mui/material';
+import { Box, TextField, Button, Alert, CircularProgress, Typography } from '@mui/material';
 
 const ActivityPubComposer = ({ username, onPostCreated }) => {
   const [content, setContent] = useState('');
@@ -36,7 +36,7 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       );
 
       if (!response.ok) {
-        throw new Error('Errore nella pubblicazione del post');
+        throw new Error(`Errore nella pubblicazione: ${response.statusText}`);
       }
 
       setContent('');
@@ -46,39 +46,44 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       }
     } catch (err) {
       console.error('Errore nella pubblicazione:', err);
-      setError(err.message);
+      setError('Impossibile connettersi al server. Verifica che il relay sia in esecuzione.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} p={2}>
-      <TextField
-        fullWidth
-        multiline
-        rows={3}
-        variant="outlined"
-        placeholder="Cosa stai pensando?"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        disabled={loading}
-        sx={{ mb: 2 }}
-      />
-      <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Box>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          {success && <Alert severity="success" sx={{ mb: 2 }}>Post pubblicato con successo!</Alert>}
+    <Box p={2}>
+      <form onSubmit={handleSubmit}>
+        <TextField
+          fullWidth
+          multiline
+          rows={4}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Scrivi il tuo post..."
+          disabled={loading}
+        />
+        <Box mt={2} display="flex" justifyContent="flex-end">
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={!content.trim() || loading}
+          >
+            {loading ? 'Pubblicazione...' : 'Pubblica'}
+          </Button>
         </Box>
-        <Button
-          type="submit"
-          variant="contained"
-          disabled={!content.trim() || loading}
-          endIcon={loading && <CircularProgress size={20} />}
-        >
-          Pubblica
-        </Button>
-      </Box>
+        {error && (
+          <Box mt={2}>
+            <Typography color="error">{error}</Typography>
+          </Box>
+        )}
+        {success && (
+          <Box mt={2}>
+            <Typography color="success">Post pubblicato con successo!</Typography>
+          </Box>
+        )}
+      </form>
     </Box>
   );
 };

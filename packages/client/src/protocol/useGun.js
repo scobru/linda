@@ -5,6 +5,8 @@ import SEA from "gun/sea";
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
+export const ACTIVITYPUB_URL = "https://gun-relay.scobrudot.dev";
+
 const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev/gun"];
 
 let isConnected = false;
@@ -24,7 +26,8 @@ const walletManager = new WalletManager(gunOptions);
 export const gun = walletManager.getGun();
 
 // Inizializza l'utente
-export const user = walletManager.getUser();
+// export const user = walletManager.getUser();
+export const user = gun.user().recall({ sessionStorage: true });
 
 // Gestione errori di connessione
 gun.on("error", (err) => {

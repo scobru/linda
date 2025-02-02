@@ -8,13 +8,24 @@ const ActivityPubFeed = ({ username }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev"];
+
+
+
   const fetchPosts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${process.env.REACT_APP_RELAY_URL || 'http://localhost:8765'}/users/${username}/outbox`);
+      const response = await fetch(`${process.env.REACT_APP_RELAY_URL || DEFAULT_PEERS }/users/${username}/outbox`, {
+        headers: {
+          'Accept': 'application/activity+json',
+          'Content-Type': 'application/activity+json'
+        }
+      });
+      
       if (!response.ok) {
         throw new Error('Errore nel caricamento dei post');
       }
+      
       const data = await response.json();
       setPosts(data.orderedItems || []);
     } catch (err) {

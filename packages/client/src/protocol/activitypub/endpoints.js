@@ -1,6 +1,9 @@
 import { activityPubManager } from './index.js';
 import { gun, user, DAPP_NAME } from '../useGun.js';
 
+const BASE_URL = ["https://gun-relay.scobrudot.dev"];
+
+
 // Endpoint per il profilo utente (actor)
 export const handleActorEndpoint = async (username) => {
   const actorData = await gun
@@ -31,7 +34,7 @@ export const handleOutbox = async (activity) => {
     const enrichedActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       ...activity,
-      actor: `${process.env.BASE_URL || 'http://localhost:8765'}/users/${user.is.alias}`,
+      actor: `${process.env.BASE_URL || BASE_URL }/users/${user.is.alias}`,
       published: new Date().toISOString()
     };
 
