@@ -1148,20 +1148,20 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     if (existingAccount) {
       console.log("Account già esistente:", account);
       const userAccount = gun.user().get();
-      userAccount.activitypub.apiKey = apiKey;
-      userAccount.save();
+      const keys = userAccount.get("activitypub").get("keys").get();
+      const apiKey = userAccount.get("activitypub").get("apiKey").get();
       const finalAccount = {
-        privateKey: privateKey,
-        publicKey: publicKey,
+        privateKey: keys.privateKey,
+        publicKey: keys.publicKey,
         apiKey: apiKey,
       }
       return res.status(409).json({
         error: "Account già esistente",
-        finalAccount,
+        account: finalAccount,
       });
     }
 
-    // Genera chiavi
+    // Genera chiavi  
     console.log("Generazione chiavi...");
     const keys = await relayWalletManager.generateActivityPubKeys();
     console.log("Chiavi generate con successo");
