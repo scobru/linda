@@ -738,13 +738,11 @@ app.get("/users/:username/outbox", async (req, res) => {
     await waitForGunInit();
 
     // Verifica che l'utente esista
-    const userExists = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .once((data) => resolve(!!data));
-    });
+    const userExists = gun
+      .get(DAPP_NAME)
+      .get("activitypub")
+      .get(username)
+      .once((data) => resolve(!!data));
 
     if (!userExists) {
       console.log("Utente non trovato:", username);
