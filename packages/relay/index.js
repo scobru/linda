@@ -1069,71 +1069,71 @@ function generateActivityPubKeys() {
   };
 }
 
-// API Endpoints
+// Endpoint per la creazione degli account ActivityPub
 app.post('/api/admin/create', async (req, res) => {
-  try {
-      const { account } = req.body;
-      
-      if (!account) {
-          return res.status(400).json({
-              error: 'Nome account mancante'
-          });
-      }
+    try {
+        const { account } = req.body;
+        
+        if (!account) {
+            return res.status(400).json({
+                error: 'Nome account mancante'
+            });
+        }
 
-      // Verifica che l'utente non esista già
-      const exists = await new Promise(resolve => {
-          gun
-              .get(DAPP_NAME)
-              .get('activitypub')
-              .get(account)
-              .once(data => {
-                  resolve(!!data);
-              });
-      });
+        // Verifica che l'utente non esista già
+        const exists = await new Promise(resolve => {
+            gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(account)
+                .once(data => {
+                    resolve(!!data);
+                });
+        });
 
-      if (exists) {
-          return res.status(400).json({
-              error: 'Account già esistente'
-          });
-      }
+        if (exists) {
+            return res.status(400).json({
+                error: 'Account già esistente'
+            });
+        }
 
-      // Crea il profilo ActivityPub di default
-      const actorData = {
-          '@context': ['https://www.w3.org/ns/activitystreams'],
-          type: 'Person',
-          id: `${process.env.BASE_URL}/users/${account}`,
-          following: `${process.env.BASE_URL}/users/${account}/following`,
-          followers: `${process.env.BASE_URL}/users/${account}/followers`,
-          inbox: `${process.env.BASE_URL}/users/${account}/inbox`,
-          outbox: `${process.env.BASE_URL}/users/${account}/outbox`,
-          preferredUsername: account,
-          name: account,
-          summary: `Profilo ActivityPub di ${account}`,
-          url: `${process.env.BASE_URL}/users/${account}`,
-          published: new Date().toISOString()
-      };
+        // Crea il profilo ActivityPub di default
+        const actorData = {
+            '@context': ['https://www.w3.org/ns/activitystreams'],
+            type: 'Person',
+            id: `${process.env.BASE_URL}/users/${account}`,
+            following: `${process.env.BASE_URL}/users/${account}/following`,
+            followers: `${process.env.BASE_URL}/users/${account}/followers`,
+            inbox: `${process.env.BASE_URL}/users/${account}/inbox`,
+            outbox: `${process.env.BASE_URL}/users/${account}/outbox`,
+            preferredUsername: account,
+            name: account,
+            summary: `Profilo ActivityPub di ${account}`,
+            url: `${process.env.BASE_URL}/users/${account}`,
+            published: new Date().toISOString()
+        };
 
-      await new Promise((resolve, reject) => {
-          gun
-              .get(DAPP_NAME)
-              .get('activitypub')
-              .get(account)
-              .put(actorData, (ack) => {
-                  if (ack.err) {
-                      reject(ack.err);
-                  } else {
-                      resolve();
-                  }
-              });
-      });
+        await new Promise((resolve, reject) => {
+            gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(account)
+                .put(actorData, (ack) => {
+                    if (ack.err) {
+                        reject(ack.err);
+                    } else {
+                        resolve();
+                    }
+                });
+        });
 
-      res.json({ success: true });
-  } catch (error) {
-      console.error('Errore nella creazione dell\'account:', error);
-      res.status(500).json({
-          error: error.message
-      });
-  }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Errore nella creazione dell\'account:', error);
+        res.status(500).json({
+            error: error.message
+        });
+    }
 });
 
 app.post('/api/sendMessage', async (req, res) => {
