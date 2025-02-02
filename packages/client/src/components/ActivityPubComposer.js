@@ -30,13 +30,18 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
         to: ['https://www.w3.org/ns/activitystreams#Public']
       };
 
+      const apiKey = localStorage.getItem('apiKey');
+      if (!apiKey) {
+        throw new Error('API key non trovata. Effettua nuovamente l\'accesso.');
+      }
+
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || 'http://localhost:8765'}/users/${username}/outbox`,
+        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/activity+json',
-            'Authorization': `Bearer ${localStorage.getItem('apiKey')}`
+            'Authorization': `Bearer ${apiKey}`
           },
           body: JSON.stringify(activity)
         }

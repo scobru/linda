@@ -1132,6 +1132,9 @@ app.post('/api/admin/create', async (req, res) => {
             });
         }
 
+        // Genera una nuova API key
+        const apiKey = require('crypto').randomBytes(32).toString('hex');
+
         // Crea il profilo ActivityPub di default
         const actorData = {
             '@context': JSON.stringify(['https://www.w3.org/ns/activitystreams']),
@@ -1145,7 +1148,8 @@ app.post('/api/admin/create', async (req, res) => {
             name: account,
             summary: `Profilo ActivityPub di ${account}`,
             url: `${process.env.BASE_URL}/users/${account}`,
-            published: new Date().toISOString()
+            published: new Date().toISOString(),
+            apiKey: apiKey
         };
 
         await new Promise((resolve, reject) => {
@@ -1162,7 +1166,7 @@ app.post('/api/admin/create', async (req, res) => {
                 });
         });
 
-        res.json({ success: true, account: actorData });
+        res.json({ success: true, account: actorData, apiKey });
     } catch (error) {
         console.error('Errore nella creazione dell\'account:', error);
         res.status(500).json({
