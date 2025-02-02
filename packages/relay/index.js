@@ -12,6 +12,7 @@ import WebSocket from "ws";
 import { generateKeyPairSync } from "crypto";
 import { createAccount, sendMessage } from "./activitypub/admin.js";
 import { WalletManager } from '@scobru/shogun';
+import crypto from 'crypto';
 
 
 // Configurazione ES modules
