@@ -10,9 +10,12 @@ import { Mogu } from "@scobru/mogu";
 import http from "http";
 import WebSocket from "ws";
 import { generateKeyPairSync } from "crypto";
-import { createAccount, sendMessage } from "./activitypub/admin.js";
 import { WalletManager } from "@scobru/shogun";
 import crypto from "crypto";
+import cors from "cors";
+
+
+import routes from "./routes/index.js";
 
 // Configurazione ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +72,12 @@ const CONFIG = {
     },
   },
 };
+
+let gun, relayWalletManager;
+
+// Inizializzazione di relayWalletManager
+relayWalletManager = new WalletManager(GUN_CONFIG);
+gun = relayWalletManager.getGun();
 
 // Configurazione percorsi
 const RADATA_PATH = path.join(process.cwd(), "./radata");
@@ -145,11 +154,8 @@ app.use((req, res, next) => {
 });
 
 // Middleware per il parsing del body
-app.use(
-  express.json({
-    type: ["application/json", "application/activity+json"],
-  })
-);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Middleware
 app.use(express.static("dashboard"));
@@ -182,8 +188,24 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
+// API routes
+app.use('/api', cors(), routes.api);
+app.use('/api/admin', cors(), routes.admin);
+app.use('/api/inbox', cors(), routes.inbox);
+
+// ActivityPub routes
+app.use('/.well-known/webfinger', cors(), routes.webfinger);
+app.use('/u', cors(), routes.user);
+app.use('/m', cors(), routes.message);
+
+// Admin routes - alla fine
+app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin.html'));
+});
+
 // Variabili globali
-let gun, mogu, relayWalletManager;
+let mogu;
 const metrics = {
   connections: 0,
   putOperations: 0,
@@ -310,17 +332,6 @@ async function initializeServer() {
     };
 
     console.log("Creating Gun instance...");
-
-    relayWalletManager = new WalletManager(gunConfig);
-    gun = relayWalletManager.getGun();
-
-    // Configura Gun per usare solo il peer locale
-    gun.opt({ peers: [`http://localhost:${port}/gun`] });
-
-    console.log("Gun server started with peers:", gun._.opt.peers);
-
-    app.use(Gun.serve);
-    console.log("Gun middleware configured");
 
     setupConnectionHandlers(server, gun);
     console.log("Connection handlers configured");
@@ -528,295 +539,6 @@ async function syncGlobalMetrics() {
     console.error("Errore durante la sincronizzazione delle metriche:", error);
   }
 }
-
-// Import degli endpoint ActivityPub locali
-import {
-  handleActorEndpoint,
-  handleInbox,
-  handleOutbox,
-  handleFollowers,
-  handleFollowing,
-  handleWebfinger,
-} from "./activitypub/endpoints.js";
-
-// ActivityPub Endpoints
-app.get("/.well-known/webfinger", async (req, res) => {
-  try {
-    const resource = req.query.resource;
-    const response = await handleWebfinger(resource);
-    res.json(response);
-  } catch (error) {
-    console.error("Errore nella gestione webfinger:", error);
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// Endpoint Actor
-app.get("/users/:username", async (req, res) => {
-  console.log(`\nRichiesta profilo per utente: ${req.params.username}`);
-  try {
-    const actorData = await handleActorEndpoint(
-      gun,
-      DAPP_NAME,
-      req.params.username
-    );
-    console.log("Actor data:", actorData);
-
-    // Imposta gli header corretti per ActivityPub
-    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache");
-    res.json(actorData);
-  } catch (error) {
-    console.error("Errore nella gestione della richiesta actor:", error);
-    res.status(500).json({
-      error: error.message,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-    });
-  }
-});
-
-// Endpoint Inbox
-app.post(
-  "/users/:username/inbox",
-  express.json({ type: "application/activity+json" }),
-  async (req, res) => {
-    try {
-      const { username } = req.params;
-      const activity = req.body;
-
-      // Verifica che l'utente esista
-      const userExists = await new Promise((resolve) => {
-        gun
-          .get(DAPP_NAME)
-          .get("activitypub")
-          .get(username)
-          .once((data) => resolve(!!data));
-      });
-
-      if (!userExists) {
-        return res.status(404).json({
-          error: "Utente non trovato",
-          username,
-        });
-      }
-
-      // Salva l'attività nella inbox
-      const result = await handleInbox(gun, DAPP_NAME, username, activity);
-
-      res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
-      res.status(201).json(result);
-    } catch (error) {
-      console.error("Errore nella gestione dell'inbox:", {
-        error: error.stack,
-        params: req.params,
-        body: req.body,
-      });
-      res.status(500).json({
-        error: error.message,
-        type: error.name,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }
-);
-
-app.get("/users/:username/activities", async (req, res) => {
-  try {
-    const { username } = req.params;
-
-    // Verifica che l'utente esista
-    const userExists = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .once((data) => resolve(!!data));
-    });
-
-    if (!userExists) {
-      return res.status(404).json({
-        error: "Utente non trovato",
-        username,
-      });
-    }
-
-    // Recupera le attività
-    const activities = await gun
-      .get(DAPP_NAME)
-      .get("activitypub")
-      .get(username)
-      .get("activities")
-      .once();
-
-    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
-    res.json({
-      "@context": "https://www.w3.org/ns/activitystreams",
-      type: "OrderedCollection",
-      totalItems: activities ? Object.keys(activities).length : 0,
-      orderedItems: activities ? Object.values(activities) : [],
-    });
-  } catch (error) {
-    console.error("Errore nel recupero delle attività:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint POST outbox
-app.post("/users/:username/outbox", async (req, res) => {
-  try {
-    const { username } = req.params;
-    const activity = req.body;
-
-    // Verifica che l'attività sia valida
-    if (!activity || !activity["@context"]) {
-      return res.status(400).json({
-        error: "Campo @context mancante",
-      });
-    }
-
-    // Verifica l'autenticazione
-    const apiKey = req.headers["authorization"]?.split(" ")[1];
-    if (!apiKey) {
-      return res.status(401).json({
-        error: "API key mancante",
-      });
-    }
-
-    // Verifica che l'API key sia valida
-    const isValid = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .get("apiKey")
-        .once((storedKey) => {
-          resolve(storedKey === apiKey);
-        });
-    });
-
-    if (!isValid) {
-      return res.status(401).json({
-        error: "API key non valida",
-      });
-    }
-
-    // Salva l'attività su Gun
-    await new Promise((resolve, reject) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .get("outbox")
-        .get("orderedItems")
-        .set(activity, (ack) => {
-          if (ack.err) {
-            reject(ack.err);
-          } else {
-            resolve();
-          }
-        });
-    });
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Errore nel salvataggio dell'attività:", error);
-    res.status(500).json({
-      error: error.message,
-    });
-  }
-});
-
-// Migliora l'endpoint outbox
-app.get("/users/:username/outbox", async (req, res) => {
-  try {
-    const { username } = req.params;
-
-    console.log("Richiesta outbox per:", username);
-
-    // Verifica che Gun sia inizializzato
-    await waitForGunInit();
-
-    // Verifica che l'utente esista
-    const userExists = gun
-      .get(DAPP_NAME)
-      .get("activitypub")
-      .get(username)
-      .once((data) => resolve(!!data));
-
-    if (!userExists) {
-      console.log("Utente non trovato:", username);
-      return res.status(404).json({
-        error: "Utente non trovato",
-        username,
-      });
-    }
-
-    // Recupera le attività dall'outbox
-    const activities = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .get("outbox")
-        .once(resolve);
-    });
-
-    console.log("Attività trovate:", {
-      username,
-      count: activities ? Object.keys(activities).length : 0,
-    });
-
-    // Formatta la risposta secondo ActivityPub
-    const response = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      type: "OrderedCollection",
-      totalItems: activities ? Object.keys(activities).length : 0,
-      orderedItems: activities ? Object.values(activities) : [],
-    };
-
-    res.setHeader("Content-Type", "application/activity+json; charset=utf-8");
-    res.json(response);
-  } catch (error) {
-    console.error("Errore nel recupero dell'outbox:", {
-      error: error.stack,
-      params: req.params,
-    });
-    res.status(500).json({
-      error: error.message,
-      type: error.name,
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
-// Endpoint Followers
-app.get("/users/:username/followers", async (req, res) => {
-  try {
-    const followers = await handleFollowers(
-      gun,
-      DAPP_NAME,
-      req.params.username
-    );
-    res.json(followers);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint Following
-app.get("/users/:username/following", async (req, res) => {
-  try {
-    const following = await handleFollowing(
-      gun,
-      DAPP_NAME,
-      req.params.username
-    );
-    res.json(following);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Aggiungi il tracking delle attività ActivityPub nelle metriche
 function initializeGunListeners(gun, mogu) {
@@ -1063,6 +785,7 @@ app.get("/stats", (req, res) => {
 // Esporta le funzioni necessarie
 export {
   gun,
+  relayWalletManager,
   mogu,
   metrics,
   globalMetrics,
@@ -1102,181 +825,7 @@ function setupConnectionHandlers(server, gun) {
   });
 }
 
-// Endpoint per la creazione degli account ActivityPub
-app.post("/api/activitypub/accounts", async (req, res) => {
-  const startTime = Date.now();
-  console.log(`[${new Date().toISOString()}] Inizio creazione account`);
-
-  try {
-    const { account } = req.body;
-
-    if (!account) {
-      console.error("Account name non fornito nella richiesta");
-      return res.status(400).json({
-        error: "Nome account richiesto",
-        details: "Il campo 'account' è obbligatorio nel body della richiesta",
-      });
-    }
-
-    console.log("Creazione account ActivityPub:", { account });
-
-    // Verifica se l'account esiste già
-    console.log("Verifica esistenza account...");
-    let existingAccount = null;
-    let verificationError = null;
-
-    try {
-      existingAccount = gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(account)
-        .once((data) => {
-          return data;
-        });
-    } catch (err) {
-      console.warn("Errore durante verifica account:", err);
-      verificationError = err;
-    }
-
-    if (verificationError) {
-      console.log(
-        "Proseguo nonostante errore verifica:",
-        verificationError.message
-      );
-    }
-
-    if (existingAccount) {
-      console.log("Account già esistente:", account);
-      const keys =  await gun.user().get("activitypub").get("keys")
-      const apiKey =  await gun.user().get("activitypub").get("apiKey")
-
-      console.log("Chiavi:", keys);
-      console.log("API Key:", apiKey);
-      const finalAccount = {
-        privateKey: keys.privateKey,
-        publicKey: keys.publicKey,
-        apiKey: apiKey,
-      }
-      return res.status(409).json({
-        error: "Account già esistente",
-        account: finalAccount,
-      });
-    }
-
-    // Genera chiavi  
-    console.log("Generazione chiavi...");
-    const keys = await relayWalletManager.generateActivityPubKeys();
-    console.log("Chiavi generate con successo");
-
-    const { publicKey, privateKey } = keys;
-    const apiKey = crypto.randomBytes(32).toString("hex");
-
-    // Salva su GunDB con retry
-    await relayWalletManager.saveActivityPubKeys(keys, StorageType.BOTH);
-
- 
-
-    const duration = Date.now() - startTime;
-    console.log(
-      `Account creato con successo: ${account} (durata: ${duration}ms)`
-    );
-
-    res.json({
-      success: true,
-      username: account,
-      publicKey,
-      privateKey,
-      apiKey,
-      duration,
-    });
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error(`Errore creazione account (durata: ${duration}ms):`, error);
-    res.status(500).json({
-      error: "Errore interno del server",
-      message: error.message,
-      duration,
-    });
-  }
-});
-
-app.post("/api/sendMessage", async (req, res) => {
-  try {
-    const { acct, apikey, message } = req.body;
-
-    if (!acct || !apikey || !message) {
-      return res.status(400).json({
-        error: "Parametri mancanti",
-      });
-    }
-
-    const result = await sendMessage(gun, DAPP_NAME, acct, apikey, message);
-    res.json(result);
-  } catch (error) {
-    console.error("Errore nell'invio del messaggio:", error);
-    res.status(500).json({
-      error: error.message,
-    });
-  }
-});
-
-app.post("/api/verify", async (req, res) => {
-  try {
-    const { username, apikey } = req.body;
-
-    console.log("Richiesta verifica API key:", {
-      username,
-      hasApiKey: !!apikey,
-    });
-
-    if (!username || !apikey) {
-      return res.status(400).json({
-        error: "Username e API key sono richiesti",
-      });
-    }
-
-    // Verifica che Gun sia inizializzato
-    await waitForGunInit();
-
-    // Verifica l'API key nel database Gun
-    const isValid = await new Promise((resolve) => {
-      gun
-        .get(DAPP_NAME)
-        .get("activitypub")
-        .get(username)
-        .get("apiKey")
-        .once((storedKey) => {
-          console.log("Verifica API key:", {
-            username,
-            storedKey: storedKey ? "[PRESENTE]" : "[NON TROVATA]",
-            matches: storedKey === apikey,
-          });
-          resolve(storedKey === apikey);
-        });
-    });
-
-    if (!isValid) {
-      console.log("API key non valida per:", username);
-      return res.status(401).json({
-        error: "API key non valida",
-      });
-    }
-
-    console.log("API key verificata con successo per:", username);
-    res.json({
-      success: true,
-      username,
-    });
-  } catch (error) {
-    console.error("Errore nella verifica dell'API key:", error);
-    res.status(500).json({
-      error: error.message,
-    });
-  }
-});
-
-// Endpoint per la home
-app.get("/", (req, res) => {
+app.get("/admin", (req, res) => {
   res.redirect("/admin.html");
 });
 
@@ -1297,3 +846,4 @@ app.use((err, req, res, next) => {
     message: err.message,
   });
 });
+

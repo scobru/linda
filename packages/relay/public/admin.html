@@ -1,55 +1,298 @@
-async function createAccount() {
-  const account = document.querySelector('#account').value;
-  const createError = document.querySelector('#createError');
-  const createSuccess = document.querySelector('#createSuccess');
-  const createOutput = document.querySelector('#createOutput');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Dashboard - ActivityPub Relay</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script >
 
-  createError.style.display = 'none';
-  createSuccess.style.display = 'none';
-  createOutput.innerHTML = '';
+      let BASE_URL = 'http://localhost:8765';
 
-  if (!account) {
-    createError.textContent = 'Inserisci un nome account';
-    createError.style.display = 'block';
-    return;
+      function queryStringFromObject(obj) {
+        return Object.keys(obj).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(obj[key])).join('&');
+      }
+
+      function showMessage(elementId, message, isError = false) {
+        const element = document.querySelector(elementId);
+        element.innerHTML = message;
+        element.className = `output ${isError ? 'error' : 'success'}`;
+      }
+
+      function setLoading(formId, isLoading) {
+        const form = document.querySelector(formId);
+        const button = form.querySelector('button[type="submit"]');
+
+        if (isLoading) {
+          form.classList.add('loading');
+          button.disabled = true;
+        } else {
+          form.classList.remove('loading');
+          button.disabled = false;
+        }
+      }
+
+      async function sendMessage(event) {
+        event.preventDefault();
+        setLoading('#sendMessageForm', true);
+
+        try {
+          const acct = document.querySelector('#acct').value.trim();
+          const apikey = document.querySelector('#apikey').value.trim();
+          const message = document.querySelector('#message').value.trim();
+
+          if (!acct || !apikey || !message) {
+            throw new Error('All fields are required');
+          }
+
+          const data = await postData(`${BASE_URL}/api/sendMessage`, { acct, apikey, message });
+
+          if (data.msg === 'ok') {
+            showMessage('#sendOutput', 'Message sent successfully!');
+            document.querySelector('#sendMessageForm').reset();
+          } else {
+            throw new Error(data.error || 'Failed to send message');
+          }
+        } catch (error) {
+          console.error('Error sending message:', error);
+          showMessage('#sendOutput', `Error: ${error.message}`, true);
+        } finally {
+          setLoading('#sendMessageForm', false);
+        }
+      }
+
+      async function createAccount(event) {
+        event.preventDefault();
+        setLoading('#createAccountForm', true);
+
+        try {
+          const username = document.querySelector('#account').value.trim();
+
+          if (!username) {
+            throw new Error('Username is required');
+          }
+
+          const password = await promptPassword();
+          if (!password) {
+            throw new Error('Password is required');
+          }
+
+          const data = await postData(`${BASE_URL}/api/admin/create`, { username, password });
+
+          if (data.msg === 'ok') {
+            const hostname = window.location.hostname;
+            const message = `
+              <h3>Account Created Successfully!</h3>
+              <p>To verify the account:</p>
+              <ol>
+                <li>Check the Actor JSON: <a href="/u/${username}" target="_blank">View Actor</a></li>
+                <li>Verify WebFinger: <a href="/.well-known/webfinger?resource=acct:${username}@${hostname}" target="_blank">View WebFinger</a></li>
+                <li>Your account address is: ${username}@${hostname}</li>
+              </ol>
+              <p><strong>Important:</strong> Save your API key: <code>${data.apikey}</code></p>
+            `;
+            showMessage('#createOutput', message);
+            document.querySelector('#createAccountForm').reset();
+          } else {
+            throw new Error(data.error || 'Failed to create account');
+          }
+        } catch (error) {
+          console.error('Error creating account:', error);
+          showMessage('#createOutput', `Error: ${error.message}`, true);
+        } finally {
+          setLoading('#createAccountForm', false);
+        }
+      }
+
+      function promptPassword() {
+        return new Promise((resolve) => {
+          const password = prompt("Please enter a password for the account");
+          resolve(password);
+        });
+      }
+
+      async function postData(url = '', data = {}) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: queryStringFromObject(data),
+          });
+
+          const responseData = await response.json();
+
+          if (!response.ok) {
+            throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
+          }
+
+          return responseData;
+        } catch (error) {
+          console.error('Error in postData:', error);
+          throw error;
+        }
+      }
+    </script>
+  <style>
+  body {
+        font-family: system-ui, -apple-system, sans-serif;
+    max-width: 900px;
+        margin: 30px auto;
+        padding: 0 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+        margin-bottom: 1rem;
+      }
+      .section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        border: 1px solid #eee;
+        border-radius: 6px;
+      }
+      .form-group {
+        margin-bottom: 1rem;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #555;
   }
-
-  try {
-    const response = await fetch('/api/admin/create', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ account })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Errore nella creazione dell\'account');
-    }
-
-    const data = await response.json();
-
-    if (data.msg === 'ok') {
-      createSuccess.textContent = 'Account creato con successo!';
-      createSuccess.style.display = 'block';
-      
-      const hostname = window.location.hostname;
-      createOutput.innerHTML = `
-        <p>Per confermare, verifica:</p>
-        <ul>
-          <li>Il profilo dell'account: <a href="/users/${account}" target="_blank">Visualizza JSON</a></li>
-          <li>WebFinger: <a href="/.well-known/webfinger?resource=acct:${account}@${hostname}" target="_blank">Verifica endpoint</a></li>
-        </ul>
-        <p>Il tuo account può essere trovato come: <strong>${account}@${hostname}</strong></p>
-        <p>La tua chiave API è: <strong>${data.apikey}</strong></p>
-        <p><em>Salva questa chiave in un posto sicuro!</em></p>
-      `;
-    } else {
-      throw new Error(data.error || 'Errore nella creazione dell\'account');
-    }
-  } catch (error) {
-    createError.textContent = error.message;
-    createError.style.display = 'block';
+  input {
+        width: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
   }
-} 
+  .hint {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 0.25rem;
+  }
+  button {
+        background: #0066cc;
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #0052a3;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      .output {
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 4px;
+      }
+      .success {
+        background: #e6ffe6;
+        border: 1px solid #b3ffb3;
+        color: #006600;
+      }
+      .error {
+        background: #ffe6e6;
+        border: 1px solid #ffb3b3;
+        color: #cc0000;
+      }
+      .loading {
+        opacity: 0.5;
+        pointer-events: none;
+  }
+  </style>
+</head>
+<body>
+    <div class="container">
+      <h1>ActivityPub Relay Admin</h1>
+
+      <div class="section">
+      <h2>Create Account</h2>
+        <p>
+          Create a new ActivityPub Actor (account). Requires admin
+          authentication.
+        </p>
+
+        <form id="createAccountForm" onsubmit="createAccount(event)">
+          <div class="form-group">
+            <label for="account">Username</label>
+            <input
+              id="account"
+              type="text"
+              placeholder="Enter username"
+              pattern="[a-zA-Z0-9_-]+"
+              title="Only letters, numbers, underscore and hyphen allowed"
+              required
+            />
+            <div class="hint">
+              Only letters, numbers, underscore and hyphen allowed
+            </div>
+          </div>
+          <button type="submit" id="createAccountBtn">Create Account</button>
+        </form>
+        <div id="createOutput" class="output"></div>
+      </div>
+
+      <div class="section">
+      <h2>Send Message To Followers</h2>
+        <p>Send a message to all followers of an account.</p>
+
+        <form id="sendMessageForm" onsubmit="sendMessage(event)">
+          <div class="form-group">
+            <label for="acct">Account Name</label>
+            <input
+              id="acct"
+              type="text"
+              placeholder="Enter account name"
+              pattern="[a-zA-Z0-9_-]+"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="apikey">API Key</label>
+            <input
+              id="apikey"
+              type="text"
+              placeholder="Enter API key"
+              pattern="[a-fA-F0-9]+"
+              required
+            />
+            <div class="hint">
+              The API key received when creating the account
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="message">Message</label>
+            <input
+              id="message"
+              type="text"
+              placeholder="Enter your message"
+              required
+            />
+          </div>
+
+          <button type="submit" id="sendMessageBtn">Send Message</button>
+        </form>
+        <div id="sendOutput" class="output"></div>
+      </div>
+    </div>
+</body>
+</html>
