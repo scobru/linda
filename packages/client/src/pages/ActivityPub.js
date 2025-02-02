@@ -11,30 +11,39 @@ const ActivityPubPage = () => {
 
   const handleConnect = async (e) => {
     e.preventDefault();
+    console.log('Tentativo di connessione...');
 
     try {
       // Verifica che l'utente sia autenticato
-      if (!user._.sea.pub) {
+      if (!user?._.sea?.pub) {
         throw new Error('Utente non autenticato');
       }
+      console.log('Utente autenticato:', user.is?.alias);
 
       // Ottieni l'alias dell'utente
       const alias = user.is?.alias;
       if (!alias) {
         throw new Error('Alias non trovato');
       }
+      console.log('Alias ottenuto:', alias);
 
       // Genera le chiavi RSA per ActivityPub
+      console.log('Generazione chiavi RSA...');
       const activityPubKeys = await walletManager.generateActivityPubKeys();
       
-      // Salva le chiavi sia su Gun che localmente
+      // Salva le chiavi
+      console.log('Salvataggio chiavi...');
       await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
 
-      // Crea l'account ActivityPub
-      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`, {
+      // Crea la richiesta
+      const apiUrl = `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`;
+      console.log('Invio richiesta a:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('apiKey') || ''}`
         },
         body: JSON.stringify({
           account: alias,
@@ -42,11 +51,19 @@ const ActivityPubPage = () => {
         })
       });
 
-      const createData = await createResponse.json();
+      console.log('Ricevuta risposta:', {
+        status: response.status,
+        statusText: response.statusText
+      });
 
-      if (!createResponse.ok) {
-        throw new Error(createData.error || 'Errore nella creazione dell\'account');
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('Dettaglio errore:', errorData);
+        throw new Error(`Errore HTTP ${response.status}: ${response.statusText}`);
       }
+
+      const createData = await response.json();
+      console.log('Dati creazione:', createData);
 
       // Se l'account esiste già, recupera l'API key esistente
       if (createData.message === 'Account già esistente') {
@@ -69,8 +86,12 @@ const ActivityPubPage = () => {
       setCurrentUsername(alias);
       setError(null);
     } catch (err) {
-      console.error('Errore nella creazione dell\'utente:', err);
-      setError(err.message);
+      console.error('Errore completo:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack
+      });
+      setError(`Errore di connessione: ${err.message}`);
     }
   };
 

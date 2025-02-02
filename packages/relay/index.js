@@ -1097,11 +1097,11 @@ function generateActivityPubKeys() {
 // Endpoint per la creazione degli account ActivityPub
 app.post('/api/admin/create', async (req, res) => {
     try {
-        const { account, privateKey } = req.body;
+        const { account } = req.body;
         
-        if (!account || !privateKey) {
+        if (!account) {
             return res.status(400).json({
-                error: 'Nome account o chiave privata mancanti'
+                error: 'Nome account mancante'
             });
         }
 
@@ -1117,10 +1117,11 @@ app.post('/api/admin/create', async (req, res) => {
         });
 
         if (exists) {
-            // Recupera l'API key esistente dal nodo privato
-            const existingApiKey = await new Promise(resolve => {
-                gun.user()
-                    .get('apiKeys')
+            // Se l'account esiste già, restituisci i dati esistenti
+            const existingAccount = await new Promise(resolve => {
+                gun
+                    .get(DAPP_NAME)
+                    .get('activitypub')
                     .get(account)
                     .once(resolve);
             });
@@ -1128,13 +1129,37 @@ app.post('/api/admin/create', async (req, res) => {
             return res.json({
                 success: true,
                 message: 'Account già esistente',
-                account: await gun.get(DAPP_NAME).get('activitypub').get(account).once(),
-                apiKey: existingApiKey // Invia l'API key esistente
+                account: existingAccount
             });
         }
 
-        // Genera una nuova API key utilizzando crypto.randomBytes
-        const apiKey = require('crypto').randomBytes(32).toString('hex');
+        // Genera una nuova API key derivandola dalla chiave RSA dell'utente
+        const user = gun.user();
+        const privateKey = await new Promise((resolve, reject) => {
+            user.get('privateKey').once((data) => {
+                if (data) {
+                    resolve(data);
+                } else {
+                    reject(new Error('Chiave privata non trovata'));
+                }
+            });
+        });
+
+        const apiKey = require('crypto')
+            .createHash('sha256')
+            .update(privateKey)
+            .digest('hex');
+
+        // Salva la chiave privata RSA nel nodo privato dell'utente
+        await new Promise((resolve, reject) => {
+            user.get('privateKeys').get(account).put(privateKey, (ack) => {
+                if (ack.err) {
+                    reject(ack.err);
+                } else {
+                    resolve();
+                }
+            });
+        });
 
         // Crea il profilo ActivityPub di default
         const actorData = {
@@ -1168,7 +1193,6 @@ app.post('/api/admin/create', async (req, res) => {
         });
 
         // Salva l'API key in un nodo privato
-        const user = gun.user();
         await new Promise((resolve, reject) => {
             user.get('apiKeys').get(account).put(apiKey, (ack) => {
                 if (ack.err) {

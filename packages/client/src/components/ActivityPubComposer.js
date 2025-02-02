@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Alert, CircularProgress, Typography } from '@mui/material';
-import { ACTIVITYPUB_URL } from '../protocol/useGun';
-import { walletManager } from '../utils/walletManager';
+import { ACTIVITYPUB_URL , walletManager } from '../protocol/useGun';
 
 const ActivityPubComposer = ({ username, onPostCreated }) => {
   const [content, setContent] = useState('');
