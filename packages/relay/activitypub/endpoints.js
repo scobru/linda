@@ -731,21 +731,42 @@ async function signRequest(requestData, keyId, username, gun, DAPP_NAME) {
   }
 }
 
-// Funzione per serializzare i dati per Gun
-function serializeForGun(data) {
-  if (Array.isArray(data)) {
-    return JSON.stringify(data);
-  } else if (typeof data === 'object' && data !== null) {
-    const serialized = {};
-    for (const [key, value] of Object.entries(data)) {
-      serialized[key] = serializeForGun(value);
+// Funzione per deserializzare i dati da Gun
+function deserializeFromGun(data) {
+  if (!data) return null;
+  
+  const result = { ...data };
+  
+  // Rimuovi i metadati di Gun
+  delete result._;
+  delete result['#'];
+  delete result['>'];
+  
+  // Deserializza i campi che sono stringhe JSON
+  ['to', 'cc', 'attachment', 'tag'].forEach(field => {
+    if (typeof result[field] === 'string') {
+      try {
+        result[field] = JSON.parse(result[field]);
+      } catch (e) {
+        console.warn(`Errore nella deserializzazione del campo ${field}:`, e);
+        result[field] = [];
+      }
     }
-    return serialized;
+  });
+  
+  // Se l'oggetto ha un campo 'object' che è una stringa, prova a deserializzarlo
+  if (typeof result.object === 'string') {
+    try {
+      result.object = JSON.parse(result.object);
+    } catch (e) {
+      console.warn('Errore nella deserializzazione dell\'oggetto:', e);
+    }
   }
-  return data;
+  
+  return result;
 }
 
-// Endpoint per l'outbox
+// Modifica nella funzione handleOutbox
 export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
   try {
     // Valida l'attività in uscita
@@ -771,12 +792,12 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         attributedTo: `${BASE_URL}/users/${username}`,
         content: activity.object.content,
         published: new Date(timestamp).toISOString(),
-        to: JSON.stringify(['https://www.w3.org/ns/activitystreams#Public']),
-        cc: JSON.stringify([]),
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [],
         sensitive: activity.object.sensitive || false,
         summary: activity.object.summary || null,
-        attachment: JSON.stringify(activity.object.attachment || []),
-        tag: JSON.stringify(activity.object.tag || [])
+        attachment: activity.object.attachment || [],
+        tag: activity.object.tag || []
       };
 
       // Crea l'attività ActivityPub
@@ -786,9 +807,9 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
         type: 'Create',
         actor: `${BASE_URL}/users/${username}`,
         published: new Date(timestamp).toISOString(),
-        to: JSON.stringify(['https://www.w3.org/ns/activitystreams#Public']),
-        cc: JSON.stringify([]),
-        object: serializeForGun(post)
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [],
+        object: post
       };
 
       console.log('Salvataggio post:', post);
@@ -831,19 +852,7 @@ export const handleOutbox = async (gun, DAPP_NAME, username, activity) => {
             });
         });
 
-        // Restituisci l'attività originale (non serializzata) per la risposta HTTP
-        return {
-          ...createActivity,
-          to: ['https://www.w3.org/ns/activitystreams#Public'],
-          cc: [],
-          object: {
-            ...post,
-            to: ['https://www.w3.org/ns/activitystreams#Public'],
-            cc: [],
-            attachment: activity.object.attachment || [],
-            tag: activity.object.tag || []
-          }
-        };
+        return createActivity;
       } catch (error) {
         console.error('Errore durante il salvataggio:', error);
         throw error;
@@ -1394,4 +1403,23 @@ export const handleWebfinger = async (resource) => {
     }]
   };
 };
+
+// Modifica nella funzione serializeForGun
+function serializeForGun(data) {
+  if (Array.isArray(data)) {
+    return JSON.stringify(data);
+  } else if (typeof data === 'object' && data !== null) {
+    const serialized = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (key === '_' || key === '#' || key === '>') continue; // Salta i metadati di Gun
+      if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+        serialized[key] = JSON.stringify(value);
+      } else {
+        serialized[key] = value;
+      }
+    }
+    return serialized;
+  }
+  return data;
+}
 
