@@ -1126,20 +1126,43 @@ app.post("/api/activitypub/accounts", async (req, res) => {
 
     // Verifica se l'account esiste già
     console.log('Verifica esistenza account...');
-    const existingAccount = await Promise.race([
-      new Promise(resolve => {
+    let existingAccount = null;
+    let verificationError = null;
+
+    try {
+      await new Promise((resolve, reject) => {
+        let responded = false;
+        
+        // Timeout più lungo per la verifica
+        const timeout = setTimeout(() => {
+          if (!responded) {
+            responded = true;
+            console.log('Timeout verifica account - assumendo account non esistente');
+            resolve(null);
+          }
+        }, 5000);
+
         gun.get(DAPP_NAME)
           .get('activitypub')
           .get(account)
-          .once(data => {
-            console.log('Risultato verifica account:', data ? 'Esistente' : 'Non trovato');
-            resolve(data);
+          .once((data) => {
+            if (!responded) {
+              responded = true;
+              clearTimeout(timeout);
+              console.log('Risultato verifica account:', data ? 'Esistente' : 'Non trovato');
+              existingAccount = data;
+              resolve(data);
+            }
           });
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout verifica account')), 3000)
-      )
-    ]);
+      });
+    } catch (err) {
+      console.warn('Errore durante verifica account:', err);
+      verificationError = err;
+    }
+
+    if (verificationError) {
+      console.log('Proseguo nonostante errore verifica:', verificationError.message);
+    }
 
     if (existingAccount) {
       console.log('Account già esistente:', account);
@@ -1157,36 +1180,56 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     const { publicKey, privateKey } = keys;
     const apiKey = crypto.randomBytes(32).toString('hex');
 
-    // Salva su GunDB con timeout
+    // Salva su GunDB con retry
     console.log('Salvataggio su GunDB...');
-    await Promise.race([
-      new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Timeout salvataggio GunDB'));
-        }, 5000);
+    let saveAttempts = 0;
+    const maxSaveAttempts = 3;
 
-        gun.get(DAPP_NAME)
-          .get('activitypub')
-          .get(account)
-          .put({
-            publicKey,
-            apiKey,
-            createdAt: Date.now()
-          }, (ack) => {
-            clearTimeout(timeout);
-            if (ack.err) {
-              console.error('Errore salvataggio su GunDB:', ack.err);
-              reject(ack.err);
-            } else {
-              console.log('Salvataggio su GunDB completato');
-              resolve();
+    while (saveAttempts < maxSaveAttempts) {
+      try {
+        await new Promise((resolve, reject) => {
+          let responded = false;
+          
+          const timeout = setTimeout(() => {
+            if (!responded) {
+              responded = true;
+              reject(new Error('Timeout salvataggio GunDB'));
             }
-          });
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout globale operazione')), 10000)
-      )
-    ]);
+          }, 5000);
+
+          gun.get(DAPP_NAME)
+            .get('activitypub')
+            .get(account)
+            .put({
+              publicKey,
+              apiKey,
+              createdAt: Date.now()
+            }, (ack) => {
+              if (!responded) {
+                responded = true;
+                clearTimeout(timeout);
+                
+                if (ack.err) {
+                  console.error('Errore salvataggio su GunDB:', ack.err);
+                  reject(ack.err);
+                } else {
+                  console.log('Salvataggio su GunDB completato');
+                  resolve();
+                }
+              }
+            });
+        });
+        
+        break; // Se il salvataggio è riuscito, esci dal ciclo
+      } catch (error) {
+        saveAttempts++;
+        if (saveAttempts === maxSaveAttempts) {
+          throw new Error(`Falliti ${maxSaveAttempts} tentativi di salvataggio: ${error.message}`);
+        }
+        console.log(`Tentativo ${saveAttempts}/${maxSaveAttempts} fallito, riprovo...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Attendi 1s prima di riprovare
+      }
+    }
 
     const duration = Date.now() - startTime;
     console.log(`Account creato con successo: ${account} (durata: ${duration}ms)`);
