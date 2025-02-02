@@ -11,45 +11,64 @@ const ActivityPubPage = () => {
 
   const handleConnect = async (e) => {
     e.preventDefault();
-    console.log('Avvio connessione...');
+    console.log('Avvio connessione ActivityPub...');
 
     try {
       // 1. Verifica stato autenticazione
-      if (!user?.is) throw new Error('Devi effettuare il login prima');
+      if (!user?.is) {
+        throw new Error('Devi effettuare il login prima');
+      }
+
       const alias = user.is?.alias;
-      if (!alias) throw new Error('Impossibile ottenere il tuo username');
+      if (!alias) {
+        throw new Error('Impossibile ottenere il tuo username');
+      }
+
+      console.log('Tentativo di connessione per alias:', alias);
 
       // 2. Richiesta al relay
+      console.log('Invio richiesta al relay:', `${ACTIVITYPUB_URL}/api/activitypub/accounts`);
       const response = await fetch(`${ACTIVITYPUB_URL}/api/activitypub/accounts`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'X-User-Pub': user._.sea.pub, // Aggiungi firma
-          'Access-Control-Allow-Origin': '*', // Risolvi errore CORS
+          'X-User-Pub': user._.sea.pub
         },
-        body: JSON.stringify({ account: alias })
+        body: JSON.stringify({ 
+          account: alias 
+        })
       });
 
       // 3. Gestione errori HTTP
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Errore sconosciuto' }));
-        throw new Error(error.message || `Errore HTTP: ${response.status}`);
+        const errorData = await response.json();
+        console.error('Risposta non ok dal server:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        });
+        throw new Error(errorData.error || errorData.message || `Errore HTTP: ${response.status}`);
       }
 
       // 4. Salvataggio sicuro delle chiavi
-      const { publicKey, privateKey, apiKey } = await response.json();
+      const data = await response.json();
+      console.log('Risposta ricevuta dal server:', { ...data, privateKey: '[NASCOSTA]' });
       
+      if (!data.success || !data.apiKey) {
+        throw new Error('Risposta del server non valida');
+      }
+
       await walletManager.saveActivityPubKeys(
-        { publicKey, privateKey },
+        { publicKey: data.publicKey, privateKey: data.privateKey },
         StorageType.LOCAL
       );
 
       // 5. Aggiornamento stato UI
-      localStorage.setItem('apiKey', apiKey);
+      localStorage.setItem('apiKey', data.apiKey);
       setCurrentUsername(alias);
       setError(null);
 
-      console.log('Connessione ActivityPub riuscita per:', alias);
+      console.log('Connessione ActivityPub completata con successo per:', alias);
 
     } catch (err) {
       console.error('Errore di connessione ActivityPub:', err);

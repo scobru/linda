@@ -1112,12 +1112,34 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     const { account } = req.body;
     
     if (!account) {
-      return res.status(400).json({ error: "Nome account richiesto" });
+      console.error('Account name non fornito nella richiesta');
+      return res.status(400).json({ 
+        error: "Nome account richiesto",
+        details: "Il campo 'account' è obbligatorio nel body della richiesta"
+      });
+    }
+
+    console.log('Creazione account ActivityPub:', { account });
+
+    // Verifica se l'account esiste già
+    const existingAccount = await new Promise(resolve => {
+      gun.get(DAPP_NAME)
+        .get('activitypub')
+        .get(account)
+        .once(data => resolve(data));
+    });
+
+    if (existingAccount) {
+      console.log('Account già esistente:', account);
+      return res.status(409).json({
+        error: "Account già esistente",
+        account
+      });
     }
 
     // Genera chiavi
     const { publicKey, privateKey } = await relayWalletManager.generateActivityPubKeys();
-    const apiKey = crypto.createHash('sha256').update(publicKey).digest('hex');
+    const apiKey = crypto.randomBytes(32).toString('hex');
 
     // Salva su GunDB con timeout
     await Promise.race([
@@ -1129,7 +1151,14 @@ app.post("/api/activitypub/accounts", async (req, res) => {
             publicKey,
             apiKey,
             createdAt: Date.now()
-          }, (ack) => ack.err ? reject(ack.err) : resolve());
+          }, (ack) => {
+            if (ack.err) {
+              console.error('Errore salvataggio su GunDB:', ack.err);
+              reject(ack.err);
+            } else {
+              resolve();
+            }
+          });
       }),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error("Timeout salvataggio GunDB")), 5000)
@@ -1137,13 +1166,19 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     ]);
 
     console.log(`Account creato con successo: ${account}`);
-    res.json({ success: true, username: account, publicKey, privateKey, apiKey });
+    res.json({ 
+      success: true, 
+      username: account, 
+      publicKey, 
+      privateKey, 
+      apiKey 
+    });
 
   } catch (error) {
-    console.error(`Errore creazione account${account ? ' ' + account : ''}:`, error);
+    console.error('Errore creazione account:', error);
     res.status(500).json({ 
-      error: error.message,
-      details: account ? `Account: ${account}` : 'Nessun account specificato'
+      error: "Errore interno del server",
+      message: error.message
     });
   }
 });
