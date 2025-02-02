@@ -39,6 +39,8 @@ const ActivityPubPage = () => {
         })
       });
 
+      let data = null;
+
       // 3. Gestione errori HTTP
       if (!response.ok) {
         const errorData = await response.json();
@@ -47,11 +49,16 @@ const ActivityPubPage = () => {
           statusText: response.statusText,
           error: errorData
         });
+        if(response.status == 409) {
+          data = await response.error.account
+          console.log('Account esistente:', data);
+          throw new Error(errorData.error || errorData.message || `Errore HTTP: ${response.status}`);
+        }
         throw new Error(errorData.error || errorData.message || `Errore HTTP: ${response.status}`);
       }
 
       // 4. Salvataggio sicuro delle chiavi
-      const data = await response.json();
+      data = await response.json();
       console.log('Risposta ricevuta dal server:', { ...data, privateKey: '[NASCOSTA]' });
       
       if (!data.success || !data.apiKey) {
