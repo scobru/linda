@@ -23,7 +23,7 @@ dotenv.config();
 
 // Costanti di configurazione
 const DAPP_NAME = process.env.DAPP_NAME || "linda-messenger";
-const BASE_URL = process.env.BASE_URL || "https://gun-relay.scobrudot.dev";
+const BASE_URL = process.env.BASE_URL || "http://localhost:8765";
 const MULTICAST_ADDRESS = "239.255.255.250";
 const MULTICAST_PORT = 8765;
 
@@ -46,17 +46,15 @@ console.log("- NODE_ENV:", process.env.NODE_ENV);
 // Configurazione Gun per il relay
 const GUN_CONFIG = {
   web: server,
-  multicast: {
-    address: MULTICAST_ADDRESS,
-    port: MULTICAST_PORT,
-  },
-  radisk: true, // mantieni radisk per la persistenza su filesystem
-  localStorage: false, // disabilita localStorage
-  store: false, // disabilita store generico
-  rindexed: false, // disabilita IndexedDB
-  file: "./radata", // mantieni il path per radisk
+  multicast: false, // Disabilita multicast per evitare problemi di rete
+  radisk: true,
+  localStorage: false,
+  store: false,
+  rindexed: false,
+  file: "./radata",
   axe: true,
-  peers: process.env.PEERS ? process.env.PEERS.split(",") : [],
+  peers: [], // Usa solo il peer locale
+  timeout: 30000, // Aumenta il timeout
 };
 
 
@@ -317,10 +315,12 @@ async function initializeServer() {
     console.log("Creating Gun instance...");
 
     relayWalletManager = new WalletManager(gunConfig);
-
     gun = relayWalletManager.getGun();
 
-    console.log("Gun server started");
+    // Configura Gun per usare solo il peer locale
+    gun.opt({ peers: [`http://localhost:${port}/gun`] });
+
+    console.log("Gun server started with peers:", gun._.opt.peers);
 
     app.use(Gun.serve);
     console.log("Gun middleware configured");

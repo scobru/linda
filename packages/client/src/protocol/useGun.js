@@ -5,7 +5,7 @@ import SEA from "gun/sea";
 // require('gun/lib/store');
 // require('gun/lib/rindexed');
 
-export const ACTIVITYPUB_URL = "https://gun-relay.scobrudot.dev";
+export const ACTIVITYPUB_URL = 'https://gun-relay.scobrudot.dev';
 
 const DEFAULT_PEERS = [`${ACTIVITYPUB_URL}/gun`];
 
@@ -17,6 +17,8 @@ const gunOptions = {
   peers: DEFAULT_PEERS,
   radisk: false,
   localStorage: false,
+  timeout: 30000,
+  axe: false // Disabilita axe sul client
 };
 
 // Inizializza il WalletManager
