@@ -1126,7 +1126,7 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     let verificationError = null;
 
     try {
-      existingAccount =gun
+      existingAccount = gun
         .get(DAPP_NAME)
         .get("activitypub")
         .get(account)
@@ -1147,6 +1147,7 @@ app.post("/api/activitypub/accounts", async (req, res) => {
 
     if (existingAccount) {
       console.log("Account già esistente:", account);
+      const userAccount = gun.user().get();
       return res.status(409).json({
         error: "Account già esistente",
         account,
@@ -1162,52 +1163,10 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     const apiKey = crypto.randomBytes(32).toString("hex");
 
     // Salva su GunDB con retry
-    console.log("Salvataggio su GunDB...");
-    let saveAttempts = 0;
-    const maxSaveAttempts = 3;
+    await relayWalletManager.saveActivityPubKeys(keys, StorageType.BOTH);
 
-    while (saveAttempts < maxSaveAttempts) {
-      try {
-        gun
-          .get(DAPP_NAME)
-          .get("activitypub")
-          .get(account)
-          .put(
-            {
-              publicKey,
-              apiKey,
-              createdAt: Date.now(),
-            },
-            (ack) => {
-              if (!responded) {
-                responded = true;
-                clearTimeout(timeout);
-
-                if (ack.err) {
-                  console.error("Errore salvataggio su GunDB:", ack.err);
-                  reject(ack.err);
-                } else {
-                  console.log("Salvataggio su GunDB completato");
-                  resolve();
-                }
-              }
-            }
-          );
-
-        break; // Se il salvataggio è riuscito, esci dal ciclo
-      } catch (error) {
-        saveAttempts++;
-        if (saveAttempts === maxSaveAttempts) {
-          throw new Error(
-            `Falliti ${maxSaveAttempts} tentativi di salvataggio: ${error.message}`
-          );
-        }
-        console.log(
-          `Tentativo ${saveAttempts}/${maxSaveAttempts} fallito, riprovo...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Attendi 1s prima di riprovare
-      }
-    }
+    userAccount.activitypub.apiKey = apiKey;
+    userAccount.save();
 
     const duration = Date.now() - startTime;
     console.log(

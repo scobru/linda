@@ -49,17 +49,17 @@ const ActivityPubPage = () => {
           statusText: response.statusText,
           error: errorData
         });
+        
         if(response.status == 409) {
-          data = await response.error.account
+          data = errorData.account;
           console.log('Account esistente:', data);
-          throw new Error(errorData.error || errorData.message || `Errore HTTP: ${response.status}`);
         }
-        throw new Error(errorData.error || errorData.message || `Errore HTTP: ${response.status}`);
+      } else {
+        data = await response.json();
       }
 
       // 4. Salvataggio sicuro delle chiavi
-      data = await response.json();
-      console.log('Risposta ricevuta dal server:', { ...data, privateKey: '[NASCOSTA]' });
+      console.log('Risposta ricevuta dal server:', { data, privateKey: '[NASCOSTA]' });
       
       if (!data.success || !data.apiKey) {
         throw new Error('Risposta del server non valida');
