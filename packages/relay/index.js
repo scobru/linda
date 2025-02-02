@@ -1147,8 +1147,12 @@ app.post("/api/activitypub/accounts", async (req, res) => {
 
     if (existingAccount) {
       console.log("Account già esistente:", account);
-      const keys = await gun.user().get("activitypub").get("keys").get().once();
-      const apiKey = await gun.user().get("activitypub").get("apiKey").get().once();
+      const keys = await gun.user().get("activitypub").get("keys").once((data) => {
+        return data;
+      });
+      const apiKey = await gun.user().get("activitypub").get("apiKey").once((data) => {
+        return data;
+      });
 
       console.log("Chiavi:", keys);
       console.log("API Key:", apiKey);
