@@ -21,7 +21,7 @@ const ActivityPubPage = () => {
       }
 
       // Crea l'account ActivityPub
-      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`, {
+      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/api/admin/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -40,6 +40,11 @@ const ActivityPubPage = () => {
       // Se l'account esiste già, usa i dati esistenti
       if (createData.message === 'Account già esistente') {
         console.log('Account già esistente:', createData.account);
+      }
+
+      // Salva l'API key nel localStorage
+      if (createData.apiKey) {
+        localStorage.setItem('apiKey', createData.apiKey);
       }
 
       // Genera le chiavi RSA per ActivityPub

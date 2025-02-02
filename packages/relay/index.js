@@ -1148,10 +1148,10 @@ app.post('/api/admin/create', async (req, res) => {
             name: account,
             summary: `Profilo ActivityPub di ${account}`,
             url: `${process.env.BASE_URL}/users/${account}`,
-            published: new Date().toISOString(),
-            apiKey: apiKey
+            published: new Date().toISOString()
         };
 
+        // Salva il profilo pubblico
         await new Promise((resolve, reject) => {
             gun
                 .get(DAPP_NAME)
@@ -1164,6 +1164,18 @@ app.post('/api/admin/create', async (req, res) => {
                         resolve();
                     }
                 });
+        });
+
+        // Salva l'API key in un nodo privato
+        const user = gun.user();
+        await new Promise((resolve, reject) => {
+            user.get('apiKeys').get(account).put(apiKey, (ack) => {
+                if (ack.err) {
+                    reject(ack.err);
+                } else {
+                    resolve();
+                }
+            });
         });
 
         res.json({ success: true, account: actorData, apiKey });
