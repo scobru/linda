@@ -627,6 +627,12 @@ app.get('/users/:username/activities', async (req, res) => {
       totalItems: activities ? Object.keys(activities).length : 0,
       orderedItems: activities ? Object.values(activities) : []
     });
+  } catch (error) {
+    console.error('Errore nel recupero delle attività:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // Endpoint POST outbox
 app.post('/users/:username/outbox', express.json({ type: 'application/activity+json' }), async (req, res) => {
