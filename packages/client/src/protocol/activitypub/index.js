@@ -1,7 +1,6 @@
-import { gun, user, DAPP_NAME } from '../useGun.js';
+import { gun, user, DAPP_NAME , ACTIVITYPUB_URL } from '../useGun.js';
 
 
-const BASE_URL = ["https://gun-relay.scobrudot.dev"];
 
 
 // Costanti ActivityPub
@@ -29,15 +28,15 @@ class ActivityPubManager {
     const actorData = {
       '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Person',
-      id: `${process.env.BASE_URL || BASE_URL}/users/${username}`,
-      following: `${process.env.BASE_URL || BASE_URL}/users/${username}/following`,
-      followers: `${process.env.BASE_URL || BASE_URL}/users/${username}/followers`,
-      inbox: `${process.env.BASE_URL || BASE_URL}/users/${username}/inbox`,
-      outbox: `${process.env.BASE_URL || BASE_URL}/users/${username}/outbox`,
+      id: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}`,
+      following: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}/following`,
+      followers: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}/followers`,
+      inbox: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}/inbox`,
+      outbox: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}/outbox`,
       preferredUsername: username,
       publicKey: {
-        id: `${process.env.BASE_URL || BASE_URL}/users/${username}#main-key`,
-        owner: `${process.env.BASE_URL || BASE_URL}/users/${username}`,
+        id: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}#main-key`,
+        owner: `${process.env.BASE_URL || ACTIVITYPUB_URL}/users/${username}`,
         publicKeyPem: user.is?.pub
       }
     };

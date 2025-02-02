@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Alert, CircularProgress, Typography } from '@mui/material';
+import { ACTIVITYPUB_URL } from '../protocol/useGun';
 
 const ActivityPubComposer = ({ username, onPostCreated }) => {
   const [content, setContent] = useState('');
@@ -25,7 +26,7 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       };
 
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || 'http://localhost:8765'}/users/${username}/outbox`,
+        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
