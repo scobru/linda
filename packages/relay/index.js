@@ -11,6 +11,7 @@ import http from 'http';
 import WebSocket from 'ws';
 import { generateKeyPairSync } from 'crypto';
 import { createAccount, sendMessage } from './activitypub/admin.js';
+import crypto from 'crypto';
 
 // Configurazione ES modules
 const __filename = fileURLToPath(import.meta.url);

@@ -3,16 +3,14 @@ import { Container, Paper, Box, Typography, TextField, Button } from '@mui/mater
 import ActivityPubFeed from '../components/ActivityPubFeed';
 import ActivityPubComposer from '../components/ActivityPubComposer';
 import { WalletManager, StorageType } from '@scobru/shogun';
-import { gun, user , walletManager, ACTIVITYPUB_URL} from '../protocol/useGun';
+import { gun, user, walletManager, ACTIVITYPUB_URL } from '../protocol/useGun';
 
 const ActivityPubPage = () => {
-  const [username, setUsername] = useState('');
   const [currentUsername, setCurrentUsername] = useState('');
   const [error, setError] = useState(null);
 
   const handleConnect = async (e) => {
     e.preventDefault();
-    if (!username.trim()) return;
 
     try {
       // Verifica che l'utente sia autenticato
@@ -20,14 +18,20 @@ const ActivityPubPage = () => {
         throw new Error('Utente non autenticato');
       }
 
+      // Ottieni l'alias dell'utente
+      const alias = user.is?.alias;
+      if (!alias) {
+        throw new Error('Alias non trovato');
+      }
+
       // Crea l'account ActivityPub
-      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || 'http://localhost:8765'}/api/admin/create`, {
+      const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/api/admin/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          account: username.trim()
+          account: alias
         })
       });
 
@@ -54,7 +58,7 @@ const ActivityPubPage = () => {
       await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
 
       // Imposta l'username corrente
-      setCurrentUsername(username.trim());
+      setCurrentUsername(alias);
       setError(null);
     } catch (err) {
       console.error('Errore nella creazione dell\'utente:', err);
@@ -75,19 +79,9 @@ const ActivityPubPage = () => {
               Connetti al tuo account ActivityPub
             </Typography>
             <Box display="flex" gap={2}>
-              <TextField
-                fullWidth
-                label="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="es. scobru_test"
-                error={!!error}
-                helperText={error}
-              />
               <Button
                 variant="contained"
                 type="submit"
-                disabled={!username.trim()}
               >
                 Connetti
               </Button>
