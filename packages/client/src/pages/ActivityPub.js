@@ -24,6 +24,12 @@ const ActivityPubPage = () => {
         throw new Error('Alias non trovato');
       }
 
+      // Genera le chiavi RSA per ActivityPub
+      const activityPubKeys = await walletManager.generateActivityPubKeys();
+      
+      // Salva le chiavi sia su Gun che localmente
+      await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
+
       // Crea l'account ActivityPub
       const createResponse = await fetch(`${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/api/admin/create`, {
         method: 'POST',
@@ -31,7 +37,8 @@ const ActivityPubPage = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          account: alias
+          account: alias,
+          privateKey: activityPubKeys.privateKey
         })
       });
 
@@ -50,12 +57,6 @@ const ActivityPubPage = () => {
       if (createData.apiKey) {
         localStorage.setItem('apiKey', createData.apiKey);
       }
-
-      // Genera le chiavi RSA per ActivityPub
-      const activityPubKeys = await walletManager.generateActivityPubKeys();
-      
-      // Salva le chiavi sia su Gun che localmente
-      await walletManager.saveActivityPubKeys(activityPubKeys, StorageType.BOTH);
 
       // Imposta l'username corrente
       setCurrentUsername(alias);
