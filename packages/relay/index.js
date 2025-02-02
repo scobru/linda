@@ -652,6 +652,32 @@ app.post('/users/:username/outbox', async (req, res) => {
             });
         }
 
+        // Verifica l'autenticazione
+        const apiKey = req.headers['authorization']?.split(' ')[1];
+        if (!apiKey) {
+            return res.status(401).json({
+                error: 'API key mancante'
+            });
+        }
+
+        // Verifica che l'API key sia valida
+        const isValid = await new Promise((resolve) => {
+            gun
+                .get(DAPP_NAME)
+                .get('activitypub')
+                .get(username)
+                .get('apiKey')
+                .once((storedKey) => {
+                    resolve(storedKey === apiKey);
+                });
+        });
+
+        if (!isValid) {
+            return res.status(401).json({
+                error: 'API key non valida'
+            });
+        }
+
         // Salva l'attività su Gun
         await new Promise((resolve, reject) => {
             gun

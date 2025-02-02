@@ -18,26 +18,33 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       setSuccess(false);
 
       const activity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
         type: 'Create',
+        actor: `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}`,
         object: {
           type: 'Note',
-          content: content.trim()
-        }
+          content: content.trim(),
+          published: new Date().toISOString(),
+          to: ['https://www.w3.org/ns/activitystreams#Public']
+        },
+        to: ['https://www.w3.org/ns/activitystreams#Public']
       };
 
       const response = await fetch(
-        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}/outbox`,
+        `${process.env.REACT_APP_RELAY_URL || 'http://localhost:8765'}/users/${username}/outbox`,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/activity+json'
+            'Content-Type': 'application/activity+json',
+            'Authorization': `Bearer ${localStorage.getItem('apiKey')}`
           },
           body: JSON.stringify(activity)
         }
       );
 
       if (!response.ok) {
-        throw new Error(`Errore nella pubblicazione: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Errore nella pubblicazione');
       }
 
       setContent('');
@@ -47,7 +54,7 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       }
     } catch (err) {
       console.error('Errore nella pubblicazione:', err);
-      setError('Impossibile connettersi al server. Verifica che il relay sia in esecuzione.');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
