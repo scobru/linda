@@ -1134,7 +1134,7 @@ app.post('/api/admin/create', async (req, res) => {
         }
 
         // Genera una nuova API key utilizzando crypto.randomBytes
-        const apiKey = require('crypto').randomBytes(32).toString('hex');
+        const apiKey = crypto.randomBytes(32).toString('hex');
 
         // Crea il profilo ActivityPub di default
         const actorData = {
