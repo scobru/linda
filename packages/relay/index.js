@@ -1092,8 +1092,19 @@ app.post('/api/admin/create', async (req, res) => {
         });
 
         if (exists) {
-            return res.status(400).json({
-                error: 'Account già esistente'
+            // Se l'account esiste già, restituisci i dati esistenti
+            const existingAccount = await new Promise(resolve => {
+                gun
+                    .get(DAPP_NAME)
+                    .get('activitypub')
+                    .get(account)
+                    .once(resolve);
+            });
+
+            return res.json({
+                success: true,
+                message: 'Account già esistente',
+                account: existingAccount
             });
         }
 
@@ -1127,7 +1138,7 @@ app.post('/api/admin/create', async (req, res) => {
                 });
         });
 
-        res.json({ success: true });
+        res.json({ success: true, account: actorData });
     } catch (error) {
         console.error('Errore nella creazione dell\'account:', error);
         res.status(500).json({

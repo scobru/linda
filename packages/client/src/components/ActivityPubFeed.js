@@ -1,33 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Card, CardContent, Typography, Avatar, Button, CircularProgress } from '@mui/material';
 import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { ACTIVITYPUB_URL } from '#protocol/useGun';
 
 const ActivityPubFeed = ({ username }) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const DEFAULT_PEERS = ["https://gun-relay.scobrudot.dev"];
-
-
-
   const fetchPosts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${process.env.REACT_APP_RELAY_URL || DEFAULT_PEERS }/users/${username}/outbox`, {
-        headers: {
-          'Accept': 'application/activity+json',
-          'Content-Type': 'application/activity+json'
-        }
-      });
-      
+      setError(null);
+
+      const response = await fetch(
+        `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL }/users/${username}/outbox`
+      );
+
       if (!response.ok) {
         throw new Error('Errore nel caricamento dei post');
       }
-      
+
       const data = await response.json();
-      setPosts(data.orderedItems || []);
+      if (data && data.orderedItems) {
+        setPosts(data.orderedItems);
+      } else {
+        setPosts([]);
+      }
     } catch (err) {
       console.error('Errore nel caricamento del feed:', err);
       setError(err.message);
@@ -65,6 +65,14 @@ const ActivityPubFeed = ({ username }) => {
     );
   }
 
+  if (!posts || posts.length === 0) {
+    return (
+      <Box p={3} textAlign="center">
+        <Typography>Nessun post trovato.</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" p={2}>
@@ -73,13 +81,13 @@ const ActivityPubFeed = ({ username }) => {
           Aggiorna
         </Button>
       </Box>
-      {posts.length === 0 ? (
-        <Box p={3} textAlign="center">
-          <Typography>Nessun post disponibile</Typography>
-        </Box>
-      ) : (
-        posts.map((post) => (
-          <Card key={post.id} sx={{ mb: 2, mx: 2 }}>
+      {posts.map((post, index) => {
+        if (!post || !post.object || !post.object.content) {
+          return null; // Salta i post non validi
+        }
+
+        return (
+          <Card key={index} sx={{ mb: 2, mx: 2 }}>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
                 <Avatar sx={{ mr: 2 }}>
@@ -97,13 +105,11 @@ const ActivityPubFeed = ({ username }) => {
                   </Typography>
                 </Box>
               </Box>
-              {post.object?.type === 'Note' && (
-                <Typography variant="body1">{post.object.content}</Typography>
-              )}
+              <Typography variant="body1">{post.object.content}</Typography>
             </CardContent>
           </Card>
-        ))
-      )}
+        );
+      })}
     </Box>
   );
 };
