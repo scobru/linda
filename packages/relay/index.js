@@ -1118,25 +1118,32 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     // 1. Genera chiavi
     const { publicKey, privateKey } = await relayWalletManager.generateActivityPubKeys();
     
-    // 2. Crea account
-    const actorData = await createAccount({
-      gun,
-      dappName: DAPP_NAME,
-      username: account,
-      publicKey
-    });
-
-    // 3. Genera API key
+    // 2. Genera API key
     const apiKey = crypto
       .createHash('sha256')
       .update(publicKey)
       .digest('hex');
 
+    // 3. Salva su GunDB
+    await new Promise((resolve, reject) => {
+      gun.get(DAPP_NAME)
+        .get('activitypub')
+        .get(account)
+        .put({
+          publicKey,
+          apiKey,
+          createdAt: Date.now()
+        }, (ack) => {
+          if (ack.err) reject(ack.err);
+          else resolve();
+        });
+    });
+
     res.json({
       success: true,
       username: account,
       publicKey,
-      privateKey, // Solo per il client
+      privateKey,
       apiKey
     });
 

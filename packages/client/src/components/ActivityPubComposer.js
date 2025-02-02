@@ -17,19 +17,6 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
       setError(null);
       setSuccess(false);
 
-      const activity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        type: 'Create',
-        actor: `${process.env.REACT_APP_RELAY_URL || ACTIVITYPUB_URL}/users/${username}`,
-        object: {
-          type: 'Note',
-          content: content.trim(),
-          published: new Date().toISOString(),
-          to: ['https://www.w3.org/ns/activitystreams#Public']
-        },
-        to: ['https://www.w3.org/ns/activitystreams#Public']
-      };
-
       const apiKey = localStorage.getItem('apiKey');
       if (!apiKey) {
         throw new Error('API key non trovata. Effettua nuovamente l\'accesso.');
@@ -43,7 +30,11 @@ const ActivityPubComposer = ({ username, onPostCreated }) => {
             'Content-Type': 'application/activity+json',
             'Authorization': `Bearer ${apiKey}`
           },
-          body: JSON.stringify(activity)
+          body: JSON.stringify({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            type: "Note",
+            content: content.trim()
+          })
         }
       );
 
