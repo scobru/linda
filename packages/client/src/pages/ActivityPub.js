@@ -14,38 +14,46 @@ const ActivityPubPage = () => {
     console.log('Avvio connessione...');
 
     try {
-      if (!user?._.sea?.pub) throw new Error('Utente non autenticato');
+      // 1. Verifica stato autenticazione
+      if (!user?.is) throw new Error('Devi effettuare il login prima');
       const alias = user.is?.alias;
-      if (!alias) throw new Error('Alias non trovato');
+      if (!alias) throw new Error('Impossibile ottenere il tuo username');
 
-      // Crea l'account e ottieni le chiavi
+      // 2. Richiesta al relay
       const response = await fetch(`${ACTIVITYPUB_URL}/api/activitypub/accounts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Pub': user._.sea.pub // Aggiungi firma
+        },
         body: JSON.stringify({ account: alias })
       });
 
+      // 3. Gestione errori HTTP
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Errore creazione account');
+        const error = await response.json().catch(() => ({ error: 'Errore sconosciuto' }));
+        throw new Error(error.message || `Errore HTTP: ${response.status}`);
       }
 
-      const accountData = await response.json();
+      // 4. Salvataggio sicuro delle chiavi
+      const { publicKey, privateKey, apiKey } = await response.json();
       
-      // Salva i dati crittografati
-      await walletManager.saveActivityPubKeys({
-        publicKey: accountData.publicKey,
-        privateKey: accountData.privateKey
-      }, StorageType.LOCAL);
+      await walletManager.saveActivityPubKeys(
+        { publicKey, privateKey },
+        StorageType.LOCAL
+      );
 
-      localStorage.setItem('apiKey', accountData.apiKey);
-      console.log('Connessione riuscita per:', alias);
+      // 5. Aggiornamento stato UI
+      localStorage.setItem('apiKey', apiKey);
       setCurrentUsername(alias);
       setError(null);
 
+      console.log('Connessione ActivityPub riuscita per:', alias);
+
     } catch (err) {
-      console.error('Errore di connessione:', err);
+      console.error('Errore di connessione ActivityPub:', err);
       setError(err.message);
+      setCurrentUsername(null);
     }
   };
 
