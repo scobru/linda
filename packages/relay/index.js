@@ -1148,9 +1148,16 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     if (existingAccount) {
       console.log("Account già esistente:", account);
       const userAccount = gun.user().get();
+      userAccount.activitypub.apiKey = apiKey;
+      userAccount.save();
+      const finalAccount = {
+        privateKey: privateKey,
+        publicKey: publicKey,
+        apiKey: apiKey,
+      }
       return res.status(409).json({
         error: "Account già esistente",
-        account,
+        finalAccount,
       });
     }
 
@@ -1165,8 +1172,7 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     // Salva su GunDB con retry
     await relayWalletManager.saveActivityPubKeys(keys, StorageType.BOTH);
 
-    userAccount.activitypub.apiKey = apiKey;
-    userAccount.save();
+ 
 
     const duration = Date.now() - startTime;
     console.log(
