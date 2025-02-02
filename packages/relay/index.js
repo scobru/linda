@@ -1109,8 +1109,7 @@ function setupConnectionHandlers(server, gun) {
 app.post("/api/activitypub/accounts", async (req, res) => {
   try {
     const { account } = req.body;
-    console.log(`Creazione account per: ${account}`);
-
+    
     if (!account) {
       return res.status(400).json({ error: "Nome account richiesto" });
     }
@@ -1140,8 +1139,11 @@ app.post("/api/activitypub/accounts", async (req, res) => {
     res.json({ success: true, username: account, publicKey, privateKey, apiKey });
 
   } catch (error) {
-    console.error(`Errore creazione account ${account}:`, error);
-    res.status(500).json({ error: error.message });
+    console.error(`Errore creazione account${account ? ' ' + account : ''}:`, error);
+    res.status(500).json({ 
+      error: error.message,
+      details: account ? `Account: ${account}` : 'Nessun account specificato'
+    });
   }
 });
 
