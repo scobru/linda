@@ -27,9 +27,11 @@ module.exports = {
       os: require.resolve("os-browserify/browser"),
       url: require.resolve("url/"),
       buffer: require.resolve("buffer/"),
-      process: require.resolve("process/browser")
+      process: require.resolve("process/browser"),
+      fs: require.resolve("fs")
     },
     
+
   },
   plugins: [
     new webpack.ProvidePlugin({

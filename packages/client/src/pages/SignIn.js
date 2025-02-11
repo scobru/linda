@@ -5,7 +5,7 @@ import {
   gun,
   user,
   DAPP_NAME,
-  webAuthnService,
+  webAuthn,
 } from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
@@ -26,7 +26,7 @@ export default function SignIn() {
 
   useEffect(() => {
     // Verifica se WebAuthn è supportato
-    setIsWebAuthnSupported(webAuthnService.isSupported());
+    setIsWebAuthnSupported(webAuthn.isSupported());
     
     const checkExistingAuth = async () => {
       try {
@@ -76,43 +76,81 @@ export default function SignIn() {
   const handleLogin = async () => {
     if (isLoading || isRedirecting) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Per favore compila tutti i campi");
+      toast.error("Please fill in all fields");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Accesso in corso...");
+    const toastId = toast.loading("Logging in...");
 
     try {
+      // Pulisci lo stato precedente
+      localStorage.clear();
+      sessionManager.clearSession();
+      if (user.is) {
+        user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
       const result = await authentication.loginUser({
         username: username.trim(),
         password: password.trim()
       });
 
-      if (result.success) {
-        // Salva lo stato di autenticazione
-        localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userPub", user.is.pub);
-        localStorage.setItem("username", username.trim());
-
-        // Verifica che la sessione sia stata salvata correttamente
-        const isSessionValid = await sessionManager.validateSession();
-        if (!isSessionValid) {
-          throw new Error("Errore durante il salvataggio della sessione");
-        }
-
-        toast.success("Accesso effettuato con successo!", { id: toastId });
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
-        localStorage.removeItem("redirectAfterLogin");
-        window.location.replace(redirectPath);
-      } else {
-        throw new Error(result.errMessage || "Errore durante il login");
+      if (!result.success) {
+        throw new Error(result.errMessage || "Login failed");
       }
+
+      // Verifica che l'utente sia effettivamente autenticato
+      let attempts = 0;
+      let isAuthenticated = false;
+
+      while (attempts < 30 && !isAuthenticated) {
+        if (user.is && user.is.pub) {
+          isAuthenticated = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+        attempts++;
+      }
+
+      if (!isAuthenticated) {
+        throw new Error("Could not verify authentication");
+      }
+
+      // Salva lo stato di autenticazione
+      localStorage.setItem("isAuthenticated", "true");
+      localStorage.setItem("userPub", result.pub);
+      localStorage.setItem("username", username.trim());
+
+      // Verifica che la sessione sia stata salvata correttamente
+      const isSessionValid = await sessionManager.validateSession();
+      if (!isSessionValid) {
+        throw new Error("Session validation failed");
+      }
+
+      toast.success("Successfully logged in!", { id: toastId });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const redirectPath = localStorage.getItem("redirectAfterLogin") || "/homepage";
+      localStorage.removeItem("redirectAfterLogin");
+      window.location.replace(redirectPath);
     } catch (error) {
-      console.error("Errore login:", error);
-      toast.error(error.message, { id: toastId });
+      console.error("Login error:", error);
+      
+      let errorMessage = "Login failed";
+
+      if (error.message.includes("Wrong user or password")) {
+        errorMessage = "Invalid username or password";
+      } else if (error.message.includes("network")) {
+        errorMessage = "Network error. Please check your connection.";
+      } else if (error.message.includes("verification")) {
+        errorMessage = "Could not verify authentication. Please try again.";
+      } else if (error.message.includes("session")) {
+        errorMessage = "Session validation failed. Please try again.";
+      }
+
+      toast.error(errorMessage, { id: toastId });
       
       // Pulisci lo stato in caso di errore
       localStorage.removeItem("isAuthenticated");
@@ -317,12 +355,12 @@ export default function SignIn() {
 
     try {
       // Effettua il login con WebAuthn
-      const credentials = await webAuthnService.login(username.trim());
+      const credentials = await webAuthn.login(username.trim());
       
       if (!credentials.success) {
         if (credentials.error?.includes("Nessuna credenziale WebAuthn trovata")) {
           // Verifica se l'utente esiste
-          const userExists = await webAuthnService.checkExistingUser(username.trim());
+          const userExists = await webAuthn.checkExistingUser(username.trim());
           
           if (userExists) {
             // L'utente esiste ma questo dispositivo non è registrato

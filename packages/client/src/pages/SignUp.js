@@ -5,7 +5,7 @@ import {
   gun,
   user,
   sessionManager,
-  webAuthnService,
+  webAuthn,
 } from "#protocol";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
@@ -70,7 +70,7 @@ export default function Register() {
 
   React.useEffect(() => {
     // Verifica se WebAuthn è supportato
-    setIsWebAuthnSupported(webAuthnService.isSupported());
+    setIsWebAuthnSupported(webAuthn.isSupported());
     
     const checkConnection = async () => {
       const isConnected = await checkGunConnectionWithRetry();
@@ -85,14 +85,22 @@ export default function Register() {
   const handleRegister = async () => {
     if (isLoading) return;
     if (!username.trim() || !password.trim()) {
-      toast.error("Per favore compila tutti i campi");
+      toast.error("Please fill in all fields");
       return;
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Registrazione in corso...");
+    const toastId = toast.loading("Creating your account...");
 
     try {
+      // Pulisci lo stato precedente
+      localStorage.clear();
+      sessionManager.clearSession();
+      if (user.is) {
+        user.leave();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
       const result = await authentication.registerUser(
         {
           username: username.trim(),
@@ -101,27 +109,27 @@ export default function Register() {
         (response) => {
           if (response.status) {
             switch (response.status) {
-              case "validazione":
-                toast.loading("Validazione dati in corso...", { id: toastId });
+              case "validation":
+                toast.loading("Validating data...", { id: toastId });
                 break;
-              case "verifica-esistenza":
-                toast.loading("Verifica disponibilità username...", { id: toastId });
+              case "checking-existence":
+                toast.loading("Checking username availability...", { id: toastId });
                 break;
-              case "creazione-utente":
-                toast.loading("Creazione account in corso...", { id: toastId });
+              case "creating-user":
+                toast.loading("Creating account...", { id: toastId });
                 break;
-              case "autenticazione":
-                toast.loading("Autenticazione in corso...", { id: toastId });
+              case "authentication":
+                toast.loading("Authenticating...", { id: toastId });
                 break;
-              case "generazione-account":
-                toast.loading("Generazione account...", { id: toastId });
+              case "generating-account":
+                toast.loading("Generating account...", { id: toastId });
                 break;
-              case "preparazione-dati":
-                toast.loading("Preparazione dati utente...", { id: toastId });
+              case "preparing-data":
+                toast.loading("Preparing user data...", { id: toastId });
                 break;
-              case "salvataggio":
+              case "saving":
                 const progress = response.progress ? `${response.progress}%` : "90%";
-                toast.loading(`Salvataggio dati utente... ${progress}`, { id: toastId });
+                toast.loading(`Saving user data... ${progress}`, { id: toastId });
                 break;
               default:
                 break;
@@ -130,27 +138,38 @@ export default function Register() {
         }
       );
 
-      if (result.success) {
-        toast.success(
-          <div>
-            <div className="font-medium">
-              Registrazione completata con successo!
-            </div>
-            <div className="text-sm text-gray-500 mt-1">
-              Verrai reindirizzato al login...
-            </div>
-          </div>,
-          { id: toastId, duration: 2000 }
-        );
-
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        navigate("/signin", { replace: true });
-      } else {
-        throw new Error(result.errMessage || "Errore durante la registrazione");
+      if (!result.success) {
+        throw new Error(result.errMessage || "Registration failed");
       }
+
+      toast.success(
+        <div>
+          <div className="font-medium">
+            Registration completed successfully!
+          </div>
+          <div className="text-sm text-gray-500 mt-1">
+            Redirecting to login...
+          </div>
+        </div>,
+        { id: toastId, duration: 2000 }
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      navigate("/signin", { replace: true });
     } catch (error) {
-      console.error("Errore registrazione:", error);
-      toast.error(error.message, { id: toastId });
+      console.error("Registration error:", error);
+      
+      let errorMessage = "Registration failed";
+
+      if (error.message.includes("Username already taken")) {
+        errorMessage = "This username is already taken";
+      } else if (error.message.includes("network")) {
+        errorMessage = "Network error. Please check your connection.";
+      } else if (error.message.includes("validation")) {
+        errorMessage = "Invalid username or password format";
+      }
+
+      toast.error(errorMessage, { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -261,7 +280,7 @@ export default function Register() {
 
     try {
       // Genera le credenziali WebAuthn con l'username scelto
-      const credentials = await webAuthnService.generateCredentials(username.trim());
+      const credentials = await webAuthn.generateCredentials(username.trim());
       
       if (!credentials.success) {
         throw new Error(credentials.error || "Errore durante la generazione delle credenziali");

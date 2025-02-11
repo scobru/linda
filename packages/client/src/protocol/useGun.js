@@ -1,71 +1,97 @@
-import { WalletManager } from "@scobru/shogun";
+import { Shogun } from "@scobru/shogun";
 import SEA from "gun/sea";
+import Gun from "gun";
 
-// Non importare i moduli di storage
-// require('gun/lib/store');
-// require('gun/lib/rindexed');
-
-export const ACTIVITYPUB_URL = 'https://gun-relay.scobrudot.dev';
+export const ACTIVITYPUB_URL = "http://localhost:8765";
 
 const DEFAULT_PEERS = [`${ACTIVITYPUB_URL}/gun`];
 
-let isConnected = false;
+const keys = {
+  pub: 'ATOCHmGmf19wzojtfOTZdGl_vXKouGq9cXNsAXTCU4E.A37IN6UH57AJIQHm1iuTQ5-mPJJgHmkHn2pgtKa7oNI',
+  priv: 'F45K4AobfyO99CWx2CA24v-KSEixWdPAaojlIG-Otg4',
+  epub: 'RqdntmTv6BauhopM55r2-EBuL2CaMNDTOOjC0mToD2A.4ndhQhaWxvvL6H5Yn7Q7mPwYXsMEMyYFv5volkpydDQ',
+  epriv: 'rpaoTZLcTyjHj6y6TkX7sFkKH20VupJ1hh36lyfVYdE'
+}
 
-export { SEA }
+export { SEA };
 
-const gunOptions = {
+const gunOptions = Gun({
   peers: DEFAULT_PEERS,
-  radisk: false,
   localStorage: false,
-  timeout: 30000,
-  axe: false // Disabilita axe sul client
-};
-
-// Inizializza il WalletManager
-const walletManager = new WalletManager(gunOptions);
-
-// Inizializza Gun con le opzioni
-export const gun = walletManager.getGun();
-
-// Inizializza l'utente
-// export const user = walletManager.getUser();
-export const user = gun.user().recall({ sessionStorage: true });
-
-// Gestione errori di connessione
-gun.on("error", (err) => {
-  console.error("Gun error:", err);
+  radisk: false,
+  axe: true
 });
 
-// Gestione riconnessione
-let reconnectAttempts = 0;
-const maxReconnectAttempts = 5;
-let isReconnecting = false;
+export const shogun = new Shogun(gunOptions, keys);
+export const gunAuthManager = shogun.getGunAuthManager();
 
-gun.on("disconnected", async (peer) => {
-  console.log("Disconnesso dal peer:", peer);
+export const gun = gunAuthManager.getGun();
+export const user = gunAuthManager.getUser();
 
-  if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
-    isReconnecting = true;
-    reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+// Inizializza il WalletManager
+const walletManager = shogun.getWalletManager();
+const ethereumManager = shogun.getEthereumManager();
+const stealthManager = shogun.getStealthChain();
+const activityPubManager = shogun.getActivityPubManager();
+const webAuthnService = shogun.getWebAuthnManager();
 
-    console.log(
-      `Tentativo di riconnessione ${reconnectAttempts}/${maxReconnectAttempts} tra ${delay}ms...`
-    );
-
-    setTimeout(() => {
-      gun.opt({ peers: DEFAULT_PEERS });
-      isReconnecting = false;
-    }, delay);
-  } else if (reconnectAttempts >= maxReconnectAttempts) {
-    console.error("Numero massimo di tentativi di riconnessione raggiunto");
+// Gestione degli eventi di Gun
+gun.on("auth", (ack) => {
+  console.log("Gun auth event:", ack);
+  if (ack.err) {
+    console.error("Gun auth error:", ack.err);
   }
 });
 
+// Migliore gestione degli errori
+gun.on("error", (error) => {
+  console.error("Gun error:", error);
+  // Tenta di ripulire lo stato in caso di errore
+  if (user.is) {
+    user.leave();
+  }
+  if (gun.back("user")._.is) {
+    gun.back("user").leave();
+  }
+});
+
+// Gestione più robusta della disconnessione
+let reconnectTimeout = null;
+gun.on("disconnected", async (peer) => {
+  console.log("Gun disconnected from peer:", peer);
+
+  // Pulisci il timeout precedente se esiste
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+
+  // Imposta un nuovo tentativo di riconnessione
+  reconnectTimeout = setTimeout(async () => {
+    console.log("Tentativo di riconnessione dopo disconnessione...");
+    try {
+      // Pulisci lo stato prima di riconnetterti
+      if (user.is) {
+        user.leave();
+      }
+      if (gun.back("user")._.is) {
+        gun.back("user").leave();
+      }
+
+      // Riconnetti ai peer
+      gun.opt({ peers: DEFAULT_PEERS });
+    } catch (error) {
+      console.error("Errore durante la riconnessione:", error);
+    }
+  }, 5000);
+});
+
+// Gestione della riconnessione
 gun.on("connected", (peer) => {
-  console.log("Connesso al peer:", peer);
-  reconnectAttempts = 0;
-  isReconnecting = false;
+  console.log("Gun connected to peer:", peer);
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
 });
 
 // Costanti
@@ -131,7 +157,13 @@ export const reconnect = async () => {
 };
 
 // Esporta il WalletManager
-export { walletManager };
+export {
+  walletManager,
+  ethereumManager,
+  stealthManager,
+  activityPubManager,
+  webAuthnService,
+};
 
 // Funzione per pulire la cache locale
 export const clearLocalCache = () => {

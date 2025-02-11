@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { Container, Paper, Box, Typography, TextField, Button } from '@mui/material';
 import ActivityPubFeed from '../components/ActivityPubFeed';
 import ActivityPubComposer from '../components/ActivityPubComposer';
-import { WalletManager, StorageType } from '@scobru/shogun';
-import { gun, user, walletManager, ACTIVITYPUB_URL } from '../protocol/useGun';
+import { gun, user,  activityPubManager, ACTIVITYPUB_URL } from '../protocol/useGun';
 
 const ActivityPubPage = () => {
   const [currentUsername, setCurrentUsername] = useState('');
@@ -65,9 +64,8 @@ const ActivityPubPage = () => {
         throw new Error('Risposta del server non valida');
       }
 
-      await walletManager.saveActivityPubKeys(
-        { publicKey: data.publicKey, privateKey: data.privateKey },
-        StorageType.LOCAL
+      await activityPubManager.saveKeys(
+        { publicKey: data.publicKey, privateKey: data.privateKey }
       );
 
       // 5. Aggiornamento stato UI

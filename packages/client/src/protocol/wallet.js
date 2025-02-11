@@ -1,4 +1,4 @@
-import { gun, user, DAPP_NAME } from "./useGun.js";
+import { gun, user, DAPP_NAME , stealthManager} from "./useGun.js";
 import { ethers, JsonRpcProvider } from "ethers";
 import { StealthChain } from "@scobru/shogun";
 import GUN from 'gun';
@@ -10,7 +10,7 @@ const walletCache = new Map();
 const CACHE_DURATION = 30000; // 30 secondi di cache
 
 // Inizializza StealthChain
-const stealthChain = new StealthChain(gun);
+const stealthChain = stealthManager;
 
 // Chain configurations
 const SUPPORTED_CHAINS = {
@@ -337,11 +337,12 @@ export const walletService = {
           
           // Genera le chiavi stealth
           const stealthKeys = await new Promise((resolve, reject) => {
-            stealthChain.generateStealthKeys((error, keys) => {
+            stealthChain.createAccount((error, keys) => {
               if (error) {
                 console.error("Errore generazione chiavi stealth:", error);
                 reject(error);
                 return;
+
               }
               console.log("Chiavi stealth generate:", keys);
               resolve(keys);
@@ -393,11 +394,12 @@ export const walletService = {
 
         // Genera una nuova coppia di chiavi effimere per questa transazione
         const ephemeralKeys = await new Promise((resolve, reject) => {
-          stealthChain.generateStealthKeys((error, keys) => {
+          stealthChain.createAccount((error, keys) => {
             if (error) {
               console.error("Errore generazione chiavi effimere:", error);
               reject(error);
               return;
+
             }
             console.log("Chiavi effimere generate:", keys);
             resolve(keys);
@@ -410,7 +412,7 @@ export const walletService = {
 
         // Genera l'indirizzo stealth usando StealthChain
         const stealthResult = await new Promise((resolve, reject) => {
-          stealthChain.generateStealthAddress({
+          stealthChain.generateStAdd({
             recipientViewingKey: viewingPublicKey,
             ephemeralKeyPair: ephemeralKeys,
             callback: (error, result) => {
@@ -553,7 +555,7 @@ export const walletService = {
           if (balance.gt(0)) {
             // Usa StealthChain per recuperare il wallet stealth
             const stealthWallet = await new Promise((resolve, reject) => {
-              stealthChain.openStealthAddress(
+              stealthChain.openStAdd(
                 announcement.stealthAddress,
                 announcement.ephemeralPublicKey,
                 (error, wallet) => {

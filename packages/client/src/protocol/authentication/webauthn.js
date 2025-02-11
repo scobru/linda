@@ -1,18 +1,18 @@
-import { walletManager } from "../useGun";
+import { webAuthnService } from "../useGun";
 
 class WebAuthnManager {
   constructor() {
-    this.walletManager = walletManager;
+    this.webAuthnService = webAuthnService;
   }
 
   isSupported() {
-    return this.walletManager.isWebAuthnSupported();
+    return this.webAuthnService.isSupported();
   }
 
   async checkExistingUser(username) {
     try {
       // Chiama Shogun per verificare se l'utente esiste
-      return await this.walletManager.webAuthnService.checkExistingUser(username);
+      return await this.webAuthnService.webAuthnService.checkExistingUser(username);
     } catch (error) {
       console.error('Errore verifica esistenza utente:', error);
       return false;
@@ -26,7 +26,7 @@ class WebAuthnManager {
       }
 
       // Chiama Shogun per generare le credenziali WebAuthn
-      const result = await this.walletManager.webAuthnService.generateCredentials(username);
+      const result = await this.webAuthnService.webAuthnService.generateCredentials(username);
       return result;
     } catch (error) {
       console.error('Errore generazione credenziali WebAuthn:', error);
@@ -40,7 +40,7 @@ class WebAuthnManager {
   async login(username) {
     try {
       // Chiama Shogun per effettuare il login con WebAuthn
-      const result = await this.walletManager.webAuthnService.login(username);
+      const result = await this.webAuthnService.webAuthnService.login(username);
       return result;
     } catch (error) {
       console.error('Errore login WebAuthn:', error);
@@ -53,12 +53,10 @@ class WebAuthnManager {
 
   async getCredentialId(username) {
     // Chiama Shogun per recuperare il credentialId
-    return this.walletManager.webAuthnService.getCredentialId(username);
+    return this.webAuthnService.webAuthnService.getCredentialId(username);
   }
 }
 
 // Esporta un'istanza statica per l'uso diretto
-export const webAuthnService = new WebAuthnManager();
+export const webAuthn = webAuthnService;
 
-// Esporta anche la classe per chi vuole creare una propria istanza
-export { WebAuthnManager };

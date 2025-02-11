@@ -232,27 +232,54 @@ export const sessionManager = {
       }
 
       // Verifica che l'utente sia autenticato
-      if (!user.is?.pub) {
-        throw new Error('Utente non autenticato');
+      if (!user.is) {
+        console.warn('User.is non presente, tentativo riautenticazione...');
+        
+        // Verifica che abbiamo le chiavi necessarie
+        if (!sessionData.pair?.pub || !sessionData.pair?.priv) {
+          console.error('Chiavi di cifratura mancanti per riautenticazione');
+          return false;
+        }
+
+        // Tentativo di riautenticazione con le chiavi della sessione
+        try {
+          user.auth(sessionData.pair, (ack) => {
+            if (ack.err) {
+              console.error('Errore riautenticazione:', ack.err);
+            } else {
+              console.log('Riautenticazione riuscita con le chiavi della sessione');
+            }
+          });
+        } catch (error) {
+          console.error('Errore durante la riautenticazione:', error);
+        }
+
+        // Attendi un momento per la riautenticazione
+        setTimeout(() => {}, 1000);
       }
 
-      // Verifica che il pub corrisponda
-      if (sessionData.pub !== user.is.pub) {
-        throw new Error('Mismatch tra pub della sessione e utente corrente');
+      // Verifica che il pub corrisponda o che almeno abbiamo le chiavi corrette
+      if (user.is?.pub && user.is.pub !== sessionData.pub) {
+        console.warn('Mismatch tra pub, ma procedo se le chiavi sono valide');
       }
 
       // Verifica che le chiavi necessarie siano presenti
       if (!sessionData.pair?.pub || !sessionData.pair?.priv) {
-        throw new Error('Chiavi di cifratura mancanti');
+        console.error('Chiavi di cifratura mancanti:', {
+          hasPair: !!sessionData.pair,
+          hasPub: !!sessionData.pair?.pub,
+          hasPriv: !!sessionData.pair?.priv
+        });
+        return false;
       }
 
       // Salva i dati della sessione
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('sessionData', JSON.stringify(sessionData));
       localStorage.setItem('userPub', sessionData.pub);
-      localStorage.setItem('username', sessionData.credentials.username);
-      localStorage.setItem('userAlias', sessionData.credentials.username);
-      localStorage.setItem('authType', sessionData.authType);
+      localStorage.setItem('username', sessionData.credentials?.username || '');
+      localStorage.setItem('userAlias', sessionData.credentials?.username || '');
+      localStorage.setItem('authType', sessionData.authType || 'credentials');
       localStorage.setItem('lastLogin', Date.now().toString());
 
       // Salva le chiavi per la riautenticazione
@@ -268,17 +295,6 @@ export const sessionManager = {
           }
         })
       );
-
-      console.log('Session Data saved:', {
-        ...sessionData,
-        pair: {
-          pub: sessionData.pair.pub,
-          hasPriv: !!sessionData.pair.priv,
-          hasEpub: !!sessionData.pair.epub,
-          hasEpriv: !!sessionData.pair.epriv
-        },
-        credentials: 'HIDDEN'
-      });
 
       console.log('Sessione salvata con successo');
       return true;
