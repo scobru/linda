@@ -215,4 +215,39 @@ export class SignalStore implements StorageType {
       await this.remove(k);
     }
   }
+
+  // ── Backup / Restore helpers ──────────────────────────────────
+
+  /**
+   * Export every key in the store as a single JSON-safe object.
+   * ArrayBuffers are already encoded as base64 in the serialized form.
+   */
+  exportAll(): string {
+    const snapshot: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(this.prefix)) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          // Store with the short key (without prefix)
+          snapshot[key.slice(this.prefix.length)] = raw;
+        }
+      }
+    }
+    return JSON.stringify(snapshot);
+  }
+
+  /**
+   * Import keys from a snapshot previously created by exportAll().
+   * Overwrites existing local keys and reloads the in-memory Map.
+   */
+  importAll(serialized: string): void {
+    const snapshot: Record<string, string> = JSON.parse(serialized);
+    for (const [key, raw] of Object.entries(snapshot)) {
+      localStorage.setItem(this.prefix + key, raw);
+    }
+    // Reload everything into the in-memory Map
+    this.store.clear();
+    this.loadAllFromStorage();
+  }
 }

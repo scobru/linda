@@ -40,6 +40,10 @@ export class SignalService {
     }
     // Generate fresh Signal keys and push bundle to GunDB
     await this.generateAndPublishBundle(username);
+    // Backup encrypted keys to GunDB for cross-device sync
+    await this.backupKeysToGun();
+    // Persist alias for session recall
+    await this.persistAlias(username);
   }
 
   async login(username: string, password: string) {
@@ -47,13 +51,172 @@ export class SignalService {
     if (!result.success) {
       throw new Error(result.error || 'Login failed');
     }
-    // Keys are already in localStorage → SignalStore loaded them in constructor.
-    // Verify we actually have an identity key, otherwise re-generate.
+    // Check if we have local Signal keys
     const existingKey = await this.store.getIdentityKeyPair();
     if (!existingKey) {
-      console.warn('[SignalService] No local Signal keys found, re-generating...');
-      await this.generateAndPublishBundle(username);
+      // Try to restore from GunDB backup first (cross-device)
+      const restored = await this.restoreKeysFromGun();
+      if (restored) {
+        console.log('[SignalService] Keys restored from GunDB backup!');
+      } else {
+        // No backup found — generate fresh keys
+        console.warn('[SignalService] No keys found anywhere, generating new bundle...');
+        await this.generateAndPublishBundle(username);
+        await this.backupKeysToGun();
+      }
     }
+    // Persist alias for session recall
+    await this.persistAlias(username);
+  }
+
+  // ── Encrypted key backup (cross-device) ─────────────────────
+
+  /**
+   * Backup all Signal keys to the user's private GunDB node.
+   * gun.user().get() data is auto-encrypted by SEA — only the
+   * authenticated user can read it.
+   */
+  private async backupKeysToGun(): Promise<void> {
+    const snapshot = this.store.exportAll();
+    return new Promise<void>((resolve, reject) => {
+      this.gun.user().get('signal_keystore').put(snapshot, (ack: any) => {
+        if (ack.err) {
+          console.error('[SignalService] Key backup failed:', ack.err);
+          reject(new Error(ack.err));
+        } else {
+          console.log('[SignalService] Keys backed up to GunDB (encrypted)');
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Try to restore Signal keys from the user's private GunDB node.
+   * Returns true if keys were found and restored, false otherwise.
+   */
+  private async restoreKeysFromGun(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.gun.user().get('signal_keystore').once((data: any) => {
+        if (!data || typeof data !== 'string') {
+          console.log('[SignalService] No key backup found on GunDB');
+          return resolve(false);
+        }
+        try {
+          this.store.importAll(data);
+          console.log('[SignalService] Keys restored from GunDB backup');
+          resolve(true);
+        } catch (e) {
+          console.error('[SignalService] Failed to restore keys:', e);
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  /**
+   * Persist username→pubkey mapping so we can recover the alias
+   * after a page refresh (GunDB recall often loses `alias`).
+   */
+  private async persistAlias(username: string): Promise<void> {
+    const pub = (this.gun.user() as any)?.is?.pub;
+    if (!pub) return;
+    // Save to localStorage for instant local lookup
+    localStorage.setItem('signal_alias', username);
+    localStorage.setItem('signal_pub', pub);
+    // Save to a public GunDB node so any peer can resolve it
+    return new Promise<void>((resolve) => {
+      this.gun.get('signal_aliases').get(pub).put({ alias: username }, () => resolve());
+    });
+  }
+
+  /**
+   * Recover the human-readable alias for a given pubkey.
+   * Tries: 1) localStorage  2) GunDB signal_aliases node
+   */
+  private async recoverAlias(pub: string): Promise<string | null> {
+    // 1) Fast path: localStorage
+    const savedPub = localStorage.getItem('signal_pub');
+    const savedAlias = localStorage.getItem('signal_alias');
+    if (savedPub === pub && savedAlias) return savedAlias;
+    // 2) GunDB lookup
+    return new Promise((resolve) => {
+      this.gun.get('signal_aliases').get(pub).once((data: any) => {
+        if (data?.alias) {
+          localStorage.setItem('signal_alias', data.alias);
+          localStorage.setItem('signal_pub', pub);
+          resolve(data.alias);
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  /**
+   * Attempt to auto-login by recalling the GunDB/SEA session from
+   * sessionStorage. Returns the username if successful, null otherwise.
+   * Includes a timeout to prevent hanging when no session exists.
+   */
+  async sessionRecall(): Promise<string | null> {
+    const TIMEOUT_MS = 3000;
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const done = (val: string | null) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val);
+      };
+
+      // Timeout fallback — if recall never fires, show login screen
+      const timer = setTimeout(() => {
+        console.log('[SignalService] Session recall timed out');
+        done(null);
+      }, TIMEOUT_MS);
+
+      this.gun.user().recall({ sessionStorage: true }, (_ack: any) => {
+        // Small delay so Gun has time to populate user.is
+        setTimeout(() => {
+          clearTimeout(timer);
+          const user = this.gun.user() as any;
+          if (!user?.is?.pub) {
+            return done(null);
+          }
+          const pub = user.is.pub as string;
+          const rawAlias = user.is.alias as string | undefined;
+
+          // If alias looks valid (not a pubkey), use it directly
+          const aliasIsValid = rawAlias && rawAlias.length < 60 && !rawAlias.includes('.');
+
+          const finalize = (alias: string) => {
+            console.log('[SignalService] Session recalled for', alias);
+            this.store.getIdentityKeyPair().then((key) => {
+              if (!key) {
+                console.warn('[SignalService] No Signal keys, re-generating...');
+                this.generateAndPublishBundle(alias).then(() => done(alias)).catch(() => done(alias));
+              } else {
+                done(alias);
+              }
+            }).catch(() => done(alias));
+          };
+
+          if (aliasIsValid) {
+            finalize(rawAlias!);
+          } else {
+            // Alias lost — recover from localStorage / GunDB
+            this.recoverAlias(pub).then((recovered) => {
+              if (recovered) {
+                finalize(recovered);
+              } else {
+                // Last resort: use truncated pubkey
+                finalize(pub.slice(0, 8) + '...');
+              }
+            });
+          }
+        }, 300);
+      });
+    });
   }
 
   // ── Key management ───────────────────────────────────────────

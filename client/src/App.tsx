@@ -3,6 +3,7 @@ import { SignalService } from "./SignalService";
 import Gun from "gun";
 import "gun/sea";
 import { DataBase } from "shogun-core";
+import "./App.css";
 
 interface Message {
   sender: string;
@@ -11,7 +12,7 @@ interface Message {
 }
 
 // Connect to our local GunDB relay
-const gun = Gun({ peers: ["http://localhost:3001/gun"] });
+const gun = Gun({ peers: ["http://localhost:3001/gun"], localStorage: false });
 const db = new DataBase(gun);
 
 const App: React.FC = () => {
@@ -29,15 +30,44 @@ const App: React.FC = () => {
     msg: string;
     type: "info" | "error";
   } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Track which GunDB message keys we already processed so we never
   // feed the same ciphertext to the Signal ratchet twice (Bad MAC).
   const processedRef = useRef<Set<string>>(new Set());
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const showNotification = (msg: string, type: "info" | "error" = "info") => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 3000);
   };
+
+  // ── Auto-login: recall GunDB session on mount ─────────────────
+
+  useEffect(() => {
+    const tryAutoLogin = async () => {
+      try {
+        const service = new SignalService(gun, db);
+        const recalledUser = await service.sessionRecall();
+        if (recalledUser) {
+          setUsername(recalledUser);
+          setSignalService(service);
+          setIsRegistered(true);
+          showNotification(`Welcome back, ${recalledUser}!`);
+        }
+      } catch (e) {
+        console.error("[AutoLogin] Session recall failed:", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    tryAutoLogin();
+  }, []);
+
+  // Auto-scroll messages to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, recipient]);
 
   // ── Load saved state from localStorage ────────────────────────
 
@@ -215,48 +245,61 @@ const App: React.FC = () => {
     }
   };
 
+  // ── Helper: get initial letter for avatar ─────────────────────
+  const getInitial = (name: string) => name.charAt(0).toUpperCase();
+
+  // ── Loading screen ─────────────────────────────────────────────
+
+  if (isLoading) {
+    return (
+      <div className="login-container">
+        <div
+          className="login-card"
+          style={{ alignItems: "center", gap: "16px" }}
+        >
+          <div className="chat-empty-icon">🔐</div>
+          <h2 className="login-title">Signal</h2>
+          <p className="login-subtitle">Restoring session...</p>
+        </div>
+      </div>
+    );
+  }
+
   // ── Login screen ──────────────────────────────────────────────
 
   if (!isRegistered) {
     return (
-      <div style={styles.container}>
+      <div className="login-container">
         {notification && (
           <div
-            style={{
-              ...styles.notification,
-              backgroundColor:
-                notification.type === "error" ? "#ff4444" : "#4CAF50",
-            }}
+            className={`notification ${notification.type === "error" ? "notification--error" : "notification--success"}`}
           >
             {notification.msg}
           </div>
         )}
-        <div style={styles.loginCard}>
-          <h2 style={{ textAlign: "center", margin: 0 }}>🔐 Signal Beta</h2>
-          <p style={{ color: "#888", fontSize: "0.85em", textAlign: "center" }}>
-            GunDB + SEA + E2EE (Signal Protocol)
+        <div className="login-card">
+          <h2 className="login-title">🔐 Signal</h2>
+          <p className="login-subtitle">
+            End-to-End Encrypted · GunDB + Signal Protocol
           </p>
           <input
-            style={styles.input}
+            className="login-input"
             placeholder="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
           <input
-            style={styles.input}
+            className="login-input"
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button style={{ ...styles.button, flex: 1 }} onClick={handleLogin}>
+          <div className="login-actions">
+            <button className="btn btn--primary" onClick={handleLogin}>
               Login
             </button>
-            <button
-              style={{ ...styles.button, flex: 1, backgroundColor: "#28a745" }}
-              onClick={handleRegister}
-            >
+            <button className="btn btn--secondary" onClick={handleRegister}>
               Register
             </button>
           </div>
@@ -270,215 +313,134 @@ const App: React.FC = () => {
   const currentMessages = messages[recipient] || [];
 
   return (
-    <div style={styles.appLayout}>
+    <div className="app-layout">
       {notification && (
         <div
-          style={{
-            ...styles.notification,
-            backgroundColor:
-              notification.type === "error" ? "#ff4444" : "#4CAF50",
-          }}
+          className={`notification ${notification.type === "error" ? "notification--error" : "notification--success"}`}
         >
           {notification.msg}
         </div>
       )}
 
       {/* Sidebar */}
-      <div style={styles.sidebar}>
-        <h3 style={{ padding: "0 20px" }}>Contacts</h3>
-        <div style={styles.contactList}>
+      <div className="sidebar">
+        <div className="sidebar-user">
+          <div className="sidebar-user-avatar">{getInitial(username)}</div>
+          <div>
+            <div className="sidebar-user-name">{username}</div>
+            <div className="sidebar-user-status">Online</div>
+          </div>
+        </div>
+
+        <div className="sidebar-header">
+          <span className="sidebar-title">Conversations</span>
+        </div>
+
+        <div className="contact-list">
           {contacts.map((c) => (
             <div
               key={c}
-              style={{
-                ...styles.contactItem,
-                backgroundColor: recipient === c ? "#e0e0e0" : "transparent",
-              }}
+              className={`contact-item ${recipient === c ? "contact-item--active" : ""}`}
               onClick={() => setRecipient(c)}
             >
-              {c}
+              <div className="contact-avatar">{getInitial(c)}</div>
+              <span className="contact-name">{c}</span>
             </div>
           ))}
-          <div style={{ padding: "10px 20px" }}>
-            <input
-              style={{ ...styles.input, fontSize: "0.8em" }}
-              placeholder="+ Add contact username"
-              onKeyDown={(e: any) => {
-                if (e.key === "Enter" && e.target.value.trim()) {
-                  const name = e.target.value.trim();
-                  setContacts((prev) =>
-                    prev.includes(name) ? prev : [...prev, name],
-                  );
-                  setRecipient(name);
-                  e.target.value = "";
-                }
-              }}
-            />
-          </div>
+        </div>
+
+        <div className="add-contact-wrapper">
+          <input
+            className="add-contact-input"
+            placeholder="＋ Add contact..."
+            onKeyDown={(e: any) => {
+              if (e.key === "Enter" && e.target.value.trim()) {
+                const name = e.target.value.trim();
+                setContacts((prev) =>
+                  prev.includes(name) ? prev : [...prev, name],
+                );
+                setRecipient(name);
+                e.target.value = "";
+              }
+            }}
+          />
         </div>
       </div>
 
       {/* Chat area */}
-      <div style={styles.chatArea}>
-        <div style={styles.chatHeader}>
-          <h3>{recipient ? `Chat with ${recipient}` : "Select a contact"}</h3>
+      <div className="chat-area">
+        <div className="chat-header">
+          {recipient ? (
+            <>
+              <div className="chat-header-avatar">{getInitial(recipient)}</div>
+              <div className="chat-header-info">
+                <h3 className="chat-header-name">{recipient}</h3>
+                <div className="chat-header-badge">🔒 End-to-End Encrypted</div>
+              </div>
+            </>
+          ) : (
+            <h3 className="chat-header-placeholder">
+              Select a conversation to start chatting
+            </h3>
+          )}
         </div>
 
-        <div style={styles.messageBox}>
-          {currentMessages.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                ...styles.messageWrapper,
-                alignSelf: msg.sender === "Me" ? "flex-end" : "flex-start",
-              }}
-            >
-              <div
-                style={{
-                  ...styles.messageBubble,
-                  backgroundColor: msg.sender === "Me" ? "#007bff" : "#f0f0f0",
-                  color: msg.sender === "Me" ? "white" : "black",
-                }}
-              >
-                {msg.text}
-              </div>
-              <div
-                style={{ fontSize: "0.7em", color: "#999", marginTop: "2px" }}
-              >
-                {msg.timestamp.toLocaleTimeString()}
-              </div>
+        {recipient ? (
+          <>
+            <div className="message-box">
+              {currentMessages.length === 0 && (
+                <div className="chat-empty">
+                  <div className="chat-empty-icon">💬</div>
+                  <div className="chat-empty-text">No messages yet</div>
+                  <div className="chat-empty-sub">
+                    Send a secure message to {recipient}
+                  </div>
+                </div>
+              )}
+              {currentMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`message-wrapper ${msg.sender === "Me" ? "message-wrapper--sent" : "message-wrapper--received"}`}
+                >
+                  <div
+                    className={`message-bubble ${msg.sender === "Me" ? "message-bubble--sent" : "message-bubble--received"}`}
+                  >
+                    {msg.text}
+                  </div>
+                  <div className="message-time">
+                    {msg.timestamp.toLocaleTimeString()}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          ))}
-        </div>
 
-        {recipient && (
-          <div style={styles.inputArea}>
-            <input
-              style={styles.chatInput}
-              placeholder="Type your secure message..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-            />
-            <button style={styles.sendButton} onClick={handleSendMessage}>
-              Send
-            </button>
+            <div className="input-area">
+              <input
+                className="chat-input"
+                placeholder="Type your secure message..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+              />
+              <button className="send-button" onClick={handleSendMessage}>
+                ➤
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="chat-empty">
+            <div className="chat-empty-icon">🔐</div>
+            <div className="chat-empty-text">Signal Secure Messenger</div>
+            <div className="chat-empty-sub">
+              Select a contact or add a new one to start an encrypted
+              conversation
+            </div>
           </div>
         )}
       </div>
     </div>
   );
-};
-
-// ── Styles ─────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    display: "flex",
-    height: "100vh",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f5f5f5",
-    fontFamily: "sans-serif",
-  },
-  loginCard: {
-    padding: "40px",
-    backgroundColor: "white",
-    borderRadius: "12px",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
-    display: "flex",
-    flexDirection: "column",
-    width: "320px",
-  },
-  input: {
-    padding: "12px",
-    marginBottom: "12px",
-    borderRadius: "6px",
-    border: "1px solid #ddd",
-    fontSize: "1em",
-  },
-  button: {
-    padding: "12px",
-    backgroundColor: "#007bff",
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontSize: "1em",
-  },
-  appLayout: {
-    display: "flex",
-    height: "100vh",
-    backgroundColor: "white",
-    fontFamily: "sans-serif",
-  },
-  sidebar: {
-    width: "260px",
-    borderRight: "1px solid #eee",
-    backgroundColor: "#f9f9f9",
-    display: "flex",
-    flexDirection: "column",
-  },
-  contactList: { flex: 1, overflowY: "auto" },
-  contactItem: {
-    padding: "15px 20px",
-    cursor: "pointer",
-    borderBottom: "1px solid #f0f0f0",
-    transition: "0.2s",
-  },
-  chatArea: { flex: 1, display: "flex", flexDirection: "column" },
-  chatHeader: { padding: "10px 20px", borderBottom: "1px solid #eee" },
-  messageBox: {
-    flex: 1,
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-    backgroundColor: "#fff",
-  },
-  messageWrapper: {
-    marginBottom: "15px",
-    maxWidth: "70%",
-    display: "flex",
-    flexDirection: "column",
-  },
-  messageBubble: {
-    padding: "10px 15px",
-    borderRadius: "18px",
-    fontSize: "0.95em",
-    wordBreak: "break-word",
-  },
-  inputArea: {
-    padding: "20px",
-    borderTop: "1px solid #eee",
-    display: "flex",
-    gap: "10px",
-  },
-  chatInput: {
-    flex: 1,
-    padding: "12px",
-    borderRadius: "24px",
-    border: "1px solid #ddd",
-    outline: "none",
-  },
-  sendButton: {
-    padding: "10px 20px",
-    backgroundColor: "#007bff",
-    color: "white",
-    border: "none",
-    borderRadius: "24px",
-    cursor: "pointer",
-  },
-  notification: {
-    position: "fixed",
-    top: "20px",
-    right: "20px",
-    padding: "10px 20px",
-    color: "white",
-    borderRadius: "4px",
-    zIndex: 1000,
-    boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
-  },
 };
 
 export default App;
