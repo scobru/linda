@@ -96,7 +96,7 @@ export class SignalStore implements StorageType {
     return value;
   }
 
-  private ab2b64(buf: ArrayBuffer): string {
+  private ab2b64(buf: ArrayBufferLike): string {
     const bytes = new Uint8Array(buf);
     let binary = '';
     for (let i = 0; i < bytes.byteLength; i++) {
@@ -151,6 +151,14 @@ export class SignalStore implements StorageType {
     return true;
   }
 
+  async loadIdentityKey(encodedAddress: string): Promise<ArrayBuffer | undefined> {
+    return this.get(`identityKey${encodedAddress}`, undefined);
+  }
+
+  async removeIdentity(encodedAddress: string): Promise<void> {
+    await this.remove(`identityKey${encodedAddress}`);
+  }
+
   async getIdentityKeyPair(): Promise<KeyPairType | undefined> {
     return this.get('identityKey', undefined);
   }
@@ -179,6 +187,16 @@ export class SignalStore implements StorageType {
     await this.remove(`25519KeypreKey${keyId}`);
   }
 
+  getPreKeyCount(): number {
+    let count = 0;
+    for (const key of this.store.keys()) {
+      if (key.startsWith('25519KeypreKey')) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   async loadSignedPreKey(keyId: number | string): Promise<KeyPairType | undefined> {
     return this.get(`25519KeysignedKey${keyId}`, undefined);
   }
@@ -204,10 +222,14 @@ export class SignalStore implements StorageType {
   }
 
   async removeAllSessions(identifier: string): Promise<void> {
-    // Remove all keys that start with "session<identifier>"
     const toRemove: string[] = [];
     for (const k of this.store.keys()) {
-      if (k.startsWith(`session${identifier}`)) {
+      // Clear sessions, identity keys, and prekeys related to this specific identifier/address
+      if (
+        k.startsWith(`session${identifier}`) ||
+        k.startsWith(`identityKey${identifier}`) ||
+        (k.includes('preKey') && k.includes(identifier))
+      ) {
         toRemove.push(k);
       }
     }

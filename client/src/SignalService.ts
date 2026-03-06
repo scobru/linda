@@ -6,89 +6,99 @@ import {
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalStore } from './SignalStore';
 import { DataBase } from 'shogun-core';
-import type { IGunInstance } from 'shogun-core';
 
 /**
  * SignalService
  *
- * Bridges GunDB (via shogun-core DataBase) with the Signal Protocol.
- * - register(): creates a GunDB/SEA identity AND generates Signal keys
- * - login():    authenticates with GunDB/SEA, reuses persisted Signal keys
+ * Bridges shogun-core DataBase with the Signal Protocol.
+ * - initSession(): Ensure Signal keys exist after auth, backup/restore to GunDB
  * - encrypt/decrypt: standard Signal Protocol E2EE
  *
- * The SignalStore persists all keys/sessions to localStorage, so
- * they survive page reloads. On login we simply re-use them.
+ * All GunDB interactions go through this.db (shogun-core DataBase),
+ * never touching raw GunDB directly.
  */
 export class SignalService {
   private store: SignalStore;
-  private gun: IGunInstance;
   private db: DataBase;
+  private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
+  private resetCooldowns: Map<string, number> = new Map();
+  private pubkeyCache: Map<string, string> = new Map();
 
-  constructor(gun: IGunInstance, db: DataBase) {
-    this.gun = gun;
+  constructor(db: DataBase) {
     this.db = db;
     // The store eagerly loads from localStorage in its constructor
     this.store = new SignalStore();
   }
 
-  // ── Auth ─────────────────────────────────────────────────────
-
-  async register(username: string, password: string) {
-    const result = await this.db.signUp(username, password);
-    if (!result.success) {
-      throw new Error(result.error || 'Registration failed');
-    }
-    // Generate fresh Signal keys and push bundle to GunDB
-    await this.generateAndPublishBundle(username);
-    // Backup encrypted keys to GunDB for cross-device sync
-    await this.backupKeysToGun();
-    // Persist alias for session recall
-    await this.persistAlias(username);
+  public get initialized(): boolean {
+    return this.isInitialized;
   }
 
-  async login(username: string, password: string) {
-    const result = await this.db.login(username, password);
-    if (!result.success) {
-      throw new Error(result.error || 'Login failed');
+  public async waitReady(): Promise<void> {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
+    // If not even started, we might need to wait or throw
+    let retries = 0;
+    while (!this.initPromise && !this.isInitialized && retries < 10) {
+      await new Promise(r => setTimeout(r, 500));
+      retries++;
     }
-    // Check if we have local Signal keys
-    const existingKey = await this.store.getIdentityKeyPair();
-    if (!existingKey) {
-      // Try to restore from GunDB backup first (cross-device)
-      const restored = await this.restoreKeysFromGun();
-      if (restored) {
-        console.log('[SignalService] Keys restored from GunDB backup!');
-      } else {
-        // No backup found — generate fresh keys
-        console.warn('[SignalService] No keys found anywhere, generating new bundle...');
-        await this.generateAndPublishBundle(username);
-        await this.backupKeysToGun();
+    if (this.initPromise) return this.initPromise;
+    if (!this.isInitialized) throw new Error('SignalService not initializing');
+  }
+
+  async initSession(username: string) {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      console.log('[SignalService] Initializing session...');
+      // Check if we have local Signal keys
+      const existingKey = await this.store.getIdentityKeyPair();
+      if (!existingKey) {
+        // Try to restore from GunDB backup first (cross-device)
+        console.log('[SignalService] Searching for Signal key backup on GunDB...');
+        const restored = await this.restoreKeysFromGun();
+        if (restored) {
+          console.log('[SignalService] Keys restored from GunDB backup!');
+        } else {
+          // No backup found or failed to load — generate fresh keys
+          console.warn('[SignalService] No keys found on GunDB after retries, generating new bundle and clearing inbox...');
+          await this.generateAndPublishBundle(username);
+          await this.backupKeysToGun();
+          // Catastrophic failure: we have new keys, all old inbox messages are now unreadable.
+          // Wipe them to avoid Bad MAC loops.
+          await this.clearFullInbox();
+        }
       }
-    }
-    // Persist alias for session recall
-    await this.persistAlias(username);
+      // Persist alias for message routing and identity
+      await this.persistAlias(username);
+
+      // Check prekey health
+      await this.checkAndRotatePreKeys();
+
+      this.isInitialized = true;
+      this.initPromise = null;
+      console.log('[SignalService] Initialization complete.');
+    })();
+    return this.initPromise;
   }
 
   // ── Encrypted key backup (cross-device) ─────────────────────
 
   /**
    * Backup all Signal keys to the user's private GunDB node.
-   * gun.user().get() data is auto-encrypted by SEA — only the
-   * authenticated user can read it.
+   * Uses db.userPut() — data under user space is auto-encrypted by SEA.
    */
   private async backupKeysToGun(): Promise<void> {
     const snapshot = this.store.exportAll();
-    return new Promise<void>((resolve, reject) => {
-      this.gun.user().get('signal_keystore').put(snapshot, (ack: any) => {
-        if (ack.err) {
-          console.error('[SignalService] Key backup failed:', ack.err);
-          reject(new Error(ack.err));
-        } else {
-          console.log('[SignalService] Keys backed up to GunDB (encrypted)');
-          resolve();
-        }
-      });
-    });
+    const result = await this.db.userPut('signal_keystore', snapshot);
+    if (result.error.length > 0) {
+      console.error('[SignalService] Key backup failed:', result.error);
+      throw new Error('Key backup failed');
+    }
+    console.log('[SignalService] Keys backed up to GunDB (encrypted)');
   }
 
   /**
@@ -96,22 +106,22 @@ export class SignalService {
    * Returns true if keys were found and restored, false otherwise.
    */
   private async restoreKeysFromGun(): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.gun.user().get('signal_keystore').once((data: any) => {
-        if (!data || typeof data !== 'string') {
-          console.log('[SignalService] No key backup found on GunDB');
-          return resolve(false);
-        }
-        try {
+    // Retry because GunDB might take a moment to sync the user node
+    for (let i = 0; i < 3; i++) {
+      try {
+        const data = await this.db.userGet('signal_keystore');
+        if (data && typeof data === 'string' && data.length > 50) {
           this.store.importAll(data);
-          console.log('[SignalService] Keys restored from GunDB backup');
-          resolve(true);
-        } catch (e) {
-          console.error('[SignalService] Failed to restore keys:', e);
-          resolve(false);
+          console.log(`[SignalService] Keys restored from GunDB (attempt ${i + 1})`);
+          return true;
         }
-      });
-    });
+      } catch (e) {
+        console.error(`[SignalService] Restore attempt ${i + 1} failed:`, e);
+      }
+      // Wait 1.5s between retries
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    return false;
   }
 
   /**
@@ -119,105 +129,22 @@ export class SignalService {
    * after a page refresh (GunDB recall often loses `alias`).
    */
   private async persistAlias(username: string): Promise<void> {
-    const pub = (this.gun.user() as any)?.is?.pub;
+    const pub = this.db.getUserPub();
     if (!pub) return;
     // Save to localStorage for instant local lookup
     localStorage.setItem('signal_alias', username);
     localStorage.setItem('signal_pub', pub);
     // Save to a public GunDB node so any peer can resolve it
-    return new Promise<void>((resolve) => {
-      this.gun.get('signal_aliases').get(pub).put({ alias: username }, () => resolve());
-    });
+    try {
+      await this.db.Put(`signal_aliases/${pub}`, { alias: username });
+    } catch (e) {
+      console.warn('[SignalService] Failed to persist alias to GunDB:', e);
+    }
   }
 
-  /**
-   * Recover the human-readable alias for a given pubkey.
-   * Tries: 1) localStorage  2) GunDB signal_aliases node
-   */
-  private async recoverAlias(pub: string): Promise<string | null> {
-    // 1) Fast path: localStorage
-    const savedPub = localStorage.getItem('signal_pub');
-    const savedAlias = localStorage.getItem('signal_alias');
-    if (savedPub === pub && savedAlias) return savedAlias;
-    // 2) GunDB lookup
-    return new Promise((resolve) => {
-      this.gun.get('signal_aliases').get(pub).once((data: any) => {
-        if (data?.alias) {
-          localStorage.setItem('signal_alias', data.alias);
-          localStorage.setItem('signal_pub', pub);
-          resolve(data.alias);
-        } else {
-          resolve(null);
-        }
-      });
-    });
-  }
 
-  /**
-   * Attempt to auto-login by recalling the GunDB/SEA session from
-   * sessionStorage. Returns the username if successful, null otherwise.
-   * Includes a timeout to prevent hanging when no session exists.
-   */
-  async sessionRecall(): Promise<string | null> {
-    const TIMEOUT_MS = 3000;
 
-    return new Promise((resolve) => {
-      let resolved = false;
-      const done = (val: string | null) => {
-        if (resolved) return;
-        resolved = true;
-        resolve(val);
-      };
-
-      // Timeout fallback — if recall never fires, show login screen
-      const timer = setTimeout(() => {
-        console.log('[SignalService] Session recall timed out');
-        done(null);
-      }, TIMEOUT_MS);
-
-      this.gun.user().recall({ sessionStorage: true }, (_ack: any) => {
-        // Small delay so Gun has time to populate user.is
-        setTimeout(() => {
-          clearTimeout(timer);
-          const user = this.gun.user() as any;
-          if (!user?.is?.pub) {
-            return done(null);
-          }
-          const pub = user.is.pub as string;
-          const rawAlias = user.is.alias as string | undefined;
-
-          // If alias looks valid (not a pubkey), use it directly
-          const aliasIsValid = rawAlias && rawAlias.length < 60 && !rawAlias.includes('.');
-
-          const finalize = (alias: string) => {
-            console.log('[SignalService] Session recalled for', alias);
-            this.store.getIdentityKeyPair().then((key) => {
-              if (!key) {
-                console.warn('[SignalService] No Signal keys, re-generating...');
-                this.generateAndPublishBundle(alias).then(() => done(alias)).catch(() => done(alias));
-              } else {
-                done(alias);
-              }
-            }).catch(() => done(alias));
-          };
-
-          if (aliasIsValid) {
-            finalize(rawAlias!);
-          } else {
-            // Alias lost — recover from localStorage / GunDB
-            this.recoverAlias(pub).then((recovered) => {
-              if (recovered) {
-                finalize(recovered);
-              } else {
-                // Last resort: use truncated pubkey
-                finalize(pub.slice(0, 8) + '...');
-              }
-            });
-          }
-        }, 300);
-      });
-    });
-  }
+  // sessionRecall was removed as ShogunCore handles session restoration.
 
   // ── Key management ───────────────────────────────────────────
 
@@ -254,64 +181,129 @@ export class SignalService {
       })),
     };
 
-    // Publish to the user's GunDB node
-    return new Promise<void>((resolve, reject) => {
-      this.gun.user().get('signal_bundle').put(JSON.stringify(bundle), (ack: any) => {
-        if (ack.err) reject(new Error(ack.err));
-        else resolve();
-      });
-    });
+    // Publish to the user's GunDB node via shogun-core
+    const result = await this.db.userPut('signal_bundle', JSON.stringify(bundle));
+    if (result.error.length > 0) {
+      throw new Error('Failed to publish Signal bundle');
+    }
+  }
+
+  async checkAndRotatePreKeys(): Promise<void> {
+    const remaining = this.store.getPreKeyCount();
+    console.log(`[SignalService] Pre-keys remaining locally: ${remaining}`);
+
+    // Threshold to trigger rotation
+    if (remaining > 5) return;
+
+    console.log(`[SignalService] Generating new pre-keys to replenish bundle...`);
+    const newPreKeys = [];
+    for (let i = 0; i < 15; i++) {
+      const preKeyId = Math.floor(Math.random() * 100000);
+      const preKey = await KeyHelper.generatePreKey(preKeyId);
+      newPreKeys.push(preKey);
+      await this.store.storePreKey(preKeyId, preKey.keyPair);
+    }
+
+    // Backup the newly generated local keys
+    await this.backupKeysToGun();
+
+    // Fetch existing bundle and append the new public keys
+    try {
+      const bundleStr = await this.db.userGet('signal_bundle');
+      if (bundleStr && typeof bundleStr === 'string') {
+        const bundle = JSON.parse(bundleStr);
+        const currentPreKeys = bundle.preKeys || [];
+        const combinedPreKeys = [
+          ...currentPreKeys,
+          ...newPreKeys.map(pk => ({
+            keyId: pk.keyId,
+            publicKey: this.ab2b64(pk.keyPair.pubKey),
+          }))
+        ];
+
+        // Cap to 50 pre-keys to avoid GunDB bloating
+        bundle.preKeys = combinedPreKeys.slice(-50);
+
+        await this.db.userPut('signal_bundle', JSON.stringify(bundle));
+        console.log(`[SignalService] Successfully published ${newPreKeys.length} new pre-keys to bundle.`);
+      }
+    } catch (e) {
+      console.warn(`[SignalService] Failed to append new pre-keys to GunDB bundle.`, e);
+    }
   }
 
   // ── GunDB helpers ────────────────────────────────────────────
 
   async getMyPubKey(): Promise<string> {
-    const pub = (this.gun.user() as any)?.is?.pub;
+    const pub = this.db.getUserPub();
     if (!pub) throw new Error('User not logged in');
-    return pub as string;
+    return pub;
   }
 
   async getPubKeyFromUsername(username: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      this.gun.get(`~@${username}`).once((data: any) => {
-        if (!data) {
-          return reject(new Error(`User "${username}" not found`));
+    if (!username) throw new Error('Username/Pubkey is required');
+    // SEA pubkeys are usually 43 or 87 chars. Most aliases are short.
+    if (username.length >= 30) return username;
+
+    // Check local cache first
+    const cached = this.pubkeyCache.get(username);
+    if (cached) return cached;
+
+    console.log(`[SignalService] Resolving pubkey for: ${username}`);
+    // Increased retries and wait time for better sync coverage
+    for (let i = 0; i < 6; i++) {
+      try {
+        const data = await this.db.Get(`~@${username}`) as any;
+        if (data && typeof data === 'object') {
+          // Filter out GunDB internal fields and ensure it starts with ~
+          const pubNode = Object.keys(data).find(k => k.startsWith('~') && k !== '_' && k.length > 5);
+          if (pubNode) {
+            const pub = pubNode.slice(1);
+            if (pub.length >= 30) {
+              this.pubkeyCache.set(username, pub);
+              console.log(`[SignalService] Resolved ${username} -> ${pub}`);
+              return pub;
+            }
+          }
         }
-        // Gun stores alias→pub mappings as { _: {...}, ~<pubkey>: {...} }
-        const pubNode = Object.keys(data).find(k => k.startsWith('~') && k !== '_');
-        if (pubNode) {
-          return resolve(pubNode.slice(1)); // strip leading ~
-        }
-        reject(new Error(`User "${username}" not found`));
-      });
-    });
+      } catch (e) {
+        // Silent retry for GunDB sync
+      }
+      // Wait longer each time: 500ms, 1s, 2s, 3s, 4s...
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));
+    }
+    throw new Error(`User "${username}" not found on GunDB after 6 attempts. Check alias existence.`);
   }
 
-  private async getBundleFromUsername(username: string): Promise<any> {
-    const pubKey = await this.getPubKeyFromUsername(username);
-    return new Promise((resolve, reject) => {
-      this.gun.user(pubKey).get('signal_bundle').once((d: any) => {
-        if (!d) return reject(new Error(`Bundle not found for ${username}`));
-        try {
-          const parsed = typeof d === 'string' ? JSON.parse(d) : d;
-          resolve(parsed);
-        } catch (e) {
-          reject(new Error(`Failed to parse bundle for ${username}`));
-        }
-      });
-    });
+  private async getBundleFromUsername(usernameOrPub: string): Promise<any> {
+    let pubKey = usernameOrPub;
+    if (pubKey.length < 30) {
+      pubKey = await this.getPubKeyFromUsername(usernameOrPub);
+    }
+    try {
+      const data = await this.db.Get(`~${pubKey}/signal_bundle`);
+      if (!data) throw new Error(`Bundle not found for ${pubKey}`);
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return parsed;
+    } catch (e) {
+      throw new Error(`Failed to get bundle for ${pubKey}`);
+    }
   }
 
   // ── Encrypt / Decrypt ────────────────────────────────────────
 
-  async encryptMessage(recipientUsername: string, message: string) {
-    const address = new SignalProtocolAddress(recipientUsername, 1);
+  async encryptMessage(recipientUsernameOrPub: string, message: string) {
+    let pubKey = recipientUsernameOrPub;
+    if (pubKey.length < 30) {
+      pubKey = await this.getPubKeyFromUsername(recipientUsernameOrPub);
+    }
+    const address = new SignalProtocolAddress(pubKey, 1);
     const sessionExists = await this.store.loadSession(address.toString());
 
     if (!sessionExists) {
-      const bundle = await this.getBundleFromUsername(recipientUsername);
+      const bundle = await this.getBundleFromUsername(pubKey);
+      console.log(`[SignalService] Building new session for ${pubKey} using bundle (RegistrationID: ${bundle.registrationId})`);
       const builder = new SessionBuilder(this.store, address);
-      const firstPreKey = bundle.preKeys?.length > 0 ? bundle.preKeys[0] : undefined;
 
       await builder.processPreKey({
         registrationId: bundle.registrationId,
@@ -321,10 +313,9 @@ export class SignalService {
           publicKey: this.b642ab(bundle.signedPreKey.publicKey),
           signature: this.b642ab(bundle.signedPreKey.signature),
         },
-        preKey: firstPreKey ? {
-          keyId: firstPreKey.keyId,
-          publicKey: this.b642ab(firstPreKey.publicKey),
-        } : undefined,
+        // Omit One-Time PreKey to prevent exhaustion. X3DH gracefully falls back
+        // to using the SignedPreKey, allowing infinite session rebirths from a static bundle.
+        preKey: undefined,
       });
     }
 
@@ -332,8 +323,12 @@ export class SignalService {
     return cipher.encrypt(new TextEncoder().encode(message).buffer);
   }
 
-  async decryptMessage(senderUsername: string, ciphertext: { type: number; body: string }) {
-    const address = new SignalProtocolAddress(senderUsername, 1);
+  async decryptMessage(senderUsernameOrPub: string, ciphertext: { type: number; body: string }) {
+    let pubKey = senderUsernameOrPub;
+    if (pubKey.length < 30) {
+      pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
+    }
+    const address = new SignalProtocolAddress(pubKey, 1);
     const cipher = new SessionCipher(this.store, address);
 
     let plaintext: ArrayBuffer;
@@ -343,6 +338,82 @@ export class SignalService {
       plaintext = await cipher.decryptWhisperMessage(ciphertext.body, 'binary');
     }
     return new TextDecoder().decode(plaintext);
+  }
+
+  // ── Session Healing ──────────────────────────────────────────
+
+  /**
+   * Clears the local Signal session for a given contact.
+   * This forces the next encrypt() to fetch a fresh bundle and build a new session.
+   */
+  async resetSession(contactUsernameOrPub: string): Promise<void> {
+    const now = Date.now();
+    const lastReset = this.resetCooldowns.get(contactUsernameOrPub) || 0;
+    if (now - lastReset < 10000) {
+      console.log(`[SignalService] Reset for ${contactUsernameOrPub} throttled (cooldown).`);
+      return;
+    }
+    this.resetCooldowns.set(contactUsernameOrPub, now);
+
+    try {
+      let pubKey = contactUsernameOrPub;
+      if (pubKey.length < 30) {
+        pubKey = await this.getPubKeyFromUsername(contactUsernameOrPub);
+      }
+      const address = new SignalProtocolAddress(pubKey, 1);
+      const addrStr = address.toString();
+
+      // Thoroughly clear all fragments related to this contact
+      await this.store.removeAllSessions(addrStr);
+      await this.store.removeIdentity(addrStr);
+
+      console.warn(`[SignalService] Hard reset session and identity for ${pubKey} (${addrStr})`);
+
+      // Aggressively clear unreadable inbox history for this sender
+      await this.clearInboxForSender(pubKey);
+    } catch (e) {
+      console.error(`[SignalService] Reset failed for ${contactUsernameOrPub}:`, e);
+    }
+  }
+
+  /**
+   * Clears the entire inbox for the current user.
+   * Useful when fresh keys are generated and NO backup exists.
+   */
+  async clearFullInbox(): Promise<void> {
+    const userPub = this.db.getUserPub();
+    if (!userPub) return;
+
+    console.warn(`[SignalService] Wiping ALL historical messages for ${userPub} (Fresh Keys Generated)`);
+    try {
+      await this.db.purge(`signal_inbox_${userPub}`);
+      console.log(`[SignalService] Inbox purged successfully`);
+    } catch (e) {
+      console.error(`[SignalService] Failed to purge inbox:`, e);
+    }
+  }
+
+  /**
+   * Experimental: Nullifies all messages from a specific sender in the current user's inbox on GunDB.
+   * This prevents "Bad MAC" loops by physically removing the unreadable history.
+   */
+  private async clearInboxForSender(senderPub: string): Promise<void> {
+    const userPub = this.db.getUserPub();
+    if (!userPub) return;
+
+    console.log(`[SignalService] Clearing GunDB inbox for sender: ${senderPub}`);
+    const inbox = this.db.gun.get(`signal_inbox_${userPub}`);
+
+    inbox.map().once(async (data: any, key: string) => {
+      if (data && data.sender === senderPub) {
+        console.log(`[SignalService] Nullifying unreadable message ${key} from ${senderPub}`);
+        try {
+          await this.db.Del(`signal_inbox_${userPub}/${key}`);
+        } catch (e) {
+          console.error(`[SignalService] Failed to delete message ${key}:`, e);
+        }
+      }
+    });
   }
 
   // ── Binary helpers ───────────────────────────────────────────
