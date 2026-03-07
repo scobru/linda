@@ -34,6 +34,7 @@ export class SignalStore implements StorageType {
         const raw = localStorage.getItem(key);
         if (raw) {
           try {
+            // deserialize uses decodeBuffers which now has the guards
             const val = this.deserialize(raw);
             this.store.set(key.slice(this.prefix.length), val);
           } catch (e) {
@@ -48,15 +49,14 @@ export class SignalStore implements StorageType {
   // We walk the value tree and convert ArrayBuffer / Uint8Array to
   // { __ab: "<base64>" } markers, then JSON.stringify the result.
 
-  private serialize(value: any): string {
-    return JSON.stringify(this.encodeBuffers(value));
-  }
-
   private deserialize(raw: string): any {
     return this.decodeBuffers(JSON.parse(raw));
   }
 
   private encodeBuffers(value: any): any {
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
     if (value instanceof ArrayBuffer) {
       return { __ab: this.ab2b64(value) };
     }
@@ -69,35 +69,40 @@ export class SignalStore implements StorageType {
     if (Array.isArray(value)) {
       return value.map(v => this.encodeBuffers(v));
     }
-    if (value !== null && typeof value === 'object') {
-      const out: any = {};
-      for (const k of Object.keys(value)) {
-        out[k] = this.encodeBuffers(value[k]);
-      }
-      return out;
+    const out: any = {};
+    for (const k of Object.keys(value)) {
+      if (k === '_') continue;
+      out[k] = this.encodeBuffers(value[k]);
     }
-    return value;
+    return out;
   }
 
   private decodeBuffers(value: any): any {
-    if (value !== null && typeof value === 'object' && '__ab' in value) {
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+    if ('__ab' in value) {
       return this.b642ab(value.__ab);
     }
     if (Array.isArray(value)) {
       return value.map(v => this.decodeBuffers(v));
     }
-    if (value !== null && typeof value === 'object') {
-      const out: any = {};
-      for (const k of Object.keys(value)) {
-        out[k] = this.decodeBuffers(value[k]);
-      }
-      return out;
+    const out: any = {};
+    for (const k of Object.keys(value)) {
+      if (k === '_') continue;
+      out[k] = this.decodeBuffers(value[k]);
     }
-    return value;
+    return out;
   }
 
   private ab2b64(buf: ArrayBufferLike): string {
-    return btoa(new TextDecoder('latin1').decode(new Uint8Array(buf)));
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   private b642ab(b64: string): ArrayBuffer {
@@ -119,8 +124,11 @@ export class SignalStore implements StorageType {
   }
 
   async put(key: string, value: any): Promise<void> {
-    this.store.set(key, value);
-    localStorage.setItem(this.prefix + key, this.serialize(value));
+    const encoded = this.encodeBuffers(value);
+    // Use decodeBuffers on the encoded result to get a clean, filtered object for the in-memory store.
+    // This ensures that this.get() returns the same clean object that would be loaded from localStorage.
+    this.store.set(key, this.decodeBuffers(encoded));
+    localStorage.setItem(this.prefix + key, JSON.stringify(encoded));
   }
 
   async remove(key: string): Promise<void> {

@@ -238,6 +238,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  const handleLogout = () => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.clear();
+    }
+    logout();
+  };
+
   // ── Typing Listeners ──────────────────────────────────────────
   useEffect(() => {
     if (!isLoggedIn || !userPub) return;
@@ -910,10 +917,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         </div>
 
         <footer className="login-footer">
-          <div>Built with ❤️ by Shogun Project</div>
+          <div>Built with ❤️ by Scobru</div>
           <div className="login-footer-links">
             <a
-              href="https://github.com/scobru/shogun"
+              href="https://github.com/scobru/shogun-linda"
               target="_blank"
               rel="noopener noreferrer"
               className="login-footer-link"
@@ -921,14 +928,20 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               GitHub
             </a>
             <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                showNotification("Version 1.0.0 (Linda Alpha)", "info");
-              }}
+              href="https://shogun-eco.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
               className="login-footer-link"
             >
-              Documentation
+              Website
+            </a>
+            <a
+              href="https://t.me/shogun_eco"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="login-footer-link"
+            >
+              Telegram
             </a>
             <a
               href="#"
@@ -1069,7 +1082,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              logout();
+              handleLogout();
             }}
             className="btn btn--secondary"
             style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
@@ -1432,7 +1445,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           </>
         ) : (
           <div className="chat-empty">
-            <div className="chat-empty-icon">🔐</div>
+            <div className="chat-empty-logo">
+              <img
+                src="/logo.svg"
+                alt="Linda Logo"
+                style={{
+                  width: "120px",
+                  height: "120px",
+                  marginBottom: "24px",
+                  filter: "drop-shadow(0 0 30px rgba(99, 102, 241, 0.3))",
+                }}
+              />
+            </div>
             <div className="chat-empty-text">Linda Secure Messenger</div>
             <div className="chat-empty-sub">
               Select a contact or add a new one to start an encrypted

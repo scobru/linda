@@ -271,6 +271,15 @@ export class SignalService {
     // Increased retries and wait time for better sync coverage
     for (let i = 0; i < 6; i++) {
       try {
+        // 1. Try resolving via global nicknames registry (fixes WebAuthn users)
+        const globalNickPubKey = await this.db.Get(`signal_global_nicknames/${username}`);
+        if (globalNickPubKey && typeof globalNickPubKey === 'string' && globalNickPubKey.length >= 30) {
+          this.pubkeyCache.set(username, globalNickPubKey);
+          console.log(`[SignalService] Resolved via Global Nicknames: ${username} -> ${globalNickPubKey}`);
+          return globalNickPubKey;
+        }
+
+        // 2. Fallback to standard GunDB alias lookup (~@username)
         const data = await this.db.Get(`~@${username}`) as any;
         if (data && typeof data === 'object') {
           // Filter out GunDB internal fields and ensure it starts with ~
@@ -279,7 +288,7 @@ export class SignalService {
             const pub = pubNode.slice(1);
             if (pub.length >= 30) {
               this.pubkeyCache.set(username, pub);
-              console.log(`[SignalService] Resolved ${username} -> ${pub}`);
+              console.log(`[SignalService] Resolved via Alias: ${username} -> ${pub}`);
               return pub;
             }
           }
@@ -290,7 +299,7 @@ export class SignalService {
       // Wait longer each time: 500ms, 1s, 2s, 3s, 4s...
       await new Promise(r => setTimeout(r, 500 * (i + 1)));
     }
-    throw new Error(`User "${username}" not found on GunDB after 6 attempts. Check alias existence.`);
+    throw new Error(`User "${username}" not found on GunDB after 6 attempts. Check nickname/alias existence.`);
   }
 
   private async getBundleFromUsername(usernameOrPub: string): Promise<SignalBundle> {
@@ -437,7 +446,13 @@ export class SignalService {
   // ── Binary helpers ───────────────────────────────────────────
 
   private ab2b64(buf: ArrayBuffer): string {
-    return btoa(new TextDecoder('latin1').decode(new Uint8Array(buf)));
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   private b642ab(b64: string): ArrayBuffer {

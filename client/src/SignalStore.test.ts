@@ -155,4 +155,27 @@ describe('SignalStore', () => {
     store2.importAll(exportData);
     assert.strictEqual(localStorage.getItem('signal_k1'), JSON.stringify('v1'));
   });
+
+  test('robust base64 encoding (bytes > 127)', async () => {
+    const store = new SignalStore();
+    const buf = new Uint8Array([128, 255, 0, 127]).buffer;
+    await store.put('binaryKey', buf);
+    const val = await store.get('binaryKey', null);
+    assert.ok(val instanceof ArrayBuffer);
+    assert.deepStrictEqual(new Uint8Array(val), new Uint8Array([128, 255, 0, 127]));
+  });
+
+  test('recursive guard (skips metadata)', async () => {
+    const store = new SignalStore();
+    const complexObj = {
+      data: 'useful',
+      _: { some: 'gun-metadata' }
+    };
+    await store.put('complexKey', complexObj);
+    const val = await store.get('complexKey', null);
+
+    // The '_' key should be gone.
+    assert.strictEqual(val._, undefined);
+    assert.deepStrictEqual(val, { data: 'useful' });
+  });
 });
