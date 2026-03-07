@@ -97,12 +97,7 @@ export class SignalStore implements StorageType {
   }
 
   private ab2b64(buf: ArrayBufferLike): string {
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
+    return btoa(new TextDecoder('latin1').decode(new Uint8Array(buf)));
   }
 
   private b642ab(b64: string): ArrayBuffer {
