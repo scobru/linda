@@ -419,12 +419,7 @@ export class SignalService {
   // ── Binary helpers ───────────────────────────────────────────
 
   private ab2b64(buf: ArrayBuffer): string {
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
+    return btoa(new TextDecoder('latin1').decode(new Uint8Array(buf)));
   }
 
   private b642ab(b64: string): ArrayBuffer {
