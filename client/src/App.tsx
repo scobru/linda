@@ -3,6 +3,7 @@ import { SignalService } from "./SignalService";
 import Gun from "gun";
 import "gun/sea";
 import { DataBase, ShogunCore } from "shogun-core";
+import { generateSecureRandomString } from "./utils/crypto";
 import {
   shogunConnector,
   ShogunButtonProvider,
@@ -712,7 +713,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       // Generate unique ID for message
       const msgId = crypto.randomUUID
         ? crypto.randomUUID()
-        : Date.now().toString() + Math.random().toString(36).slice(2);
+        : Date.now().toString() + generateSecureRandomString(10);
 
       await db.Set(`signal_inbox_${recipientPubKey}`, {
         msgId,

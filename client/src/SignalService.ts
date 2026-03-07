@@ -6,6 +6,7 @@ import {
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalStore } from './SignalStore';
 import { DataBase } from 'shogun-core';
+import { generateSecureRandomInt } from './utils/crypto';
 
 /**
  * SignalService
@@ -151,12 +152,12 @@ export class SignalService {
   private async generateAndPublishBundle(username: string) {
     const registrationId = KeyHelper.generateRegistrationId();
     const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
-    const signedPreKeyId = Math.floor(Math.random() * 100000);
+    const signedPreKeyId = generateSecureRandomInt(100000);
     const signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId);
 
     const preKeys = [];
     for (let i = 0; i < 10; i++) {
-      const preKeyId = Math.floor(Math.random() * 100000);
+      const preKeyId = generateSecureRandomInt(100000);
       const preKey = await KeyHelper.generatePreKey(preKeyId);
       preKeys.push(preKey);
       await this.store.storePreKey(preKeyId, preKey.keyPair);
@@ -198,7 +199,7 @@ export class SignalService {
     console.log(`[SignalService] Generating new pre-keys to replenish bundle...`);
     const newPreKeys = [];
     for (let i = 0; i < 15; i++) {
-      const preKeyId = Math.floor(Math.random() * 100000);
+      const preKeyId = generateSecureRandomInt(100000);
       const preKey = await KeyHelper.generatePreKey(preKeyId);
       newPreKeys.push(preKey);
       await this.store.storePreKey(preKeyId, preKey.keyPair);
