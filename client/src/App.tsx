@@ -1213,17 +1213,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 </h3>
                 {typingStatuses[recipient] &&
                 Date.now() - typingStatuses[recipient] <= 3000 ? (
-                  <div
-                    className="typing-indicator"
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "var(--color-primary)",
-                      marginTop: "2px",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    typing...
-                  </div>
+                  <div className="typing-indicator">typing</div>
                 ) : (
                   <div
                     className="chat-header-badge"

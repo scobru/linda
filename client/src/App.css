@@ -56,6 +56,18 @@
   }
 }
 
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
 @keyframes pulseGlow {
   0%,
   100% {
@@ -494,6 +506,25 @@
   align-items: center;
   gap: 4px;
   margin-top: 2px;
+}
+
+.typing-indicator {
+  font-size: 0.75em;
+  color: var(--accent-primary);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+.typing-indicator::after {
+  content: "...";
+  display: inline-block;
+  animation: dotPulse 1.5s infinite;
+  letter-spacing: 2px;
+  width: 20px;
 }
 
 .chat-header-placeholder {
