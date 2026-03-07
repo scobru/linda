@@ -1,0 +1,38 @@
+﻿yarn run v1.22.22
+$ tsc -b && vite build
+[36mvite v6.4.1 [32mbuilding for production...[36m[39m
+transforming...
+[32mÔ£ô[39m 127 modules transformed.
+yarn : [31mÔ£ù[39m Build failed in 16.94s
+In riga:1 car:1
++ yarn build > build_output.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([31mÔ£ù[39m Build failed in 16.94s:St 
+   ring) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[31merror during build:
+[31m[commonjs--resolver] Missing "./utils.js" specifier in "@noble/hashes" 
+package[31m
+    at e (file:///D:/shogun-2/signal/client/node_modules/vite/dist/node/chunks/dep-D4
+NMHUTW.js:12200:25)
+    at n (file:///D:/shogun-2/signal/client/node_modules/vite/dist/node/chunks/dep-D4
+NMHUTW.js:12200:631)
+    at o (file:///D:/shogun-2/signal/client/node_modules/vite/dist/node/chunks/dep-D4
+NMHUTW.js:12200:1293)
+    at resolveExportsOrImports (file:///D:/shogun-2/signal/client/node_modules/vite/d
+ist/node/chunks/dep-D4NMHUTW.js:16217:18)
+    at resolveDeepImport (file:///D:/shogun-2/signal/client/node_modules/vite/dist/no
+de/chunks/dep-D4NMHUTW.js:16230:25)
+    at tryNodeResolve (file:///D:/shogun-2/signal/client/node_modules/vite/dist/node/
+chunks/dep-D4NMHUTW.js:16060:18)
+    at Object.resolveId (file:///D:/shogun-2/signal/client/node_modules/vite/dist/nod
+e/chunks/dep-D4NMHUTW.js:15831:19)
+    at Object.handler (file:///D:/shogun-2/signal/client/node_modules/vite/dist/node/
+chunks/dep-D4NMHUTW.js:46488:15)
+    at file:///D:/shogun-2/signal/client/node_modules/rollup/dist/es/shared/node-entr
+y.js:22571:40
+    at async PluginDriver.hookFirstAndGetPlugin (file:///D:/shogun-2/signal/client/no
+de_modules/rollup/dist/es/shared/node-entry.js:22453:28)[39m
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

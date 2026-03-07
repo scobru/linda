@@ -159,20 +159,20 @@ const ProfileSettings: React.FC<{
 
         <div className="profile-section">
           <label>Display Nickname</label>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "12px" }}>
             <input
               value={nick}
               onChange={(e) => setNick(e.target.value)}
               placeholder={username}
               className="login-input"
-              style={{ margin: 0, flex: 1 }}
+              style={{ margin: 0, flex: 1, height: "46px" }}
             />
             <button
               onClick={handleSaveNick}
               className="btn btn--primary"
-              style={{ padding: "0 24px", flexShrink: 0, minWidth: "100px" }}
+              style={{ padding: "0 24px", flexShrink: 0, height: "46px" }}
             >
-              Save
+              Update Nickname
             </button>
           </div>
         </div>
@@ -851,10 +851,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   if (!isLoggedIn) {
     return (
-      <div
-        className="login-container"
-        style={{ margin: "auto", maxWidth: "400px", paddingTop: "10vh" }}
-      >
+      <div className="login-container">
+        <div className="login-orb orb-1"></div>
+        <div className="login-orb orb-2"></div>
+        <div className="login-orb orb-3"></div>
+
         {notification && (
           <div
             className={`notification ${
@@ -866,36 +867,80 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             {notification.msg}
           </div>
         )}
-        <div
-          className="login-card"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-            alignItems: "center",
-          }}
-        >
+
+        <div className="login-card">
           <div
             style={{
               textAlign: "center",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: "8px",
+              gap: "12px",
             }}
           >
-            <img
-              src="/logo.svg"
-              alt="Linda Logo"
-              style={{ width: "48px", height: "48px" }}
-            />
+            <div className="login-logo-wrap">
+              <img
+                src="/logo.svg"
+                alt="Linda Logo"
+                style={{
+                  width: "64px",
+                  height: "64px",
+                  filter: "drop-shadow(0 0 20px rgba(99, 102, 241, 0.4))",
+                }}
+              />
+            </div>
             <h2 className="login-title">Linda</h2>
             <p className="login-subtitle">
-              End-to-End Encrypted · GunDB + Signal Protocol
+              The next generation of private messaging.
+              <br />
+              Secure. Decentralized. Premium.
             </p>
           </div>
-          <ShogunButton />
+          <div
+            style={{
+              padding: "8px",
+              background: "rgba(255, 255, 255, 0.03)",
+              borderRadius: "16px",
+              border: "1px solid rgba(255, 255, 255, 0.05)",
+            }}
+          >
+            <ShogunButton />
+          </div>
         </div>
+
+        <footer className="login-footer">
+          <div>Built with ❤️ by Shogun Project</div>
+          <div className="login-footer-links">
+            <a
+              href="https://github.com/scobru/shogun"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="login-footer-link"
+            >
+              GitHub
+            </a>
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                showNotification("Version 1.0.0 (Linda Alpha)", "info");
+              }}
+              className="login-footer-link"
+            >
+              Documentation
+            </a>
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                showNotification("All data is stored locally", "info");
+              }}
+              className="login-footer-link"
+            >
+              Privacy
+            </a>
+          </div>
+        </footer>
       </div>
     );
   }
