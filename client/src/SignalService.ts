@@ -7,6 +7,23 @@ import {
 import { SignalStore } from './SignalStore';
 import { DataBase } from 'shogun-core';
 
+interface SignalPreKey {
+  keyId: number;
+  publicKey: string;
+}
+
+interface SignalSignedPreKey extends SignalPreKey {
+  signature: string;
+}
+
+interface SignalBundle {
+  username: string;
+  registrationId: number;
+  identityKey: string;
+  signedPreKey: SignalSignedPreKey;
+  preKeys: SignalPreKey[];
+}
+
 /**
  * SignalService
  *
@@ -148,7 +165,7 @@ export class SignalService {
 
   // ── Key management ───────────────────────────────────────────
 
-  private async generateAndPublishBundle(username: string) {
+  private async generateAndPublishBundle(username: string): Promise<void> {
     const registrationId = KeyHelper.generateRegistrationId();
     const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
     const signedPreKeyId = Math.floor(Math.random() * 100000);
@@ -166,7 +183,7 @@ export class SignalService {
     await this.store.storeRegistrationId(registrationId);
     await this.store.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair);
 
-    const bundle = {
+    const bundle: SignalBundle = {
       username,
       registrationId,
       identityKey: this.ab2b64(identityKeyPair.pubKey),
@@ -211,7 +228,7 @@ export class SignalService {
     try {
       const bundleStr = await this.db.userGet('signal_bundle');
       if (bundleStr && typeof bundleStr === 'string') {
-        const bundle = JSON.parse(bundleStr);
+        const bundle = JSON.parse(bundleStr) as SignalBundle;
         const currentPreKeys = bundle.preKeys || [];
         const combinedPreKeys = [
           ...currentPreKeys,
@@ -275,7 +292,7 @@ export class SignalService {
     throw new Error(`User "${username}" not found on GunDB after 6 attempts. Check alias existence.`);
   }
 
-  private async getBundleFromUsername(usernameOrPub: string): Promise<any> {
+  private async getBundleFromUsername(usernameOrPub: string): Promise<SignalBundle> {
     let pubKey = usernameOrPub;
     if (pubKey.length < 30) {
       pubKey = await this.getPubKeyFromUsername(usernameOrPub);
@@ -284,7 +301,7 @@ export class SignalService {
       const data = await this.db.Get(`~${pubKey}/signal_bundle`);
       if (!data) throw new Error(`Bundle not found for ${pubKey}`);
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-      return parsed;
+      return parsed as SignalBundle;
     } catch (e) {
       throw new Error(`Failed to get bundle for ${pubKey}`);
     }
