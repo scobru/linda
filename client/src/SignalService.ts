@@ -95,6 +95,7 @@ export class SignalService {
 
     this.initPromise = (async () => {
       console.log('[SignalService] Initializing session...');
+      await this.store.init();
       // Check if we have local Signal keys
       const existingKey = await this.store.getIdentityKeyPair();
       if (!existingKey) {
