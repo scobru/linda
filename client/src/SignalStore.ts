@@ -5,53 +5,97 @@ import type {
 import { Direction } from '@privacyresearch/libsignal-protocol-typescript';
 
 /**
- * A persistent SignalProtocol store that uses localStorage.
+ * A persistent SignalProtocol store that uses a single LocalStorage entry ("vault").
  * 
- * The main challenge: libsignal uses ArrayBuffer extensively, but
- * JSON.stringify({}) silently turns ArrayBuffer into `{}`.
- * We solve this by encoding ALL values as base64 strings before
- * writing to localStorage, and decoding them back on read.
- * This avoids any nested-object serialization headaches.
+ * To reduce clutter in LocalStorage, all keys are stored in a single 'signal_v3_vault'
+ * entry as a serialized JSON object. This class also handles migration from
+ * legacy individual 'signal_*' entries.
  */
 export class SignalStore implements StorageType {
   private store: Map<string, any> = new Map();
-  private prefix: string;
+  private readonly vaultKey = 'signal_v3_vault';
+  private readonly legacyPrefix = 'signal_';
 
-  constructor(prefix = 'signal_') {
-    this.prefix = prefix;
-    this.loadAllFromStorage();
+  constructor() {
+    this.loadFromVault();
+    this.migrateLegacyKeys();
   }
 
   /**
-   * On construction, eagerly load every signal_* key from localStorage
-   * into the in-memory Map so that libsignal can find sessions/keys
-   * without any async gaps.
+   * Load the entire store from the single vault entry.
    */
-  private loadAllFromStorage(): void {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(this.prefix)) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          try {
-            // deserialize uses decodeBuffers which now has the guards
-            const val = this.deserialize(raw);
-            this.store.set(key.slice(this.prefix.length), val);
-          } catch (e) {
-            // corrupted entry, skip
-          }
+  private loadFromVault(): void {
+    const rawVault = localStorage.getItem(this.vaultKey);
+    if (rawVault) {
+      try {
+        const snapshot = JSON.parse(rawVault);
+        for (const [key, val] of Object.entries(snapshot)) {
+          this.store.set(key, this.decodeBuffers(val));
         }
+        console.log(`[SignalStore] Vault loaded: ${this.store.size} items.`);
+      } catch (e) {
+        console.error('[SignalStore] Failed to parse vault:', e);
       }
     }
   }
 
-  // ── Serialization helpers ──────────────────────────────────────
-  // We walk the value tree and convert ArrayBuffer / Uint8Array to
-  // { __ab: "<base64>" } markers, then JSON.stringify the result.
+  /**
+   * One-time migration: Find legacy 'signal_*' keys, move them to the vault,
+   * and delete the legacy entries to clean up.
+   */
+  private migrateLegacyKeys(): void {
+    let migratedCount = 0;
+    const legacyKeys: string[] = [];
 
-  private deserialize(raw: string): any {
-    return this.decodeBuffers(JSON.parse(raw));
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      // Skip the vault itself and only process legacy signal_ keys
+      if (key && key.startsWith(this.legacyPrefix) && key !== this.vaultKey) {
+        legacyKeys.push(key);
+      }
+    }
+
+    if (legacyKeys.length === 0) return;
+
+    console.log(`[SignalStore] Found ${legacyKeys.length} legacy keys. Migrating to vault...`);
+
+    for (const fullKey of legacyKeys) {
+      const raw = localStorage.getItem(fullKey);
+      if (raw) {
+        try {
+          // Legacy format was also JSON-encoded with __ab markers
+          const val = this.decodeBuffers(JSON.parse(raw));
+          const shortKey = fullKey.slice(this.legacyPrefix.length);
+          this.store.set(shortKey, val);
+          migratedCount++;
+        } catch (e) {
+          console.warn(`[SignalStore] Failed to migrate legacy key: ${fullKey}`);
+        }
+      }
+    }
+
+    // If we migrated anything, save the new vault and delete old keys
+    if (migratedCount > 0) {
+      this.persist();
+      for (const fullKey of legacyKeys) {
+        localStorage.removeItem(fullKey);
+      }
+      console.log(`[SignalStore] Migration complete. ${migratedCount} items moved to vault.`);
+    }
   }
+
+  /**
+   * Persist the entire in-memory Map to the single vault entry.
+   */
+  private persist(): void {
+    const snapshot: Record<string, any> = {};
+    for (const [key, val] of this.store.entries()) {
+      snapshot[key] = this.encodeBuffers(val);
+    }
+    localStorage.setItem(this.vaultKey, JSON.stringify(snapshot));
+  }
+
+  // ── Serialization helpers ──────────────────────────────────────
 
   private encodeBuffers(value: any): any {
     if (value === null || typeof value !== 'object') {
@@ -124,16 +168,15 @@ export class SignalStore implements StorageType {
   }
 
   async put(key: string, value: any): Promise<void> {
-    const encoded = this.encodeBuffers(value);
-    // Use decodeBuffers on the encoded result to get a clean, filtered object for the in-memory store.
-    // This ensures that this.get() returns the same clean object that would be loaded from localStorage.
-    this.store.set(key, this.decodeBuffers(encoded));
-    localStorage.setItem(this.prefix + key, JSON.stringify(encoded));
+    // libsignal often passes the same object reference, so we decode the encoded buffers
+    // to ensure the in-memory store has clean, fresh objects.
+    this.store.set(key, this.decodeBuffers(this.encodeBuffers(value)));
+    this.persist();
   }
 
   async remove(key: string): Promise<void> {
     this.store.delete(key);
-    localStorage.removeItem(this.prefix + key);
+    this.persist();
   }
 
   // ── StorageType interface ──────────────────────────────────────
@@ -143,7 +186,7 @@ export class SignalStore implements StorageType {
     _identityKey: ArrayBuffer,
     _direction: Direction,
   ): Promise<boolean> {
-    return true; // simplified for PoC
+    return true;
   }
 
   async saveIdentity(
@@ -227,7 +270,6 @@ export class SignalStore implements StorageType {
   async removeAllSessions(identifier: string): Promise<void> {
     const toRemove: string[] = [];
     for (const k of this.store.keys()) {
-      // Clear sessions, identity keys, and prekeys related to this specific identifier/address
       if (
         k.startsWith(`session${identifier}`) ||
         k.startsWith(`identityKey${identifier}`) ||
@@ -237,42 +279,44 @@ export class SignalStore implements StorageType {
       }
     }
     for (const k of toRemove) {
-      await this.remove(k);
+      this.store.delete(k);
     }
+    this.persist();
   }
 
   // ── Backup / Restore helpers ──────────────────────────────────
 
-  /**
-   * Export every key in the store as a single JSON-safe object.
-   * ArrayBuffers are already encoded as base64 in the serialized form.
-   */
   exportAll(): string {
-    const snapshot: Record<string, string> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(this.prefix)) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          // Store with the short key (without prefix)
-          snapshot[key.slice(this.prefix.length)] = raw;
-        }
-      }
+    const snapshot: Record<string, any> = {};
+    for (const [key, val] of this.store.entries()) {
+      snapshot[key] = this.encodeBuffers(val);
     }
     return JSON.stringify(snapshot);
   }
 
-  /**
-   * Import keys from a snapshot previously created by exportAll().
-   * Overwrites existing local keys and reloads the in-memory Map.
-   */
   importAll(serialized: string): void {
-    const snapshot: Record<string, string> = JSON.parse(serialized);
-    for (const [key, raw] of Object.entries(snapshot)) {
-      localStorage.setItem(this.prefix + key, raw);
-    }
-    // Reload everything into the in-memory Map
+    const snapshot: Record<string, any> = JSON.parse(serialized);
     this.store.clear();
-    this.loadAllFromStorage();
+    for (const [key, val] of Object.entries(snapshot)) {
+      this.store.set(key, this.decodeBuffers(val));
+    }
+    this.persist();
+  }
+
+  /**
+   * Clears everything (used on logout).
+   */
+  clearAll(): void {
+    this.store.clear();
+    localStorage.removeItem(this.vaultKey);
+    // Also clean any legacy keys just in case
+    const legacyKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(this.legacyPrefix)) {
+        legacyKeys.push(key);
+      }
+    }
+    for (const k of legacyKeys) localStorage.removeItem(k);
   }
 }

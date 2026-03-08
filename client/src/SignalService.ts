@@ -82,12 +82,11 @@ export class SignalService {
           console.log('[SignalService] Keys restored from GunDB backup!');
         } else {
           // No backup found or failed to load — generate fresh keys
-          console.warn('[SignalService] No keys found on GunDB after retries, generating new bundle and clearing inbox...');
+          console.warn('[SignalService] No keys found on GunDB after retries, generating new bundle...');
           await this.generateAndPublishBundle(username);
           await this.backupKeysToGun();
-          // Catastrophic failure: we have new keys, all old inbox messages are now unreadable.
-          // Wipe them to avoid Bad MAC loops.
-          await this.clearFullInbox();
+          // NOTE: Historical messages on the old path are simply ignored.
+          // Versioning the path (v3) provides a clean slate without dangerous purges.
         }
       }
       // Persist alias for message routing and identity
@@ -208,7 +207,6 @@ export class SignalService {
 
   async checkAndRotatePreKeys(): Promise<void> {
     const remaining = this.store.getPreKeyCount();
-    console.log(`[SignalService] Pre-keys remaining locally: ${remaining}`);
 
     // Threshold to trigger rotation
     if (remaining > 5) return;
@@ -394,54 +392,17 @@ export class SignalService {
       await this.store.removeAllSessions(addrStr);
       await this.store.removeIdentity(addrStr);
 
+
       console.warn(`[SignalService] Hard reset session and identity for ${pubKey} (${addrStr})`);
 
-      // Aggressively clear unreadable inbox history for this sender
-      await this.clearInboxForSender(pubKey);
+      // Experimental: clearing inbox history causes GunDB HAM TypeErrors in some environments.
+      // Disabled for stability.
+      // await this.clearInboxForSender(pubKey);
     } catch (e) {
       console.error(`[SignalService] Reset failed for ${contactUsernameOrPub}:`, e);
     }
   }
 
-  /**
-   * Clears the entire inbox for the current user.
-   * Useful when fresh keys are generated and NO backup exists.
-   */
-  async clearFullInbox(): Promise<void> {
-    const userPub = this.db.getUserPub();
-    if (!userPub) return;
-
-    console.warn(`[SignalService] Wiping ALL historical messages for ${userPub} (Fresh Keys Generated)`);
-    try {
-      await this.db.purge(`signal_inbox_${userPub}`);
-      console.log(`[SignalService] Inbox purged successfully`);
-    } catch (e) {
-      console.error(`[SignalService] Failed to purge inbox:`, e);
-    }
-  }
-
-  /**
-   * Experimental: Nullifies all messages from a specific sender in the current user's inbox on GunDB.
-   * This prevents "Bad MAC" loops by physically removing the unreadable history.
-   */
-  private async clearInboxForSender(senderPub: string): Promise<void> {
-    const userPub = this.db.getUserPub();
-    if (!userPub) return;
-
-    console.log(`[SignalService] Clearing GunDB inbox for sender: ${senderPub}`);
-    const inbox = this.db.gun.get(`signal_inbox_${userPub}`);
-
-    inbox.map().once(async (data: any, key: string) => {
-      if (data && data.sender === senderPub) {
-        console.log(`[SignalService] Nullifying unreadable message ${key} from ${senderPub}`);
-        try {
-          await this.db.Del(`signal_inbox_${userPub}/${key}`);
-        } catch (e) {
-          console.error(`[SignalService] Failed to delete message ${key}:`, e);
-        }
-      }
-    });
-  }
 
   // ── Binary helpers ───────────────────────────────────────────
 

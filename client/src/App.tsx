@@ -240,6 +240,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   const handleLogout = () => {
     if (typeof localStorage !== "undefined") {
+      // Clear all Signal Protocol data from the vault and legacy keys
+      if (signalService && (signalService as any).store) {
+        try {
+          (signalService as any).store.clearAll();
+        } catch (e) {
+          console.warn("Failed to clear SignalStore vault", e);
+        }
+      }
+
       localStorage.clear();
     }
     logout();
@@ -446,7 +455,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
     // Using userPub derived from ShogunCore instead of an async call for performance
     db.gun
-      .get(`signal_inbox_${userPub}`)
+      .get(`signal_v3_inbox_${userPub}`)
       .map()
       .on(async (data: any, gunKey: string) => {
         // Filter out Gun metadata and invalid payloads
@@ -478,14 +487,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
 
         try {
-          console.log(
-            `[Inbox] Message received from ${senderPubKey} (type: ${data.type})`,
-          );
+          // console.log(`[Inbox] Message received from ${senderPubKey} (type: ${data.type})`);
 
           const plaintext = await signalService.decryptMessage(senderPubKey, {
             type: data.type,
             body: data.body,
           });
+
+          // SUCCESS: Clear any persistent session error for this contact
+          setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
 
           if (plaintext === "PING_HEAL") {
             console.log(
@@ -524,7 +534,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               senderPubKey,
               `RECEIPT_delivered_${msgId}`,
             );
-            await db.Set(`signal_inbox_${senderPubKey}`, {
+            await db.Set(`signal_v3_inbox_${senderPubKey}`, {
               sender: userPub,
               type: receiptCiphertext.type,
               body: receiptCiphertext.body,
@@ -563,9 +573,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
           if (!isFreshMessage) {
             // Silently log decryption failure for old messages without triggering recovery
-            console.log(
-              `[Inbox] Historical message from ${senderPubKey} couldn't be decrypted (likely old session). Skipping.`,
-            );
+            // console.log(`[Inbox] Historical message from ${senderPubKey} couldn't be decrypted (likely old session). Skipping.`);
             return;
           }
 
@@ -604,7 +612,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   "PING_HEAL",
                 );
                 // Address resolution is natively anchored to pubkeys
-                db.Set(`signal_inbox_${senderIdForReset}`, {
+                db.Set(`signal_v3_inbox_${senderIdForReset}`, {
                   sender: userPub,
                   type: pingCiphertext.type,
                   body: pingCiphertext.body,
@@ -714,6 +722,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
       }
 
+      // SUCCESS: Clear any persistent session error for this contact
+      setContactErrors((prev) => ({ ...prev, [recipient]: false }));
+
       const recipientPubKey =
         await signalService.getPubKeyFromUsername(recipient);
 
@@ -722,7 +733,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         ? crypto.randomUUID()
         : Date.now().toString() + generateSecureRandomString(10);
 
-      await db.Set(`signal_inbox_${recipientPubKey}`, {
+      await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
         msgId,
         sender: userPub,
         type: ciphertext.type,
@@ -754,6 +765,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       setMessage("");
     } catch (e: any) {
       console.error("Send failed:", e);
+      if (
+        e.message.indexOf("MAC") !== -1 ||
+        e.message.indexOf("Session") !== -1 ||
+        e.message.indexOf("decrypt") !== -1 ||
+        e.message.indexOf("Identity") !== -1
+      ) {
+        setContactErrors((prev) => ({ ...prev, [recipient]: true }));
+      }
       showNotification(`Send failed: ${e.message}`, "error");
     }
   };
@@ -789,7 +808,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 recipientPub,
                 `RECEIPT_read_${msg.id || Date.now()}`,
               );
-              await db.Set(`signal_inbox_${recipientPub}`, {
+              await db.Set(`signal_v3_inbox_${recipientPub}`, {
                 sender: userPub,
                 type: receiptCipher.type,
                 body: receiptCipher.body,
