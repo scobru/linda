@@ -35,6 +35,29 @@ interface SignalBundle {
  * All GunDB interactions go through this.db (shogun-core DataBase),
  * never touching raw GunDB directly.
  */
+
+export function isValidSignalBundle(data: unknown): data is SignalBundle {
+  if (!data || typeof data !== 'object') return false;
+  const bundle = data as Record<string, unknown>;
+  if (typeof bundle.username !== 'string') return false;
+  if (typeof bundle.registrationId !== 'number') return false;
+  if (typeof bundle.identityKey !== 'string') return false;
+
+  if (!bundle.signedPreKey || typeof bundle.signedPreKey !== 'object') return false;
+  if (typeof (bundle.signedPreKey as Record<string, unknown>).keyId !== 'number') return false;
+  if (typeof (bundle.signedPreKey as Record<string, unknown>).publicKey !== 'string') return false;
+  if (typeof (bundle.signedPreKey as Record<string, unknown>).signature !== 'string') return false;
+
+  if (!Array.isArray(bundle.preKeys)) return false;
+  for (const preKey of bundle.preKeys as Array<Record<string, unknown>>) {
+    if (!preKey || typeof preKey !== 'object') return false;
+    if (typeof preKey.keyId !== 'number') return false;
+    if (typeof preKey.publicKey !== 'string') return false;
+  }
+
+  return true;
+}
+
 export class SignalService {
   private store: SignalStore;
   private db: DataBase;
@@ -227,7 +250,10 @@ export class SignalService {
     try {
       const bundleStr = await this.db.userGet('signal_bundle');
       if (bundleStr && typeof bundleStr === 'string') {
-        const bundle = JSON.parse(bundleStr) as SignalBundle;
+        const bundle = JSON.parse(bundleStr);
+        if (!isValidSignalBundle(bundle)) {
+          throw new Error('Invalid SignalBundle format');
+        }
         const currentPreKeys = bundle.preKeys || [];
         const combinedPreKeys = [
           ...currentPreKeys,
@@ -309,7 +335,10 @@ export class SignalService {
       const data = await this.db.Get(`~${pubKey}/signal_bundle`);
       if (!data) throw new Error(`Bundle not found for ${pubKey}`);
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-      return parsed as SignalBundle;
+      if (!isValidSignalBundle(parsed)) {
+        throw new Error(`Invalid SignalBundle format for ${pubKey}`);
+      }
+      return parsed;
     } catch (e) {
       throw new Error(`Failed to get bundle for ${pubKey}`);
     }
