@@ -228,7 +228,10 @@ export class SignalService {
       const bundleStr = await this.db.userGet('signal_bundle');
       if (bundleStr && typeof bundleStr === 'string') {
         const bundle = JSON.parse(bundleStr) as SignalBundle;
-        const currentPreKeys = bundle.preKeys || [];
+        if (!bundle || typeof bundle !== 'object') {
+          throw new Error('Invalid bundle format');
+        }
+        const currentPreKeys = Array.isArray(bundle.preKeys) ? bundle.preKeys : [];
         const combinedPreKeys = [
           ...currentPreKeys,
           ...newPreKeys.map(pk => ({
@@ -309,6 +312,12 @@ export class SignalService {
       const data = await this.db.Get(`~${pubKey}/signal_bundle`);
       if (!data) throw new Error(`Bundle not found for ${pubKey}`);
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Invalid bundle format');
+      }
+      if (parsed.preKeys && !Array.isArray(parsed.preKeys)) {
+        parsed.preKeys = [];
+      }
       return parsed as SignalBundle;
     } catch (e) {
       throw new Error(`Failed to get bundle for ${pubKey}`);
