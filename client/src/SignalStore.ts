@@ -5,69 +5,150 @@ import type {
 import { Direction } from '@privacyresearch/libsignal-protocol-typescript';
 
 /**
- * A persistent SignalProtocol store that uses a single LocalStorage entry ("vault").
+ * A persistent SignalProtocol store that uses a single IndexedDB entry ("vault").
  * 
- * To reduce clutter in LocalStorage, all keys are stored in a single 'signal_v3_vault'
- * entry as a serialized JSON object. This class also handles migration from
- * legacy individual 'signal_*' entries.
+ * To reduce clutter and improve security, all keys are stored in a single 'signal_v3_vault'
+ * entry as a serialized JSON object in IndexedDB. This class also handles migration from
+ * legacy individual 'signal_*' LocalStorage entries and the old 'signal_v3_vault' LocalStorage entry.
  */
 export class SignalStore implements StorageType {
   private store: Map<string, any> = new Map();
   private readonly vaultKey = 'signal_v3_vault';
   private readonly legacyPrefix = 'signal_';
+  private readonly dbName = 'SignalStoreDB';
+  private readonly storeName = 'vaults';
+  private db: IDBDatabase | null = null;
 
   constructor() {
-    this.loadFromVault();
-    this.migrateLegacyKeys();
+    // Eager initialization is handled via `init()`, which should be called
+    // right after construction.
   }
 
   /**
-   * Load the entire store from the single vault entry.
+   * Initialize IndexedDB, load vault, and migrate any old LocalStorage data.
    */
-  private loadFromVault(): void {
+  async init(): Promise<void> {
+    await this.openDB();
+    await this.loadFromVault();
+    await this.migrateLegacyKeys();
+  }
+
+  private openDB(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // In SSR or non-browser environments, skip DB creation
+      if (typeof indexedDB === 'undefined') {
+        return resolve();
+      }
+
+      const request = indexedDB.open(this.dbName, 1);
+
+      request.onerror = (event) => {
+        console.error('[SignalStore] IndexedDB error:', event);
+        reject('Failed to open IndexedDB');
+      };
+
+      request.onsuccess = (event) => {
+        this.db = (event.target as IDBOpenDBRequest).result;
+        resolve();
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName);
+        }
+      };
+    });
+  }
+
+  /**
+   * Load the entire store from the single vault entry in IndexedDB.
+   */
+  private async loadFromVault(): Promise<void> {
+    if (!this.db) return;
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = this.db!.transaction([this.storeName], 'readonly');
+        const objectStore = transaction.objectStore(this.storeName);
+        const request = objectStore.get(this.vaultKey);
+
+        request.onsuccess = (event) => {
+          const rawVault = (event.target as IDBRequest).result;
+          if (rawVault) {
+            try {
+              const snapshot = JSON.parse(rawVault);
+              for (const [key, val] of Object.entries(snapshot)) {
+                this.store.set(key, this.decodeBuffers(val));
+              }
+              console.log(`[SignalStore] Vault loaded: ${this.store.size} items.`);
+            } catch (e) {
+              console.error('[SignalStore] Failed to parse vault:', e);
+            }
+          }
+          resolve();
+        };
+
+        request.onerror = () => resolve();
+      } catch (e) {
+        console.error('[SignalStore] Failed to read from IndexedDB:', e);
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * One-time migration: Find legacy 'signal_*' keys or old vault from LocalStorage,
+   * move them to IndexedDB, and delete the legacy entries to clean up.
+   */
+  private async migrateLegacyKeys(): Promise<void> {
+    if (typeof localStorage === 'undefined') return;
+
+    let migratedCount = 0;
+    const legacyKeys: string[] = [];
+
+    // Check old vault
     const rawVault = localStorage.getItem(this.vaultKey);
     if (rawVault) {
       try {
         const snapshot = JSON.parse(rawVault);
         for (const [key, val] of Object.entries(snapshot)) {
-          this.store.set(key, this.decodeBuffers(val));
+          // Only add if not already present from IndexedDB
+          if (!this.store.has(key)) {
+            this.store.set(key, this.decodeBuffers(val));
+            migratedCount++;
+          }
         }
-        console.log(`[SignalStore] Vault loaded: ${this.store.size} items.`);
       } catch (e) {
-        console.error('[SignalStore] Failed to parse vault:', e);
+        console.error('[SignalStore] Failed to parse old LocalStorage vault:', e);
       }
+      legacyKeys.push(this.vaultKey);
     }
-  }
 
-  /**
-   * One-time migration: Find legacy 'signal_*' keys, move them to the vault,
-   * and delete the legacy entries to clean up.
-   */
-  private migrateLegacyKeys(): void {
-    let migratedCount = 0;
-    const legacyKeys: string[] = [];
-
+    // Check individual legacy keys
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      // Skip the vault itself and only process legacy signal_ keys
       if (key && key.startsWith(this.legacyPrefix) && key !== this.vaultKey) {
         legacyKeys.push(key);
       }
     }
 
-    if (legacyKeys.length === 0) return;
+    if (legacyKeys.length === 0 && migratedCount === 0) return;
 
-    console.log(`[SignalStore] Found ${legacyKeys.length} legacy keys. Migrating to vault...`);
+    console.log(`[SignalStore] Found old LocalStorage keys. Migrating to IndexedDB vault...`);
 
     for (const fullKey of legacyKeys) {
+      if (fullKey === this.vaultKey) continue; // Already processed
+
       const raw = localStorage.getItem(fullKey);
       if (raw) {
         try {
-          // Legacy format was also JSON-encoded with __ab markers
           const val = this.decodeBuffers(JSON.parse(raw));
           const shortKey = fullKey.slice(this.legacyPrefix.length);
-          this.store.set(shortKey, val);
-          migratedCount++;
+          if (!this.store.has(shortKey)) {
+            this.store.set(shortKey, val);
+            migratedCount++;
+          }
         } catch (e) {
           console.warn(`[SignalStore] Failed to migrate legacy key: ${fullKey}`);
         }
@@ -76,23 +157,39 @@ export class SignalStore implements StorageType {
 
     // If we migrated anything, save the new vault and delete old keys
     if (migratedCount > 0) {
-      this.persist();
+      await this.persist();
       for (const fullKey of legacyKeys) {
         localStorage.removeItem(fullKey);
       }
-      console.log(`[SignalStore] Migration complete. ${migratedCount} items moved to vault.`);
+      console.log(`[SignalStore] Migration complete. Items moved to IndexedDB.`);
     }
   }
 
   /**
-   * Persist the entire in-memory Map to the single vault entry.
+   * Persist the entire in-memory Map to the single vault entry in IndexedDB.
    */
-  private persist(): void {
+  private async persist(): Promise<void> {
+    if (!this.db) return;
+
     const snapshot: Record<string, any> = {};
     for (const [key, val] of this.store.entries()) {
       snapshot[key] = this.encodeBuffers(val);
     }
-    localStorage.setItem(this.vaultKey, JSON.stringify(snapshot));
+    const serialized = JSON.stringify(snapshot);
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = this.db!.transaction([this.storeName], 'readwrite');
+        const objectStore = transaction.objectStore(this.storeName);
+        const request = objectStore.put(serialized, this.vaultKey);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+      } catch (e) {
+        console.error('[SignalStore] Failed to persist to IndexedDB:', e);
+        resolve();
+      }
+    });
   }
 
   // ── Serialization helpers ──────────────────────────────────────
@@ -171,12 +268,12 @@ export class SignalStore implements StorageType {
     // libsignal often passes the same object reference, so we decode the encoded buffers
     // to ensure the in-memory store has clean, fresh objects.
     this.store.set(key, this.decodeBuffers(this.encodeBuffers(value)));
-    this.persist();
+    await this.persist();
   }
 
   async remove(key: string): Promise<void> {
     this.store.delete(key);
-    this.persist();
+    await this.persist();
   }
 
   // ── StorageType interface ──────────────────────────────────────
@@ -281,7 +378,7 @@ export class SignalStore implements StorageType {
     for (const k of toRemove) {
       this.store.delete(k);
     }
-    this.persist();
+    await this.persist();
   }
 
   // ── Backup / Restore helpers ──────────────────────────────────
@@ -294,29 +391,48 @@ export class SignalStore implements StorageType {
     return JSON.stringify(snapshot);
   }
 
-  importAll(serialized: string): void {
+  async importAll(serialized: string): Promise<void> {
     const snapshot: Record<string, any> = JSON.parse(serialized);
     this.store.clear();
     for (const [key, val] of Object.entries(snapshot)) {
       this.store.set(key, this.decodeBuffers(val));
     }
-    this.persist();
+    await this.persist();
   }
 
   /**
    * Clears everything (used on logout).
    */
-  clearAll(): void {
+  async clearAll(): Promise<void> {
     this.store.clear();
-    localStorage.removeItem(this.vaultKey);
-    // Also clean any legacy keys just in case
-    const legacyKeys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(this.legacyPrefix)) {
-        legacyKeys.push(key);
-      }
+
+    if (this.db) {
+      await new Promise<void>((resolve) => {
+        try {
+          const transaction = this.db!.transaction([this.storeName], 'readwrite');
+          const objectStore = transaction.objectStore(this.storeName);
+          const request = objectStore.delete(this.vaultKey);
+
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+        } catch (e) {
+          console.error('[SignalStore] Failed to delete vault from IndexedDB:', e);
+          resolve();
+        }
+      });
     }
-    for (const k of legacyKeys) localStorage.removeItem(k);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(this.vaultKey);
+      // Also clean any legacy keys just in case
+      const legacyKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(this.legacyPrefix)) {
+          legacyKeys.push(key);
+        }
+      }
+      for (const k of legacyKeys) localStorage.removeItem(k);
+    }
   }
 }

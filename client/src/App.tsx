@@ -238,12 +238,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (typeof localStorage !== "undefined") {
       // Clear all Signal Protocol data from the vault and legacy keys
       if (signalService && (signalService as any).store) {
         try {
-          (signalService as any).store.clearAll();
+          await (signalService as any).store.clearAll();
         } catch (e) {
           console.warn("Failed to clear SignalStore vault", e);
         }
