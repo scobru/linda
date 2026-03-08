@@ -34,8 +34,37 @@ class MockLocalStorage {
 global.localStorage = new MockLocalStorage() as any;
 
 // We need a dummy indexedDB for Node.js tests
-class MockIDBRequest { onsuccess = null; onerror = null; result = null; }
-class MockIDBObjectStore { get(k) { const req = new MockIDBRequest(); req.result = global.__mockIDBData?.[k] || null; setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); return req; } put(v, k) { const req = new MockIDBRequest(); global.__mockIDBData = global.__mockIDBData || {}; global.__mockIDBData[k] = v; setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); return req; } delete(k) { const req = new MockIDBRequest(); if(global.__mockIDBData) delete global.__mockIDBData[k]; setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); return req; } }
+declare global {
+  var __mockIDBData: Record<string, any>;
+}
+
+class MockIDBRequest { 
+  onsuccess: ((ev: any) => void) | null = null; 
+  onerror: ((ev: any) => void) | null = null; 
+  result: any = null; 
+}
+
+class MockIDBObjectStore { 
+  get(k: string) { 
+    const req = new MockIDBRequest(); 
+    req.result = global.__mockIDBData?.[k] || null; 
+    setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); 
+    return req; 
+  } 
+  put(v: any, k: string) { 
+    const req = new MockIDBRequest(); 
+    global.__mockIDBData = global.__mockIDBData || {}; 
+    global.__mockIDBData[k] = v; 
+    setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); 
+    return req; 
+  } 
+  delete(k: string) { 
+    const req = new MockIDBRequest(); 
+    if(global.__mockIDBData) delete global.__mockIDBData[k]; 
+    setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); 
+    return req; 
+  } 
+}
 class MockIDBTransaction { objectStore() { return new MockIDBObjectStore(); } }
 class MockIDBDatabase { objectStoreNames = { contains: () => true }; createObjectStore() {} transaction() { return new MockIDBTransaction(); } }
 class MockIndexedDB { open() { const req = new MockIDBRequest(); req.result = new MockIDBDatabase(); setTimeout(() => req.onsuccess && req.onsuccess({ target: req }), 0); return req; } }

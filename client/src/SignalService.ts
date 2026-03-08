@@ -97,7 +97,22 @@ export class SignalService {
       console.log('[SignalService] Initializing session...');
       await this.store.init();
       // Check if we have local Signal keys
-      const existingKey = await this.store.getIdentityKeyPair();
+      let existingKey = await this.store.getIdentityKeyPair();
+
+      // Validation: Curve25519 keys must be exactly 32 bytes.
+      // Corrupted keys from a previous storage bug might have wrong lengths.
+      if (existingKey) {
+        const isValid = existingKey.privKey && existingKey.pubKey &&
+                       existingKey.privKey.byteLength === 32 && 
+                       existingKey.pubKey.byteLength === 32;
+
+        if (!isValid) {
+          console.warn('[SignalService] Corrupted local identity keys detected. Clearing store to allow fresh start.');
+          await this.store.clearAll();
+          existingKey = undefined;
+        }
+      }
+
       if (!existingKey) {
         // Try to restore from GunDB backup first (cross-device)
         console.log('[SignalService] Searching for Signal key backup on GunDB...');
@@ -106,11 +121,9 @@ export class SignalService {
           console.log('[SignalService] Keys restored from GunDB backup!');
         } else {
           // No backup found or failed to load — generate fresh keys
-          console.warn('[SignalService] No keys found on GunDB after retries, generating new bundle...');
+          console.warn('[SignalService] No valid keys found on GunDB, generating new bundle...');
           await this.generateAndPublishBundle(username);
           await this.backupKeysToGun();
-          // NOTE: Historical messages on the old path are simply ignored.
-          // Versioning the path (v3) provides a clean slate without dangerous purges.
         }
       }
       // Persist alias for message routing and identity
@@ -152,9 +165,21 @@ export class SignalService {
       try {
         const data = await this.db.userGet('signal_keystore');
         if (data && typeof data === 'string' && data.length > 50) {
-          this.store.importAll(data);
-          console.log(`[SignalService] Keys restored from GunDB (attempt ${i + 1})`);
-          return true;
+          await this.store.importAll(data);
+          
+          // Validate restored keys immediately
+          const key = await this.store.getIdentityKeyPair();
+          const isValid = key && key.privKey && key.pubKey &&
+                         key.privKey.byteLength === 32 && 
+                         key.pubKey.byteLength === 32;
+
+          if (isValid) {
+            console.log(`[SignalService] Keys restored from GunDB (attempt ${i + 1})`);
+            return true;
+          } else {
+            console.warn(`[SignalService] Restore attempt ${i + 1}: Restored keys are invalid/corrupted. Clearing.`);
+            await this.store.clearAll();
+          }
         }
       } catch (e) {
         console.error(`[SignalService] Restore attempt ${i + 1} failed:`, e);
@@ -436,8 +461,8 @@ export class SignalService {
 
   // ── Binary helpers ───────────────────────────────────────────
 
-  private ab2b64(buf: ArrayBuffer): string {
-    const bytes = new Uint8Array(buf);
+  private ab2b64(buf: ArrayBuffer | Uint8Array): string {
+    const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     let binary = '';
     const len = bytes.byteLength;
     for (let i = 0; i < len; i++) {
