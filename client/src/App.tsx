@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { SignalService } from "./SignalService";
 import Gun from "gun";
 import "gun/sea";
@@ -853,6 +853,17 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     db,
   ]);
 
+
+  const unreadCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of contacts) {
+      counts[c] = (messages[c] || []).filter(
+        (m) => m.sender === c && m.status !== "read"
+      ).length;
+    }
+    return counts;
+  }, [messages, contacts]);
+
   // ── Loading screen ─────────────────────────────────────────────
 
   if (isLoading) {
@@ -1048,6 +1059,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── Chat screen ───────────────────────────────────────────────
 
+
   return (
     <div
       className={`app-layout ${recipient ? "mobile-chat-active" : "mobile-sidebar-active"}`}
@@ -1159,26 +1171,21 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                     {contactProfiles[c]?.nickname ||
                       (c.length > 15 ? `${c.slice(0, 8)}...${c.slice(-4)}` : c)}
                   </span>
-                  {(() => {
-                    const unreadCount = (messages[c] || []).filter(
-                      (m) => m.sender === c && m.status !== "read",
-                    ).length;
-                    return unreadCount > 0 ? (
-                      <span
-                        className="unread-badge"
-                        style={{
-                          background: "var(--color-primary)",
-                          color: "#000",
-                          fontSize: "0.75rem",
-                          fontWeight: "bold",
-                          padding: "2px 8px",
-                          borderRadius: "12px",
-                        }}
-                      >
-                        {unreadCount}
-                      </span>
-                    ) : null;
-                  })()}
+                  {unreadCounts[c] > 0 ? (
+                    <span
+                      className="unread-badge"
+                      style={{
+                        background: "var(--color-primary)",
+                        color: "#000",
+                        fontSize: "0.75rem",
+                        fontWeight: "bold",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                      }}
+                    >
+                      {unreadCounts[c]}
+                    </span>
+                  ) : null}
                 </div>
                 <button
                   onClick={(e) => handleDeleteContact(c, e)}
