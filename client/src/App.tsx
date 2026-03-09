@@ -853,12 +853,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     db,
   ]);
 
-
   const unreadCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of contacts) {
       counts[c] = (messages[c] || []).filter(
-        (m) => m.sender === c && m.status !== "read"
+        (m) => m.sender === c && m.status !== "read",
       ).length;
     }
     return counts;
@@ -940,6 +939,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               background: "rgba(255, 255, 255, 0.03)",
               borderRadius: "16px",
               border: "1px solid rgba(255, 255, 255, 0.05)",
+              display: "flex",
+              justifyContent: "center",
             }}
           >
             <ShogunButton />
@@ -1058,7 +1059,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   };
 
   // ── Chat screen ───────────────────────────────────────────────
-
 
   return (
     <div
