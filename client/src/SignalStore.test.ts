@@ -155,6 +155,17 @@ describe('SignalStore', () => {
     assert.strictEqual(removed, undefined);
   });
 
+  test('Signal specific: Registration ID', async () => {
+    const store = new SignalStore();
+    await store.init();
+
+    // Should be undefined initially
+    assert.strictEqual(await store.getLocalRegistrationId(), undefined);
+
+    await store.storeRegistrationId(12345);
+    assert.strictEqual(await store.getLocalRegistrationId(), 12345);
+  });
+
   test('removeAllSessions', async () => {
     const store = new SignalStore();
     await store.init();
