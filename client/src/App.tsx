@@ -487,8 +487,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
 
         try {
-          // console.log(`[Inbox] Message received from ${senderPubKey} (type: ${data.type})`);
-
           const plaintext = await signalService.decryptMessage(senderPubKey, {
             type: data.type,
             body: data.body,
