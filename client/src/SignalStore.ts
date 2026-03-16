@@ -425,14 +425,12 @@ export class SignalStore implements StorageType {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(this.vaultKey);
       // Also clean any legacy keys just in case
-      const legacyKeys: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
         if (key && key.startsWith(this.legacyPrefix)) {
-          legacyKeys.push(key);
+          localStorage.removeItem(key);
         }
       }
-      for (const k of legacyKeys) localStorage.removeItem(k);
     }
   }
 }
