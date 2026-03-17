@@ -160,18 +160,16 @@ const ProfileSettings: React.FC<{
 
         <div className="profile-section">
           <label>Display Nickname</label>
-          <div style={{ display: "flex", gap: "12px" }}>
+          <div className="profile-input-group">
             <input
               value={nick}
               onChange={(e) => setNick(e.target.value)}
               placeholder={username}
-              className="login-input"
-              style={{ margin: 0, flex: 1, height: "46px" }}
+              className="login-input profile-input"
             />
             <button
               onClick={handleSaveNick}
-              className="btn btn--primary"
-              style={{ padding: "0 24px", flexShrink: 0, height: "46px" }}
+              className="btn btn--primary profile-btn"
             >
               Update Nickname
             </button>
@@ -181,7 +179,19 @@ const ProfileSettings: React.FC<{
 
         <div className="profile-section">
           <label>Clear Cache & Storage</label>
-          <div style={{ display: "flex", gap: "12px" }}>
+          <div className="profile-input-group">
+            <button
+              onClick={() => {
+                if (typeof window !== "undefined" && "Notification" in window) {
+                   Notification.requestPermission().then(permission => {
+                     showNotification(`Notifications are now ${permission}`, permission === 'granted' ? 'info' : 'error');
+                   });
+                }
+              }}
+              className="btn btn--secondary profile-btn-full"
+            >
+              Enable Notifications
+            </button>
             <button
               onClick={() => {
                 if (window.confirm("Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out.")) {
@@ -190,8 +200,7 @@ const ProfileSettings: React.FC<{
                   window.location.reload();
                 }
               }}
-              className="btn btn--primary"
-              style={{ padding: "0 24px", height: "46px", background: "var(--error)", borderColor: "var(--error)" }}
+              className="btn btn--primary btn-danger profile-btn-full"
             >
               Reset Everything
             </button>
@@ -203,13 +212,7 @@ const ProfileSettings: React.FC<{
           <textarea
             readOnly
             value={keys}
-            className="login-input"
-            style={{
-              width: "100%",
-              height: "100px",
-              fontSize: "0.8em",
-              fontFamily: "monospace",
-            }}
+            className="login-input profile-textarea"
           />
         </div>
       </div>
@@ -243,6 +246,32 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [typingStatuses, setTypingStatuses] = useState<Record<string, number>>(
     {},
   );
+
+  // Keep track of current recipient for notifications
+  const recipientRef = useRef(recipient);
+  useEffect(() => {
+    recipientRef.current = recipient;
+  }, [recipient]);
+
+  const contactProfilesRef = useRef(contactProfiles);
+  useEffect(() => {
+    contactProfilesRef.current = contactProfiles;
+  }, [contactProfiles]);
+
+  const requestNotifications = () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "default") {
+        Notification.requestPermission().catch(console.warn);
+      }
+    }
+  };
+
+  // Request notification permission when logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      requestNotifications();
+    }
+  }, [isLoggedIn]);
 
   // Track which contacts we already reset in this session to avoid infinite loops
   const resetsRef = useRef<Set<string>>(new Set());
@@ -279,14 +308,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (!isLoggedIn || !userPub) return;
 
     db.gun
-      .get(`signal_typing_${userPub}`)
+      .get(`signal_v2_typing_${userPub}`)
       .map()
       .on((data: any, senderPubKey: string) => {
         // senderPubKey from Gun is usually the user's pubkey
         if (data && data.typing && data.ts) {
+          const parsedTs = typeof data.ts === 'string' ? parseInt(data.ts, 10) : data.ts;
           setTypingStatuses((prev) => ({
             ...prev,
-            [senderPubKey]: data.ts,
+            [senderPubKey]: parsedTs,
           }));
         }
       });
@@ -494,6 +524,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
         if (userPub) saveProcessedKey(userPub, gunKey);
 
+        const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
+        const isFreshMessage = msgTime > sessionStartTime - 30000;
+
         // Identify sender pubkey for consistent state management
         let senderPubKey = data.sender;
         if (senderPubKey.length < 30) {
@@ -547,6 +580,41 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
           // It's a real message. Send back a 'delivered' receipt.
           const msgId = data.msgId || gunKey; // Fallback to gunKey if sender didn't provide msgId
+
+          if (isFreshMessage) {
+            // Play sound for all fresh messages
+            if (typeof window !== "undefined") {
+              try {
+                const audio = new Audio("/notification.mp3");
+                audio.play().catch(() => {});
+              } catch (e) {}
+            }
+
+            // Show OS notification only if chat is not focused or window is hidden
+            if ((recipientRef.current !== senderPubKey || document.visibilityState !== "visible") && 
+                typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+              try {
+                const profile = contactProfilesRef.current[senderPubKey];
+                const senderName = profile?.nickname || (senderPubKey.length > 15 ? `${senderPubKey.slice(0, 8)}...${senderPubKey.slice(-4)}` : senderPubKey);
+                
+                const title = `New message from ${senderName}`;
+                const notifyText = plaintext.length > 50 ? plaintext.substring(0, 50) + "..." : plaintext;
+                const notification = new Notification(title, {
+                  body: notifyText,
+                  icon: profile?.avatar || "/logo.svg"
+                });
+
+                notification.onclick = () => {
+                  window.focus();
+                  setRecipient(senderPubKey);
+                  setShowProfile(false);
+                  notification.close();
+                };
+              } catch (err) {
+                console.warn("Failed to show notification:", err);
+              }
+            }
+          }
           try {
             const receiptCiphertext = await signalService.encryptMessage(
               senderPubKey,
@@ -584,11 +652,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             prev.includes(senderPubKey) ? prev : [...prev, senderPubKey],
           );
         } catch (e: any) {
-          const msgTime = data.timestamp
-            ? new Date(data.timestamp).getTime()
-            : 0;
-          const isFreshMessage = msgTime > sessionStartTime - 30000; // 30s buffer
-
           if (!isFreshMessage) {
             // Silently log decryption failure for old messages without triggering recovery
             // console.log(`[Inbox] Historical message from ${senderPubKey} couldn't be decrypted (likely old session). Skipping.`);
@@ -711,9 +774,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           recipientPub = await signalService.getPubKeyFromUsername(recipient);
         }
         db.gun
-          .get(`signal_typing_${recipientPub}`)
+          .get(`signal_v2_typing_${recipientPub}`)
           .get(userPub)
-          .put({ typing: true, ts: now });
+          .put({ typing: true, ts: now.toString() });
       } catch (e) {}
     }
   };
@@ -1151,7 +1214,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               className={`contact-item ${
                 recipient === c ? "contact-item--active" : ""
               }`}
-              onClick={() => setRecipient(c)}
+              onClick={() => {
+                setRecipient(c);
+                requestNotifications();
+              }}
             >
               <div
                 style={{
@@ -1533,16 +1599,15 @@ const App: React.FC = () => {
             : ["https://shogun-relay.scobrudot.dev/gun"];
 
         // Ensure our local relay is also in the list if in dev or explicitly wanted
-        if (!peersToUse.includes("http://localhost:3001/gun")) {
-          peersToUse.push("http://localhost:3001/gun");
-        }
+        // if (!peersToUse.includes("http://localhost:3001/gun")) {
+        //   peersToUse.push("http://localhost:3001/gun");
+        // }
 
         setRelays(peersToUse);
       } catch (error) {
         console.error("Error fetching relays:", error);
         setRelays([
-          "https://shogun-relay.scobrudot.dev/gun",
-          "http://localhost:3001/gun",
+          "https://shogun-relay.scobrudot.dev/gun"
         ]);
       } finally {
         setIsLoadingRelays(false);

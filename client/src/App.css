@@ -936,6 +936,7 @@
   font-size: 1.5em;
   overflow: hidden;
   box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+  flex-shrink: 0;
 }
 
 .avatar-preview img {
@@ -964,4 +965,76 @@
   font-family: "JetBrains Mono", "Fira Code", monospace;
   font-size: 0.85em;
   padding: 16px;
+}
+
+/* ── Custom Profile Modal Input Classes ────────────────────────────────── */
+
+.profile-input-group {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.profile-input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.profile-btn {
+  padding: 0 24px;
+  flex-shrink: 0;
+  height: 46px;
+  white-space: nowrap;
+}
+
+.profile-btn-full {
+  width: 100%;
+  height: 46px;
+  padding: 0 24px;
+}
+
+.btn-danger {
+  background: var(--error) !important;
+  border-color: var(--error) !important;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+}
+.btn-danger:hover {
+  box-shadow: 0 6px 25px rgba(239, 68, 68, 0.45);
+}
+
+.profile-textarea {
+  width: 100%;
+  height: 100px;
+  box-sizing: border-box;
+}
+
+/* ── Profile Modal Responsive Adjustments ──────────────────────────────── */
+
+@media (max-width: 480px) {
+  .profile-modal {
+    padding: 24px 20px;
+  }
+  
+  .avatar-preview-wrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .profile-input-group {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .profile-btn {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .profile-header h2 {
+    font-size: 1.15em;
+  }
 }

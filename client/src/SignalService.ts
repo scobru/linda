@@ -232,24 +232,25 @@ export class SignalService {
     await this.store.storeRegistrationId(registrationId);
     await this.store.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair);
 
-    const bundle: SignalBundle = {
+    const bundleStr = {
       username,
-      registrationId,
+      registrationId: registrationId.toString(),
       identityKey: this.ab2b64(identityKeyPair.pubKey),
-      signedPreKey: {
+      signedPreKey: JSON.stringify({
         keyId: signedPreKeyId,
         publicKey: this.ab2b64(signedPreKey.keyPair.pubKey),
         signature: this.ab2b64(signedPreKey.signature),
-      },
-      preKeys: preKeys.map(pk => ({
+      }),
+      preKeys: JSON.stringify(preKeys.map(pk => ({
         keyId: pk.keyId,
         publicKey: this.ab2b64(pk.keyPair.pubKey),
-      })),
+      }))),
     };
 
     // Publish to the user's GunDB node via shogun-core
-    const result = await this.db.userPut('signal_bundle', JSON.stringify(bundle));
+    const result = await this.db.userPut('signal_bundle', bundleStr);
     if (result.error.length > 0) {
+      console.error('[SignalService] GunDB err during bundle publish:', result.error);
       throw new Error('Failed to publish Signal bundle');
     }
   }
@@ -274,9 +275,25 @@ export class SignalService {
 
     // Fetch existing bundle and append the new public keys
     try {
-      const bundleStr = await this.db.userGet('signal_bundle');
-      if (bundleStr && typeof bundleStr === 'string') {
-        const bundle = JSON.parse(bundleStr);
+      const bundleData = await this.db.userGet('signal_bundle');
+      if (bundleData) {
+        let bundle: SignalBundle;
+        if (typeof bundleData === 'string') {
+          bundle = JSON.parse(bundleData);
+        } else {
+          bundle = {
+            username: (bundleData as any).username,
+            registrationId: parseInt((bundleData as any).registrationId, 10),
+            identityKey: (bundleData as any).identityKey,
+            signedPreKey: typeof (bundleData as any).signedPreKey === 'string' 
+              ? JSON.parse((bundleData as any).signedPreKey) 
+              : (bundleData as any).signedPreKey,
+            preKeys: typeof (bundleData as any).preKeys === 'string'
+              ? JSON.parse((bundleData as any).preKeys)
+              : (bundleData as any).preKeys,
+          };
+        }
+        
         if (!isValidSignalBundle(bundle)) {
           throw new Error('Invalid SignalBundle format');
         }
@@ -292,8 +309,20 @@ export class SignalService {
         // Cap to 50 pre-keys to avoid GunDB bloating
         bundle.preKeys = combinedPreKeys.slice(-50);
 
-        await this.db.userPut('signal_bundle', JSON.stringify(bundle));
-        console.log(`[SignalService] Successfully published ${newPreKeys.length} new pre-keys to bundle.`);
+        const updatedBundleStr = {
+          username: bundle.username,
+          registrationId: bundle.registrationId.toString(),
+          identityKey: bundle.identityKey,
+          signedPreKey: JSON.stringify(bundle.signedPreKey),
+          preKeys: JSON.stringify(bundle.preKeys)
+        };
+
+        const result = await this.db.userPut('signal_bundle', updatedBundleStr);
+        if (result.error.length > 0) {
+           console.error('[SignalService] GunDB err appending pre-keys:', result.error);
+        } else {
+           console.log(`[SignalService] Successfully published ${newPreKeys.length} new pre-keys to bundle.`);
+        }
       }
     } catch (e) {
       console.warn(`[SignalService] Failed to append new pre-keys to GunDB bundle.`, e);
@@ -360,7 +389,24 @@ export class SignalService {
     try {
       const data = await this.db.Get(`~${pubKey}/signal_bundle`);
       if (!data) throw new Error(`Bundle not found for ${pubKey}`);
-      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      
+      let parsed: SignalBundle;
+      if (typeof data === 'string') {
+        parsed = JSON.parse(data);
+      } else {
+        parsed = {
+          username: (data as any).username,
+          registrationId: parseInt((data as any).registrationId, 10),
+          identityKey: (data as any).identityKey,
+          signedPreKey: typeof (data as any).signedPreKey === 'string'
+            ? JSON.parse((data as any).signedPreKey)
+            : (data as any).signedPreKey,
+          preKeys: typeof (data as any).preKeys === 'string'
+            ? JSON.parse((data as any).preKeys)
+            : (data as any).preKeys,
+        };
+      }
+      
       if (!isValidSignalBundle(parsed)) {
         throw new Error(`Invalid SignalBundle format for ${pubKey}`);
       }

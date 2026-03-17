@@ -34,7 +34,7 @@ export class SignalStore implements StorageType {
   }
 
   private openDB(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // In SSR or non-browser environments, skip DB creation
       if (typeof indexedDB === 'undefined') {
         return resolve();
