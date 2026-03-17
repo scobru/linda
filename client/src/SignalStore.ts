@@ -44,7 +44,8 @@ export class SignalStore implements StorageType {
 
       request.onerror = (event) => {
         console.error('[SignalStore] IndexedDB error:', event);
-        reject('Failed to open IndexedDB');
+        // Resolve instead of reject to allow fallback to localStorage
+        resolve();
       };
 
       request.onsuccess = (event) => {
@@ -65,7 +66,13 @@ export class SignalStore implements StorageType {
    * Load the entire store from the single vault entry in IndexedDB.
    */
   private async loadFromVault(): Promise<void> {
-    if (!this.db) return;
+    if (!this.db) {
+      // IndexedDB failed or is not available. Try loading from localStorage.
+      if (typeof localStorage !== 'undefined') {
+        // The actual load from localStorage happens in migrateLegacyKeys
+      }
+      return;
+    }
 
     return new Promise((resolve) => {
       try {
@@ -122,7 +129,10 @@ export class SignalStore implements StorageType {
       } catch (e) {
         console.error('[SignalStore] Failed to parse old LocalStorage vault:', e);
       }
-      legacyKeys.push(this.vaultKey);
+      // Only delete old vault if we successfully migrated to IndexedDB
+      if (this.db) {
+        legacyKeys.push(this.vaultKey);
+      }
     }
 
     // Check individual legacy keys
@@ -135,7 +145,7 @@ export class SignalStore implements StorageType {
 
     if (legacyKeys.length === 0 && migratedCount === 0) return;
 
-    console.log(`[SignalStore] Found old LocalStorage keys. Migrating to IndexedDB vault...`);
+    console.log(`[SignalStore] Found old LocalStorage keys. Migrating to ${this.db ? 'IndexedDB' : 'LocalStorage fallback'} vault...`);
 
     for (const fullKey of legacyKeys) {
       if (fullKey === this.vaultKey) continue; // Already processed
@@ -161,21 +171,30 @@ export class SignalStore implements StorageType {
       for (const fullKey of legacyKeys) {
         localStorage.removeItem(fullKey);
       }
-      console.log(`[SignalStore] Migration complete. Items moved to IndexedDB.`);
+      console.log(`[SignalStore] Migration complete. Items moved to ${this.db ? 'IndexedDB' : 'LocalStorage fallback'}.`);
     }
   }
 
   /**
-   * Persist the entire in-memory Map to the single vault entry in IndexedDB.
+   * Persist the entire in-memory Map to the single vault entry.
    */
   private async persist(): Promise<void> {
-    if (!this.db) return;
-
     const snapshot: Record<string, any> = {};
     for (const [key, val] of this.store.entries()) {
       snapshot[key] = this.encodeBuffers(val);
     }
     const serialized = JSON.stringify(snapshot);
+
+    if (!this.db) {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(this.vaultKey, serialized);
+        } catch (e) {
+          console.warn('[SignalStore] Failed to persist to localStorage fallback:', e);
+        }
+      }
+      return;
+    }
 
     return new Promise((resolve) => {
       try {
