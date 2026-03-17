@@ -178,6 +178,26 @@ const ProfileSettings: React.FC<{
           </div>
         </div>
 
+
+        <div className="profile-section">
+          <label>Clear Cache & Storage</label>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button
+              onClick={() => {
+                if (window.confirm("Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out.")) {
+                  localStorage.clear();
+                  sessionStorage.clear();
+                  window.location.reload();
+                }
+              }}
+              className="btn btn--primary"
+              style={{ padding: "0 24px", height: "46px", background: "var(--error)", borderColor: "var(--error)" }}
+            >
+              Reset Everything
+            </button>
+          </div>
+        </div>
+
         <div className="profile-section">
           <label>Export GunDB Keys (Dangerous)</label>
           <textarea
