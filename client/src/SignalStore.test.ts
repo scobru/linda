@@ -182,6 +182,25 @@ describe('SignalStore', () => {
     assert.strictEqual(await store.loadSession('user2'), 's2');
   });
 
+  test('bulkStorePreKeys', async () => {
+    const store = new SignalStore();
+    await store.init();
+    const pk1 = { keyId: 101, keyPair: { pubKey: new Uint8Array([1]).buffer, privKey: new Uint8Array([2]).buffer } };
+    const pk2 = { keyId: 102, keyPair: { pubKey: new Uint8Array([3]).buffer, privKey: new Uint8Array([4]).buffer } };
+
+    await store.bulkStorePreKeys([pk1 as any, pk2 as any]);
+
+    const loaded1 = await store.loadPreKey(101);
+    const loaded2 = await store.loadPreKey(102);
+
+    assert.deepStrictEqual(new Uint8Array(loaded1!.pubKey), new Uint8Array([1]));
+    assert.deepStrictEqual(new Uint8Array(loaded2!.pubKey), new Uint8Array([3]));
+
+    const vault = JSON.parse(global.__mockIDBData['signal_v3_vault'] || '{}');
+    assert.ok(vault['25519KeypreKey101']);
+    assert.ok(vault['25519KeypreKey102']);
+  });
+
   test('exportAll and importAll', async () => {
     const store1 = new SignalStore();
     await store1.init();
