@@ -5,7 +5,7 @@ import {
   SessionCipher,
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalStore } from './SignalStore';
-import { DataBase } from 'shogun-core';
+import { DataBase, DataBaseHolster } from 'shogun-core';
 import { generateSecureRandomInt } from './utils/crypto';
 
 interface SignalPreKey {
@@ -60,13 +60,13 @@ export function isValidSignalBundle(data: unknown): data is SignalBundle {
 
 export class SignalService {
   private store: SignalStore;
-  private db: DataBase;
+  private db: DataBase | DataBaseHolster;
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
   private resetCooldowns: Map<string, number> = new Map();
   private pubkeyCache: Map<string, string> = new Map();
 
-  constructor(db: DataBase) {
+  constructor(db: DataBase | DataBaseHolster) {
     this.db = db;
     // The store eagerly loads from localStorage in its constructor
     this.store = new SignalStore();
@@ -146,13 +146,15 @@ export class SignalService {
    * Uses db.userPut() — data under user space is auto-encrypted by SEA.
    */
   private async backupKeysToGun(): Promise<void> {
-    const snapshot = this.store.exportAll();
-    const result = await this.db.userPut('signal_keystore', snapshot);
-    if (result.error.length > 0) {
-      console.error('[SignalService] Key backup failed:', result.error);
+    const snapshot = btoa(encodeURIComponent(this.store.exportAll()));
+    // Use an object with a strictly alphanumeric string payload to satisfy Gun SEA
+    try {
+      await this.db.userPut('signal_keystore_v6', { payload: snapshot });
+      console.log('[SignalService] Keys backed up to GunDB (encrypted)');
+    } catch (e) {
+      console.error('[SignalService] Key backup failed:', e);
       throw new Error('Key backup failed');
     }
-    console.log('[SignalService] Keys backed up to GunDB (encrypted)');
   }
 
   /**
@@ -163,9 +165,18 @@ export class SignalService {
     // Retry because GunDB might take a moment to sync the user node
     for (let i = 0; i < 3; i++) {
       try {
-        const data = await this.db.userGet('signal_keystore');
-        if (data && typeof data === 'string' && data.length > 50) {
-          await this.store.importAll(data);
+        const wrapper = await this.db.userGet('signal_keystore_v6') as any;
+        if (wrapper && wrapper.payload && typeof wrapper.payload === 'string') {
+          const data = wrapper.payload;
+          let jsonStr = data;
+          if (!data.startsWith('{')) {
+            try {
+              jsonStr = decodeURIComponent(atob(data));
+            } catch(e) {
+              jsonStr = data;
+            }
+          }
+          await this.store.importAll(jsonStr);
           
           // Validate restored keys immediately
           const key = await this.store.getIdentityKeyPair();
@@ -232,25 +243,28 @@ export class SignalService {
     await this.store.storeRegistrationId(registrationId);
     await this.store.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair);
 
-    const bundleStr = {
+    // Construct a FLAT object where all nested JSON is strictly Base64 encoded.
+    // GunDB SEA strictly requires objects for nodes, but fails to sign objects containing
+    // JSON strings with escaped quotes. A flat object of Base64 strings avoids BOTH bugs!
+    const bundlePayload = {
       username,
       registrationId: registrationId.toString(),
       identityKey: this.ab2b64(identityKeyPair.pubKey),
-      signedPreKey: JSON.stringify({
+      signedPreKeyB64: btoa(encodeURIComponent(JSON.stringify({
         keyId: signedPreKeyId,
         publicKey: this.ab2b64(signedPreKey.keyPair.pubKey),
         signature: this.ab2b64(signedPreKey.signature),
-      }),
-      preKeys: JSON.stringify(preKeys.map(pk => ({
+      }))),
+      preKeysB64: btoa(encodeURIComponent(JSON.stringify(preKeys.map(pk => ({
         keyId: pk.keyId,
         publicKey: this.ab2b64(pk.keyPair.pubKey),
-      }))),
+      }))))),
     };
 
-    // Publish to the user's GunDB node via shogun-core
-    const result = await this.db.userPut('signal_bundle', bundleStr);
-    if (result.error.length > 0) {
-      console.error('[SignalService] GunDB err during bundle publish:', result.error);
+    try {
+      await this.db.userPut('signal_bundle_v6', bundlePayload);
+    } catch (e) {
+      console.error('[SignalService] GunDB err during bundle publish:', e);
       throw new Error('Failed to publish Signal bundle');
     }
   }
@@ -275,31 +289,21 @@ export class SignalService {
 
     // Fetch existing bundle and append the new public keys
     try {
-      const bundleData = await this.db.userGet('signal_bundle');
-      if (bundleData) {
-        let bundle: SignalBundle;
-        if (typeof bundleData === 'string') {
-          bundle = JSON.parse(bundleData);
-        } else {
-          bundle = {
-            username: (bundleData as any).username,
-            registrationId: parseInt((bundleData as any).registrationId, 10),
-            identityKey: (bundleData as any).identityKey,
-            signedPreKey: typeof (bundleData as any).signedPreKey === 'string' 
-              ? JSON.parse((bundleData as any).signedPreKey) 
-              : (bundleData as any).signedPreKey,
-            preKeys: typeof (bundleData as any).preKeys === 'string'
-              ? JSON.parse((bundleData as any).preKeys)
-              : (bundleData as any).preKeys,
-          };
-        }
-        
-        if (!isValidSignalBundle(bundle)) {
-          throw new Error('Invalid SignalBundle format');
-        }
-        const currentPreKeys = bundle.preKeys || [];
+      const bundleData = await this.db.userGet('signal_bundle_v6') as any;
+      if (bundleData && bundleData.username) {
+        let parsedPreKeys: any[] = [];
+        try {
+          if (bundleData.preKeysB64) {
+            parsedPreKeys = JSON.parse(decodeURIComponent(atob(bundleData.preKeysB64)));
+          } else if (bundleData.preKeys && typeof bundleData.preKeys === 'string') {
+             parsedPreKeys = JSON.parse(bundleData.preKeys);
+          } else if (Array.isArray(bundleData.preKeys)) {
+             parsedPreKeys = bundleData.preKeys;
+          }
+        } catch (e) {}
+
         const combinedPreKeys = [
-          ...currentPreKeys,
+          ...parsedPreKeys,
           ...newPreKeys.map(pk => ({
             keyId: pk.keyId,
             publicKey: this.ab2b64(pk.keyPair.pubKey),
@@ -307,21 +311,21 @@ export class SignalService {
         ];
 
         // Cap to 50 pre-keys to avoid GunDB bloating
-        bundle.preKeys = combinedPreKeys.slice(-50);
+        const cappedPreKeys = combinedPreKeys.slice(-50);
 
-        const updatedBundleStr = {
-          username: bundle.username,
-          registrationId: bundle.registrationId.toString(),
-          identityKey: bundle.identityKey,
-          signedPreKey: JSON.stringify(bundle.signedPreKey),
-          preKeys: JSON.stringify(bundle.preKeys)
+        const updatedPayload = {
+          username: bundleData.username,
+          registrationId: bundleData.registrationId,
+          identityKey: bundleData.identityKey,
+          signedPreKeyB64: bundleData.signedPreKeyB64 || (bundleData.signedPreKey ? btoa(encodeURIComponent(typeof bundleData.signedPreKey === 'string' ? bundleData.signedPreKey : JSON.stringify(bundleData.signedPreKey))) : ''),
+          preKeysB64: btoa(encodeURIComponent(JSON.stringify(cappedPreKeys)))
         };
 
-        const result = await this.db.userPut('signal_bundle', updatedBundleStr);
-        if (result.error.length > 0) {
-           console.error('[SignalService] GunDB err appending pre-keys:', result.error);
-        } else {
-           console.log(`[SignalService] Successfully published ${newPreKeys.length} new pre-keys to bundle.`);
+        try {
+          await this.db.userPut('signal_bundle_v6', updatedPayload);
+          console.log(`[SignalService] Successfully published ${newPreKeys.length} new pre-keys to bundle.`);
+        } catch (e) {
+          console.error('[SignalService] GunDB err appending pre-keys:', e);
         }
       }
     } catch (e) {
@@ -387,24 +391,39 @@ export class SignalService {
       pubKey = await this.getPubKeyFromUsername(usernameOrPub);
     }
     try {
-      const data = await this.db.Get(`~${pubKey}/signal_bundle`);
+      const data = await this.db.Get(`~${pubKey}/signal_bundle_v6`) as any;
       if (!data) throw new Error(`Bundle not found for ${pubKey}`);
       
       let parsed: SignalBundle;
-      if (typeof data === 'string') {
-        parsed = JSON.parse(data);
-      } else {
+      
+      // Handle the new flat object structure
+      if (data.username && (data.signedPreKeyB64 || data.signedPreKey)) {
+        let spk;
+        if (data.signedPreKeyB64) {
+          spk = JSON.parse(decodeURIComponent(atob(data.signedPreKeyB64)));
+        } else {
+          spk = typeof data.signedPreKey === 'string' ? JSON.parse(data.signedPreKey) : data.signedPreKey;
+        }
+
+        let pK;
+        if (data.preKeysB64) {
+          pK = JSON.parse(decodeURIComponent(atob(data.preKeysB64)));
+        } else {
+          pK = typeof data.preKeys === 'string' ? JSON.parse(data.preKeys) : data.preKeys;
+        }
+
         parsed = {
-          username: (data as any).username,
-          registrationId: parseInt((data as any).registrationId, 10),
-          identityKey: (data as any).identityKey,
-          signedPreKey: typeof (data as any).signedPreKey === 'string'
-            ? JSON.parse((data as any).signedPreKey)
-            : (data as any).signedPreKey,
-          preKeys: typeof (data as any).preKeys === 'string'
-            ? JSON.parse((data as any).preKeys)
-            : (data as any).preKeys,
+          username: data.username,
+          registrationId: parseInt(data.registrationId, 10),
+          identityKey: data.identityKey,
+          signedPreKey: spk,
+          preKeys: pK,
         };
+      } else if (typeof data === 'string') {
+        const jsonStr = data.startsWith('{') ? data : decodeURIComponent(atob(data));
+        parsed = JSON.parse(jsonStr);
+      } else {
+        parsed = data as SignalBundle;
       }
       
       if (!isValidSignalBundle(parsed)) {
@@ -412,6 +431,7 @@ export class SignalService {
       }
       return parsed;
     } catch (e) {
+      console.error(`Failed to parse bundle from ${pubKey}:`, e);
       throw new Error(`Failed to get bundle for ${pubKey}`);
     }
   }

@@ -12,12 +12,11 @@
   "dependencies": {
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
     "axios": "^1.13.6",
-    "gun": "scobru/gun#main",
+    "gun": "git+https://github.com/scobru/gun",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "shogun-button-react": "^6.9.8",
     "shogun-core": "^6.9.8",
-    "shogun-relays": "^1.1.1",
     "socket.io-client": "^4.8.3",
     "vercel": "^50.28.0",
     "vite-plugin-node-polyfills": "^0.25.0"

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { SignalService } from "./SignalService";
 import Gun from "gun";
 import "gun/sea";
-import { DataBase, ShogunCore } from "shogun-core";
+import { DataBase, DataBaseHolster, ShogunCore } from "shogun-core";
 import { generateSecureRandomString } from "./utils/crypto";
 import {
   shogunConnector,
@@ -11,22 +11,18 @@ import {
   useShogun,
 } from "shogun-button-react";
 import "./App.css";
+import type { IGunInstance } from "gun";
 
-import "shogun-relays";
-
-// Extend window interface for ShogunRelays
+// Extend window interface
 declare global {
   interface Window {
-    ShogunRelays: {
-      forceListUpdate: () => Promise<string[]>;
-    };
     shogunDebug?: {
       clearAllData: () => void;
       sdk: ShogunCore;
-      gun: any;
+      gun: IGunInstance;
       relays: string[];
     };
-    gun?: any;
+    gun?: IGunInstance;
     shogun?: ShogunCore;
   }
 }
@@ -40,7 +36,7 @@ interface Message {
 }
 
 const ProfileSettings: React.FC<{
-  db: DataBase;
+  db: DataBase | DataBaseHolster;
   username: string;
   onClose: () => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -111,7 +107,8 @@ const ProfileSettings: React.FC<{
 
   const handleCopyKeys = () => {
     if (!keys) return;
-    navigator.clipboard.writeText(keys)
+    navigator.clipboard
+      .writeText(keys)
       .then(() => {
         setCopyStatus("Copied!");
         setTimeout(() => setCopyStatus(""), 2000);
@@ -191,16 +188,18 @@ const ProfileSettings: React.FC<{
           </div>
         </div>
 
-
         <div className="profile-section">
           <label>Clear Cache & Storage</label>
           <div className="profile-input-group">
             <button
               onClick={() => {
                 if (typeof window !== "undefined" && "Notification" in window) {
-                   Notification.requestPermission().then(permission => {
-                     showNotification(`Notifications are now ${permission}`, permission === 'granted' ? 'info' : 'error');
-                   });
+                  Notification.requestPermission().then((permission) => {
+                    showNotification(
+                      `Notifications are now ${permission}`,
+                      permission === "granted" ? "info" : "error",
+                    );
+                  });
                 }
               }}
               className="btn btn--secondary profile-btn-full"
@@ -209,7 +208,11 @@ const ProfileSettings: React.FC<{
             </button>
             <button
               onClick={() => {
-                if (window.confirm("Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out.")) {
+                if (
+                  window.confirm(
+                    "Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out.",
+                  )
+                ) {
                   localStorage.clear();
                   sessionStorage.clear();
                   window.location.reload();
@@ -223,20 +226,39 @@ const ProfileSettings: React.FC<{
         </div>
 
         <div className="profile-section">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-            <label style={{ marginBottom: 0 }}>Export GunDB Keys (Dangerous)</label>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "8px",
+            }}
+          >
+            <label style={{ marginBottom: 0 }}>
+              Export GunDB Keys (Dangerous)
+            </label>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 onClick={() => setShowKeys(!showKeys)}
                 className="btn btn--secondary"
-                style={{ padding: "4px 12px", fontSize: "0.75rem", height: "auto", flex: "none" }}
+                style={{
+                  padding: "4px 12px",
+                  fontSize: "0.75rem",
+                  height: "auto",
+                  flex: "none",
+                }}
               >
                 {showKeys ? "Hide" : "Show"}
               </button>
               <button
                 onClick={handleCopyKeys}
                 className="btn btn--secondary"
-                style={{ padding: "4px 12px", fontSize: "0.75rem", height: "auto", flex: "none" }}
+                style={{
+                  padding: "4px 12px",
+                  fontSize: "0.75rem",
+                  height: "auto",
+                  flex: "none",
+                }}
               >
                 {copyStatus || "Copy"}
               </button>
@@ -253,7 +275,7 @@ const ProfileSettings: React.FC<{
   );
 };
 
-const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
+const AppContent: React.FC<{ db: DataBase | DataBaseHolster }> = ({ db }) => {
   const { isLoggedIn, username, userPub, logout } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -346,13 +368,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         .map()
         .on((data: any, senderPubKey: string) => {
           // Robust check for GunDB node structure
-          if (!data || typeof data !== 'object' || Array.isArray(data)) return;
-          
+          if (!data || typeof data !== "object" || Array.isArray(data)) return;
+
           if (data.typing && data.ts) {
             // Guard against future timestamps that break GunDB HAM
             const now = Date.now();
-            const parsedTs = typeof data.ts === 'string' ? parseInt(data.ts, 10) : Number(data.ts);
-            
+            const parsedTs =
+              typeof data.ts === "string"
+                ? parseInt(data.ts, 10)
+                : Number(data.ts);
+
             if (isNaN(parsedTs) || parsedTs > now + 3600000) return; // Ignore timestamps > 1hr in future
 
             setTypingStatuses((prev) => ({
@@ -362,7 +387,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           }
         });
     } catch (e) {
-      console.warn("[App] Typing listener failed (potential GunDB graph corruption):", e);
+      console.warn(
+        "[App] Typing listener failed (potential GunDB graph corruption):",
+        e,
+      );
     }
 
     // Cleanup old typing statuses
@@ -635,17 +663,29 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             }
 
             // Show OS notification only if chat is not focused or window is hidden
-            if ((recipientRef.current !== senderPubKey || document.visibilityState !== "visible") && 
-                typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            if (
+              (recipientRef.current !== senderPubKey ||
+                document.visibilityState !== "visible") &&
+              typeof window !== "undefined" &&
+              "Notification" in window &&
+              Notification.permission === "granted"
+            ) {
               try {
                 const profile = contactProfilesRef.current[senderPubKey];
-                const senderName = profile?.nickname || (senderPubKey.length > 15 ? `${senderPubKey.slice(0, 8)}...${senderPubKey.slice(-4)}` : senderPubKey);
-                
+                const senderName =
+                  profile?.nickname ||
+                  (senderPubKey.length > 15
+                    ? `${senderPubKey.slice(0, 8)}...${senderPubKey.slice(-4)}`
+                    : senderPubKey);
+
                 const title = `New message from ${senderName}`;
-                const notifyText = plaintext.length > 50 ? plaintext.substring(0, 50) + "..." : plaintext;
+                const notifyText =
+                  plaintext.length > 50
+                    ? plaintext.substring(0, 50) + "..."
+                    : plaintext;
                 const notification = new Notification(title, {
                   body: notifyText,
-                  icon: profile?.avatar || "/logo.svg"
+                  icon: profile?.avatar || "/logo.svg",
                 });
 
                 notification.onclick = () => {
@@ -809,7 +849,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const handleTyping = async () => {
     if (!recipient || !userPub || !signalService) return;
     const now = Date.now();
-    
+
     // Throttle typing updates to once every 3 seconds to prevent HAM flooding
     if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
@@ -818,16 +858,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         if (recipient.length < 30) {
           recipientPub = await signalService.getPubKeyFromUsername(recipient);
         }
-        
+
         // Ensure we are putting an object, never a primitive, to avoid graph corruption
         db.gun
           .get(`signal_v2_typing_${recipientPub}`)
           .get(userPub)
-          .put({ 
-            typing: true, 
+          .put({
+            typing: true,
             ts: now.toString(),
             // Adding a random salt to ensure unique state for each update if timestamps collide
-            s: generateSecureRandomString(4) 
+            s: generateSecureRandomString(4),
           });
       } catch (e) {
         console.warn("[App] Failed to send typing status:", e);
@@ -1635,54 +1675,25 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
 const App: React.FC = () => {
   const [coreContext, setCoreContext] = useState<any>(null);
-  const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
-  const [relays, setRelays] = useState<string[]>([]);
-  const [isLoadingRelays, setIsLoadingRelays] = useState(true);
+  const [dbInstance, setDbInstance] = useState<DataBase | DataBaseHolster | null>(null);
+  
+  const relays = ["https://shogun-relay.scobrudot.dev/gun"];
 
-  // First effect: fetch relays asynchronously
+  // Initialize ShogunCore with hardcoded relays
   useEffect(() => {
-    async function fetchRelays() {
-      try {
-        setIsLoadingRelays(true);
-        const fetchedRelays = await window.ShogunRelays.forceListUpdate();
-        console.log("Fetched relays:", fetchedRelays);
-
-        const peersToUse =
-          fetchedRelays && fetchedRelays.length > 0
-            ? fetchedRelays
-            : ["https://shogun-relay.scobrudot.dev/gun"];
-
-        // Ensure our local relay is also in the list if in dev or explicitly wanted
-        // if (!peersToUse.includes("http://localhost:3001/gun")) {
-        //   peersToUse.push("http://localhost:3001/gun");
-        // }
-
-        setRelays(peersToUse);
-      } catch (error) {
-        console.error("Error fetching relays:", error);
-        setRelays([
-          "https://shogun-relay.scobrudot.dev/gun"
-        ]);
-      } finally {
-        setIsLoadingRelays(false);
-      }
-    }
-
-    fetchRelays();
-  }, []);
-
-  // Second effect: initialize ShogunCore only after relays are loaded
-  useEffect(() => {
-    if (isLoadingRelays || relays.length === 0) {
-      return;
-    }
-
     let mounted = true;
 
     const init = async () => {
       try {
         // Initialize Gun and DataBase with the dynamic peer list
-        const gunInstance = Gun({ peers: relays, localStorage: false });
+        const gunInstance = new Gun({
+          peers: relays,
+          localStorage: false,
+          radisk: false,
+        });
+
+        window.gun = gunInstance;
+        
         // @ts-ignore - DataBase handles IGunInstance correctly internally
         const db = new DataBase(gunInstance);
 
@@ -1699,7 +1710,7 @@ const App: React.FC = () => {
         });
 
         if (mounted) {
-          setDbInstance(db);
+          setDbInstance(result.core.db);
           setCoreContext(result);
 
           // Add debug methods to window for testing
@@ -1746,9 +1757,9 @@ const App: React.FC = () => {
     return () => {
       mounted = false;
     };
-  }, [relays, isLoadingRelays]);
+  }, []);
 
-  if (isLoadingRelays || !coreContext || !dbInstance) {
+  if (!coreContext || !dbInstance) {
     return (
       <div className="login-container">
         <div className="login-card" style={{ alignItems: "center" }}>
@@ -1767,9 +1778,7 @@ const App: React.FC = () => {
               style={{ width: "48px", height: "48px" }}
             />
             <p>
-              {isLoadingRelays
-                ? "Connecting to P2P network..."
-                : "Bootstrapping SDK..."}
+              Bootstrapping SDK...
             </p>
           </div>
         </div>
