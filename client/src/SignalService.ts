@@ -225,8 +225,8 @@ export class SignalService {
       const preKeyId = generateSecureRandomInt(100000);
       const preKey = await KeyHelper.generatePreKey(preKeyId);
       preKeys.push(preKey);
-      await this.store.storePreKey(preKeyId, preKey.keyPair);
     }
+    await this.store.bulkStorePreKeys(preKeys);
 
     await this.store.storeIdentityKey(identityKeyPair);
     await this.store.storeRegistrationId(registrationId);
@@ -267,8 +267,8 @@ export class SignalService {
       const preKeyId = generateSecureRandomInt(100000);
       const preKey = await KeyHelper.generatePreKey(preKeyId);
       newPreKeys.push(preKey);
-      await this.store.storePreKey(preKeyId, preKey.keyPair);
     }
+    await this.store.bulkStorePreKeys(newPreKeys);
 
     // Backup the newly generated local keys
     await this.backupKeysToGun();

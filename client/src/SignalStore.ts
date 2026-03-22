@@ -1,6 +1,7 @@
 import type {
   StorageType,
   KeyPairType,
+  PreKeyRecordType,
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { Direction } from '@privacyresearch/libsignal-protocol-typescript';
 
@@ -343,6 +344,13 @@ export class SignalStore implements StorageType {
 
   async storePreKey(keyId: number | string, keyPair: KeyPairType): Promise<void> {
     await this.put(`25519KeypreKey${keyId}`, keyPair);
+  }
+
+  async bulkStorePreKeys(preKeys: PreKeyRecordType[]): Promise<void> {
+    for (const pk of preKeys) {
+      this.store.set(`25519KeypreKey${pk.keyId}`, this.decodeBuffers(this.encodeBuffers(pk.keyPair)));
+    }
+    await this.persist();
   }
 
   async removePreKey(keyId: number | string): Promise<void> {

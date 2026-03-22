@@ -56,6 +56,8 @@ const ProfileSettings: React.FC<{
 }) => {
   const [nick, setNick] = useState(currentNick);
   const [keys, setKeys] = useState("");
+  const [showKeys, setShowKeys] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     // Extract SEA keys
@@ -105,6 +107,19 @@ const ProfileSettings: React.FC<{
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCopyKeys = () => {
+    if (!keys) return;
+    navigator.clipboard.writeText(keys)
+      .then(() => {
+        setCopyStatus("Copied!");
+        setTimeout(() => setCopyStatus(""), 2000);
+      })
+      .catch(() => {
+        setCopyStatus("Failed");
+        setTimeout(() => setCopyStatus(""), 2000);
+      });
   };
 
   const handleSaveNick = async () => {
@@ -208,10 +223,28 @@ const ProfileSettings: React.FC<{
         </div>
 
         <div className="profile-section">
-          <label>Export GunDB Keys (Dangerous)</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <label style={{ marginBottom: 0 }}>Export GunDB Keys (Dangerous)</label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={() => setShowKeys(!showKeys)}
+                className="btn btn--secondary"
+                style={{ padding: "4px 12px", fontSize: "0.75rem", height: "auto", flex: "none" }}
+              >
+                {showKeys ? "Hide" : "Show"}
+              </button>
+              <button
+                onClick={handleCopyKeys}
+                className="btn btn--secondary"
+                style={{ padding: "4px 12px", fontSize: "0.75rem", height: "auto", flex: "none" }}
+              >
+                {copyStatus || "Copy"}
+              </button>
+            </div>
+          </div>
           <textarea
             readOnly
-            value={keys}
+            value={showKeys ? keys : "••••••••••••••••••••••••••••••••"}
             className="login-input profile-textarea"
           />
         </div>

@@ -1,12 +1,19 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { SignalService } from './SignalService';
+import { SignalService } from './SignalService.ts';
+import crypto from 'node:crypto';
 
 describe('SignalService', () => {
   let mockDb: any;
   let service: SignalService;
 
   beforeEach(() => {
+    // Mock Web Crypto
+    (global as any).window = {
+      crypto: {
+        getRandomValues: (arr: any) => crypto.getRandomValues(arr)
+      }
+    };
     // Reset mocks and localStorage
     (global as any).localStorage = {
       getItem: () => null,
