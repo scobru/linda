@@ -307,19 +307,30 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   useEffect(() => {
     if (!isLoggedIn || !userPub) return;
 
-    db.gun
-      .get(`signal_v2_typing_${userPub}`)
-      .map()
-      .on((data: any, senderPubKey: string) => {
-        // senderPubKey from Gun is usually the user's pubkey
-        if (data && data.typing && data.ts) {
-          const parsedTs = typeof data.ts === 'string' ? parseInt(data.ts, 10) : data.ts;
-          setTypingStatuses((prev) => ({
-            ...prev,
-            [senderPubKey]: parsedTs,
-          }));
-        }
-      });
+    try {
+      db.gun
+        .get(`signal_v2_typing_${userPub}`)
+        .map()
+        .on((data: any, senderPubKey: string) => {
+          // Robust check for GunDB node structure
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+          
+          if (data.typing && data.ts) {
+            // Guard against future timestamps that break GunDB HAM
+            const now = Date.now();
+            const parsedTs = typeof data.ts === 'string' ? parseInt(data.ts, 10) : Number(data.ts);
+            
+            if (isNaN(parsedTs) || parsedTs > now + 3600000) return; // Ignore timestamps > 1hr in future
+
+            setTypingStatuses((prev) => ({
+              ...prev,
+              [senderPubKey]: parsedTs,
+            }));
+          }
+        });
+    } catch (e) {
+      console.warn("[App] Typing listener failed (potential GunDB graph corruption):", e);
+    }
 
     // Cleanup old typing statuses
     const interval = setInterval(() => {
@@ -328,14 +339,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         const next = { ...prev };
         let changed = false;
         for (const [pub, ts] of Object.entries(next)) {
-          if (now - ts > 3000) {
+          if (now - ts > 4000) {
             delete next[pub];
             changed = true;
           }
         }
         return changed ? next : prev;
       });
-    }, 1000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [isLoggedIn, userPub, db]);
@@ -765,19 +776,29 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const handleTyping = async () => {
     if (!recipient || !userPub || !signalService) return;
     const now = Date.now();
-    if (now - lastTypingSentRef.current > 2000) {
+    
+    // Throttle typing updates to once every 3 seconds to prevent HAM flooding
+    if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
       try {
-        // Ensure we send typing status to the resolved pubkey
         let recipientPub = recipient;
         if (recipient.length < 30) {
           recipientPub = await signalService.getPubKeyFromUsername(recipient);
         }
+        
+        // Ensure we are putting an object, never a primitive, to avoid graph corruption
         db.gun
           .get(`signal_v2_typing_${recipientPub}`)
           .get(userPub)
-          .put({ typing: true, ts: now.toString() });
-      } catch (e) {}
+          .put({ 
+            typing: true, 
+            ts: now.toString(),
+            // Adding a random salt to ensure unique state for each update if timestamps collide
+            s: generateSecureRandomString(4) 
+          });
+      } catch (e) {
+        console.warn("[App] Failed to send typing status:", e);
+      }
     }
   };
 
