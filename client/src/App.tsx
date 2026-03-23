@@ -36,7 +36,7 @@ interface Message {
 }
 
 const ProfileSettings: React.FC<{
-  db: DataBase ;
+  db: DataBase;
   username: string;
   onClose: () => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -275,7 +275,7 @@ const ProfileSettings: React.FC<{
   );
 };
 
-const AppContent: React.FC<{ db: DataBase  }> = ({ db }) => {
+const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { isLoggedIn, username, userPub, logout } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -1675,9 +1675,14 @@ const AppContent: React.FC<{ db: DataBase  }> = ({ db }) => {
 
 const App: React.FC = () => {
   const [coreContext, setCoreContext] = useState<any>(null);
-  const [dbInstance, setDbInstance] = useState<DataBase  | null>(null);
-  
-  const relays = ["https://shogun-relay.scobrudot.dev/gun"];
+  const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
+
+  const relays = [
+    "https://gun.defucc.me/gun",
+    "https://gun.o8.is/gun",
+    "https://shogun-relay.scobrudot.dev/gun",
+    "https://relay.peer.ooo/gun",
+  ];
 
   // Initialize ShogunCore with hardcoded relays
   useEffect(() => {
@@ -1693,7 +1698,7 @@ const App: React.FC = () => {
         });
 
         window.gun = gunInstance;
-        
+
         // @ts-ignore - DataBase handles IGunInstance correctly internally
         const db = new DataBase(gunInstance);
 
@@ -1777,9 +1782,7 @@ const App: React.FC = () => {
               alt="Linda Logo"
               style={{ width: "48px", height: "48px" }}
             />
-            <p>
-              Bootstrapping SDK...
-            </p>
+            <p>Bootstrapping SDK...</p>
           </div>
         </div>
       </div>
