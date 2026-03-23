@@ -5,7 +5,7 @@ import {
   SessionCipher,
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalStore } from './SignalStore';
-import { DataBase, DataBaseHolster } from 'shogun-core';
+import { DataBase } from 'shogun-core';
 import { generateSecureRandomInt } from './utils/crypto';
 
 interface SignalPreKey {
@@ -60,13 +60,13 @@ export function isValidSignalBundle(data: unknown): data is SignalBundle {
 
 export class SignalService {
   private store: SignalStore;
-  private db: DataBase | DataBaseHolster;
+  private db: DataBase ;
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
   private resetCooldowns: Map<string, number> = new Map();
   private pubkeyCache: Map<string, string> = new Map();
 
-  constructor(db: DataBase | DataBaseHolster) {
+  constructor(db: DataBase) {
     this.db = db;
     // The store eagerly loads from localStorage in its constructor
     this.store = new SignalStore();

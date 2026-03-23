@@ -15,8 +15,8 @@
     "gun": "git+https://github.com/scobru/gun",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "shogun-button-react": "^6.9.8",
-    "shogun-core": "^6.9.8",
+    "shogun-button-react": "^6.9.9",
+    "shogun-core": "^6.9.9",
     "socket.io-client": "^4.8.3",
     "vercel": "^50.28.0",
     "vite-plugin-node-polyfills": "^0.25.0"

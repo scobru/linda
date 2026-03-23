@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { SignalService } from "./SignalService";
 import Gun from "gun";
 import "gun/sea";
-import { DataBase, DataBaseHolster, ShogunCore } from "shogun-core";
+import { DataBase, ShogunCore } from "shogun-core";
 import { generateSecureRandomString } from "./utils/crypto";
 import {
   shogunConnector,
@@ -36,7 +36,7 @@ interface Message {
 }
 
 const ProfileSettings: React.FC<{
-  db: DataBase | DataBaseHolster;
+  db: DataBase ;
   username: string;
   onClose: () => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -275,7 +275,7 @@ const ProfileSettings: React.FC<{
   );
 };
 
-const AppContent: React.FC<{ db: DataBase | DataBaseHolster }> = ({ db }) => {
+const AppContent: React.FC<{ db: DataBase  }> = ({ db }) => {
   const { isLoggedIn, username, userPub, logout } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -1675,7 +1675,7 @@ const AppContent: React.FC<{ db: DataBase | DataBaseHolster }> = ({ db }) => {
 
 const App: React.FC = () => {
   const [coreContext, setCoreContext] = useState<any>(null);
-  const [dbInstance, setDbInstance] = useState<DataBase | DataBaseHolster | null>(null);
+  const [dbInstance, setDbInstance] = useState<DataBase  | null>(null);
   
   const relays = ["https://shogun-relay.scobrudot.dev/gun"];
 
