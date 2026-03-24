@@ -19,6 +19,7 @@ interface SignalSignedPreKey extends SignalPreKey {
 
 interface SignalBundle {
   username: string;
+  uniqueUsername?: string;
   registrationId: number;
   identityKey: string;
   signedPreKey: SignalSignedPreKey;
@@ -42,6 +43,8 @@ export function isValidSignalBundle(data: unknown): data is SignalBundle {
   if (typeof bundle.username !== 'string') return false;
   if (typeof bundle.registrationId !== 'number') return false;
   if (typeof bundle.identityKey !== 'string') return false;
+  // uniqueUsername is optional for backward compatibility
+  if (bundle.uniqueUsername !== undefined && typeof bundle.uniqueUsername !== 'string') return false;
 
   if (!bundle.signedPreKey || typeof bundle.signedPreKey !== 'object') return false;
   if (typeof (bundle.signedPreKey as Record<string, unknown>).keyId !== 'number') return false;
@@ -89,7 +92,7 @@ export class SignalService {
     if (!this.isInitialized) throw new Error('SignalService not initializing');
   }
 
-  async initSession(username: string) {
+  async initSession(username: string, uniqueUsername?: string) {
     if (this.isInitialized) return;
     if (this.initPromise) return this.initPromise;
 
@@ -122,12 +125,12 @@ export class SignalService {
         } else {
           // No backup found or failed to load — generate fresh keys
           console.warn('[SignalService] No valid keys found on GunDB, generating new bundle...');
-          await this.generateAndPublishBundle(username);
+          await this.generateAndPublishBundle(username, uniqueUsername);
           await this.backupKeysToGun();
         }
       }
-      // Persist alias for message routing and identity
-      await this.persistAlias(username);
+      // Persist alias and unique username for message routing and identity
+      await this.persistAlias(username, uniqueUsername);
 
       // Check prekey health
       await this.checkAndRotatePreKeys();
@@ -205,15 +208,27 @@ export class SignalService {
    * Persist username→pubkey mapping so we can recover the alias
    * after a page refresh (GunDB recall often loses `alias`).
    */
-  private async persistAlias(username: string): Promise<void> {
+  private async persistAlias(username: string, uniqueUsername?: string): Promise<void> {
     const pub = this.db.getUserPub();
     if (!pub) return;
     // Save to localStorage for instant local lookup
     localStorage.setItem('signal_alias', username);
+    if (uniqueUsername) {
+      localStorage.setItem('signal_unique_username', uniqueUsername);
+    }
     localStorage.setItem('signal_pub', pub);
     // Save to a public GunDB node so any peer can resolve it
     try {
-      await this.db.Put(`signal_aliases/${pub}`, { alias: username });
+      const aliasPayload: Record<string, string> = { alias: username };
+      if (uniqueUsername) aliasPayload.uniqueUsername = uniqueUsername;
+      await this.db.Put(`signal_aliases/${pub}`, aliasPayload);
+      
+      // Also save to a global registry for unique usernames if provided
+      if (uniqueUsername) {
+        // Ensure it starts with @ for consistency in lookups
+        const normalized = uniqueUsername.startsWith('@') ? uniqueUsername : `@${uniqueUsername}`;
+        await this.db.Put(`signal_unique_usernames/${normalized}`, pub);
+      }
     } catch (e) {
       console.warn('[SignalService] Failed to persist alias to GunDB:', e);
     }
@@ -225,7 +240,7 @@ export class SignalService {
 
   // ── Key management ───────────────────────────────────────────
 
-  private async generateAndPublishBundle(username: string): Promise<void> {
+  private async generateAndPublishBundle(username: string, uniqueUsername?: string): Promise<void> {
     const registrationId = KeyHelper.generateRegistrationId();
     const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
     const signedPreKeyId = generateSecureRandomInt(100000);
@@ -246,7 +261,7 @@ export class SignalService {
     // Construct a FLAT object where all nested JSON is strictly Base64 encoded.
     // GunDB SEA strictly requires objects for nodes, but fails to sign objects containing
     // JSON strings with escaped quotes. A flat object of Base64 strings avoids BOTH bugs!
-    const bundlePayload = {
+    const bundlePayload: any = {
       username,
       registrationId: registrationId.toString(),
       identityKey: this.ab2b64(identityKeyPair.pubKey),
@@ -260,6 +275,10 @@ export class SignalService {
         publicKey: this.ab2b64(pk.keyPair.pubKey),
       }))))),
     };
+
+    if (uniqueUsername) {
+      bundlePayload.uniqueUsername = uniqueUsername;
+    }
 
     try {
       await this.db.userPut('signal_bundle_v6', bundlePayload);
@@ -313,13 +332,17 @@ export class SignalService {
         // Cap to 50 pre-keys to avoid GunDB bloating
         const cappedPreKeys = combinedPreKeys.slice(-50);
 
-        const updatedPayload = {
+        const updatedPayload: any = {
           username: bundleData.username,
           registrationId: bundleData.registrationId,
           identityKey: bundleData.identityKey,
           signedPreKeyB64: bundleData.signedPreKeyB64 || (bundleData.signedPreKey ? btoa(encodeURIComponent(typeof bundleData.signedPreKey === 'string' ? bundleData.signedPreKey : JSON.stringify(bundleData.signedPreKey))) : ''),
           preKeysB64: btoa(encodeURIComponent(JSON.stringify(cappedPreKeys)))
         };
+
+        if (bundleData.uniqueUsername) {
+          updatedPayload.uniqueUsername = bundleData.uniqueUsername;
+        }
 
         try {
           await this.db.userPut('signal_bundle_v6', updatedPayload);
@@ -344,7 +367,7 @@ export class SignalService {
   async getPubKeyFromUsername(username: string): Promise<string> {
     if (!username) throw new Error('Username/Pubkey is required');
     // SEA pubkeys are usually 43 or 87 chars. Most aliases are short.
-    if (username.length >= 30) return username;
+    if (username.length >= 30 && !username.startsWith('@')) return username;
 
     // Check local cache first
     const cached = this.pubkeyCache.get(username);
@@ -354,6 +377,16 @@ export class SignalService {
     // Increased retries and wait time for better sync coverage
     for (let i = 0; i < 6; i++) {
       try {
+        // 0. Try resolving via unique usernames registry (new logic)
+        if (username.startsWith('@')) {
+          const uniquePubKey = await this.db.Get(`signal_unique_usernames/${username}`);
+          if (uniquePubKey && typeof uniquePubKey === 'string' && uniquePubKey.length >= 30) {
+            this.pubkeyCache.set(username, uniquePubKey);
+            console.log(`[SignalService] Resolved via Unique Username: ${username} -> ${uniquePubKey}`);
+            return uniquePubKey;
+          }
+        }
+
         // 1. Try resolving via global nicknames registry (fixes WebAuthn users)
         const globalNickPubKey = await this.db.Get(`signal_global_nicknames/${username}`);
         if (globalNickPubKey && typeof globalNickPubKey === 'string' && globalNickPubKey.length >= 30) {
@@ -387,7 +420,7 @@ export class SignalService {
 
   private async getBundleFromUsername(usernameOrPub: string): Promise<SignalBundle> {
     let pubKey = usernameOrPub;
-    if (pubKey.length < 30) {
+    if (pubKey.length < 30 || pubKey.startsWith('@')) {
       pubKey = await this.getPubKeyFromUsername(usernameOrPub);
     }
     try {
@@ -414,6 +447,7 @@ export class SignalService {
 
         parsed = {
           username: data.username,
+          uniqueUsername: data.uniqueUsername,
           registrationId: parseInt(data.registrationId, 10),
           identityKey: data.identityKey,
           signedPreKey: spk,

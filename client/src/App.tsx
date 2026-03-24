@@ -41,6 +41,7 @@ const ProfileSettings: React.FC<{
   onClose: () => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
   currentNick: string;
+  currentUniqueUsername: string;
   currentAvatar: string | null;
 }> = ({
   db,
@@ -48,9 +49,11 @@ const ProfileSettings: React.FC<{
   onClose,
   showNotification,
   currentNick,
+  currentUniqueUsername,
   currentAvatar,
 }) => {
   const [nick, setNick] = useState(currentNick);
+  const [uniqueName, setUniqueName] = useState(currentUniqueUsername);
   const [keys, setKeys] = useState("");
   const [showKeys, setShowKeys] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
@@ -139,10 +142,45 @@ const ProfileSettings: React.FC<{
         await db.Put(`signal_global_nicknames/${nick}`, pub);
         await db.userPut("profile/nickname", nick);
         showNotification("Nickname updated", "info");
-        onClose();
       }
     } catch (e) {
       showNotification("Failed to save nickname", "error");
+    }
+  };
+
+  const handleSaveUniqueUsername = async () => {
+    if (!uniqueName || uniqueName === currentUniqueUsername) return;
+    const pub = db.getUserPub();
+    if (!pub) return;
+
+    // Ensure it starts with @
+    let normalized = uniqueName.trim();
+    if (!normalized.startsWith("@")) normalized = `@${normalized}`;
+    
+    // Check format: @name1234 (at least one letter and some numbers)
+    if (!/^@[a-zA-Z0-9]+$/.test(normalized)) {
+      showNotification("Username must be @name1234 format", "error");
+      return;
+    }
+
+    // Check uniqueness
+    try {
+      let takenPub: any = undefined;
+      try {
+        takenPub = await db.Get(`signal_unique_usernames/${normalized}`);
+      } catch (e: any) {
+        // Not found
+      }
+
+      if (takenPub && typeof takenPub === "string" && takenPub !== pub) {
+        showNotification("Unique username already taken", "error");
+      } else {
+        await db.Put(`signal_unique_usernames/${normalized}`, pub);
+        await db.userPut("profile/uniqueUsername", normalized);
+        showNotification("Unique username updated", "info");
+      }
+    } catch (e) {
+      showNotification("Failed to save unique username", "error");
     }
   };
 
@@ -171,7 +209,7 @@ const ProfileSettings: React.FC<{
         </div>
 
         <div className="profile-section">
-          <label>Display Nickname</label>
+          <label>Display Nickname (Alias)</label>
           <div className="profile-input-group">
             <input
               value={nick}
@@ -184,6 +222,24 @@ const ProfileSettings: React.FC<{
               className="btn btn--primary profile-btn"
             >
               Update Nickname
+            </button>
+          </div>
+        </div>
+
+        <div className="profile-section">
+          <label>Unique Username (e.g. @name1877)</label>
+          <div className="profile-input-group">
+            <input
+              value={uniqueName}
+              onChange={(e) => setUniqueName(e.target.value)}
+              placeholder="@username1234"
+              className="login-input profile-input"
+            />
+            <button
+              onClick={handleSaveUniqueUsername}
+              className="btn btn--primary profile-btn"
+            >
+              Update Username
             </button>
           </div>
         </div>
@@ -292,8 +348,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [showProfile, setShowProfile] = useState(false);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userNick, setUserNick] = useState<string>("");
+  const [userUniqueUsername, setUserUniqueUsername] = useState<string>("");
   const [contactProfiles, setContactProfiles] = useState<
-    Record<string, { avatar?: string; nickname?: string }>
+    Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>
   >({});
   const [contactErrors, setContactErrors] = useState<Record<string, boolean>>(
     {},
@@ -436,9 +493,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         "nick_self",
       );
 
+      db.On(
+        `~${pub}/profile/uniqueUsername`,
+        (data: any) => {
+          if (typeof data === "string") setUserUniqueUsername(data);
+        },
+        "unique_self",
+      );
+
       return () => {
         db.Off("avatar_self");
         db.Off("nick_self");
+        db.Off("unique_self");
       };
     }
   }, [isLoggedIn, username, db]);
@@ -450,7 +516,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       try {
         let cPub = contactUser;
         // If it's a short string, it's an alias. Otherwise, it's a 88-char pubkey
-        if (contactUser.length < 43) {
+        if (contactUser.length < 43 || contactUser.startsWith("@")) {
           cPub = await signalService.getPubKeyFromUsername(contactUser);
         }
 
@@ -480,6 +546,19 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             },
             `nick_${cPub}`,
           );
+
+          db.On(
+            `~${cPub}/profile/uniqueUsername`,
+            (data: any) => {
+              if (typeof data === "string") {
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactUser]: { ...prev[contactUser], uniqueUsername: data },
+                }));
+              }
+            },
+            `unique_${cPub}`,
+          );
         }
       } catch (e) {
         // ignore
@@ -494,8 +573,32 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       if (isLoggedIn && username) {
         setIsLoading(true);
         try {
+          // 1. Fetch or generate uniqueUsername
+          let uniqueName: string | undefined;
+          try {
+            uniqueName = (await db.userGet("profile/uniqueUsername")) as string;
+          } catch (e: any) {
+            if (e && e.err !== "notfound") {
+              throw e;
+            }
+          }
+
+          if (!uniqueName) {
+            // Generate a default one: @name + 4 random digits
+            const digits = Math.floor(1000 + Math.random() * 9000);
+            uniqueName = `@${username}${digits}`;
+            
+            // Try to save it, but don't block if it fails (uniqueness check will happen in Profile)
+            await db.userPut("profile/uniqueUsername", uniqueName);
+            const pub = db.getUserPub();
+            if (pub) {
+              await db.Put(`signal_unique_usernames/${uniqueName}`, pub);
+            }
+          }
+          setUserUniqueUsername(uniqueName);
+
           const service = new SignalService(db);
-          await service.initSession(username);
+          await service.initSession(username, uniqueName);
           setSignalService(service);
           showNotification(`Welcome, ${username}! Signal session ready.`);
         } catch (e) {
@@ -510,7 +613,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
     };
     initSignalSession();
-  }, [isLoggedIn, username]);
+  }, [isLoggedIn, username, db]);
 
   // Auto-scroll messages to bottom
   useEffect(() => {
@@ -1405,7 +1508,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
                 try {
                   let pubKey = name;
-                  if (name.length < 30) {
+                  if (name.length < 30 || name.startsWith("@")) {
                     pubKey = await signalService.getPubKeyFromUsername(name);
                   }
 
@@ -1433,6 +1536,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           db={db}
           username={username || ""}
           currentNick={userNick || username || ""}
+          currentUniqueUsername={userUniqueUsername}
           currentAvatar={userAvatar}
           showNotification={showNotification}
           onClose={() => setShowProfile(false)}
