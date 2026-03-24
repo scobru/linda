@@ -14,13 +14,14 @@ import { Direction } from '@privacyresearch/libsignal-protocol-typescript';
  */
 export class SignalStore implements StorageType {
   private store: Map<string, any> = new Map();
-  private readonly vaultKey = 'signal_v3_vault';
+  private readonly vaultKey: string;
   private readonly legacyPrefix = 'signal_';
   private readonly dbName = 'SignalStoreDB';
   private readonly storeName = 'vaults';
   private db: IDBDatabase | null = null;
 
-  constructor() {
+  constructor(userPub: string = "default") {
+    this.vaultKey = userPub === "default" ? "signal_v3_vault" : `signal_v3_vault_${userPub}`;
     // Eager initialization is handled via `init()`, which should be called
     // right after construction.
   }

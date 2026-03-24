@@ -69,7 +69,7 @@ export class SignalService {
   constructor(db: DataBase) {
     this.db = db;
     // The store eagerly loads from localStorage in its constructor
-    this.store = new SignalStore();
+    this.store = new SignalStore(db.getUserPub() || "default");
   }
 
   public get initialized(): boolean {
