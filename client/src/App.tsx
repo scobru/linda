@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { SignalService } from "./SignalService";
+import { GroupService, type GroupInfo } from "./GroupService";
+import { GroupSettings } from "./components/GroupSettings";
+import { GroupCreationModal } from "./components/GroupCreationModal";
 import Gun from "gun";
 import "gun/sea";
 import { DataBase, ShogunCore } from "shogun-core";
@@ -340,6 +343,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [signalService, setSignalService] = useState<SignalService | null>(
     null,
   );
+  const [groupService, setGroupService] = useState<GroupService | null>(null);
+  const [showGroupSettings, setShowGroupSettings] = useState<string | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [notification, setNotification] = useState<{
     msg: string;
     type: "info" | "error";
@@ -512,58 +518,74 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   useEffect(() => {
     if (!signalService || contacts.length === 0) return;
 
-    contacts.forEach(async (contactUser) => {
+    contacts.forEach(async (contactId) => {
       try {
-        let cPub = contactUser;
-        // If it's a short string, it's an alias. Otherwise, it's a 88-char pubkey
-        if (contactUser.length < 43 || contactUser.startsWith("@")) {
-          cPub = await signalService.getPubKeyFromUsername(contactUser);
-        }
-
-        if (cPub) {
+        const isGroup = contactId.includes("-");
+        
+        if (isGroup) {
+          // Listen to group metadata
           db.On(
-            `~${cPub}/profile/avatar`,
+            `signal_rooms/${contactId}/meta`,
             (data: any) => {
-              if (typeof data === "string") {
+              if (data && typeof data === "object") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], avatar: data },
+                  [contactId]: { 
+                    ...prev[contactId], 
+                    nickname: data.name, 
+                    avatar: data.avatar 
+                  },
                 }));
               }
             },
-            `avatar_${cPub}`,
+            `group_meta_${contactId}`
           );
+        } else {
+          // Regular user profile listeners
+          let cPub = contactId;
+          if (contactId.length < 43 || contactId.startsWith("@")) {
+            cPub = await signalService.getPubKeyFromUsername(contactId);
+          }
 
-          db.On(
-            `~${cPub}/profile/nickname`,
-            (data: any) => {
+          if (cPub) {
+            db.On(`~${cPub}/profile/avatar`, (data: any) => {
               if (typeof data === "string") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], nickname: data },
+                  [contactId]: { ...prev[contactId], avatar: data },
                 }));
               }
-            },
-            `nick_${cPub}`,
-          );
+            }, `avatar_${cPub}`);
 
-          db.On(
-            `~${cPub}/profile/uniqueUsername`,
-            (data: any) => {
+            db.On(`~${cPub}/profile/nickname`, (data: any) => {
               if (typeof data === "string") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], uniqueUsername: data },
+                  [contactId]: { ...prev[contactId], nickname: data },
                 }));
               }
-            },
-            `unique_${cPub}`,
-          );
+            }, `nick_${cPub}`);
+
+            db.On(`~${cPub}/profile/uniqueUsername`, (data: any) => {
+              if (typeof data === "string") {
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactId]: { ...prev[contactId], uniqueUsername: data },
+                }));
+              }
+            }, `unique_${cPub}`);
+          }
         }
       } catch (e) {
         // ignore
       }
     });
+
+    return () => {
+      contacts.forEach(c => {
+        if (c.includes("-")) db.Off(`group_meta_${c}`);
+      });
+    }
   }, [contacts, signalService, db.gun]);
 
   // ── Session Initialization ──────────────────────────────────────
@@ -600,6 +622,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           const service = new SignalService(db);
           await service.initSession(username, uniqueName);
           setSignalService(service);
+          
+          const gService = new GroupService(db);
+          setGroupService(gService);
           showNotification(`Welcome, ${username}! Signal session ready.`);
         } catch (e) {
           console.error("[App] Signal session initialization failed:", e);
@@ -666,12 +691,120 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── GunDB inbox listener ──────────────────────────────────────
 
+  const saveContact = (contactId: string) => {
+    if (!userPub || !db.gun) return;
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true);
+  };
+
+  const removeContact = (contactId: string) => {
+    if (!userPub || !db.gun) return;
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(null as any);
+  };
+
   useEffect(() => {
-    if (!isLoggedIn || !username || !signalService || !userPub) return;
+    if (!isLoggedIn || !userPub) return;
 
     // Load saved chat history and processed keys
     loadSavedMessages(userPub);
     loadProcessedKeys(userPub);
+
+    // Listen for contacts and groups from GunDB
+    db.gun
+      .get(`signal_v3_contacts_${userPub}`)
+      .map()
+      .on((data: any, contactId: string) => {
+        if (data === true) {
+          setContacts((prev) => (prev.includes(contactId) ? prev : [...prev, contactId]));
+        } else if (data === null) {
+          setContacts((prev) => prev.filter(c => c !== contactId));
+        }
+      });
+  }, [isLoggedIn, userPub]);
+
+  // ── Group message listeners ───────────────────────────────────
+  const groupSubscriptionsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!isLoggedIn || !groupService || contacts.length === 0) return;
+
+    contacts.forEach(async (contactId) => {
+      // Simple heuristic for group UUIDs
+      if (!contactId.includes("-") || groupSubscriptionsRef.current.has(contactId)) return;
+      
+      groupSubscriptionsRef.current.add(contactId);
+      
+      try {
+        const meta = await (db.Get as any)(`signal_rooms/${contactId}/meta`) as GroupInfo;
+        if (!meta || !meta.secret) return;
+
+        db.gun
+          .get(`signal_rooms/${contactId}/messages`)
+          .map()
+          .on(async (data: any, gunKey: string) => {
+            if (!data || typeof data !== "object" || !data.body || !data.sender) return;
+            if (processedRef.current.has(gunKey)) return;
+            if (userPub) saveProcessedKey(userPub, gunKey);
+
+            try {
+              const plaintext = await groupService.decryptGroupMessage(meta.secret, data.body);
+              const isMe = data.sender === userPub;
+              const remoteMsgId = data.msgId || gunKey;
+
+              setMessages((prev) => {
+                const groupMsgs = prev[contactId] || [];
+                // Check if message already exists by ID
+                if (groupMsgs.some(m => m.id === remoteMsgId)) return prev;
+
+                const updatedMessages = [
+                  ...groupMsgs,
+                  {
+                    id: remoteMsgId,
+                    sender: isMe ? "Me" : data.sender,
+                    text: plaintext,
+                    timestamp: new Date(data.timestamp || Date.now()),
+                    status: "delivered" as const,
+                  },
+                ];
+
+                const updated = {
+                  ...prev,
+                  [contactId]: updatedMessages,
+                };
+                if (userPub) saveMessages(userPub, updated);
+                return updated;
+              });
+
+              // Add to contacts if not already there
+              setContacts((prev) => {
+                const exists = prev.includes(contactId);
+                if (!exists) {
+                   saveContact(contactId);
+                   return [...prev, contactId];
+                }
+                return prev;
+              });
+              
+              // Notification for group message
+              if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
+                new Notification(`New message in ${meta.name}`, {
+                  body: plaintext.substring(0, 50),
+                  icon: meta.avatar || "/logo.svg"
+                });
+              }
+            } catch (e) {
+              console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
+            }
+          });
+      } catch (err) {
+        console.warn(`[Groups] Failed to start listener for ${contactId}:`, err);
+      }
+    });
+  }, [contacts, isLoggedIn, groupService, db.gun]);
+
+  // ── GunDB inbox listener ──────────────────────────────────────
+
+  useEffect(() => {
+    if (!isLoggedIn || !username || !signalService || !userPub) return;
 
     // Record the time the app started listening to avoid healing for old history
     const sessionStartTime = Date.now();
@@ -950,21 +1083,26 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Send message & typing ─────────────────────────────────────
 
   const handleTyping = async () => {
-    if (!recipient || !userPub || !signalService) return;
+    if (!recipient || !userPub || !signalService || !groupService) return;
     const now = Date.now();
 
     // Throttle typing updates to once every 3 seconds to prevent HAM flooding
     if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
       try {
-        let recipientPub = recipient;
-        if (recipient.length < 30) {
-          recipientPub = await signalService.getPubKeyFromUsername(recipient);
+        const isGroup = recipient.includes("-");
+        let path = `signal_v2_typing_${recipient}`;
+        
+        if (!isGroup) {
+          const recipientPub = recipient.length < 30 || recipient.startsWith("@")
+            ? await signalService.getPubKeyFromUsername(recipient)
+            : recipient;
+          path = `signal_v2_typing_${recipientPub}`;
         }
 
         // Ensure we are putting an object, never a primitive, to avoid graph corruption
         db.gun
-          .get(`signal_v2_typing_${recipientPub}`)
+          .get(path)
           .get(userPub)
           .put({
             typing: true,
@@ -979,51 +1117,70 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   };
 
   const handleSendMessage = async () => {
-    if (!recipient || !message || !signalService || !userPub) return;
+    if (!recipient || !message || !signalService || !userPub || !groupService) return;
 
     try {
+      const isGroup = recipient.includes("-");
       let ciphertext: any;
-      try {
-        ciphertext = await signalService.encryptMessage(recipient, message);
-      } catch (encryptErr: any) {
-        if (!resetsRef.current.has(recipient)) {
-          resetsRef.current.add(recipient);
-          console.warn(
-            "Encrypt failed, attempting session auto-heal...",
-            encryptErr,
-          );
-          await signalService.resetSession(recipient);
-          // Retry encrypt with fresh session
+      let msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
+
+      if (isGroup) {
+        // Group Encryption
+        const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`) as GroupInfo;
+        if (!meta) throw new Error("Group meta not found");
+        
+        ciphertext = await groupService.encryptGroupMessage(meta.secret, message);
+
+        await db.Set(`signal_rooms/${recipient}/messages`, {
+          msgId,
+          sender: userPub,
+          body: ciphertext,
+          timestamp: new Date().toISOString(),
+          type: 'group'
+        } as any);
+      } else {
+        // Signal 1:1 Encryption
+        try {
           ciphertext = await signalService.encryptMessage(recipient, message);
-        } else {
-          throw encryptErr;
+        } catch (encryptErr: any) {
+          if (!resetsRef.current.has(recipient)) {
+            resetsRef.current.add(recipient);
+            console.warn(
+              "Encrypt failed, attempting session auto-heal...",
+              encryptErr,
+            );
+            await signalService.resetSession(recipient);
+            // Retry encrypt with fresh session
+            ciphertext = await signalService.encryptMessage(recipient, message);
+          } else {
+            throw encryptErr;
+          }
         }
+
+        const recipientPubKey = recipient.length < 30 || recipient.startsWith("@")
+          ? await signalService.getPubKeyFromUsername(recipient)
+          : recipient;
+
+        await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
+          msgId,
+          sender: userPub,
+          type: ciphertext.type,
+          body: ciphertext.body,
+          timestamp: new Date().toISOString(),
+        } as any);
       }
 
       // SUCCESS: Clear any persistent session error for this contact
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
 
-      const recipientPubKey =
-        await signalService.getPubKeyFromUsername(recipient);
-
-      // Generate unique ID for message
-      const msgId = crypto.randomUUID
-        ? crypto.randomUUID()
-        : Date.now().toString() + generateSecureRandomString(10);
-
-      await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
-        msgId,
-        sender: userPub,
-        type: ciphertext.type,
-        body: ciphertext.body,
-        timestamp: new Date().toISOString(),
-      } as any);
-
       setMessages((prev) => {
+        const groupMsgs = prev[recipient] || [];
+        if (groupMsgs.some((m) => m.id === msgId)) return prev;
+
         const updated = {
           ...prev,
           [recipient]: [
-            ...(prev[recipient] || []),
+            ...groupMsgs,
             {
               id: msgId,
               sender: "Me",
@@ -1037,21 +1194,20 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         return updated;
       });
 
-      setContacts((prev) =>
-        prev.includes(recipient) ? prev : [...prev, recipient],
-      );
+      setContacts((prev) => {
+        if (!prev.includes(recipient)) {
+          saveContact(recipient);
+          return [...prev, recipient];
+        }
+        return prev;
+      });
       setMessage("");
-    } catch (e: any) {
-      console.error("Send failed:", e);
-      if (
-        e.message.indexOf("MAC") !== -1 ||
-        e.message.indexOf("Session") !== -1 ||
-        e.message.indexOf("decrypt") !== -1 ||
-        e.message.indexOf("Identity") !== -1
-      ) {
-        setContactErrors((prev) => ({ ...prev, [recipient]: true }));
-      }
-      showNotification(`Send failed: ${e.message}`, "error");
+    } catch (err: any) {
+      console.error("Send failed:", err);
+      showNotification(
+        "Failed to send message: " + (err.message || "Unknown error"),
+        "error",
+      );
     }
   };
 
@@ -1283,7 +1439,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
 
     // Remove from UI
-    setContacts((prev) => prev.filter((c) => c !== contactKey));
+    setContacts((prev) => {
+       const next = prev.filter((c) => c !== contactKey);
+       removeContact(contactKey);
+       return next;
+    });
     if (recipient === contactKey) {
       setRecipient("");
     }
@@ -1402,6 +1562,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
         <div className="sidebar-header">
           <span className="sidebar-title">Conversations</span>
+          <div className="sidebar-header-actions">
+            <button 
+              className="btn-icon" 
+              onClick={() => setShowCreateGroup(true)}
+              title="Create New Group"
+            >
+              ＋
+            </button>
+          </div>
         </div>
 
         <div className="contact-list">
@@ -1491,11 +1660,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         <div className="add-contact-wrapper">
           <input
             className="add-contact-input"
-            placeholder="＋ Add contact..."
+            placeholder="＋ Add contact or join group..."
             onKeyDown={async (e: any) => {
               if (e.key === "Enter" && e.target.value.trim()) {
-                if (!signalService) {
-                  showNotification("Signal service not ready", "error");
+                if (!signalService || !groupService) {
+                  showNotification("Services not ready", "error");
                   return;
                 }
                 const name = e.target.value.trim();
@@ -1507,16 +1676,35 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 target.value = "";
 
                 try {
+                  // Check if it's a group invite (base64 and contains group info)
+                  if (name.length > 50 && !name.startsWith("@")) {
+                    try {
+                      const groupInfo = await groupService.joinGroup(name);
+                      setContacts((prev) =>
+                        prev.includes(groupInfo.id) ? prev : [...prev, groupInfo.id],
+                      );
+                      setRecipient(groupInfo.id);
+                      showNotification(`Joined group: ${groupInfo.name}`, "info");
+                      return;
+                    } catch (ge) {
+                      // Not a group invite or join failed, continue as normal contact
+                    }
+                  }
+
                   let pubKey = name;
                   if (name.length < 30 || name.startsWith("@")) {
                     pubKey = await signalService.getPubKeyFromUsername(name);
                   }
 
-                  // Always store contact by PubKey for internal consistency
-                  setContacts((prev) =>
-                    prev.includes(pubKey) ? prev : [...prev, pubKey],
-                  );
-                  setRecipient(pubKey);
+                    // Always store contact by PubKey for internal consistency
+                    setContacts((prev) => {
+                      if (!prev.includes(pubKey)) {
+                         saveContact(pubKey);
+                         return [...prev, pubKey];
+                      }
+                      return prev;
+                    });
+                    setRecipient(pubKey);
                 } catch (err: any) {
                   console.error(err);
                   showNotification(`User not found: ${name}`, "error");
@@ -1540,6 +1728,34 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           currentAvatar={userAvatar}
           showNotification={showNotification}
           onClose={() => setShowProfile(false)}
+        />
+      )}
+
+      {showGroupSettings && groupService && (
+        <GroupSettings
+          groupId={showGroupSettings}
+          groupService={groupService}
+          db={db}
+          onClose={() => setShowGroupSettings(null)}
+          showNotification={showNotification}
+        />
+      )}
+
+      {showCreateGroup && groupService && (
+        <GroupCreationModal
+          groupService={groupService}
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={(groupId) => {
+            setContacts((prev) => {
+              if (!prev.includes(groupId)) {
+                 saveContact(groupId);
+                 return [...prev, groupId];
+              }
+              return prev;
+            });
+            setRecipient(groupId);
+          }}
+          showNotification={showNotification}
         />
       )}
 
@@ -1574,10 +1790,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               <div className="chat-header-info">
                 <h3 className="chat-header-name">
                   {contactProfiles[recipient]?.nickname ||
-                    (recipient.length > 15
+                    (recipient.length > 36 && recipient.includes("-") ? "Loading group..." : (recipient.length > 15
                       ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}`
-                      : recipient)}
+                      : recipient))}
                 </h3>
+                {recipient.includes("-") && (
+                   <span className="role-badge role-peer" style={{ marginLeft: "8px", verticalAlign: "middle", fontSize: "0.6em" }}>GROUP</span>
+                )}
                 {typingStatuses[recipient] &&
                 Date.now() - typingStatuses[recipient] <= 3000 ? (
                   <div className="typing-indicator">typing</div>
@@ -1596,6 +1815,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   </div>
                 )}
               </div>
+              
+              {/* Group Settings Button */}
+              {recipient.includes("-") && ( // Simple heuristic for UUID (groups)
+                <button 
+                  onClick={() => setShowGroupSettings(recipient)}
+                  className="tab-btn"
+                  style={{ marginLeft: "auto", marginRight: "12px" }}
+                >
+                  ⚙️ Group Settings
+                </button>
+              )}
+
               {contactErrors[recipient] && (
                 <button
                   onClick={handleManualReset}
