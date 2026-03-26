@@ -11,7 +11,7 @@ interface SidebarProps {
   setRecipient: (id: string) => void;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   unreadCounts: Record<string, number>;
-  handleDeleteContact: (id: string, e: React.MouseEvent) => void;
+  handleDeleteContact: (id: string, e: React.MouseEvent) => Promise<void>;
   setShowCreateGroup: (show: boolean) => void;
   signalService: any;
   groupService: any;
@@ -137,7 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     e.stopPropagation(); 
                     handleDeleteContact(c, e); 
                   }}
-                  className="btn btn-ghost btn-circle btn-xs opacity-0 group-hover:opacity-40 hover:!opacity-100 hover:text-error transition-all"
+                  className="btn btn-ghost btn-circle btn-xs opacity-20 group-hover:opacity-100 hover:!text-error transition-all"
                   title="Delete chat"
                 >
                   ✕

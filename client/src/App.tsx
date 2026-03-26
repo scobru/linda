@@ -157,12 +157,27 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   };
 
-  const handleDeleteContact = (contactKey: string, e: React.MouseEvent) => {
+  const handleDeleteContact = async (contactKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
-    if (!window.confirm("Delete this contact and all history?")) return;
+    if (!window.confirm("Delete this conversation and all history?")) return;
+    
+    // If it's a group, we should leave it in GunDB too
+    const isGroup = contactKey.length === 36 && contactKey.includes("-");
+    if (isGroup && groupService) {
+      try {
+        await groupService.leaveGroup(contactKey);
+      } catch (err) {
+        console.warn("Failed to leave group during deletion:", err);
+      }
+    }
+
     setContacts(prev => prev.filter(c => c !== contactKey));
     removeContact(contactKey);
-    if (recipient === contactKey) setRecipient("");
+    if (recipient === contactKey) {
+       setRecipient("");
+       navigate("/");
+    }
     setMessages(prev => {
       const next = { ...prev };
       delete next[contactKey];
@@ -174,7 +189,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       delete next[contactKey];
       return next;
     });
-    showNotification("Contact deleted", "info");
+    showNotification(isGroup ? "Group removed" : "Conversation deleted", "info");
   };
 
   const handleManualReset = async () => {
