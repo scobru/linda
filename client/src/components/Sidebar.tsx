@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col h-full bg-base-200 border-r border-white/5 w-80 lg:w-96 min-h-full transition-all">
+    <div className="flex flex-col h-full bg-base-200/80 backdrop-blur-xl border-r border-white/5 w-full h-full transition-all overflow-hidden shadow-2xl">
       {/* User info Header */}
       <div className="p-4 flex items-center justify-between border-b border-white/5 bg-base-300/30">
         <div
@@ -101,8 +101,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavLink
                 to={`/chat/${c}`}
                 className={({ isActive }) => 
-                  `flex items-center p-3 gap-3 rounded-lg transition-all ${
-                    isActive ? "bg-primary/20 text-primary-content" : "hover:bg-primary/10 active:scale-[0.98]"
+                  `flex items-center p-3 sm:p-4 gap-3 rounded-2xl transition-all ${
+                    isActive ? "bg-primary/15 text-primary-content shadow-inner border border-white/5" : "hover:bg-white/5 active:scale-[0.98]"
                   }`
                 }
                 onClick={requestNotifications}
@@ -148,8 +148,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </ul>
       </div>
 
-      <div className="p-4 bg-base-300/20">
-        <label className="input input-sm h-10 w-full bg-base-200 border-white/5 flex items-center gap-2 focus-within:border-primary/50 transition-colors">
+      <div className="p-4 sm:p-6 bg-base-300/40 backdrop-blur-md border-t border-white/5">
+        <label className="input input-sm h-11 w-full bg-base-100/50 border-white/10 flex items-center gap-3 focus-within:ring-2 focus-within:ring-primary/30 transition-all rounded-xl">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 opacity-70"><path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" /></svg>
           <input
             type="text"

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { getInitial } from "../utils/ui";
 
 interface Message {
@@ -55,6 +56,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handleDeleteMessage,
   setShowGroupSettings,
 }) => {
+  const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentMessages = useMemo(() => messages[recipient] || [], [messages, recipient]);
@@ -88,19 +90,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
   return (
     <div className="flex flex-col h-full bg-base-100 overflow-hidden relative">
       {/* Header */}
-      <div className="navbar bg-base-100/80 backdrop-blur-md border-b border-white/5 h-16 shrink-0 px-4 gap-3 z-10">
+      <div className="navbar bg-base-100/60 backdrop-blur-xl border-b border-white/5 h-16 shrink-0 px-4 gap-3 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
-            className="btn btn-ghost btn-circle btn-sm"
-            onClick={() => setRecipient("")}
+            className="btn btn-ghost btn-circle btn-sm shadow-sm bg-base-200/80 border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0"
+            onClick={() => { setRecipient(""); navigate("/"); }}
             aria-label="Back"
           >
-            ←
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
           </button>
         </div>
         
-        <div className="avatar hidden sm:block">
-          <div className="w-10 rounded-full border border-white/10">
+        <div className="avatar">
+          <div className="w-10 rounded-full border border-white/10 ring-1 ring-primary/20">
             {contactProfiles[recipient]?.avatar ? (
               <img src={contactProfiles[recipient].avatar} alt={recipient} />
             ) : (
@@ -217,7 +221,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {!isMe && <span>{msgNick}</span>}
               </div>
 
-              <div className={`chat-bubble shadow-lg border border-white/5 min-h-[44px] flex items-center relative group ${isMe ? "chat-bubble-primary " : "chat-bubble-neutral"}`}>
+              <div className={`chat-bubble shadow-xl border border-white/10 min-h-[44px] flex items-center relative group p-3 sm:p-4 rounded-2xl ${isMe ? "chat-bubble-primary text-primary-content" : "chat-bubble-neutral"}`}>
                 {isPinned && <span className="absolute -top-2 -right-1 text-xs drop-shadow-md">📌</span>}
                 <div className="py-1">{msg.text}</div>
 
@@ -273,12 +277,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       {/* Input Area */}
-      <div className="p-4 h-24 bg-base-100/50 backdrop-blur-sm border-t border-white/5 flex items-center gap-3 shrink-0">
-        <label className="input input-bordered grow focus-within:border-primary flex items-center gap-3 h-12 bg-base-200/50">
+      <div className="p-4 pb-8 sm:p-6 bg-base-100/60 backdrop-blur-lg border-t border-white/5 flex items-center gap-3 shrink-0">
+        <label className="input input-bordered grow focus-within:ring-2 focus-within:ring-primary/40 focus-within:border-primary/50 flex items-center gap-3 h-12 bg-base-200/50 rounded-2xl border-white/5 transition-all">
           <input
             type="text"
             className="grow"
-            placeholder="Write a message..."
+            placeholder="Type a secure message..."
             value={message}
             onChange={(e) => {
               setMessage(e.target.value);
@@ -288,7 +292,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           />
         </label>
         <button 
-          className="btn btn-primary btn-circle h-12 w-12 shadow-lg shadow-primary/20" 
+          className="btn btn-primary btn-circle h-12 w-12 shadow-2xl shadow-primary/30 transition-all active:scale-95" 
           onClick={handleSendMessage}
           disabled={!message.trim()}
         >

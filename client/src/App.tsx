@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
-import { GroupSettings } from "./components/GroupSettings";
+import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationModal } from "./components/GroupCreationModal";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
@@ -77,7 +77,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     const chatMatch = location.pathname.match(/\/chat\/([^\/]+)/);
     const idFromRoute = chatMatch ? chatMatch[1] : "";
     if (idFromRoute !== recipient) setRecipient(idFromRoute);
-  }, [location.pathname, recipient]);
+  }, [location.pathname]);
 
   const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
@@ -207,7 +207,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   };
 
-  const [showGroupSettings, setShowGroupSettings] = useState<string | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   // Helper functions for ChatView
@@ -255,18 +254,19 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Loading screen ─────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="hero min-h-screen bg-base-100">
-        <div className="hero-content text-center">
-          <div className="max-w-md">
-            <div className="avatar mb-8">
-              <div className="w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2 shadow-xl">
-                <img src="/logo.svg" alt="Linda Logo" />
+      <div className="hero min-h-screen bg-base-100 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-secondary/5 opacity-50"></div>
+        <div className="hero-content text-center z-10">
+          <div className="max-w-md flex flex-col items-center">
+            <div className="avatar mb-10">
+              <div className="w-28 rounded-full ring ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl shadow-primary/20 bg-base-200/50 backdrop-blur-md p-6">
+                <img src="/logo.svg" alt="Linda Logo" className="animate-pulse" />
               </div>
             </div>
-            <h1 className="text-5xl font-bold text-primary mb-4">Linda</h1>
-            <div className="flex flex-col items-center gap-4">
+            <h1 className="text-5xl font-black text-primary mb-6 tracking-tighter">Linda</h1>
+            <div className="flex flex-col items-center gap-6 p-8 bg-base-200/40 backdrop-blur-xl rounded-[2rem] border border-white/5 shadow-2xl">
               <span className="loading loading-spinner loading-lg text-primary"></span>
-              <p className="text-lg opacity-70">Initializing secure session</p>
+              <p className="text-sm font-black uppercase tracking-[0.3em] opacity-40">Initializing secure session</p>
             </div>
           </div>
         </div>
@@ -277,31 +277,32 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Login screen ──────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
-      <div className="hero min-h-screen bg-base-100">
-        <div className="hero-content flex-col lg:flex-row-reverse gap-12">
+      <div className="hero min-h-screen bg-base-100 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03]"></div>
+        <div className="hero-content flex-col lg:flex-row-reverse gap-12 lg:gap-24 z-10 px-6">
           <div className="text-center lg:text-left max-w-lg">
-            <h1 className="text-6xl font-black text-primary mb-6">Linda</h1>
-            <p className="py-6 text-xl opacity-80 leading-relaxed">
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-primary mb-8 tracking-tightest">Linda</h1>
+            <p className="py-6 text-xl sm:text-2xl opacity-80 leading-relaxed font-medium">
               The next generation of private messaging.<br />
-              Secure. Decentralized. Premium.
+              <span className="text-primary font-bold">Secure. Decentralized. Premium.</span>
             </p>
-            <div className="stats shadow bg-base-200 mt-4">
-              <div className="stat">
-                <div className="stat-title">Privacy</div>
-                <div className="stat-value text-primary text-2xl">End-to-End</div>
+            <div className="grid grid-cols-2 gap-4 mt-8">
+              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
+                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-primary">Privacy</div>
+                <div className="text-xl font-bold">End-to-End</div>
               </div>
-              <div className="stat">
-                <div className="stat-title">Storage</div>
-                <div className="stat-value text-secondary text-2xl">Local-First</div>
+              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
+                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-secondary">Storage</div>
+                <div className="text-xl font-bold">Local-First</div>
               </div>
             </div>
           </div>
           
-          <div className="card shrink-0 w-full max-w-sm shadow-2xl bg-base-200 border border-white/5">
-            <div className="card-body gap-8">
+          <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] overflow-hidden">
+            <div className="card-body p-10 gap-10">
               <div className="flex justify-center">
                 <div className="avatar">
-                  <div className="w-20 rounded-full bg-base-300 p-4 border-2 border-primary/20">
+                  <div className="w-24 rounded-full bg-base-300/50 p-6 border-2 border-primary/20 shadow-inner">
                     <img src="/logo.svg" alt="Logo" />
                   </div>
                 </div>
@@ -311,19 +312,19 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 <ShogunButton />
               </div>
               
-              <div className="divider opacity-50 text-xs">COMMUNITY</div>
+              <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">ECOSYSTEM</div>
               
               <div className="grid grid-cols-3 gap-2">
-                <a href="https://github.com/scobru/shogun-linda" target="_blank" className="btn btn-ghost btn-xs">GitHub</a>
-                <a href="https://shogun-eco.xyz" target="_blank" className="btn btn-ghost btn-xs">Web</a>
-                <a href="https://t.me/shogun_eco" target="_blank" className="btn btn-ghost btn-xs">TG</a>
+                <a href="https://github.com/scobru/shogun-linda" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">GitHub</a>
+                <a href="https://shogun-eco.xyz" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">Web</a>
+                <a href="https://t.me/shogun_eco" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">Telegram</a>
               </div>
             </div>
           </div>
         </div>
         
-        <div className="absolute bottom-4 text-xs opacity-30">
-          Built with ❤️ by Scobru
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[10px] font-black tracking-widest opacity-20 uppercase">
+          Crafted by Scobru &copy; 2026
         </div>
 
         {notification && (
@@ -357,7 +358,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               userNick={userNick} username={username || ""} message={message} setMessage={setMessage}
               handleSendMessage={handleSendMessage} handleTyping={handleTyping} handleManualReset={handleManualReset}
               handlePinMessage={handlePinMessage} handleReportMessage={handleReportMessage} handleDeleteMessage={handleDeleteMessage}
-              setShowGroupSettings={setShowGroupSettings}
+              setShowGroupSettings={(id) => id ? navigate(`/chat/${id}/settings`) : null}
             />
           } />
           <Route path="/chat/:id" element={
@@ -385,7 +386,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               handlePinMessage={handlePinMessage}
               handleReportMessage={handleReportMessage}
               handleDeleteMessage={handleDeleteMessage}
-              setShowGroupSettings={setShowGroupSettings}
+              setShowGroupSettings={(id) => id ? navigate(`/chat/${id}/settings`) : null}
             />
           } />
           <Route path="/profile" element={
@@ -396,6 +397,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             />
           } />
           <Route path="/settings" element={<Settings showNotification={showNotification} />} />
+          <Route path="/chat/:id/settings" element={<GroupSettingsPage groupService={groupService!} db={db} showNotification={showNotification} />} />
         </Route>
       </Routes>
       
@@ -407,7 +409,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         </div>
       )}
 
-      {showGroupSettings && groupService && <GroupSettings groupId={showGroupSettings} groupService={groupService} db={db} onClose={() => setShowGroupSettings(null)} showNotification={showNotification} />}
+      {/* {showGroupSettings && groupService && <GroupSettings groupId={showGroupSettings} groupService={groupService} db={db} onClose={() => setShowGroupSettings(null)} showNotification={showNotification} />} */}
       {showCreateGroup && groupService && (
         <GroupCreationModal
           groupService={groupService} onClose={() => setShowCreateGroup(false)}
@@ -547,19 +549,20 @@ const App: React.FC = () => {
 
   if (!coreContext || !dbInstance) {
     return (
-      <div className="hero min-h-screen bg-base-100">
-        <div className="hero-content text-center">
-          <div className="max-w-md flex flex-col items-center gap-8">
+      <div className="hero min-h-screen bg-base-100 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+        <div className="hero-content text-center z-10">
+          <div className="max-w-md flex flex-col items-center gap-10">
             <div className="avatar">
-              <div className="w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2 shadow-2xl animate-pulse">
-                <img src="/logo.svg" alt="Linda Logo" />
+              <div className="w-28 rounded-full ring ring-primary ring-offset-base-100 ring-offset-4 shadow-3xl shadow-primary/20 bg-base-200/40 backdrop-blur-md p-6">
+                <img src="/logo.svg" alt="Linda Logo" className="animate-pulse" />
               </div>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-6 p-10 bg-base-200/40 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-2xl">
               <h1 className="text-4xl font-black tracking-tighter text-primary">Linda</h1>
-              <div className="flex items-center gap-3 justify-center">
-                <span className="loading loading-infinity loading-md text-primary"></span>
-                <p className="text-lg font-bold opacity-50 uppercase tracking-widest">Bootstrapping SDK</p>
+              <div className="flex flex-col items-center gap-4 py-2">
+                <span className="loading loading-infinity loading-lg text-primary"></span>
+                <p className="text-xs font-black uppercase tracking-[0.4em] opacity-40">Bootstrapping SDK</p>
               </div>
             </div>
           </div>

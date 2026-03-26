@@ -34,43 +34,49 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
   };
 
   return (
-    <div className="p-4 lg:p-12 max-w-5xl mx-auto space-y-12 animate-fadeIn overflow-y-auto h-full">
-      <div className="flex items-center gap-6">
-        <button className="btn btn-ghost btn-circle shadow-lg bg-base-200 border-white/5" onClick={() => navigate(-1)}>
-          ←
+    <div className="p-4 sm:p-8 lg:p-12 max-w-4xl mx-auto space-y-8 sm:space-y-12 animate-fadeIn overflow-y-auto h-full">
+      <div className="flex items-center gap-4 sm:gap-6 relative z-10">
+        <button 
+          className="btn btn-ghost btn-circle shadow-xl bg-base-200/80 backdrop-blur-md border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0" 
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
         </button>
-        <h1 className="text-4xl font-black text-primary tracking-tight">Settings</h1>
+        <h1 className="text-3xl sm:text-4xl font-black text-primary tracking-tight">Settings</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-1 gap-8">
-        <div className="card bg-base-200 shadow-xl border border-white/5 overflow-visible">
-          <div className="card-body gap-6">
-            <div className="flex items-center justify-between">
+      <div className="grid grid-cols-1 gap-6 sm:gap-8">
+        <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden group hover:border-primary/20 transition-all">
+          <div className="card-body p-6 sm:p-8 gap-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="card-title text-sm font-black uppercase tracking-widest opacity-50 mb-1 text-primary">Notifications</h3>
-                <p className="text-xs opacity-60">Stay updated with new messages and group activity.</p>
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Notifications</h3>
+                <p className="text-sm opacity-70">Stay updated with new messages and group activity.</p>
               </div>
-              <button className="btn btn-outline btn-sm px-6" onClick={handleEnableNotifications}>
-                Request Permission
+              <button className="btn btn-primary btn-outline btn-sm sm:btn-md rounded-xl px-6" onClick={handleEnableNotifications}>
+                Enable Access
               </button>
             </div>
           </div>
         </div>
 
-        <div className="card bg-base-200 shadow-xl border border-white/5 overflow-visible">
-          <div className="card-body gap-6">
+        <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden group hover:border-primary/20 transition-all">
+          <div className="card-body p-6 sm:p-8 gap-6">
             <div>
-              <h3 className="card-title text-sm font-black uppercase tracking-widest opacity-50 mb-1 text-primary">Performance & Cache</h3>
-              <p className="text-xs opacity-60 mb-6">Manage how the application stores data locally.</p>
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Data & Management</h3>
+              <p className="text-sm opacity-70 mb-6">Manage how the application stores data locally.</p>
               
               <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between p-4 bg-base-300 rounded-2xl border border-white/5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-base-300/50 rounded-2xl border border-white/5 gap-4">
                   <div>
                     <div className="text-sm font-bold">Hard Reset</div>
-                    <div className="text-[10px] opacity-40">Clears all local storage, keys, and session data.</div>
+                    <div className="text-[11px] opacity-50 mt-1">Clears all local storage, keys, and session data.</div>
                   </div>
-                  <button className="btn btn-error btn-sm btn-outline px-6" onClick={handleReset}>
-                    Reset All
+                  <button className="btn btn-error btn-outline btn-sm px-6 rounded-xl" onClick={handleReset}>
+                    Reset Session
                   </button>
                 </div>
               </div>
@@ -78,12 +84,12 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
           </div>
         </div>
 
-        <div className="card bg-base-200 shadow-xl border border-white/5 overflow-visible">
-          <div className="card-body gap-6">
-            <h3 className="card-title text-sm font-black uppercase tracking-widest opacity-50 mb-1 text-primary">Appearance</h3>
-            <div className="join w-full shadow-lg">
-              <button className="btn bg-primary/20 text-primary border-primary/20 grow pointer-events-none join-item">Dark Mode (Default)</button>
-              <button className="btn btn-ghost grow join-item disabled">Light Mode (Coming Soon)</button>
+        <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden">
+          <div className="card-body p-6 sm:p-8 gap-6">
+            <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Appearance</h3>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-base-300/50 rounded-2xl border border-white/5">
+              <button className="btn btn-primary btn-sm sm:btn-md rounded-xl shadow-lg">Dark Mode</button>
+              <button className="btn btn-ghost btn-sm sm:btn-md rounded-xl opacity-40 cursor-not-allowed">Light Mode</button>
             </div>
           </div>
         </div>
