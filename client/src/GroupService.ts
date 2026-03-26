@@ -75,15 +75,41 @@ export class GroupService {
    * Permission check helper
    */
   async getMemberRole(groupId: string, memberPub: string): Promise<Role | null> {
-    const member = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${memberPub}`) as GroupMember;
-    return member ? member.role : null;
+    try {
+      // 1. Try to get role from members node
+      const member = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${memberPub}`) as GroupMember;
+      if (member && member.role) return member.role;
+
+      // 2. Fallback to meta adminPub if the member node is missing or role is not set
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      if (meta && meta.adminPub === memberPub) {
+        return "administrator";
+      }
+    } catch (e) {
+      console.error(`[GroupService] Error getting role for ${memberPub} in ${groupId}:`, e);
+    }
+    return null;
   }
 
   async canPerform(groupId: string, action: string): Promise<boolean> {
     const myPub = this.db.getUserPub();
     if (!myPub) return false;
+
+    // Check if muted for send_message action
+    if (action === "send_message") {
+      const isMuted = await this.isMuted(groupId, myPub);
+      if (isMuted) return false;
+    }
+
     const role = await this.getMemberRole(groupId, myPub);
-    if (!role) return false;
+    if (!role) {
+      // Final fallback for the creator if they are not yet in the members list
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      if (meta && meta.adminPub === myPub) {
+        return true; // Admins can perform everything
+      }
+      return false;
+    }
 
     const permissions: Record<Role, string[]> = {
       peer: ["send_message", "start_call", "delete_own_message", "invite_peer", "report"],
@@ -99,6 +125,19 @@ export class GroupService {
     };
 
     return permissions[role].includes(action);
+  }
+
+  /**
+   * Muting
+   */
+  async muteMember(groupId: string, memberPub: string, muted: boolean): Promise<void> {
+    if (!(await this.canPerform(groupId, "mute_peer"))) throw new Error("Unauthorized");
+    await (this.db.Put as any)(`signal_rooms/${groupId}/mutes/${memberPub}`, muted ? Date.now() : null);
+  }
+
+  async isMuted(groupId: string, memberPub: string): Promise<boolean> {
+    const muted = await (this.db.Get as any)(`signal_rooms/${groupId}/mutes/${memberPub}`);
+    return !!muted;
   }
 
   /**
@@ -156,15 +195,41 @@ export class GroupService {
   }
 
   async getMembers(groupId: string): Promise<GroupMember[]> {
+    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
     const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
-    if (!membersNode) return [];
-    return Object.entries(membersNode)
-      .filter(([pub]) => pub !== '_')
-      .map(([pub, data]) => ({
-        pub,
-        role: data.role,
-        joinedAt: data.joinedAt
-      }));
+    
+    const members: GroupMember[] = [];
+    if (membersNode) {
+      Object.entries(membersNode)
+        .filter(([pub, data]) => pub !== "_" && pub !== ">" && data !== null)
+        .forEach(([pub, data]) => {
+          if (data && typeof data === "object") {
+            members.push({
+              pub,
+              role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
+              joinedAt: data.joinedAt || Date.now(),
+            });
+          } else {
+            // Handle pointers or corrupted data
+            members.push({
+              pub,
+              role: (meta && meta.adminPub === pub ? "administrator" : "peer"),
+              joinedAt: Date.now(),
+            });
+          }
+        });
+    }
+
+    // Ensure the creator/admin is always in the list even if members node sync is delayed
+    if (meta && !members.find((m) => m.pub === meta.adminPub)) {
+      members.push({
+        pub: meta.adminPub,
+        role: "administrator",
+        joinedAt: Date.now(),
+      });
+    }
+
+    return members;
   }
 
   /**
@@ -172,7 +237,27 @@ export class GroupService {
    */
   async kickMember(groupId: string, memberPub: string): Promise<void> {
     if (!(await this.canPerform(groupId, "kick_user"))) throw new Error("Unauthorized");
+    
+    // 1. Remove from group members node
     await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}`, null);
+    
+    // 2. Also try to remove the group from the target user's contact list 
+    // This works if the admin has permission to write to that specific node or if it's a shared pointer
+    await (this.db.Put as any)(`signal_v3_contacts_${memberPub}/${groupId}`, null);
+  }
+
+  /**
+   * Leave Group
+   */
+  async leaveGroup(groupId: string): Promise<void> {
+    const myPub = this.db.getUserPub();
+    if (!myPub) throw new Error("Not logged in");
+
+    // 1. Remove from group members node
+    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, null);
+
+    // 2. Remove from own contact list
+    await (this.db.Put as any)(`signal_v3_contacts_${myPub}/${groupId}`, null);
   }
 
   /**
@@ -206,11 +291,42 @@ export class GroupService {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
     const reportId = crypto.randomUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
+      type: "content",
       contentId,
       reason,
       reportedBy: this.db.getUserPub(),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      status: "pending"
     });
+  }
+
+  async reportUser(groupId: string, targetPub: string, reason: string): Promise<void> {
+    if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
+    const reportId = crypto.randomUUID();
+    await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
+      type: "user",
+      targetPub,
+      reason,
+      reportedBy: this.db.getUserPub(),
+      timestamp: Date.now(),
+      status: "pending"
+    });
+  }
+
+  async getReports(groupId: string): Promise<any[]> {
+    if (!(await this.canPerform(groupId, "action_reports"))) throw new Error("Unauthorized");
+    const reportsNode = await (this.db.Get as any)(`signal_rooms/${groupId}/reports`) as Record<string, any>;
+    if (!reportsNode) return [];
+    return Object.entries(reportsNode)
+      .filter(([id, data]) => id !== "_" && id !== ">" && data !== null)
+      .map(([id, data]) => ({ id, ...data }));
+  }
+
+  async resolveReport(groupId: string, reportId: string, status: "resolved" | "dismissed"): Promise<void> {
+    if (!(await this.canPerform(groupId, "action_reports"))) throw new Error("Unauthorized");
+    const report = await (this.db.Get as any)(`signal_rooms/${groupId}/reports/${reportId}`);
+    if (!report) throw new Error("Report not found");
+    await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}/status`, status);
   }
 
   /**
