@@ -29,8 +29,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
-    const currentUser: any = db.getCurrentUser();
-    const pair = (currentUser?.user)?._?.sea;
+    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
     if (pair) {
       setKeys(JSON.stringify(pair, null, 2));
     }
