@@ -299,29 +299,3 @@ body {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-.page-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  overflow-y: auto;
-  align-items: center;
-}
-
-.login-footer-links {
-  display: flex ;
-  justify-content: center ;
-  gap: 20px ;
-  margin-top: 8px ;
-}
-
-.login-footer-link {
-  color: var(--text-secondary) ;
-  text-decoration: none ;
-  transition: color 0.2s ;
-}
-
-.login-footer-link:hover {
-  color: var(--accent-primary) ;
-}
