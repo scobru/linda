@@ -1,3 +1,4 @@
+import "./App.css";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { SignalService } from "./SignalService";
