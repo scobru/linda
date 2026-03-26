@@ -37,11 +37,20 @@ export class GroupService {
     this.db = db;
   }
 
+  private generateUUID(): string {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
   /**
    * Create a new encrypted group
    */
   async createGroup(name: string, description: string): Promise<GroupInfo> {
-    const groupId = crypto.randomUUID();
+    const groupId = this.generateUUID();
     const groupSecret = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
     const myPub = this.db.getUserPub();
 
@@ -289,7 +298,7 @@ export class GroupService {
    */
   async reportContent(groupId: string, contentId: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
-    const reportId = crypto.randomUUID();
+    const reportId = this.generateUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
       type: "content",
       contentId,
@@ -339,7 +348,7 @@ export class GroupService {
     const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
     if (!meta) throw new Error("Group not found");
 
-    const inviteId = crypto.randomUUID();
+    const inviteId = this.generateUUID();
     const invite: GroupInvite = {
       g: groupId,
       s: meta.secret,

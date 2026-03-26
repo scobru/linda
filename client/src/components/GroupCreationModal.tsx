@@ -61,84 +61,84 @@ export const GroupCreationModal: React.FC<GroupCreationModalProps> = ({
   };
 
   return (
-    <div className="profile-modal-overlay">
-      <div className="profile-modal">
-        <div className="profile-header">
-          <div className="profile-tabs" style={{ background: "transparent", borderBottom: "1px solid rgba(255, 255, 255, 0.1)", marginBottom: "20px" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-base-200 w-full max-w-lg rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-white/5 flex items-center justify-between bg-base-300/30">
+          <div className="tabs tabs-boxed bg-transparent p-0">
             <button
-              className={`tab-btn ${activeTab === "create" ? "active" : ""}`}
+              className={`tab font-bold transition-all px-6 ${activeTab === "create" ? "tab-active bg-primary text-primary-content" : "opacity-50"}`}
               onClick={() => setActiveTab("create")}
             >
-              Create Group
+              Create
             </button>
             <button
-              className={`tab-btn ${activeTab === "join" ? "active" : ""}`}
+              className={`tab font-bold transition-all px-6 ${activeTab === "join" ? "tab-active bg-primary text-primary-content" : "opacity-50"}`}
               onClick={() => setActiveTab("join")}
             >
-              Join Group
+              Join
             </button>
           </div>
-          <button onClick={onClose} className="btn-close">×</button>
+          <button onClick={onClose} className="btn btn-ghost btn-circle btn-sm">✕</button>
         </div>
 
-        {activeTab === "create" ? (
-          <form onSubmit={handleCreate} className="profile-section">
-            <div style={{ marginBottom: "20px" }}>
-              <label>Group Name</label>
-              <input
-                type="text"
-                className="login-input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., My Awesome Team"
-                autoFocus
-              />
-            </div>
+        <div className="p-8">
+          {activeTab === "create" ? (
+            <form onSubmit={handleCreate} className="space-y-6">
+              <div className="form-control w-full">
+                <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Group Name</span></label>
+                <input
+                  type="text"
+                  className="input input-bordered w-full rounded-2xl focus:border-primary shadow-inner h-14 text-lg font-bold"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g., Shogun Community"
+                  autoFocus
+                />
+              </div>
 
-            <div style={{ marginBottom: "24px" }}>
-              <label>Description (Optional)</label>
-              <textarea
-                className="login-input"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What is this group about?"
-                style={{ minHeight: "80px", resize: "vertical" }}
-              />
-            </div>
+              <div className="form-control w-full">
+                <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Description (Optional)</span></label>
+                <textarea
+                  className="textarea textarea-bordered w-full rounded-2xl h-32 focus:border-primary shadow-inner text-sm"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="What is this group about?"
+                />
+              </div>
 
-            <div className="login-actions">
-              <button type="submit" className="btn btn--primary" disabled={loading}>
-                {loading ? "Creating..." : "Create Group"}
-              </button>
-              <button type="button" onClick={onClose} className="btn btn--secondary" disabled={loading}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleJoin} className="profile-section">
-            <div style={{ marginBottom: "24px" }}>
-              <label>Paste Group Invite Code</label>
-              <textarea
-                className="login-input"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                placeholder="The long base64 invite string..."
-                style={{ minHeight: "120px", resize: "none", fontSize: "0.8rem", wordBreak: "break-all" }}
-                autoFocus
-              />
-            </div>
+              <div className="flex gap-3 pt-4">
+                <button type="submit" className="btn btn-primary grow h-14 rounded-2xl shadow-lg shadow-primary/20 font-black text-lg" disabled={loading}>
+                  {loading ? <span className="loading loading-spinner"></span> : "Create Group"}
+                </button>
+                <button type="button" onClick={onClose} className="btn btn-ghost h-14 rounded-2xl px-8" disabled={loading}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleJoin} className="space-y-6">
+              <div className="form-control w-full">
+                <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Group Invite Code</span></label>
+                <textarea
+                  className="textarea textarea-bordered w-full rounded-2xl h-48 focus:border-primary shadow-inner font-mono text-[10px] bg-base-300 leading-relaxed"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="Paste the long base64 invite string here..."
+                  autoFocus
+                />
+              </div>
 
-            <div className="login-actions">
-              <button type="submit" className="btn btn--primary" disabled={loading}>
-                {loading ? "Joining..." : "Join Group"}
-              </button>
-              <button type="button" onClick={onClose} className="btn btn--secondary" disabled={loading}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
+              <div className="flex gap-3 pt-4">
+                <button type="submit" className="btn btn-primary grow h-14 rounded-2xl shadow-lg shadow-primary/20 font-black text-lg" disabled={loading}>
+                  {loading ? <span className="loading loading-spinner"></span> : "Join Group"}
+                </button>
+                <button type="button" onClick={onClose} className="btn btn-ghost h-14 rounded-2xl px-8" disabled={loading}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

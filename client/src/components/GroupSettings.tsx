@@ -59,20 +59,39 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({
       }
       setMutes(mutesData);
 
-      // Load reports if moderator+
-      try {
-        const r = await groupService.getReports(groupId);
-        setReports(r);
-      } catch (e) {
-        // Not authorized or none
-      }
-
     } catch (e) {
       showNotification("Failed to load group data", "error");
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!groupId || !db.gun || !myRole || !['moderator', 'administrator'].includes(myRole)) return;
+    
+    const reportsRef = db.gun.get(`signal_rooms/${groupId}/reports`);
+    const handleReport = (data: any, id: string) => {
+        if (!data || id === '_' || id === '>') return;
+        setReports(prev => {
+            const index = prev.findIndex(r => r.id === id);
+            const reportData = { id, ...data };
+            if (index >= 0) {
+              if (JSON.stringify(prev[index]) === JSON.stringify(reportData)) return prev;
+              const next = [...prev];
+              next[index] = reportData;
+              return next;
+            }
+            return [...prev, reportData];
+        });
+    };
+
+    reportsRef.map().on(handleReport);
+    
+    return () => {
+        // Gun .off() is not altid reliable/available on .map(), but we can try
+        try { (reportsRef as any).off(); } catch(e) {}
+    };
+  }, [groupId, myRole, db.gun]);
 
   const handleUpdateMeta = async () => {
     try {
@@ -204,69 +223,103 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({
 
   if (loading) return <div className="group-settings-modal">Loading...</div>;
 
+  if (loading) return (
+    <div className="flex items-center justify-center p-20">
+      <span className="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  );
+
   return (
-    <div className="profile-modal-overlay">
-      <div className="profile-modal group-settings-modal">
-        <div className="profile-header">
-          <h2>Group Options</h2>
-          <button onClick={onClose} className="btn-close">×</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-base-200 w-full max-w-2xl rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-white/5 flex items-center justify-between bg-base-300/30">
+          <h2 className="text-xl font-black text-primary tracking-tight">Group Options</h2>
+          <button onClick={onClose} className="btn btn-ghost btn-circle btn-sm">✕</button>
         </div>
 
         {!myRole ? (
-          <div className="group-tab-content">
-             <p style={{ textAlign: 'center', margin: '40px 0' }}>You are no longer a member of this group.</p>
-             <div style={{ display: 'flex', justifyContent: 'center' }}>
-               <button onClick={onClose} className="btn btn--secondary">Close</button>
+          <div className="p-12 text-center space-y-6">
+             <div className="p-6 bg-error/10 rounded-2xl border border-error/20 inline-block">
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-error mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+               </svg>
              </div>
+             <p className="text-lg opacity-60">You are no longer a member of this group.</p>
+             <button onClick={onClose} className="btn btn-primary px-8">Close Window</button>
           </div>
         ) : (
           <>
-            <div className="group-tabs">
-              <button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>Members</button>
-              <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Group Settings</button>
-              <button className={`tab-btn ${activeTab === 'invites' ? 'active' : ''}`} onClick={() => setActiveTab('invites')}>Invites</button>
+            <div className="tabs tabs-bordered w-full bg-base-300/20 px-6">
+              <button 
+                className={`tab tab-lg h-16 transition-all font-bold ${activeTab === 'members' ? 'tab-active text-primary' : 'opacity-50'}`} 
+                onClick={() => setActiveTab('members')}
+              >
+                Members
+              </button>
+              <button 
+                className={`tab tab-lg h-16 transition-all font-bold ${activeTab === 'settings' ? 'tab-active text-primary' : 'opacity-50'}`} 
+                onClick={() => setActiveTab('settings')}
+              >
+                Settings
+              </button>
+              <button 
+                className={`tab tab-lg h-16 transition-all font-bold ${activeTab === 'invites' ? 'tab-active text-primary' : 'opacity-50'}`} 
+                onClick={() => setActiveTab('invites')}
+              >
+                Invites
+              </button>
               {['moderator', 'administrator'].includes(myRole) && (
-                <button className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>Reports ({reports.filter(r => r.status === 'pending').length})</button>
+                <button 
+                  className={`tab tab-lg h-16 transition-all font-bold ${activeTab === 'reports' ? 'tab-active text-primary' : 'opacity-50'}`} 
+                  onClick={() => setActiveTab('reports')}
+                >
+                  Reports {reports.filter(r => r.status === 'pending').length > 0 && <span className="badge badge-error badge-xs ml-2"></span>}
+                </button>
               )}
             </div>
 
-            <div className="group-tab-content">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {activeTab === 'members' && (
-                <div className="member-list">
+                <div className="space-y-3">
                   {members.map(m => (
-                    <div key={m.pub} className="member-item">
-                      <div className="member-info">
-                        <span className="member-pub">{m.pub.slice(0, 8)}...</span>
-                        <span className={`role-badge role-${m.role}`}>{m.role}</span>
-                        {mutes[m.pub] && <span className="role-badge" style={{ background: '#666' }}>MUTED</span>}
+                    <div key={m.pub} className="flex items-center justify-between p-4 bg-base-300/30 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
+                      <div className="flex items-center gap-4">
+                        <div className="avatar placeholder">
+                          <div className="bg-primary/20 text-primary rounded-xl w-10">
+                            <span className="text-xs font-black">{m.pub.slice(0, 1).toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold flex items-center gap-2">
+                            {m.pub.slice(0, 8)}...
+                            <span className={`badge badge-xs font-black uppercase tracking-tighter ${m.role === 'administrator' ? 'badge-primary' : m.role === 'moderator' ? 'badge-neutral' : 'badge-outline opacity-30'}`}>
+                              {m.role}
+                            </span>
+                          </div>
+                          {mutes[m.pub] && <span className="badge badge-ghost badge-xs opacity-50">MUTED</span>}
+                        </div>
                       </div>
-                      <div className="member-actions">
-                        {/* Administrator actions */}
+                      
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {myRole === 'administrator' && m.role !== 'administrator' && (
                           <>
-                            <button onClick={() => handleUpdateRole(m.pub, 'moderator')} className="btn-small">Make Moderator</button>
-                            <button onClick={() => handleMute(m.pub, !mutes[m.pub])} className="btn-small">{mutes[m.pub] ? 'Unmute' : 'Mute'}</button>
-                            <button onClick={() => handleKick(m.pub)} className="btn-small btn-danger">Kick</button>
+                            <button onClick={() => handleUpdateRole(m.pub, 'moderator')} className="btn btn-ghost btn-xs">Promote</button>
+                            <button onClick={() => handleMute(m.pub, !mutes[m.pub])} className="btn btn-ghost btn-xs">{mutes[m.pub] ? 'Unmute' : 'Mute'}</button>
+                            <button onClick={() => handleKick(m.pub)} className="btn btn-ghost btn-xs text-error">Kick</button>
                           </>
                         )}
-                        {/* Moderator actions */}
                         {myRole === 'moderator' && m.role === 'peer' && (
                           <>
-                            <button onClick={() => handleUpdateRole(m.pub, 'moderator')} className="btn-small">Make Moderator</button>
-                            <button onClick={() => handleMute(m.pub, !mutes[m.pub])} className="btn-small">{mutes[m.pub] ? 'Unmute' : 'Mute'}</button>
-                            <button onClick={() => handleKick(m.pub)} className="btn-small btn-danger">Kick</button>
+                            <button onClick={() => handleMute(m.pub, !mutes[m.pub])} className="btn btn-ghost btn-xs">{mutes[m.pub] ? 'Unmute' : 'Mute'}</button>
+                            <button onClick={() => handleKick(m.pub)} className="btn btn-ghost btn-xs text-error">Kick</button>
                           </>
-                        )}
-                        {/* Administrator Downgrade moderator */}
-                        {myRole === 'administrator' && m.role === 'moderator' && (
-                           <button onClick={() => handleUpdateRole(m.pub, 'peer')} className="btn-small">Downgrade to Peer</button>
                         )}
                       </div>
                     </div>
                   ))}
                   
-                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <button onClick={handleLeaveGroup} className="btn btn--secondary" style={{ width: '100%', color: 'var(--color-danger)' }}>
+                  <div className="pt-6 mt-6 border-t border-white/5">
+                    <button onClick={handleLeaveGroup} className="btn btn-error btn-outline btn-block rounded-2xl">
                        Leave Group
                     </button>
                   </div>
@@ -274,51 +327,57 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({
               )}
 
               {activeTab === 'settings' && (
-                <div className="settings-list">
+                <div className="space-y-8">
                   {['moderator', 'administrator'].includes(myRole) ? (
-                    <div className="meta-edit">
-                      <div className="profile-section">
-                        <label>Group Avatar</label>
-                        <div className="avatar-preview-wrap">
-                          <div className="avatar-preview">
-                            {groupInfo?.avatar ? <img src={groupInfo.avatar} alt="Avatar" /> : <span>G</span>}
+                    <>
+                      <div className="flex items-center gap-6">
+                        <div className="avatar">
+                          <div className="w-20 rounded-2xl ring ring-primary ring-offset-base-100 ring-offset-2">
+                            {groupInfo?.avatar ? <img src={groupInfo.avatar} alt="Avatar" /> : <div className="bg-base-300 flex items-center justify-center text-2xl font-black h-full">G</div>}
                           </div>
-                          <input type="file" accept="image/*" onChange={handleAvatarSelect} />
                         </div>
+                        <label className="btn btn-primary btn-sm rounded-xl">
+                          Change Avatar
+                          <input type="file" accept="image/*" onChange={handleAvatarSelect} hidden />
+                        </label>
                       </div>
 
-                      <div className="profile-section">
-                        <label>Group Name</label>
-                        <input value={editName} onChange={e => setEditName(e.target.value)} className="login-input" />
+                      <div className="form-control w-full">
+                        <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Group Name</span></label>
+                        <input value={editName} onChange={e => setEditName(e.target.value)} className="input input-bordered w-full rounded-2xl focus:border-primary shadow-inner" />
                       </div>
 
-                      <div className="profile-section">
-                        <label>Group Description</label>
-                        <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} className="login-input" style={{ height: '60px' }} />
+                      <div className="form-control w-full">
+                        <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Group Description</span></label>
+                        <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} className="textarea textarea-bordered w-full rounded-2xl h-24 focus:border-primary shadow-inner" />
                       </div>
 
-                      <button onClick={handleUpdateMeta} className="btn btn--primary" style={{ width: '100%', marginBottom: '20px' }}>Save Group Info</button>
-                    </div>
+                      <button onClick={handleUpdateMeta} className="btn btn-primary btn-block rounded-2xl shadow-lg">Save Group Info</button>
+                    </>
                   ) : (
-                    <div className="meta-view">
-                       <p><strong>Description:</strong> {groupInfo?.description || 'No description provided.'}</p>
+                    <div className="card bg-base-300/30 rounded-2xl p-6 border border-white/5">
+                       <h4 className="text-xs font-black uppercase tracking-widest opacity-50 mb-3">Description</h4>
+                       <p className="opacity-80">{groupInfo?.description || 'No description provided.'}</p>
                     </div>
                   )}
 
-                  <div className="feature-toggles" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '20px' }}>
-                    <div className="setting-item">
-                      <label>Enable Group Calls</label>
+                  <div className="pt-6 border-t border-white/5 space-y-4">
+                    <h4 className="text-xs font-black uppercase tracking-widest opacity-50 mb-4">Permissions</h4>
+                    <div className="flex items-center justify-between p-4 bg-base-300/20 rounded-2xl">
+                      <span className="text-sm font-bold">Allow Group Calls</span>
                       <input 
                         type="checkbox" 
+                        className="toggle toggle-primary"
                         disabled={!['moderator', 'administrator'].includes(myRole)}
                         checked={groupInfo?.features?.callsEnabled ?? true} 
                         onChange={(e) => handleToggleFeature('callsEnabled', e.target.checked)}
                       />
                     </div>
-                    <div className="setting-item">
-                      <label>Enable Room Activity Events</label>
+                    <div className="flex items-center justify-between p-4 bg-base-300/20 rounded-2xl">
+                      <span className="text-sm font-bold">Room Activity Log</span>
                       <input 
                         type="checkbox" 
+                        className="toggle toggle-primary"
                         disabled={!['moderator', 'administrator'].includes(myRole)}
                         checked={groupInfo?.features?.activityEnabled ?? true} 
                         onChange={(e) => handleToggleFeature('activityEnabled', e.target.checked)}
@@ -329,45 +388,59 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({
               )}
 
               {activeTab === 'invites' && (
-                <div className="invite-generator">
-                  <h3>Create Invite</h3>
-                  <div className="invite-actions">
-                    <button onClick={() => handleGenerateInvite('peer')} className="btn btn--primary">Invite Peer</button>
-                    {['moderator', 'administrator'].includes(myRole || '') && (
-                      <button onClick={() => handleGenerateInvite('moderator')} className="btn btn--secondary">Invite Moderator</button>
-                    )}
-                    {myRole === 'administrator' && (
-                      <button onClick={() => handleGenerateInvite('administrator', true)} className="btn btn--secondary">Invite Administrator (Single Use)</button>
-                    )}
+                <div className="space-y-6">
+                  <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/20 text-center space-y-4">
+                    <h3 className="text-lg font-black text-primary">Generate Invite</h3>
+                    <p className="text-xs opacity-60 max-w-xs mx-auto">Invite others to join this conversation. Links can be revoked by admins.</p>
+                    
+                    <div className="flex flex-wrap justify-center gap-2 pt-4">
+                      <button onClick={() => handleGenerateInvite('peer')} className="btn btn-primary rounded-xl px-6">Invite Peer</button>
+                      {['moderator', 'administrator'].includes(myRole || '') && (
+                        <button onClick={() => handleGenerateInvite('moderator')} className="btn btn-neutral rounded-xl px-6 border-white/5">Invite Moderator</button>
+                      )}
+                      {myRole === 'administrator' && (
+                        <button onClick={() => handleGenerateInvite('administrator', true)} className="btn btn-outline btn-sm rounded-xl px-6 opacity-60">Admin Link (Single Use)</button>
+                      )}
+                    </div>
                   </div>
+
                   {inviteUrl && (
-                    <div className="invite-result">
-                      <p>Share this link:</p>
-                      <textarea readOnly value={inviteUrl} className="login-input" />
+                    <div className="space-y-3 animate-fadeIn">
+                       <label className="label"><span className="label-text font-bold opacity-50 uppercase tracking-widest text-xs">Your Link</span></label>
+                      <div className="join w-full shadow-lg">
+                        <input readOnly value={inviteUrl} className="input input-bordered join-item grow text-xs font-mono bg-base-300 shadow-inner" />
+                        <button className="btn btn-primary join-item px-6" onClick={() => {
+                          navigator.clipboard.writeText(inviteUrl);
+                          showNotification("Link copied", "info");
+                        }}>Copy</button>
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
               {activeTab === 'reports' && (
-                <div className="reports-list">
+                <div className="space-y-4">
                   {reports.length === 0 ? (
-                    <p>No reports currently available.</p>
+                    <div className="text-center py-20 opacity-30 italic">No pending reports</div>
                   ) : (
                     reports.map(r => (
-                      <div key={r.id} className="report-item" style={{ padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginBottom: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                          <span className="role-badge">{r.type}</span>
-                          <span className="role-badge" style={{ background: r.status === 'pending' ? 'var(--color-primary)' : '#666' }}>{r.status}</span>
-                        </div>
-                        <p style={{ fontSize: '0.9em', margin: '5px 0' }}><strong>Reason:</strong> {r.reason}</p>
-                        <p style={{ fontSize: '0.8em', color: '#999' }}>From: {r.reportedBy.slice(0, 10)}...</p>
-                        {r.status === 'pending' && (
-                          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                            <button onClick={() => handleResolveReport(r.id, 'resolved')} className="btn-small">Resolve</button>
-                            <button onClick={() => handleResolveReport(r.id, 'dismissed')} className="btn-small btn--secondary">Dismiss</button>
+                      <div key={r.id} className="card bg-base-300/50 rounded-2xl border border-white/5 overflow-hidden">
+                        <div className="p-5 space-y-4">
+                          <div className="flex justify-between items-start">
+                            <span className="badge badge-error badge-outline font-black text-[10px] uppercase tracking-widest">{r.type}</span>
+                            <span className={`badge badge-sm font-bold ${r.status === 'pending' ? 'badge-primary' : 'badge-ghost opacity-50'}`}>{r.status.toUpperCase()}</span>
                           </div>
-                        )}
+                          <p className="text-sm border-l-2 border-primary/30 pl-3 py-1 bg-primary/5 rounded-r-lg">{r.reason}</p>
+                          <div className="text-[10px] opacity-40 font-mono">ID: {r.id}</div>
+                          
+                          {r.status === 'pending' && (
+                            <div className="flex gap-2 pt-2 border-t border-white/5">
+                              <button onClick={() => handleResolveReport(r.id, 'resolved')} className="btn btn-primary btn-sm grow rounded-xl">Resolve</button>
+                              <button onClick={() => handleResolveReport(r.id, 'dismissed')} className="btn btn-ghost btn-sm grow rounded-xl">Dismiss</button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -379,4 +452,5 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({
       </div>
     </div>
   );
+
 };

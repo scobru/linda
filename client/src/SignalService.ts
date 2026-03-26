@@ -38,24 +38,64 @@ interface SignalBundle {
  */
 
 export function isValidSignalBundle(data: unknown): data is SignalBundle {
-  if (!data || typeof data !== 'object') return false;
+  if (!data || typeof data !== "object") {
+    console.warn("[SignalService] Bundle validation failed: data is null or not an object", data);
+    return false;
+  }
   const bundle = data as Record<string, unknown>;
-  if (typeof bundle.username !== 'string') return false;
-  if (typeof bundle.registrationId !== 'number') return false;
-  if (typeof bundle.identityKey !== 'string') return false;
-  // uniqueUsername is optional for backward compatibility
-  if (bundle.uniqueUsername !== undefined && typeof bundle.uniqueUsername !== 'string') return false;
+  if (typeof bundle.username !== "string") {
+    console.warn("[SignalService] Bundle validation failed: username is not a string", bundle.username);
+    return false;
+  }
+  if (typeof bundle.registrationId !== "number") {
+    console.warn("[SignalService] Bundle validation failed: registrationId is not a number", bundle.registrationId);
+    return false;
+  }
+  if (typeof bundle.identityKey !== "string") {
+    console.warn("[SignalService] Bundle validation failed: identityKey is not a string", bundle.identityKey);
+    return false;
+  }
+  if (bundle.uniqueUsername !== undefined && typeof bundle.uniqueUsername !== "string") {
+    console.warn("[SignalService] Bundle validation failed: uniqueUsername is defined but not a string", bundle.uniqueUsername);
+    return false;
+  }
 
-  if (!bundle.signedPreKey || typeof bundle.signedPreKey !== 'object') return false;
-  if (typeof (bundle.signedPreKey as Record<string, unknown>).keyId !== 'number') return false;
-  if (typeof (bundle.signedPreKey as Record<string, unknown>).publicKey !== 'string') return false;
-  if (typeof (bundle.signedPreKey as Record<string, unknown>).signature !== 'string') return false;
+  if (!bundle.signedPreKey || typeof bundle.signedPreKey !== "object") {
+    console.warn("[SignalService] Bundle validation failed: signedPreKey is missing or not an object", bundle.signedPreKey);
+    return false;
+  }
+  const spk = bundle.signedPreKey as Record<string, unknown>;
+  if (typeof spk.keyId !== "number") {
+    console.warn("[SignalService] Bundle validation failed: signedPreKey.keyId is not a number", spk.keyId);
+    return false;
+  }
+  if (typeof spk.publicKey !== "string") {
+    console.warn("[SignalService] Bundle validation failed: signedPreKey.publicKey is not a string", spk.publicKey);
+    return false;
+  }
+  if (typeof spk.signature !== "string") {
+    console.warn("[SignalService] Bundle validation failed: signedPreKey.signature is not a string", spk.signature);
+    return false;
+  }
 
-  if (!Array.isArray(bundle.preKeys)) return false;
-  for (const preKey of bundle.preKeys as Array<Record<string, unknown>>) {
-    if (!preKey || typeof preKey !== 'object') return false;
-    if (typeof preKey.keyId !== 'number') return false;
-    if (typeof preKey.publicKey !== 'string') return false;
+  if (!Array.isArray(bundle.preKeys)) {
+    console.warn("[SignalService] Bundle validation failed: preKeys is not an array", bundle.preKeys);
+    return false;
+  }
+  for (let i = 0; i < (bundle.preKeys as any[]).length; i++) {
+    const preKey = (bundle.preKeys as any[])[i];
+    if (!preKey || typeof preKey !== "object") {
+       console.warn(`[SignalService] Bundle validation failed: preKey at index ${i} is not an object`, preKey);
+       return false;
+    }
+    if (typeof preKey.keyId !== "number") {
+       console.warn(`[SignalService] Bundle validation failed: preKey at index ${i} keyId is not a number`, preKey.keyId);
+       return false;
+    }
+    if (typeof preKey.publicKey !== "string") {
+       console.warn(`[SignalService] Bundle validation failed: preKey at index ${i} publicKey is not a string`, preKey.publicKey);
+       return false;
+    }
   }
 
   return true;
@@ -263,7 +303,7 @@ export class SignalService {
     // JSON strings with escaped quotes. A flat object of Base64 strings avoids BOTH bugs!
     const bundlePayload: any = {
       username,
-      registrationId: registrationId.toString(),
+      registrationId,
       identityKey: this.ab2b64(identityKeyPair.pubKey),
       signedPreKeyB64: btoa(encodeURIComponent(JSON.stringify({
         keyId: signedPreKeyId,
@@ -334,7 +374,7 @@ export class SignalService {
 
         const updatedPayload: any = {
           username: bundleData.username,
-          registrationId: bundleData.registrationId,
+          registrationId: typeof bundleData.registrationId === 'string' ? parseInt(bundleData.registrationId, 10) : bundleData.registrationId,
           identityKey: bundleData.identityKey,
           signedPreKeyB64: bundleData.signedPreKeyB64 || (bundleData.signedPreKey ? btoa(encodeURIComponent(typeof bundleData.signedPreKey === 'string' ? bundleData.signedPreKey : JSON.stringify(bundleData.signedPreKey))) : ''),
           preKeysB64: btoa(encodeURIComponent(JSON.stringify(cappedPreKeys)))
