@@ -10,6 +10,9 @@
   --bg-elevated: #263354;
   --bg-hover: rgba(99, 102, 241, 0.08);
 
+  /* Semantic */
+  --error: #ef4444;
+
   /* Accents */
   --accent-primary: #00bcd4; /* Keet-inspired Teal */
   --accent-secondary: #0097a7;
