@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { SignalService } from "./SignalService";
+import { GroupService, type GroupInfo, type Role } from "./GroupService";
+import { GroupSettings } from "./components/GroupSettings";
+import { GroupCreationModal } from "./components/GroupCreationModal";
 import Gun from "gun";
+import type { IGunInstance } from "gun";
 import "gun/sea";
 import { DataBase, ShogunCore } from "shogun-core";
 import { generateSecureRandomString } from "./utils/crypto";
@@ -10,8 +15,11 @@ import {
   ShogunButton,
   useShogun,
 } from "shogun-button-react";
-import "./App.css";
-import type { IGunInstance } from "gun";
+import { UserProfile } from "./pages/UserProfile";
+import { Settings } from "./pages/Settings";
+import { ChatView } from "./components/ChatView";
+import { Layout } from "./components/Layout";
+import { useParams } from "react-router-dom";
 
 // Extend window interface
 declare global {
@@ -30,306 +38,13 @@ declare global {
 interface Message {
   id: string;
   sender: string;
+  senderPub?: string; // Original pubkey for group messages
   text: string;
   timestamp: Date;
   status: "sending" | "sent" | "delivered" | "read";
 }
 
-const ProfileSettings: React.FC<{
-  db: DataBase;
-  username: string;
-  onClose: () => void;
-  showNotification: (msg: string, type?: "info" | "error") => void;
-  currentNick: string;
-  currentUniqueUsername: string;
-  currentAvatar: string | null;
-}> = ({
-  db,
-  username,
-  onClose,
-  showNotification,
-  currentNick,
-  currentUniqueUsername,
-  currentAvatar,
-}) => {
-  const [nick, setNick] = useState(currentNick);
-  const [uniqueName, setUniqueName] = useState(currentUniqueUsername);
-  const [keys, setKeys] = useState("");
-  const [showKeys, setShowKeys] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
 
-  useEffect(() => {
-    // Extract SEA keys
-    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
-    if (pair) {
-      setKeys(JSON.stringify(pair, null, 2));
-    }
-  }, [db]);
-
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const MAX_WIDTH = 200;
-        const MAX_HEIGHT = 200;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        // Compress as JPEG
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-        db.userPut("profile/avatar", dataUrl)
-          .then(() => showNotification("Avatar updated!", "info"))
-          .catch(() => showNotification("Failed to save avatar", "error"));
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleCopyKeys = () => {
-    if (!keys) return;
-    navigator.clipboard
-      .writeText(keys)
-      .then(() => {
-        setCopyStatus("Copied!");
-        setTimeout(() => setCopyStatus(""), 2000);
-      })
-      .catch(() => {
-        setCopyStatus("Failed");
-        setTimeout(() => setCopyStatus(""), 2000);
-      });
-  };
-
-  const handleSaveNick = async () => {
-    if (!nick || nick === currentNick) return;
-    const pub = db.getUserPub();
-    if (!pub) return;
-
-    // Check uniqueness
-    try {
-      let takenPub: any = undefined;
-      try {
-        takenPub = await db.Get(`signal_global_nicknames/${nick}`);
-      } catch (e: any) {
-        // Not found
-      }
-
-      if (takenPub && typeof takenPub === "string" && takenPub !== pub) {
-        showNotification("Nickname already taken", "error");
-      } else {
-        await db.Put(`signal_global_nicknames/${nick}`, pub);
-        await db.userPut("profile/nickname", nick);
-        showNotification("Nickname updated", "info");
-      }
-    } catch (e) {
-      showNotification("Failed to save nickname", "error");
-    }
-  };
-
-  const handleSaveUniqueUsername = async () => {
-    if (!uniqueName || uniqueName === currentUniqueUsername) return;
-    const pub = db.getUserPub();
-    if (!pub) return;
-
-    // Ensure it starts with @
-    let normalized = uniqueName.trim();
-    if (!normalized.startsWith("@")) normalized = `@${normalized}`;
-    
-    // Check format: @name1234 (at least one letter and some numbers)
-    if (!/^@[a-zA-Z0-9]+$/.test(normalized)) {
-      showNotification("Username must be @name1234 format", "error");
-      return;
-    }
-
-    // Check uniqueness
-    try {
-      let takenPub: any = undefined;
-      try {
-        takenPub = await db.Get(`signal_unique_usernames/${normalized}`);
-      } catch (e: any) {
-        // Not found
-      }
-
-      if (takenPub && typeof takenPub === "string" && takenPub !== pub) {
-        showNotification("Unique username already taken", "error");
-      } else {
-        await db.Put(`signal_unique_usernames/${normalized}`, pub);
-        await db.userPut("profile/uniqueUsername", normalized);
-        showNotification("Unique username updated", "info");
-      }
-    } catch (e) {
-      showNotification("Failed to save unique username", "error");
-    }
-  };
-
-  return (
-    <div className="profile-modal-overlay">
-      <div className="profile-modal">
-        <div className="profile-header">
-          <h2>Profile Settings</h2>
-          <button onClick={onClose} className="btn-close">
-            ×
-          </button>
-        </div>
-
-        <div className="profile-section">
-          <label>Avatar</label>
-          <div className="avatar-preview-wrap">
-            <div className="avatar-preview">
-              {currentAvatar ? (
-                <img src={currentAvatar} alt="Avatar" />
-              ) : (
-                <span>?</span>
-              )}
-            </div>
-            <input type="file" accept="image/*" onChange={handleAvatarSelect} />
-          </div>
-        </div>
-
-        <div className="profile-section">
-          <label>Display Nickname (Alias)</label>
-          <div className="profile-input-group">
-            <input
-              value={nick}
-              onChange={(e) => setNick(e.target.value)}
-              placeholder={username}
-              className="login-input profile-input"
-            />
-            <button
-              onClick={handleSaveNick}
-              className="btn btn--primary profile-btn"
-            >
-              Update Nickname
-            </button>
-          </div>
-        </div>
-
-        <div className="profile-section">
-          <label>Unique Username (e.g. @name1877)</label>
-          <div className="profile-input-group">
-            <input
-              value={uniqueName}
-              onChange={(e) => setUniqueName(e.target.value)}
-              placeholder="@username1234"
-              className="login-input profile-input"
-            />
-            <button
-              onClick={handleSaveUniqueUsername}
-              className="btn btn--primary profile-btn"
-            >
-              Update Username
-            </button>
-          </div>
-        </div>
-
-        <div className="profile-section">
-          <label>Clear Cache & Storage</label>
-          <div className="profile-input-group">
-            <button
-              onClick={() => {
-                if (typeof window !== "undefined" && "Notification" in window) {
-                  Notification.requestPermission().then((permission) => {
-                    showNotification(
-                      `Notifications are now ${permission}`,
-                      permission === "granted" ? "info" : "error",
-                    );
-                  });
-                }
-              }}
-              className="btn btn--secondary profile-btn-full"
-            >
-              Enable Notifications
-            </button>
-            <button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out.",
-                  )
-                ) {
-                  localStorage.clear();
-                  sessionStorage.clear();
-                  window.location.reload();
-                }
-              }}
-              className="btn btn--primary btn-danger profile-btn-full"
-            >
-              Reset Everything
-            </button>
-          </div>
-        </div>
-
-        <div className="profile-section">
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "8px",
-            }}
-          >
-            <label style={{ marginBottom: 0 }}>
-              Export GunDB Keys (Dangerous)
-            </label>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                onClick={() => setShowKeys(!showKeys)}
-                className="btn btn--secondary"
-                style={{
-                  padding: "4px 12px",
-                  fontSize: "0.75rem",
-                  height: "auto",
-                  flex: "none",
-                }}
-              >
-                {showKeys ? "Hide" : "Show"}
-              </button>
-              <button
-                onClick={handleCopyKeys}
-                className="btn btn--secondary"
-                style={{
-                  padding: "4px 12px",
-                  fontSize: "0.75rem",
-                  height: "auto",
-                  flex: "none",
-                }}
-              >
-                {copyStatus || "Copy"}
-              </button>
-            </div>
-          </div>
-          <textarea
-            readOnly
-            value={showKeys ? keys : "••••••••••••••••••••••••••••••••"}
-            className="login-input profile-textarea"
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { isLoggedIn, username, userPub, logout } = useShogun();
@@ -340,12 +55,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [signalService, setSignalService] = useState<SignalService | null>(
     null,
   );
+  const [groupService, setGroupService] = useState<GroupService | null>(null);
+  const [showGroupSettings, setShowGroupSettings] = useState<string | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [notification, setNotification] = useState<{
     msg: string;
     type: "info" | "error";
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showProfile, setShowProfile] = useState(false);
+  const navigate = useNavigate();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userNick, setUserNick] = useState<string>("");
   const [userUniqueUsername, setUserUniqueUsername] = useState<string>("");
@@ -358,12 +76,20 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [typingStatuses, setTypingStatuses] = useState<Record<string, number>>(
     {},
   );
+  const [deletedMessages, setDeletedMessages] = useState<Record<string, Set<string>>>({});
+  const [pinnedMessages, setPinnedMessages] = useState<Record<string, Set<string>>>({});
+  const [myRole, setMyRole] = useState<Role | null>(null);
 
   // Keep track of current recipient for notifications
   const recipientRef = useRef(recipient);
   useEffect(() => {
     recipientRef.current = recipient;
-  }, [recipient]);
+    if (recipient && groupService && recipient.length === 36 && recipient.includes("-")) {
+       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
+    } else {
+       setMyRole(null);
+    }
+  }, [recipient, groupService, userPub]);
 
   const contactProfilesRef = useRef(contactProfiles);
   useEffect(() => {
@@ -512,58 +238,74 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   useEffect(() => {
     if (!signalService || contacts.length === 0) return;
 
-    contacts.forEach(async (contactUser) => {
+    contacts.forEach(async (contactId) => {
       try {
-        let cPub = contactUser;
-        // If it's a short string, it's an alias. Otherwise, it's a 88-char pubkey
-        if (contactUser.length < 43 || contactUser.startsWith("@")) {
-          cPub = await signalService.getPubKeyFromUsername(contactUser);
-        }
-
-        if (cPub) {
+        const isGroup = contactId.length === 36 && contactId.includes("-");
+        
+        if (isGroup) {
+          // Listen to group metadata
           db.On(
-            `~${cPub}/profile/avatar`,
+            `signal_rooms/${contactId}/meta`,
             (data: any) => {
-              if (typeof data === "string") {
+              if (data && typeof data === "object") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], avatar: data },
+                  [contactId]: { 
+                    ...prev[contactId], 
+                    nickname: data.name, 
+                    avatar: data.avatar 
+                  },
                 }));
               }
             },
-            `avatar_${cPub}`,
+            `group_meta_${contactId}`
           );
+        } else {
+          // Regular user profile listeners
+          let cPub = contactId;
+          if (contactId.length < 43 || contactId.startsWith("@")) {
+            cPub = await signalService.getPubKeyFromUsername(contactId);
+          }
 
-          db.On(
-            `~${cPub}/profile/nickname`,
-            (data: any) => {
+          if (cPub) {
+            db.On(`~${cPub}/profile/avatar`, (data: any) => {
               if (typeof data === "string") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], nickname: data },
+                  [contactId]: { ...prev[contactId], avatar: data },
                 }));
               }
-            },
-            `nick_${cPub}`,
-          );
+            }, `avatar_${cPub}`);
 
-          db.On(
-            `~${cPub}/profile/uniqueUsername`,
-            (data: any) => {
+            db.On(`~${cPub}/profile/nickname`, (data: any) => {
               if (typeof data === "string") {
                 setContactProfiles((prev) => ({
                   ...prev,
-                  [contactUser]: { ...prev[contactUser], uniqueUsername: data },
+                  [contactId]: { ...prev[contactId], nickname: data },
                 }));
               }
-            },
-            `unique_${cPub}`,
-          );
+            }, `nick_${cPub}`);
+
+            db.On(`~${cPub}/profile/uniqueUsername`, (data: any) => {
+              if (typeof data === "string") {
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactId]: { ...prev[contactId], uniqueUsername: data },
+                }));
+              }
+            }, `unique_${cPub}`);
+          }
         }
       } catch (e) {
         // ignore
       }
     });
+
+    return () => {
+      contacts.forEach(c => {
+        if (c.includes("-")) db.Off(`group_meta_${c}`);
+      });
+    }
   }, [contacts, signalService, db.gun]);
 
   // ── Session Initialization ──────────────────────────────────────
@@ -600,6 +342,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           const service = new SignalService(db);
           await service.initSession(username, uniqueName);
           setSignalService(service);
+          
+          const gService = new GroupService(db);
+          setGroupService(gService);
           showNotification(`Welcome, ${username}! Signal session ready.`);
         } catch (e) {
           console.error("[App] Signal session initialization failed:", e);
@@ -666,12 +411,144 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── GunDB inbox listener ──────────────────────────────────────
 
+  const saveContact = (contactId: string) => {
+    if (!userPub || !db.gun) return;
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true);
+  };
+
+  const removeContact = (contactId: string) => {
+    if (!userPub || !db.gun) return;
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(null as any);
+  };
+
   useEffect(() => {
-    if (!isLoggedIn || !username || !signalService || !userPub) return;
+    if (!isLoggedIn || !userPub) return;
 
     // Load saved chat history and processed keys
     loadSavedMessages(userPub);
     loadProcessedKeys(userPub);
+
+    // Listen for contacts and groups from GunDB
+    db.gun
+      .get(`signal_v3_contacts_${userPub}`)
+      .map()
+      .on((data: any, contactId: string) => {
+        if (data === true) {
+          setContacts((prev) => (prev.includes(contactId) ? prev : [...prev, contactId]));
+        } else if (data === null) {
+          setContacts((prev) => prev.filter(c => c !== contactId));
+        }
+      });
+  }, [isLoggedIn, userPub]);
+
+  // ── Group message listeners ───────────────────────────────────
+  const groupSubscriptionsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!isLoggedIn || !groupService || contacts.length === 0) return;
+
+    contacts.forEach(async (contactId) => {
+      // Simple heuristic for group UUIDs
+      if (contactId.length !== 36 || !contactId.includes("-") || groupSubscriptionsRef.current.has(contactId)) return;
+      
+      groupSubscriptionsRef.current.add(contactId);
+      
+      try {
+        const meta = await (db.Get as any)(`signal_rooms/${contactId}/meta`) as GroupInfo;
+        if (!meta || !meta.secret) return;
+
+        // Listen for messages
+        db.gun
+          .get(`signal_rooms/${contactId}/messages`)
+          .map()
+          .on(async (data: any, gunKey: string) => {
+            if (!data || typeof data !== "object" || !data.body || !data.sender) return;
+            if (processedRef.current.has(gunKey)) return;
+            if (userPub) saveProcessedKey(userPub, gunKey);
+
+            try {
+              const plaintext = await groupService.decryptGroupMessage(meta.secret, data.body);
+              const isMe = data.sender === userPub;
+              const remoteMsgId = data.msgId || gunKey;
+
+              setMessages((prev) => {
+                const groupMsgs = prev[contactId] || [];
+                // Check if message already exists by ID
+                if (groupMsgs.some(m => m.id === remoteMsgId)) return prev;
+
+                const updatedMessages = [
+                  ...groupMsgs,
+                  {
+                    id: remoteMsgId,
+                    sender: isMe ? "Me" : data.sender,
+                    senderPub: data.sender,
+                    text: plaintext,
+                    timestamp: new Date(data.timestamp || Date.now()),
+                    status: "delivered" as const,
+                  },
+                ];
+
+                const updated = {
+                  ...prev,
+                  [contactId]: updatedMessages,
+                };
+                if (userPub) saveMessages(userPub, updated);
+                return updated;
+              });
+
+              // Add to contacts if not already there
+              setContacts((prev) => {
+                const exists = prev.includes(contactId);
+                if (!exists) {
+                   saveContact(contactId);
+                   return [...prev, contactId];
+                }
+                return prev;
+              });
+              
+              // Notification for group message
+              if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
+                new Notification(`New message in ${meta.name}`, {
+                  body: plaintext.substring(0, 50),
+                  icon: meta.avatar || "/logo.svg"
+                });
+              }
+            } catch (e) {
+              console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
+            }
+          });
+
+        // Listen for deletions
+        db.gun.get(`signal_rooms/${contactId}/deleted_messages`).map().on((data: any, msgId: string) => {
+          if (data) {
+             setDeletedMessages(prev => {
+               const groupDeletions = new Set(prev[contactId] || []);
+               groupDeletions.add(msgId);
+               return { ...prev, [contactId]: groupDeletions };
+             });
+          }
+        });
+
+        // Listen for pins
+        db.gun.get(`signal_rooms/${contactId}/pins`).map().on((ts: any, msgId: string) => {
+          setPinnedMessages(prev => {
+            const groupPins = new Set(prev[contactId] || []);
+            if (ts) groupPins.add(msgId);
+            else groupPins.delete(msgId);
+            return { ...prev, [contactId]: groupPins };
+          });
+        });
+
+      } catch (err) {
+        console.warn(`[Groups] Failed to start listener for ${contactId}:`, err);
+      }
+    });
+  }, [contacts, isLoggedIn, groupService, db.gun]);
+
+  // ── GunDB inbox listener ──────────────────────────────────────
+
+  useEffect(() => {
+    if (!isLoggedIn || !username || !signalService || !userPub) return;
 
     // Record the time the app started listening to avoid healing for old history
     const sessionStartTime = Date.now();
@@ -794,7 +671,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 notification.onclick = () => {
                   window.focus();
                   setRecipient(senderPubKey);
-                  setShowProfile(false);
                   notification.close();
                 };
               } catch (err) {
@@ -835,9 +711,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             return updated;
           });
 
-          setContacts((prev) =>
-            prev.includes(senderPubKey) ? prev : [...prev, senderPubKey],
-          );
+          setContacts((prev) => {
+            if (!prev.includes(senderPubKey)) {
+               saveContact(senderPubKey);
+               return [...prev, senderPubKey];
+            }
+            return prev;
+          });
         } catch (e: any) {
           if (!isFreshMessage) {
             // Silently log decryption failure for old messages without triggering recovery
@@ -950,21 +830,26 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Send message & typing ─────────────────────────────────────
 
   const handleTyping = async () => {
-    if (!recipient || !userPub || !signalService) return;
+    if (!recipient || !userPub || !signalService || !groupService) return;
     const now = Date.now();
 
     // Throttle typing updates to once every 3 seconds to prevent HAM flooding
     if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
       try {
-        let recipientPub = recipient;
-        if (recipient.length < 30) {
-          recipientPub = await signalService.getPubKeyFromUsername(recipient);
+        const isGroup = recipient.length === 36 && recipient.includes("-");
+        let path = `signal_v2_typing_${recipient}`;
+        
+        if (!isGroup) {
+          const recipientPub = recipient.length < 30 || recipient.startsWith("@")
+            ? await signalService.getPubKeyFromUsername(recipient)
+            : recipient;
+          path = `signal_v2_typing_${recipientPub}`;
         }
 
         // Ensure we are putting an object, never a primitive, to avoid graph corruption
         db.gun
-          .get(`signal_v2_typing_${recipientPub}`)
+          .get(path)
           .get(userPub)
           .put({
             typing: true,
@@ -979,54 +864,90 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   };
 
   const handleSendMessage = async () => {
-    if (!recipient || !message || !signalService || !userPub) return;
+    if (!recipient || !message || !signalService || !userPub || !groupService) return;
 
     try {
+      const isGroup = recipient.length === 36 && recipient.includes("-");
       let ciphertext: any;
-      try {
-        ciphertext = await signalService.encryptMessage(recipient, message);
-      } catch (encryptErr: any) {
-        if (!resetsRef.current.has(recipient)) {
-          resetsRef.current.add(recipient);
-          console.warn(
-            "Encrypt failed, attempting session auto-heal...",
-            encryptErr,
-          );
-          await signalService.resetSession(recipient);
-          // Retry encrypt with fresh session
-          ciphertext = await signalService.encryptMessage(recipient, message);
-        } else {
-          throw encryptErr;
+      let msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
+
+      if (isGroup) {
+        // Membership check
+        const myRole = await groupService.getMemberRole(recipient, userPub);
+        if (!myRole) {
+           showNotification("You are no longer a member of this group", "error");
+           // Remove from contacts if we're not a member anymore
+           removeContact(recipient);
+           setRecipient("");
+           return;
         }
+
+        const isMuted = await groupService.isMuted(recipient, userPub);
+        if (isMuted) {
+          showNotification("You are muted in this group", "error");
+          return;
+        }
+
+        // Group Encryption
+        const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`) as GroupInfo;
+        if (!meta) throw new Error("Group meta not found");
+        
+        ciphertext = await groupService.encryptGroupMessage(meta.secret, message);
+
+        await db.Set(`signal_rooms/${recipient}/messages`, {
+          msgId,
+          sender: userPub,
+          body: ciphertext,
+          timestamp: new Date().toISOString(),
+          type: 'group'
+        } as any);
+      } else {
+        // Signal 1:1 Encryption
+        try {
+          ciphertext = await signalService.encryptMessage(recipient, message);
+        } catch (encryptErr: any) {
+          if (!resetsRef.current.has(recipient)) {
+            resetsRef.current.add(recipient);
+            console.warn(
+              "Encrypt failed, attempting session auto-heal...",
+              encryptErr,
+            );
+            await signalService.resetSession(recipient);
+            // Retry encrypt with fresh session
+            ciphertext = await signalService.encryptMessage(recipient, message);
+          } else {
+            throw encryptErr;
+          }
+        }
+
+        const recipientPubKey = recipient.length < 30 || recipient.startsWith("@")
+          ? await signalService.getPubKeyFromUsername(recipient)
+          : recipient;
+
+        await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
+          msgId,
+          sender: userPub,
+          type: ciphertext.type,
+          body: ciphertext.body,
+          timestamp: new Date().toISOString(),
+        } as any);
       }
 
       // SUCCESS: Clear any persistent session error for this contact
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
 
-      const recipientPubKey =
-        await signalService.getPubKeyFromUsername(recipient);
-
-      // Generate unique ID for message
-      const msgId = crypto.randomUUID
-        ? crypto.randomUUID()
-        : Date.now().toString() + generateSecureRandomString(10);
-
-      await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
-        msgId,
-        sender: userPub,
-        type: ciphertext.type,
-        body: ciphertext.body,
-        timestamp: new Date().toISOString(),
-      } as any);
-
       setMessages((prev) => {
+        const groupMsgs = prev[recipient] || [];
+        if (groupMsgs.some((m) => m.id === msgId)) return prev;
+
         const updated = {
           ...prev,
           [recipient]: [
-            ...(prev[recipient] || []),
+            ...groupMsgs,
             {
               id: msgId,
               sender: "Me",
+              senderPub: userPub,
               text: message,
               timestamp: new Date(),
               status: "sent" as const,
@@ -1037,29 +958,28 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         return updated;
       });
 
-      setContacts((prev) =>
-        prev.includes(recipient) ? prev : [...prev, recipient],
-      );
+      setContacts((prev) => {
+        if (!prev.includes(recipient)) {
+          saveContact(recipient);
+          return [...prev, recipient];
+        }
+        return prev;
+      });
       setMessage("");
-    } catch (e: any) {
-      console.error("Send failed:", e);
-      if (
-        e.message.indexOf("MAC") !== -1 ||
-        e.message.indexOf("Session") !== -1 ||
-        e.message.indexOf("decrypt") !== -1 ||
-        e.message.indexOf("Identity") !== -1
-      ) {
-        setContactErrors((prev) => ({ ...prev, [recipient]: true }));
-      }
-      showNotification(`Send failed: ${e.message}`, "error");
+    } catch (err: any) {
+      console.error("Send failed:", err);
+      showNotification(
+        "Failed to send message: " + (err.message || "Unknown error"),
+        "error",
+      );
     }
   };
 
-  // ── Helper: get initial letter for avatar ─────────────────────
-  const getInitial = (name: string) => name.charAt(0).toUpperCase();
-
-  // ── Chat screen message processing ────────────────────────────
-  const currentMessages = messages[recipient] || [];
+  const currentMessages = useMemo(() => {
+    const msgs = messages[recipient] || [];
+    const groupDeletions = deletedMessages[recipient] || new Set();
+    return msgs.filter(m => !groupDeletions.has(m.id));
+  }, [messages, recipient, deletedMessages]);
 
   // Mark unread messages as read when the chat is open
   useEffect(() => {
@@ -1071,7 +991,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
     if (unreadMessages.length > 0) {
       const markAsRead = async () => {
-        const updatedMessages = [...currentMessages];
+        const updatedMessages = [...(messages[recipient] || [])];
         let stateChanged = false;
         let recipientPub = recipient;
 
@@ -1127,7 +1047,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     currentMessages.length,
     signalService,
     userPub,
-    currentMessages,
     db,
   ]);
 
@@ -1140,6 +1059,38 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
     return counts;
   }, [messages, contacts]);
+
+  const handleDeleteMessage = async (msgId: string, senderPub?: string) => {
+     if (!recipient || !groupService) return;
+     try {
+       await groupService.deleteMessage(recipient, msgId, senderPub || "");
+       showNotification("Message deleted", "info");
+     } catch (e: any) {
+       showNotification(e.message || "Failed to delete message", "error");
+     }
+  };
+
+  const handlePinMessage = async (msgId: string, isPinned: boolean) => {
+    if (!recipient || !groupService) return;
+    try {
+      await groupService.pinMessage(recipient, msgId, isPinned);
+      showNotification(isPinned ? "Message pinned" : "Message unpinned", "info");
+    } catch (e: any) {
+      showNotification(e.message || "Failed to pin message", "error");
+    }
+  };
+
+  const handleReportMessage = async (msgId: string) => {
+    if (!recipient || !groupService) return;
+    const reason = window.prompt("Reason for reporting:");
+    if (!reason) return;
+    try {
+      await groupService.reportContent(recipient, msgId, reason);
+      showNotification("Message reported", "info");
+    } catch (e: any) {
+      showNotification(e.message || "Failed to report message", "error");
+    }
+  };
 
   // ── Loading screen ─────────────────────────────────────────────
 
@@ -1283,7 +1234,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
 
     // Remove from UI
-    setContacts((prev) => prev.filter((c) => c !== contactKey));
+    setContacts((prev) => {
+       const next = prev.filter((c) => c !== contactKey);
+       removeContact(contactKey);
+       return next;
+    });
     if (recipient === contactKey) {
       setRecipient("");
     }
@@ -1307,24 +1262,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   const handleManualReset = async () => {
     if (!recipient || !signalService || !userPub) return;
-    if (
-      !window.confirm(
-        "This will force-recreate the secure session with this contact. Use this only if messages are failing to decrypt. Continue?",
-      )
-    )
-      return;
+    if (!window.confirm("This will force-recreate the secure session with this contact. Use this only if messages are failing to decrypt. Continue?")) return;
     try {
       await signalService.resetSession(recipient);
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
       showNotification("Secure session reset triggered.", "info");
 
-      const recipientPubKey =
-        await signalService.getPubKeyFromUsername(recipient);
-      const pingCiphertext = await signalService.encryptMessage(
-        recipient,
-        "PING_HEAL",
-      );
-      await db.Set(`signal_inbox_${recipientPubKey}`, {
+      const recipientPubKey = await signalService.getPubKeyFromUsername(recipient);
+      const pingCiphertext = await signalService.encryptMessage(recipient, "PING_HEAL");
+      await db.Set(`signal_v3_inbox_${recipientPubKey}`, {
         sender: userPub,
         type: pingCiphertext.type,
         body: pingCiphertext.body,
@@ -1336,443 +1282,155 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   };
 
-  // ── Chat screen ───────────────────────────────────────────────
+  const ChatWrapper = () => {
+    const { id } = useParams();
+    useEffect(() => {
+      if (id && id !== recipient) {
+        setRecipient(id);
+      }
+    }, [id]);
+
+    return (
+      <ChatView
+        recipient={recipient}
+        setRecipient={(id) => {
+          setRecipient(id);
+          if (id) navigate(`/chat/${id}`);
+          else navigate("/");
+        }}
+        contactProfiles={contactProfiles}
+        typingStatuses={typingStatuses}
+        contactErrors={contactErrors}
+        pinnedMessages={pinnedMessages}
+        messages={messages}
+        myRole={myRole}
+        userAvatar={userAvatar}
+        userNick={userNick}
+        username={username || ""}
+        message={message}
+        setMessage={setMessage}
+        handleSendMessage={handleSendMessage}
+        handleTyping={handleTyping}
+        handleManualReset={handleManualReset}
+        handlePinMessage={handlePinMessage}
+        handleReportMessage={handleReportMessage}
+        handleDeleteMessage={handleDeleteMessage}
+        setShowGroupSettings={setShowGroupSettings}
+      />
+    );
+  };
 
   return (
-    <div
-      className={`app-layout ${recipient ? "mobile-chat-active" : "mobile-sidebar-active"}`}
-    >
+    <div className={`app-shell ${recipient ? "mobile-chat-active" : "mobile-sidebar-active"}`}>
       {notification && (
-        <div
-          className={`notification ${
-            notification.type === "error"
-              ? "notification--error"
-              : "notification--success"
-          }`}
-        >
+        <div className={`notification ${notification.type === "error" ? "notification--error" : "notification--success"}`}>
           {notification.msg}
         </div>
       )}
 
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div
-          className="sidebar-user"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            cursor: "pointer",
-          }}
-          onClick={() => setShowProfile(true)}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div className="sidebar-user-avatar">
-              {userAvatar ? (
-                <img
-                  src={userAvatar}
-                  alt="Me"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    borderRadius: "50%",
-                    objectFit: "cover",
-                  }}
-                />
-              ) : (
-                getInitial(userNick || username || "?")
-              )}
-            </div>
-            <div>
-              <div className="sidebar-user-name">{userNick || username}</div>
-              <div className="sidebar-user-status">Online</div>
-            </div>
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleLogout();
-            }}
-            className="btn btn--secondary"
-            style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
-          >
-            Logout
-          </button>
-        </div>
-
-        <div className="sidebar-header">
-          <span className="sidebar-title">Conversations</span>
-        </div>
-
-        <div className="contact-list">
-          {contacts.map((c) => (
-            <div
-              key={c}
-              className={`contact-item ${
-                recipient === c ? "contact-item--active" : ""
-              }`}
-              onClick={() => {
-                setRecipient(c);
-                requestNotifications();
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div className="contact-avatar">
-                    {contactProfiles[c]?.avatar ? (
-                      <img
-                        src={contactProfiles[c].avatar}
-                        alt={c}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          borderRadius: "50%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      getInitial(contactProfiles[c]?.nickname || c)
-                    )}
-                  </div>
-                  <span className="contact-name" style={{ flex: 1 }}>
-                    {contactProfiles[c]?.nickname ||
-                      (c.length > 15 ? `${c.slice(0, 8)}...${c.slice(-4)}` : c)}
-                  </span>
-                  {unreadCounts[c] > 0 ? (
-                    <span
-                      className="unread-badge"
-                      style={{
-                        background: "var(--color-primary)",
-                        color: "#000",
-                        fontSize: "0.75rem",
-                        fontWeight: "bold",
-                        padding: "2px 8px",
-                        borderRadius: "12px",
-                      }}
-                    >
-                      {unreadCounts[c]}
-                    </span>
-                  ) : null}
-                </div>
-                <button
-                  onClick={(e) => handleDeleteContact(c, e)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "rgba(255, 255, 255, 0.4)",
-                    cursor: "pointer",
-                    padding: "4px",
-                    marginLeft: "8px",
-                    fontSize: "12px",
-                  }}
-                  title="Delete contact"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="add-contact-wrapper">
-          <input
-            className="add-contact-input"
-            placeholder="＋ Add contact..."
-            onKeyDown={async (e: any) => {
-              if (e.key === "Enter" && e.target.value.trim()) {
-                if (!signalService) {
-                  showNotification("Signal service not ready", "error");
-                  return;
-                }
-                const name = e.target.value.trim();
-                const target = e.target;
-
-                target.disabled = true;
-                const origPlaceholder = target.placeholder;
-                target.placeholder = "Resolving...";
-                target.value = "";
-
-                try {
-                  let pubKey = name;
-                  if (name.length < 30 || name.startsWith("@")) {
-                    pubKey = await signalService.getPubKeyFromUsername(name);
-                  }
-
-                  // Always store contact by PubKey for internal consistency
-                  setContacts((prev) =>
-                    prev.includes(pubKey) ? prev : [...prev, pubKey],
-                  );
-                  setRecipient(pubKey);
-                } catch (err: any) {
-                  console.error(err);
-                  showNotification(`User not found: ${name}`, "error");
-                } finally {
-                  target.disabled = false;
-                  target.placeholder = origPlaceholder;
-                  target.focus();
-                }
-              }
+      <Routes>
+        <Route element={
+          <Layout 
+            sidebarProps={{
+              userNick,
+              username: username || "",
+              userAvatar,
+              contacts,
+              recipient,
+              setRecipient: (id: string) => {
+                setRecipient(id);
+                if (id) navigate(`/chat/${id}`);
+                else navigate("/");
+              },
+              contactProfiles,
+              unreadCounts,
+              handleDeleteContact,
+              setShowCreateGroup,
+              signalService,
+              groupService,
+              showNotification,
+              saveContact,
+              requestNotifications,
             }}
           />
-        </div>
-      </div>
+        }>
+          <Route path="/" element={
+            <ChatView
+              recipient=""
+              setRecipient={(id) => {
+                setRecipient(id);
+                if (id) navigate(`/chat/${id}`);
+              }}
+              contactProfiles={contactProfiles}
+              typingStatuses={typingStatuses}
+              contactErrors={contactErrors}
+              pinnedMessages={pinnedMessages}
+              messages={messages}
+              myRole={myRole}
+              userAvatar={userAvatar}
+              userNick={userNick}
+              username={username || ""}
+              message={message}
+              setMessage={setMessage}
+              handleSendMessage={handleSendMessage}
+              handleTyping={handleTyping}
+              handleManualReset={handleManualReset}
+              handlePinMessage={handlePinMessage}
+              handleReportMessage={handleReportMessage}
+              handleDeleteMessage={handleDeleteMessage}
+              setShowGroupSettings={setShowGroupSettings}
+            />
+          } />
+          
+          <Route path="/chat/:id" element={<ChatWrapper />} />
 
-      {showProfile && (
-        <ProfileSettings
+          <Route path="/profile" element={
+            <UserProfile
+              db={db}
+              username={username || ""}
+              currentNick={userNick || username || ""}
+              currentUniqueUsername={userUniqueUsername}
+              currentAvatar={userAvatar}
+              handleLogout={handleLogout}
+              showNotification={showNotification}
+            />
+          } />
+          
+          <Route path="/settings" element={
+            <Settings showNotification={showNotification} />
+          } />
+        </Route>
+      </Routes>
+
+      {/* Modals that stay on top of any route */}
+      {showGroupSettings && groupService && (
+        <GroupSettings
+          groupId={showGroupSettings}
+          groupService={groupService}
           db={db}
-          username={username || ""}
-          currentNick={userNick || username || ""}
-          currentUniqueUsername={userUniqueUsername}
-          currentAvatar={userAvatar}
+          onClose={() => setShowGroupSettings(null)}
           showNotification={showNotification}
-          onClose={() => setShowProfile(false)}
         />
       )}
 
-      {/* Chat area */}
-      <div className="chat-area">
-        <div className="chat-header">
-          {recipient ? (
-            <>
-              <button
-                className="mobile-back-btn"
-                onClick={() => setRecipient("")}
-                aria-label="Back to contacts"
-              >
-                ←
-              </button>
-              <div className="chat-header-avatar">
-                {contactProfiles[recipient]?.avatar ? (
-                  <img
-                    src={contactProfiles[recipient].avatar}
-                    alt={recipient}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      borderRadius: "50%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  getInitial(contactProfiles[recipient]?.nickname || recipient)
-                )}
-              </div>
-              <div className="chat-header-info">
-                <h3 className="chat-header-name">
-                  {contactProfiles[recipient]?.nickname ||
-                    (recipient.length > 15
-                      ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}`
-                      : recipient)}
-                </h3>
-                {typingStatuses[recipient] &&
-                Date.now() - typingStatuses[recipient] <= 3000 ? (
-                  <div className="typing-indicator">typing</div>
-                ) : (
-                  <div
-                    className="chat-header-badge"
-                    style={{
-                      backgroundColor: contactErrors[recipient]
-                        ? "var(--color-danger)"
-                        : undefined,
-                    }}
-                  >
-                    {contactErrors[recipient]
-                      ? "⚠️ Session Error"
-                      : "🔒 End-to-End Encrypted"}
-                  </div>
-                )}
-              </div>
-              {contactErrors[recipient] && (
-                <button
-                  onClick={handleManualReset}
-                  className="btn btn--secondary"
-                  style={{
-                    marginLeft: "auto",
-                    backgroundColor: "var(--color-danger)",
-                    borderColor: "var(--color-danger)",
-                    color: "white",
-                    fontSize: "0.8rem",
-                    padding: "4px 8px",
-                  }}
-                >
-                  Reset Session
-                </button>
-              )}
-            </>
-          ) : (
-            <h3 className="chat-header-placeholder">
-              Select a conversation to start chatting
-            </h3>
-          )}
-        </div>
-
-        {recipient ? (
-          <>
-            <div className="message-box">
-              {currentMessages.length === 0 && (
-                <div className="chat-empty">
-                  <div className="chat-empty-icon">💬</div>
-                  <div className="chat-empty-text">No messages yet</div>
-                  <div className="chat-empty-sub">
-                    Send a secure message to{" "}
-                    {contactProfiles[recipient]?.nickname ||
-                      (recipient.length > 15
-                        ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}`
-                        : recipient)}
-                  </div>
-                </div>
-              )}
-              {currentMessages.map((msg, i) => {
-                const isMe = msg.sender === "Me";
-                const msgAvatar = isMe
-                  ? userAvatar
-                  : contactProfiles[msg.sender]?.avatar;
-                const msgNick = isMe
-                  ? userNick || username || "?"
-                  : contactProfiles[msg.sender]?.nickname || msg.sender;
-
-                return (
-                  <div
-                    key={i}
-                    className={`message-wrapper ${
-                      isMe
-                        ? "message-wrapper--sent"
-                        : "message-wrapper--received"
-                    }`}
-                    style={{
-                      display: "flex",
-                      flexDirection: isMe ? "row-reverse" : "row",
-                      alignItems: "flex-end",
-                      gap: "8px",
-                    }}
-                  >
-                    <div
-                      className="message-avatar-small"
-                      style={{
-                        width: "28px",
-                        height: "28px",
-                        borderRadius: "50%",
-                        background: "var(--gradient-accent)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "0.7em",
-                        color: "white",
-                        overflow: "hidden",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {msgAvatar ? (
-                        <img
-                          src={msgAvatar}
-                          alt="avatar"
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
-                      ) : (
-                        getInitial(msgNick)
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        maxWidth: "80%",
-                      }}
-                    >
-                      <div
-                        className={`message-bubble ${
-                          isMe
-                            ? "message-bubble--sent"
-                            : "message-bubble--received"
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
-                      <div
-                        className="message-time"
-                        style={{ textAlign: isMe ? "right" : "left" }}
-                      >
-                        {msg.timestamp.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {isMe && msg.status && (
-                          <span
-                            className="message-status"
-                            style={{ marginLeft: "4px", fontSize: "0.8em" }}
-                          >
-                            {msg.status === "sending" && "🕒"}
-                            {msg.status === "sent" && "✓"}
-                            {msg.status === "delivered" && "✓✓"}
-                            {msg.status === "read" && (
-                              <span style={{ color: "#34B7F1" }}>✓✓</span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="input-area">
-              <input
-                className="chat-input"
-                placeholder="Type your secure message..."
-                value={message}
-                onChange={(e) => {
-                  setMessage(e.target.value);
-                  handleTyping();
-                }}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-              />
-              <button className="send-button" onClick={handleSendMessage}>
-                ➤
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="chat-empty">
-            <div className="chat-empty-logo">
-              <img
-                src="/logo.svg"
-                alt="Linda Logo"
-                style={{
-                  width: "120px",
-                  height: "120px",
-                  marginBottom: "24px",
-                  filter: "drop-shadow(0 0 30px rgba(99, 102, 241, 0.3))",
-                }}
-              />
-            </div>
-            <div className="chat-empty-text">Linda Secure Messenger</div>
-            <div className="chat-empty-sub">
-              Select a contact or add a new one to start an encrypted
-              conversation
-            </div>
-          </div>
-        )}
-      </div>
+      {showCreateGroup && groupService && (
+        <GroupCreationModal
+          groupService={groupService}
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={(groupId) => {
+            setContacts((prev) => {
+              if (!prev.includes(groupId)) {
+                saveContact(groupId);
+                return [...prev, groupId];
+              }
+              return prev;
+            });
+            setRecipient(groupId);
+            navigate(`/chat/${groupId}`);
+          }}
+          showNotification={showNotification}
+        />
+      )}
     </div>
   );
 };
@@ -1894,21 +1552,23 @@ const App: React.FC = () => {
   }
 
   return (
-    <ShogunButtonProvider
-      core={coreContext.core}
-      options={coreContext.options}
-      onLoginSuccess={(data) => {
-        console.log("Logged in!", data);
-      }}
-      onSignupSuccess={(data) => {
-        console.log("Signed up!", data);
-      }}
-      onError={(err) => {
-        console.error("Auth error", err);
-      }}
-    >
-      <AppContent db={dbInstance} />
-    </ShogunButtonProvider>
+    <BrowserRouter>
+      <ShogunButtonProvider
+        core={coreContext.core}
+        options={coreContext.options}
+        onLoginSuccess={(data) => {
+          console.log("Logged in!", data);
+        }}
+        onSignupSuccess={(data) => {
+          console.log("Signed up!", data);
+        }}
+        onError={(err) => {
+          console.error("Auth error", err);
+        }}
+      >
+        <AppContent db={dbInstance} />
+      </ShogunButtonProvider>
+    </BrowserRouter>
   );
 };
 
