@@ -153,11 +153,11 @@ export const useSignalMessaging = (
 
     contacts.forEach(async (contactId) => {
       if (contactId.length !== 36 || !contactId.includes("-") || groupSubscriptionsRef.current.has(contactId)) return;
-      groupSubscriptionsRef.current.add(contactId);
-      
       try {
         const meta = await (db.Get as any)(`signal_rooms/${contactId}/meta`) as GroupInfo;
-        if (!meta || !meta.secret) return;
+        if (!meta || !meta.secret || (meta as any).err) return;
+
+        groupSubscriptionsRef.current.add(contactId);
 
         db.gun.get(`signal_rooms/${contactId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;

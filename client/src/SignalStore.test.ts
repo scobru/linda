@@ -108,6 +108,17 @@ describe('SignalStore', () => {
     assert.ok(global.__mockIDBData['signal_v3_vault']);
   });
 
+  test('migration of plain strings (non-JSON)', async () => {
+    // Set up a plain string legacy key (e.g. username or pubkey)
+    localStorage.setItem('signal_user_alias', 'my_alias');
+
+    const store = new SignalStore();
+    await store.init();
+    const val = await store.get('user_alias', null);
+    assert.strictEqual(val, 'my_alias');
+    assert.strictEqual(localStorage.getItem('signal_user_alias'), null);
+  });
+
   test('put and get basic values', async () => {
     const store = new SignalStore();
     await store.init();

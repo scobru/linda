@@ -19,6 +19,8 @@ export class SignalStore implements StorageType {
   private readonly dbName = 'SignalStoreDB';
   private readonly storeName = 'vaults';
   private db: IDBDatabase | null = null;
+  private isInitializing = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(userPub: string = "default") {
     this.vaultKey = userPub === "default" ? "signal_v3_vault" : `signal_v3_vault_${userPub}`;
@@ -30,28 +32,58 @@ export class SignalStore implements StorageType {
    * Initialize IndexedDB, load vault, and migrate any old LocalStorage data.
    */
   async init(): Promise<void> {
-    await this.openDB();
-    await this.loadFromVault();
-    await this.migrateLegacyKeys();
+    if (this.db) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      this.isInitializing = true;
+      try {
+        await this.openDB();
+        await this.loadFromVault();
+        await this.migrateLegacyKeys();
+      } finally {
+        this.isInitializing = false;
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   private openDB(): Promise<void> {
     return new Promise((resolve) => {
-      // In SSR or non-browser environments, skip DB creation
-      if (typeof indexedDB === 'undefined') {
-        return resolve();
-      }
+      if (typeof indexedDB === 'undefined') return resolve();
+      if (this.db) return resolve();
 
       const request = indexedDB.open(this.dbName, 1);
 
       request.onerror = (event) => {
-        console.error('[SignalStore] IndexedDB error:', event);
-        // Resolve instead of reject to allow fallback to localStorage
+        console.error('[SignalStore] IndexedDB open error:', event);
         resolve();
+      };
+
+      request.onblocked = () => {
+        console.warn('[SignalStore] IndexedDB open blocked. Please close other tabs.');
       };
 
       request.onsuccess = (event) => {
         this.db = (event.target as IDBOpenDBRequest).result;
+        
+        this.db.onversionchange = () => {
+          console.warn('[SignalStore] IndexedDB version change detected. Closing connection.');
+          this.db?.close();
+          this.db = null;
+        };
+
+        this.db.onabort = () => {
+          console.error('[SignalStore] IndexedDB connection aborted.');
+          this.db = null;
+        };
+
+        this.db.onerror = (err) => {
+          console.error('[SignalStore] IndexedDB connection error:', err);
+        };
+
         resolve();
       };
 
@@ -155,14 +187,22 @@ export class SignalStore implements StorageType {
       const raw = localStorage.getItem(fullKey);
       if (raw) {
         try {
-          const val = this.decodeBuffers(JSON.parse(raw));
+          // Robust JSON detection
+          let val: any;
+          if (raw.startsWith('{') || raw.startsWith('[') || raw.startsWith('"')) {
+            val = this.decodeBuffers(JSON.parse(raw));
+          } else {
+            // It's a plain string (like signal_pub or signal_alias)
+            val = raw;
+          }
+          
           const shortKey = fullKey.slice(this.legacyPrefix.length);
           if (!this.store.has(shortKey)) {
             this.store.set(shortKey, val);
             migratedCount++;
           }
         } catch (e) {
-          console.warn(`[SignalStore] Failed to migrate legacy key: ${fullKey}`);
+          console.warn(`[SignalStore] Failed to migrate legacy key: ${fullKey}`, e);
         }
       }
     }
@@ -200,14 +240,33 @@ export class SignalStore implements StorageType {
 
     return new Promise((resolve) => {
       try {
-        const transaction = this.db!.transaction([this.storeName], 'readwrite');
+        if (!this.db) return resolve();
+        
+        const transaction = this.db.transaction([this.storeName], 'readwrite');
         const objectStore = transaction.objectStore(this.storeName);
+        
+        transaction.onabort = (event) => {
+          console.error('[SignalStore] Persist transaction aborted:', event);
+          resolve();
+        };
+
+        transaction.onerror = (event) => {
+          console.error('[SignalStore] Persist transaction error:', event);
+          resolve();
+        };
+
         const request = objectStore.put(serialized, this.vaultKey);
 
         request.onsuccess = () => resolve();
         request.onerror = () => resolve();
       } catch (e) {
         console.error('[SignalStore] Failed to persist to IndexedDB:', e);
+        // Fallback to localStorage if IDB fails during operation
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.setItem(this.vaultKey, serialized);
+          } catch (lsErr) {}
+        }
         resolve();
       }
     });

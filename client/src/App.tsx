@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationModal } from "./components/GroupCreationModal";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
+import "gun/lib/rindexed";
+import "gun/lib/yson";
+import "gun/lib/wire";
 import { DataBase, ShogunCore } from "shogun-core";
 import {
   shogunConnector,
@@ -34,26 +43,29 @@ declare global {
   }
 }
 
-
-
-
-
 const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { isLoggedIn, userPub, logout, username } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
-  const [notification, setNotification] = useState<{ msg: string; type: "info" | "error" } | null>(null);
+  const [notification, setNotification] = useState<{
+    msg: string;
+    type: "info" | "error";
+  } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const showNotification = useCallback((msg: string, type: "info" | "error" = "info") => {
-    setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 3000);
-  }, []);
+  const showNotification = useCallback(
+    (msg: string, type: "info" | "error" = "info") => {
+      setNotification({ msg, type });
+      setTimeout(() => setNotification(null), 3000);
+    },
+    [],
+  );
 
   // ── Hooks ──
-  const { signalService, groupService, isLoading, userUniqueUsername } = useSignalInit(db, showNotification);
-  
+  const { signalService, groupService, isLoading, userUniqueUsername } =
+    useSignalInit(db, showNotification);
+
   const {
     messages,
     setMessages,
@@ -68,8 +80,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     handleSendMessage: baseSendMessage,
     saveContact,
     removeContact,
-    saveMessages
-  } = useSignalMessaging(db, userPub || null, signalService, groupService, recipient, setRecipient);
+    saveMessages,
+  } = useSignalMessaging(
+    db,
+    userPub || null,
+    signalService,
+    groupService,
+    recipient,
+    setRecipient,
+  );
 
   // ── Sync Route & Recipient ──
   useEffect(() => {
@@ -80,7 +99,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
-    if (recipient && groupService && recipient.length === 36 && recipient.includes("-")) {
+    if (
+      recipient &&
+      groupService &&
+      recipient.length === 36 &&
+      recipient.includes("-")
+    ) {
       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
     } else {
       setMyRole(null);
@@ -90,14 +114,27 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Profile Logic ──
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userNick, setUserNick] = useState<string>("");
-  const [contactProfiles, setContactProfiles] = useState<Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>>({});
+  const [contactProfiles, setContactProfiles] = useState<
+    Record<
+      string,
+      { avatar?: string; nickname?: string; uniqueUsername?: string }
+    >
+  >({});
 
   useEffect(() => {
     if (!isLoggedIn) return;
     const pub = db.getUserPub();
     if (pub) {
-      db.On(`~${pub}/profile/avatar`, (data: any) => typeof data === "string" && setUserAvatar(data), "avatar_self");
-      db.On(`~${pub}/profile/nickname`, (data: any) => typeof data === "string" && setUserNick(data), "nick_self");
+      db.On(
+        `~${pub}/profile/avatar`,
+        (data: any) => typeof data === "string" && setUserAvatar(data),
+        "avatar_self",
+      );
+      db.On(
+        `~${pub}/profile/nickname`,
+        (data: any) => typeof data === "string" && setUserNick(data),
+        "nick_self",
+      );
       return () => {
         db.Off("avatar_self");
         db.Off("nick_self");
@@ -111,11 +148,22 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       try {
         const isGroup = contactId.length === 36 && contactId.includes("-");
         if (isGroup) {
-          db.On(`signal_rooms/${contactId}/meta`, (data: any) => {
-            if (data && typeof data === "object") {
-              setContactProfiles(prev => ({ ...prev, [contactId]: { ...prev[contactId], nickname: data.name, avatar: data.avatar } }));
-            }
-          }, `group_meta_${contactId}`);
+          db.On(
+            `signal_rooms/${contactId}/meta`,
+            (data: any) => {
+              if (data && typeof data === "object") {
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactId]: {
+                    ...prev[contactId],
+                    nickname: data.name,
+                    avatar: data.avatar,
+                  },
+                }));
+              }
+            },
+            `group_meta_${contactId}`,
+          );
         } else {
           let cPub = contactId;
           if (contactId.length < 43 || contactId.startsWith("@")) {
@@ -123,25 +171,48 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           }
           if (cPub) {
             // Priority 1: User's profile graph (most accurate if synced)
-            db.On(`~${cPub}/profile/avatar`, (data: any) => typeof data === "string" && setContactProfiles(prev => ({ ...prev, [contactId]: { ...prev[contactId], avatar: data } })), `avatar_${cPub}`);
-            db.On(`~${cPub}/profile/nickname`, (data: any) => typeof data === "string" && setContactProfiles(prev => ({ ...prev, [contactId]: { ...prev[contactId], nickname: data } })), `nick_${cPub}`);
-            
+            db.On(
+              `~${cPub}/profile/avatar`,
+              (data: any) =>
+                typeof data === "string" &&
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactId]: { ...prev[contactId], avatar: data },
+                })),
+              `avatar_${cPub}`,
+            );
+            db.On(
+              `~${cPub}/profile/nickname`,
+              (data: any) =>
+                typeof data === "string" &&
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [contactId]: { ...prev[contactId], nickname: data },
+                })),
+              `nick_${cPub}`,
+            );
+
             // Priority 2: Public alias registry (fallback/faster sync)
-            db.On(`signal_aliases/${cPub}`, (data: any) => {
-              if (data && typeof data === "object") {
-                setContactProfiles(prev => {
-                  const existing = prev[contactId] || {};
-                  return {
-                    ...prev,
-                    [contactId]: {
-                      ...existing,
-                      nickname: existing.nickname || data.alias,
-                      uniqueUsername: existing.uniqueUsername || data.uniqueUsername
-                    }
-                  };
-                });
-              }
-            }, `alias_fallback_${cPub}`);
+            db.On(
+              `signal_aliases/${cPub}`,
+              (data: any) => {
+                if (data && typeof data === "object") {
+                  setContactProfiles((prev) => {
+                    const existing = prev[contactId] || {};
+                    return {
+                      ...prev,
+                      [contactId]: {
+                        ...existing,
+                        nickname: existing.nickname || data.alias,
+                        uniqueUsername:
+                          existing.uniqueUsername || data.uniqueUsername,
+                      },
+                    };
+                  });
+                }
+              },
+              `alias_fallback_${cPub}`,
+            );
           }
         }
       } catch (e) {}
@@ -149,7 +220,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   }, [contacts, signalService, db]);
 
   const requestNotifications = () => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+    if (
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
       Notification.requestPermission().catch(console.warn);
     }
   };
@@ -157,7 +232,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const handleLogout = async () => {
     if (typeof localStorage !== "undefined") {
       if (signalService && (signalService as any).store) {
-        try { await (signalService as any).store.clearAll(); } catch (e) {}
+        try {
+          await (signalService as any).store.clearAll();
+        } catch (e) {}
       }
       localStorage.clear();
     }
@@ -170,15 +247,21 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       await baseSendMessage(message);
       setMessage("");
     } catch (err: any) {
-      showNotification("Send failed: " + (err.message || "Unknown error"), "error");
+      showNotification(
+        "Send failed: " + (err.message || "Unknown error"),
+        "error",
+      );
     }
   };
 
-  const handleDeleteContact = async (contactKey: string, e: React.MouseEvent) => {
+  const handleDeleteContact = async (
+    contactKey: string,
+    e: React.MouseEvent,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     if (!window.confirm("Delete this conversation and all history?")) return;
-    
+
     // If it's a group, we should leave it in GunDB too
     const isGroup = contactKey.length === 36 && contactKey.includes("-");
     if (isGroup && groupService) {
@@ -189,24 +272,27 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
     }
 
-    setContacts(prev => prev.filter(c => c !== contactKey));
+    setContacts((prev) => prev.filter((c) => c !== contactKey));
     removeContact(contactKey);
     if (recipient === contactKey) {
-       setRecipient("");
-       navigate("/");
+      setRecipient("");
+      navigate("/");
     }
-    setMessages(prev => {
+    setMessages((prev) => {
       const next = { ...prev };
       delete next[contactKey];
       if (userPub) saveMessages(userPub, next);
       return next;
     });
-    setContactErrors(prev => {
+    setContactErrors((prev) => {
       const next = { ...prev };
       delete next[contactKey];
       return next;
     });
-    showNotification(isGroup ? "Group removed" : "Conversation deleted", "info");
+    showNotification(
+      isGroup ? "Group removed" : "Conversation deleted",
+      "info",
+    );
   };
 
   const handleManualReset = async () => {
@@ -214,11 +300,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (!window.confirm("Force-recreate secure session?")) return;
     try {
       await signalService.resetSession(recipient);
-      setContactErrors(prev => ({ ...prev, [recipient]: false }));
+      setContactErrors((prev) => ({ ...prev, [recipient]: false }));
       showNotification("Session reset triggered.", "info");
       const pub = await signalService.getPubKeyFromUsername(recipient);
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
-      db.Set(`signal_v3_inbox_${pub}`, { sender: userPub, type: ping.type, body: ping.body, timestamp: new Date().toISOString() } as any);
+      db.Set(`signal_v3_inbox_${pub}`, {
+        sender: userPub,
+        type: ping.type,
+        body: ping.body,
+        timestamp: new Date().toISOString(),
+      } as any);
     } catch (err) {
       showNotification("Reset failed.", "error");
     }
@@ -241,7 +332,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (!recipient || !groupService) return;
     try {
       await groupService.pinMessage(recipient, msgId, isPinned);
-      showNotification(isPinned ? "Message pinned" : "Message unpinned", "info");
+      showNotification(
+        isPinned ? "Message pinned" : "Message unpinned",
+        "info",
+      );
     } catch (e: any) {
       showNotification(e.message || "Failed to pin message", "error");
     }
@@ -250,16 +344,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const handleReportMessage = async (msgId: string) => {
     if (!recipient || !groupService || !signalService) return;
     const isGroup = recipient.length === 36 && recipient.includes("-");
-    
+
     const reason = window.prompt("Reason for reporting:");
     if (!reason) return;
-    
+
     try {
       if (isGroup) {
         await groupService.reportContent(recipient, msgId, reason);
         showNotification("Message reported to group moderators", "info");
       } else {
-        // For 1:1, we can't report to a group moderator. 
+        // For 1:1, we can't report to a group moderator.
         // We could implement a global report or just block the user locally.
         showNotification("Reported (local only for 1:1 chats)", "info");
       }
@@ -277,13 +371,21 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           <div className="max-w-md flex flex-col items-center">
             <div className="avatar mb-10">
               <div className="w-28 rounded-full ring ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl shadow-primary/20 bg-base-200/50 backdrop-blur-md p-6">
-                <img src="/logo.svg" alt="Linda Logo" className="animate-pulse" />
+                <img
+                  src="/logo.svg"
+                  alt="Linda Logo"
+                  className="animate-pulse"
+                />
               </div>
             </div>
-            <h1 className="text-5xl font-black text-primary mb-6 tracking-tighter">Linda</h1>
+            <h1 className="text-5xl font-black text-primary mb-6 tracking-tighter">
+              Linda
+            </h1>
             <div className="flex flex-col items-center gap-6 p-8 bg-base-200/40 backdrop-blur-xl rounded-[2rem] border border-white/5 shadow-2xl">
               <span className="loading loading-spinner loading-lg text-primary"></span>
-              <p className="text-sm font-black uppercase tracking-[0.3em] opacity-40">Initializing secure session</p>
+              <p className="text-sm font-black uppercase tracking-[0.3em] opacity-40">
+                Initializing secure session
+              </p>
             </div>
           </div>
         </div>
@@ -298,23 +400,32 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03]"></div>
         <div className="hero-content flex-col lg:flex-row-reverse gap-12 lg:gap-24 z-10 px-6">
           <div className="text-center lg:text-left max-w-lg">
-            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-primary mb-8 tracking-tightest">Linda</h1>
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-primary mb-8 tracking-tightest">
+              Linda
+            </h1>
             <p className="py-6 text-xl sm:text-2xl opacity-80 leading-relaxed font-medium">
-              The next generation of private messaging.<br />
-              <span className="text-primary font-bold">Secure. Decentralized. Premium.</span>
+              The next generation of private messaging.
+              <br />
+              <span className="text-primary font-bold">
+                Secure. Decentralized. Premium.
+              </span>
             </p>
             <div className="grid grid-cols-2 gap-4 mt-8">
               <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-primary">Privacy</div>
+                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-primary">
+                  Privacy
+                </div>
                 <div className="text-xl font-bold">End-to-End</div>
               </div>
               <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-secondary">Storage</div>
+                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-secondary">
+                  Storage
+                </div>
                 <div className="text-xl font-bold">Local-First</div>
               </div>
             </div>
           </div>
-          
+
           <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] overflow-hidden">
             <div className="card-body p-10 gap-10">
               <div className="flex justify-center">
@@ -324,29 +435,51 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   </div>
                 </div>
               </div>
-              
+
               <div className="card-actions justify-center">
                 <ShogunButton />
               </div>
-              
-              <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">ECOSYSTEM</div>
-              
+
+              <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">
+                ECOSYSTEM
+              </div>
+
               <div className="grid grid-cols-3 gap-2">
-                <a href="https://github.com/scobru/shogun-linda" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">GitHub</a>
-                <a href="https://shogun-eco.xyz" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">Web</a>
-                <a href="https://t.me/shogun_eco" target="_blank" className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors">Telegram</a>
+                <a
+                  href="https://github.com/scobru/shogun-linda"
+                  target="_blank"
+                  className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors"
+                >
+                  GitHub
+                </a>
+                <a
+                  href="https://shogun-eco.xyz"
+                  target="_blank"
+                  className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors"
+                >
+                  Web
+                </a>
+                <a
+                  href="https://t.me/shogun_eco"
+                  target="_blank"
+                  className="btn btn-ghost btn-xs rounded-lg hover:bg-primary/10 transition-colors"
+                >
+                  Telegram
+                </a>
               </div>
             </div>
           </div>
         </div>
-        
+
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[10px] font-black tracking-widest opacity-20 uppercase">
           Crafted by Scobru &copy; 2026
         </div>
 
         {notification && (
           <div className="toast toast-top toast-end z-[100]">
-            <div className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-lg`}>
+            <div
+              className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-lg`}
+            >
               <span>{notification.msg}</span>
             </div>
           </div>
@@ -358,71 +491,136 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   return (
     <div className="h-dvh w-screen overflow-hidden bg-base-100 relative">
       <Routes>
-        <Route element={
-          <Layout sidebarProps={{
-            userNick, username: username || "", userAvatar, contacts, recipient,
-            setRecipient: (id: string) => { setRecipient(id); if (id) navigate(`/chat/${id}`); else navigate("/"); },
-            contactProfiles, unreadCounts, handleDeleteContact, setShowCreateGroup,
-            signalService, groupService, showNotification, saveContact, requestNotifications,
-          }} />
-        }>
-          <Route path="/" element={
-            <ChatView
-              recipient=""
-              setRecipient={(id) => { setRecipient(id); if (id) navigate(`/chat/${id}`); }}
-              groupService={groupService}
-              contactProfiles={contactProfiles} typingStatuses={typingStatuses} contactErrors={contactErrors}
-              pinnedMessages={pinnedMessages} messages={messages} myRole={myRole} userAvatar={userAvatar}
-              userNick={userNick} username={username || ""} message={message} setMessage={setMessage}
-              handleSendMessage={handleSendMessage} handleTyping={handleTyping} handleManualReset={handleManualReset}
-              handlePinMessage={handlePinMessage} handleReportMessage={handleReportMessage} handleDeleteMessage={handleDeleteMessage}
-              setShowGroupSettings={(id) => id ? navigate(`/chat/${id}/settings`) : null}
-            />
-          } />
-          <Route path="/chat/:id" element={
-            <ChatWrapper
-              recipient={recipient}
-              setRecipient={(id) => {
-                setRecipient(id);
-                if (id) navigate(`/chat/${id}`);
-                else navigate("/");
+        <Route
+          element={
+            <Layout
+              sidebarProps={{
+                userNick,
+                username: username || "",
+                userAvatar,
+                contacts,
+                recipient,
+                setRecipient: (id: string) => {
+                  setRecipient(id);
+                  if (id) navigate(`/chat/${id}`);
+                  else navigate("/");
+                },
+                contactProfiles,
+                unreadCounts,
+                handleDeleteContact,
+                setShowCreateGroup,
+                signalService,
+                groupService,
+                showNotification,
+                saveContact,
+                requestNotifications,
               }}
-              groupService={groupService}
-              contactProfiles={contactProfiles}
-              typingStatuses={typingStatuses}
-              contactErrors={contactErrors}
-              pinnedMessages={pinnedMessages}
-              messages={messages}
-              myRole={myRole}
-              userAvatar={userAvatar}
-              userNick={userNick}
-              username={username || ""}
-              message={message}
-              setMessage={setMessage}
-              handleSendMessage={handleSendMessage}
-              handleTyping={handleTyping}
-              handleManualReset={handleManualReset}
-              handlePinMessage={handlePinMessage}
-              handleReportMessage={handleReportMessage}
-              handleDeleteMessage={handleDeleteMessage}
-              setShowGroupSettings={(id) => id ? navigate(`/chat/${id}/settings`) : null}
             />
-          } />
-          <Route path="/profile" element={
-            <UserProfile
-              db={db} username={username || ""} currentNick={userNick || username || ""}
-              currentUniqueUsername={userUniqueUsername} currentAvatar={userAvatar}
-              handleLogout={handleLogout} showNotification={showNotification}
-            />
-          } />
-          <Route path="/settings" element={<Settings showNotification={showNotification} />} />
-          <Route path="/chat/:id/settings" element={<GroupSettingsPage groupService={groupService!} db={db} showNotification={showNotification} />} />
+          }
+        >
+          <Route
+            path="/"
+            element={
+              <ChatView
+                recipient=""
+                setRecipient={(id) => {
+                  setRecipient(id);
+                  if (id) navigate(`/chat/${id}`);
+                }}
+                groupService={groupService}
+                contactProfiles={contactProfiles}
+                typingStatuses={typingStatuses}
+                contactErrors={contactErrors}
+                pinnedMessages={pinnedMessages}
+                messages={messages}
+                myRole={myRole}
+                userAvatar={userAvatar}
+                userNick={userNick}
+                username={username || ""}
+                message={message}
+                setMessage={setMessage}
+                handleSendMessage={handleSendMessage}
+                handleTyping={handleTyping}
+                handleManualReset={handleManualReset}
+                handlePinMessage={handlePinMessage}
+                handleReportMessage={handleReportMessage}
+                handleDeleteMessage={handleDeleteMessage}
+                setShowGroupSettings={(id) =>
+                  id ? navigate(`/chat/${id}/settings`) : null
+                }
+              />
+            }
+          />
+          <Route
+            path="/chat/:id"
+            element={
+              <ChatWrapper
+                recipient={recipient}
+                setRecipient={(id) => {
+                  setRecipient(id);
+                  if (id) navigate(`/chat/${id}`);
+                  else navigate("/");
+                }}
+                groupService={groupService}
+                contactProfiles={contactProfiles}
+                typingStatuses={typingStatuses}
+                contactErrors={contactErrors}
+                pinnedMessages={pinnedMessages}
+                messages={messages}
+                myRole={myRole}
+                userAvatar={userAvatar}
+                userNick={userNick}
+                username={username || ""}
+                message={message}
+                setMessage={setMessage}
+                handleSendMessage={handleSendMessage}
+                handleTyping={handleTyping}
+                handleManualReset={handleManualReset}
+                handlePinMessage={handlePinMessage}
+                handleReportMessage={handleReportMessage}
+                handleDeleteMessage={handleDeleteMessage}
+                setShowGroupSettings={(id) =>
+                  id ? navigate(`/chat/${id}/settings`) : null
+                }
+              />
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <UserProfile
+                db={db}
+                username={username || ""}
+                currentNick={userNick || username || ""}
+                currentUniqueUsername={userUniqueUsername}
+                currentAvatar={userAvatar}
+                handleLogout={handleLogout}
+                showNotification={showNotification}
+              />
+            }
+          />
+          <Route
+            path="/settings"
+            element={<Settings showNotification={showNotification} />}
+          />
+          <Route
+            path="/chat/:id/settings"
+            element={
+              <GroupSettingsPage
+                groupService={groupService!}
+                db={db}
+                showNotification={showNotification}
+              />
+            }
+          />
         </Route>
       </Routes>
-      
+
       {notification && (
         <div className="toast toast-top toast-end z-[100]">
-          <div className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-white/5`}>
+          <div
+            className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-white/5`}
+          >
             <span>{notification.msg}</span>
           </div>
         </div>
@@ -431,9 +629,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       {/* {showGroupSettings && groupService && <GroupSettings groupId={showGroupSettings} groupService={groupService} db={db} onClose={() => setShowGroupSettings(null)} showNotification={showNotification} />} */}
       {showCreateGroup && groupService && (
         <GroupCreationModal
-          groupService={groupService} onClose={() => setShowCreateGroup(false)}
+          groupService={groupService}
+          onClose={() => setShowCreateGroup(false)}
           onCreated={(groupId) => {
-            setContacts((prev) => !prev.includes(groupId) ? [...prev, groupId] : prev);
+            setContacts((prev) =>
+              !prev.includes(groupId) ? [...prev, groupId] : prev,
+            );
             saveContact(groupId);
             setRecipient(groupId);
             navigate(`/chat/${groupId}`);
@@ -449,7 +650,10 @@ const ChatWrapper: React.FC<{
   recipient: string;
   setRecipient: (id: string) => void;
   groupService: GroupService | null;
-  contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
+  contactProfiles: Record<
+    string,
+    { avatar?: string; nickname?: string; uniqueUsername?: string }
+  >;
   typingStatuses: Record<string, number>;
   contactErrors: Record<string, boolean>;
   pinnedMessages: Record<string, Set<string>>;
@@ -491,8 +695,9 @@ const App: React.FC = () => {
         // Initialize Gun and DataBase with the dynamic peer list
         const gunInstance = new Gun({
           peers: relays,
-          localStorage: false,
-          radisk: false,
+          localStorage: true,
+          radisk: true,
+          file: "radata",
         });
 
         window.gun = gunInstance;
@@ -570,14 +775,22 @@ const App: React.FC = () => {
           <div className="max-w-md flex flex-col items-center gap-10">
             <div className="avatar">
               <div className="w-28 rounded-full ring ring-primary ring-offset-base-100 ring-offset-4 shadow-3xl shadow-primary/20 bg-base-200/40 backdrop-blur-md p-6">
-                <img src="/logo.svg" alt="Linda Logo" className="animate-pulse" />
+                <img
+                  src="/logo.svg"
+                  alt="Linda Logo"
+                  className="animate-pulse"
+                />
               </div>
             </div>
             <div className="space-y-6 p-10 bg-base-200/40 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-2xl">
-              <h1 className="text-4xl font-black tracking-tighter text-primary">Linda</h1>
+              <h1 className="text-4xl font-black tracking-tighter text-primary">
+                Linda
+              </h1>
               <div className="flex flex-col items-center gap-4 py-2">
                 <span className="loading loading-infinity loading-lg text-primary"></span>
-                <p className="text-xs font-black uppercase tracking-[0.4em] opacity-40">Bootstrapping SDK</p>
+                <p className="text-xs font-black uppercase tracking-[0.4em] opacity-40">
+                  Bootstrapping SDK
+                </p>
               </div>
             </div>
           </div>

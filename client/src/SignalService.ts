@@ -169,11 +169,15 @@ export class SignalService {
           await this.backupKeysToGun();
         }
       }
-      // Persist alias and unique username for message routing and identity
-      await this.persistAlias(username, uniqueUsername);
-
-      // Check prekey health
-      await this.checkAndRotatePreKeys();
+      
+      try {
+        // Persist alias and unique username for message routing and identity
+        await this.persistAlias(username, uniqueUsername);
+        // Check prekey health
+        await this.checkAndRotatePreKeys();
+      } catch (e) {
+        console.warn('[SignalService] Post-init steps failed (non-critical):', e);
+      }
 
       this.isInitialized = true;
       this.initPromise = null;
@@ -189,14 +193,15 @@ export class SignalService {
    * Uses db.userPut() — data under user space is auto-encrypted by SEA.
    */
   private async backupKeysToGun(): Promise<void> {
-    const snapshot = btoa(encodeURIComponent(this.store.exportAll()));
-    // Use an object with a strictly alphanumeric string payload to satisfy Gun SEA
     try {
+      // Use the raw exported JSON string directly. 
+      // ShogunCore's userPut handles encryption via SEA.
+      const snapshot = this.store.exportAll();
       await this.db.userPut('signal_keystore_v6', { payload: snapshot });
-      console.log('[SignalService] Keys backed up to GunDB (encrypted)');
+      console.log('[SignalService] Keys backed up to GunDB');
     } catch (e) {
       console.error('[SignalService] Key backup failed:', e);
-      throw new Error('Key backup failed');
+      // We don't throw here to avoid crashing the whole session if backup fails
     }
   }
 
@@ -206,40 +211,49 @@ export class SignalService {
    */
   private async restoreKeysFromGun(): Promise<boolean> {
     // Retry because GunDB might take a moment to sync the user node
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 6; i++) {
       try {
         const wrapper = await this.db.userGet('signal_keystore_v6') as any;
         if (wrapper && wrapper.payload && typeof wrapper.payload === 'string') {
           const data = wrapper.payload;
           let jsonStr = data;
-          if (!data.startsWith('{')) {
+
+          // Robust detection: If it doesn't look like JSON, try decoding from B64/URI
+          if (!data.trim().startsWith('{')) {
             try {
               jsonStr = decodeURIComponent(atob(data));
             } catch(e) {
               jsonStr = data;
             }
           }
+          
           await this.store.importAll(jsonStr);
           
           // Validate restored keys immediately
           const key = await this.store.getIdentityKeyPair();
-          const isValid = key && key.privKey && key.pubKey &&
+          const isValid = !!(key && key.privKey && key.pubKey &&
                          key.privKey.byteLength === 32 && 
-                         key.pubKey.byteLength === 32;
+                         key.pubKey.byteLength === 32);
 
           if (isValid) {
             console.log(`[SignalService] Keys restored from GunDB (attempt ${i + 1})`);
             return true;
           } else {
-            console.warn(`[SignalService] Restore attempt ${i + 1}: Restored keys are invalid/corrupted. Clearing.`);
+            console.warn(`[SignalService] Restore attempt ${i + 1}: Restored keys are invalid/corrupted.`, {
+              hasKey: !!key,
+              privLen: key?.privKey?.byteLength,
+              pubLen: key?.pubKey?.byteLength
+            });
             await this.store.clearAll();
           }
         }
-      } catch (e) {
-        console.error(`[SignalService] Restore attempt ${i + 1} failed:`, e);
+      } catch (e: any) {
+        if (e && e.err !== 'notfound') {
+          console.error(`[SignalService] Restore attempt ${i + 1} failed:`, e);
+        }
       }
-      // Wait 1.5s between retries
-      await new Promise(r => setTimeout(r, 1500));
+      // Wait between retries
+      await new Promise(r => setTimeout(r, 1000 + (i * 500)));
     }
     return false;
   }
@@ -305,15 +319,15 @@ export class SignalService {
       username,
       registrationId,
       identityKey: this.ab2b64(identityKeyPair.pubKey),
-      signedPreKeyB64: btoa(encodeURIComponent(JSON.stringify({
+      signedPreKeyB64: btoa(JSON.stringify({
         keyId: signedPreKeyId,
         publicKey: this.ab2b64(signedPreKey.keyPair.pubKey),
         signature: this.ab2b64(signedPreKey.signature),
-      }))),
-      preKeysB64: btoa(encodeURIComponent(JSON.stringify(preKeys.map(pk => ({
+      })),
+      preKeysB64: btoa(JSON.stringify(preKeys.map(pk => ({
         keyId: pk.keyId,
         publicKey: this.ab2b64(pk.keyPair.pubKey),
-      }))))),
+      })))),
     };
 
     if (uniqueUsername) {
@@ -353,13 +367,16 @@ export class SignalService {
         let parsedPreKeys: any[] = [];
         try {
           if (bundleData.preKeysB64) {
-            parsedPreKeys = JSON.parse(decodeURIComponent(atob(bundleData.preKeysB64)));
+            const raw = atob(bundleData.preKeysB64);
+            parsedPreKeys = JSON.parse(raw.startsWith('%') ? decodeURIComponent(raw) : raw);
           } else if (bundleData.preKeys && typeof bundleData.preKeys === 'string') {
              parsedPreKeys = JSON.parse(bundleData.preKeys);
           } else if (Array.isArray(bundleData.preKeys)) {
              parsedPreKeys = bundleData.preKeys;
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[SignalService] Failed to parse bundle pre-keys during rotation:', e);
+        }
 
         const combinedPreKeys = [
           ...parsedPreKeys,
@@ -376,8 +393,8 @@ export class SignalService {
           username: bundleData.username,
           registrationId: typeof bundleData.registrationId === 'string' ? parseInt(bundleData.registrationId, 10) : bundleData.registrationId,
           identityKey: bundleData.identityKey,
-          signedPreKeyB64: bundleData.signedPreKeyB64 || (bundleData.signedPreKey ? btoa(encodeURIComponent(typeof bundleData.signedPreKey === 'string' ? bundleData.signedPreKey : JSON.stringify(bundleData.signedPreKey))) : ''),
-          preKeysB64: btoa(encodeURIComponent(JSON.stringify(cappedPreKeys)))
+          signedPreKeyB64: bundleData.signedPreKeyB64 || (bundleData.signedPreKey ? btoa(typeof bundleData.signedPreKey === 'string' ? bundleData.signedPreKey : JSON.stringify(bundleData.signedPreKey)) : ''),
+          preKeysB64: btoa(JSON.stringify(cappedPreKeys))
         };
 
         if (bundleData.uniqueUsername) {
@@ -473,14 +490,16 @@ export class SignalService {
       if (data.username && (data.signedPreKeyB64 || data.signedPreKey)) {
         let spk;
         if (data.signedPreKeyB64) {
-          spk = JSON.parse(decodeURIComponent(atob(data.signedPreKeyB64)));
+          const raw = atob(data.signedPreKeyB64);
+          spk = JSON.parse(raw.startsWith('%') ? decodeURIComponent(raw) : raw);
         } else {
           spk = typeof data.signedPreKey === 'string' ? JSON.parse(data.signedPreKey) : data.signedPreKey;
         }
 
         let pK;
         if (data.preKeysB64) {
-          pK = JSON.parse(decodeURIComponent(atob(data.preKeysB64)));
+          const raw = atob(data.preKeysB64);
+          pK = JSON.parse(raw.startsWith('%') ? decodeURIComponent(raw) : raw);
         } else {
           pK = typeof data.preKeys === 'string' ? JSON.parse(data.preKeys) : data.preKeys;
         }

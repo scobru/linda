@@ -71,13 +71,18 @@ export class GroupService {
     };
 
     // Store group metadata
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, groupInfo);
+    try {
+      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, groupInfo);
 
-    // Initial member (creator is Admin)
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, {
-      role: "administrator",
-      joinedAt: Date.now(),
-    } as GroupMember);
+      // Initial member (creator is Admin)
+      await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, {
+        role: "administrator",
+        joinedAt: Date.now(),
+      } as GroupMember);
+    } catch (e) {
+      console.error(`[GroupService] Failed to initialize group ${groupId} nodes:`, e);
+      throw new Error("Failed to initialize group nodes on GunDB");
+    }
 
     return groupInfo;
   }
@@ -96,8 +101,10 @@ export class GroupService {
       if (meta && meta.adminPub === memberPub) {
         return "administrator";
       }
-    } catch (e) {
-      console.error(`[GroupService] Error getting role for ${memberPub} in ${groupId}:`, e);
+    } catch (e: any) {
+      if (e && e.err !== 'notfound') {
+        console.error(`[GroupService] Error getting role for ${memberPub} in ${groupId}:`, e);
+      }
     }
     return null;
   }
@@ -108,8 +115,10 @@ export class GroupService {
 
     // Check if muted for send_message action
     if (action === "send_message") {
-      const isMuted = await this.isMuted(groupId, myPub);
-      if (isMuted) return false;
+      try {
+        const isMuted = await this.isMuted(groupId, myPub);
+        if (isMuted) return false;
+      } catch (e) {}
     }
 
     const role = await this.getMemberRole(groupId, myPub);
@@ -124,25 +133,24 @@ export class GroupService {
             return false;
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         // If meta retrieval fails, and it's a group UUID, better to be safe
         const isGroup = groupId.length === 36 && groupId.includes("-");
-        if (isGroup) {
-          // If we can't verify it's NOT a broadcast, and we don't have a high role,
-          // we might want to be restrictive, OR we might want to allow it if they are a peer.
-          // However, in this specific bug, peers were allowed when meta was null.
-          // Let's ensure if it's a group, we AT LEAST have the role.
-          if (!role) return false;
+        if (isGroup && (e?.err === 'notfound' || e?.err === 'timeout')) {
+           // If it's a known group but meta is missing, treat as restricted if no role
+           if (!role) return false;
         }
       }
     }
 
     if (!role) {
       // Final fallback for the creator if they are not yet in the members list
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      if (meta && meta.adminPub === myPub) {
-        return true; // Admins can perform everything
-      }
+      try {
+        const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+        if (meta && meta.adminPub === myPub) {
+          return true; // Admins can perform everything
+        }
+      } catch (e) {}
       return false;
     }
 
@@ -171,8 +179,12 @@ export class GroupService {
   }
 
   async isMuted(groupId: string, memberPub: string): Promise<boolean> {
-    const muted = await (this.db.Get as any)(`signal_rooms/${groupId}/mutes/${memberPub}`);
-    return !!muted;
+    try {
+      const muted = await (this.db.Get as any)(`signal_rooms/${groupId}/mutes/${memberPub}`);
+      return !!muted;
+    } catch (e) {
+      return false;
+    }
   }
 
   /**
@@ -180,8 +192,13 @@ export class GroupService {
    */
   async updateGroupMeta(groupId: string, updates: Partial<Pick<GroupInfo, 'name' | 'description' | 'avatar'>>): Promise<void> {
     if (!(await this.canPerform(groupId, "update_meta"))) throw new Error("Unauthorized");
-    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, ...updates });
+    try {
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, ...updates });
+    } catch (e) {
+      console.error('[GroupService] Failed to update group meta:', e);
+      throw new Error("Failed to update group metadata on GunDB");
+    }
   }
 
   /**
@@ -189,9 +206,14 @@ export class GroupService {
    */
   async toggleFeature(groupId: string, feature: 'callsEnabled' | 'activityEnabled', enabled: boolean): Promise<void> {
     if (!(await this.canPerform(groupId, "toggle_features"))) throw new Error("Unauthorized");
-    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-    const features = { ...meta.features, [feature]: enabled };
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, features });
+    try {
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const features = { ...meta.features, [feature]: enabled };
+      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, features });
+    } catch (e) {
+      console.error('[GroupService] Failed to toggle feature:', e);
+      throw new Error("Failed to update group features on GunDB");
+    }
   }
 
   /**
@@ -230,8 +252,9 @@ export class GroupService {
   }
 
   async getMembers(groupId: string): Promise<GroupMember[]> {
-    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-    const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
+    try {
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
     
     const members: GroupMember[] = [];
     if (membersNode) {
@@ -256,7 +279,7 @@ export class GroupService {
     }
 
     // Ensure the creator/admin is always in the list even if members node sync is delayed
-    if (meta && !members.find((m) => m.pub === meta.adminPub)) {
+    if (meta && meta.adminPub && !members.find((m) => m.pub === (meta as any).adminPub)) {
       members.push({
         pub: meta.adminPub,
         role: "administrator",
@@ -265,7 +288,11 @@ export class GroupService {
     }
 
     return members;
+  } catch (e) {
+    console.warn(`[GroupService] Failed to get members for ${groupId}:`, e);
+    return [];
   }
+}
 
   /**
    * Kick Member
