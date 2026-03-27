@@ -298,7 +298,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       {/* Input Area */}
-      <div className="p-6 pb-10 sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0">
+      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0">
         {!canSendMessage ? (
           <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 mr-3 text-primary opacity-60">

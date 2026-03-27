@@ -271,7 +271,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Loading screen ─────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="hero min-h-screen bg-base-100 flex items-center justify-center relative overflow-hidden">
+      <div className="hero min-h-dvh bg-base-100 flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-secondary/5 opacity-50"></div>
         <div className="hero-content text-center z-10">
           <div className="max-w-md flex flex-col items-center">
@@ -294,7 +294,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Login screen ──────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
-      <div className="hero min-h-screen bg-base-100 relative overflow-hidden">
+      <div className="hero min-h-dvh bg-base-100 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03]"></div>
         <div className="hero-content flex-col lg:flex-row-reverse gap-12 lg:gap-24 z-10 px-6">
           <div className="text-center lg:text-left max-w-lg">
@@ -356,7 +356,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-base-100 relative">
+    <div className="h-dvh w-screen overflow-hidden bg-base-100 relative">
       <Routes>
         <Route element={
           <Layout sidebarProps={{
@@ -564,7 +564,7 @@ const App: React.FC = () => {
 
   if (!coreContext || !dbInstance) {
     return (
-      <div className="hero min-h-screen bg-base-100 flex items-center justify-center relative overflow-hidden">
+      <div className="hero min-h-dvh bg-base-100 flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
         <div className="hero-content text-center z-10">
           <div className="max-w-md flex flex-col items-center gap-10">
