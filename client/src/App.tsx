@@ -16,10 +16,9 @@ import { UserProfile } from "./pages/UserProfile";
 import { Settings } from "./pages/Settings";
 import { ChatView } from "./components/ChatView";
 import { Layout } from "./components/Layout";
-import { useParams } from "react-router-dom";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
-import { type Role } from "./GroupService";
+import { GroupService, type Role } from "./GroupService";
 
 // Extend window interface
 declare global {
@@ -353,6 +352,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             <ChatView
               recipient=""
               setRecipient={(id) => { setRecipient(id); if (id) navigate(`/chat/${id}`); }}
+              groupService={groupService}
               contactProfiles={contactProfiles} typingStatuses={typingStatuses} contactErrors={contactErrors}
               pinnedMessages={pinnedMessages} messages={messages} myRole={myRole} userAvatar={userAvatar}
               userNick={userNick} username={username || ""} message={message} setMessage={setMessage}
@@ -369,6 +369,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 if (id) navigate(`/chat/${id}`);
                 else navigate("/");
               }}
+              groupService={groupService}
               contactProfiles={contactProfiles}
               typingStatuses={typingStatuses}
               contactErrors={contactErrors}
@@ -429,6 +430,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 const ChatWrapper: React.FC<{
   recipient: string;
   setRecipient: (id: string) => void;
+  groupService: GroupService | null;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   typingStatuses: Record<string, number>;
   contactErrors: Record<string, boolean>;
@@ -448,11 +450,6 @@ const ChatWrapper: React.FC<{
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   setShowGroupSettings: (id: string | null) => void;
 }> = (props) => {
-  const { id } = useParams();
-  useEffect(() => {
-    if (id && id !== props.recipient) props.setRecipient(id);
-  }, [id, props.recipient, props.setRecipient]);
-
   return <ChatView {...props} />;
 };
 

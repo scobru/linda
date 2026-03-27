@@ -440,7 +440,11 @@ export const useSignalMessaging = (
 
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
       setMessages((prev) => {
-        const next = { ...prev, [recipient]: [...(prev[recipient] || []), { id: msgId, sender: "Me", senderPub: userPub, text: message, timestamp: new Date(), status: "sent" as const }] };
+        const currentMsgs = prev[recipient] || [];
+        // Check if message was already added by the listener (happens with GunDB local priority)
+        if (currentMsgs.some(m => m.id === msgId)) return prev;
+        
+        const next = { ...prev, [recipient]: [...currentMsgs, { id: msgId, sender: "Me", senderPub: userPub, text: message, timestamp: new Date(), status: "sent" as const }] };
         saveMessages(userPub, next);
         return next;
       });

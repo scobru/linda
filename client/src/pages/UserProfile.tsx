@@ -132,102 +132,106 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-8 lg:p-12 max-w-4xl mx-auto space-y-8 sm:space-y-12 animate-fadeIn overflow-y-auto h-full">
-      <div className="flex items-center gap-4 sm:gap-6 relative z-10">
+    <div className="p-6 sm:p-12 lg:p-16 max-w-5xl mx-auto space-y-10 sm:space-y-16 animate-fadeIn overflow-y-auto h-full">
+      <div className="flex items-center gap-6 sm:gap-8 relative z-10">
         <button 
-          className="btn btn-ghost btn-circle shadow-xl bg-base-200/80 backdrop-blur-md border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0" 
-          onClick={() => navigate(-1)}
+          className="btn btn-ghost btn-circle shadow-2xl bg-base-200/90 backdrop-blur-xl border border-white/10 active:scale-90 transition-all flex items-center justify-center p-0" 
+          onClick={() => navigate("/")}
           aria-label="Go back"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <h1 className="text-3xl sm:text-4xl font-black text-primary tracking-tight">Public Profile</h1>
+        <h1 className="text-4xl sm:text-5xl font-black text-primary tracking-tighter">Public Profile</h1>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-center gap-6 sm:gap-10 bg-base-200/40 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/10 shadow-2xl relative overflow-hidden group">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-duration-500 transition-opacity"></div>
+      <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200/60 backdrop-blur-3xl p-10 sm:p-14 rounded-[3.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
         
         <div className="relative z-10 shrink-0">
           <div className="avatar">
-            <div className="w-28 sm:w-36 rounded-full ring-4 ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl shadow-primary/30">
+            <div className="w-32 sm:w-44 rounded-full ring-8 ring-primary/10 ring-offset-base-100 ring-offset-8 shadow-2full shadow-primary/20">
               {currentAvatar ? (
                 <img src={currentAvatar} alt="Avatar" className="object-cover" />
               ) : (
-                <div className="bg-primary text-primary-content flex items-center justify-center text-4xl sm:text-5xl font-black h-full w-full">
+                <div className="bg-primary text-primary-content flex items-center justify-center text-5xl sm:text-6xl font-black h-full w-full">
                   {username.charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
           </div>
-          <label className="btn btn-primary btn-circle btn-sm absolute bottom-1 right-1 shadow-2xl border-2 border-base-200 hover:scale-110 active:scale-90 transition-transform cursor-pointer">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+          <label className="btn btn-primary btn-circle absolute bottom-2 right-2 shadow-2xl border-4 border-base-200 hover:scale-110 active:scale-90 transition-all cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
             <input type="file" accept="image/*" onChange={handleAvatarSelect} className="hidden" />
           </label>
         </div>
 
         <div className="text-center sm:text-left z-10 flex-1 min-w-0">
-          <h2 className="text-2xl sm:text-3xl font-black mb-2 truncate">{currentNick || username}</h2>
-          <div className="badge badge-primary badge-outline font-black tracking-[0.2em] text-[10px] h-7 px-4 bg-primary/5">{currentUniqueUsername || "ID NOT SET"}</div>
+          <h2 className="text-3xl sm:text-4xl font-black mb-3 truncate tracking-tight">{currentNick || username}</h2>
+          <div className="badge badge-primary badge-outline font-black tracking-[0.3em] text-[10px] h-8 px-6 bg-primary/5 rounded-full border-2">{currentUniqueUsername || "ID NOT SET"}</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
-        <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden hover:border-primary/20 transition-all">
-          <div className="card-body p-6 sm:p-8 gap-5">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 text-primary">Display Name</h3>
-            <div className="join w-full shadow-2xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-10">
+        <div className="card bg-base-200/60 backdrop-blur-2xl shadow-2xl border border-white/10 overflow-hidden hover:border-primary/30 transition-all rounded-[3rem]">
+          <div className="card-body p-8 sm:p-10 gap-6">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 text-primary">Display Name</h3>
+            <div className="flex gap-2 w-full">
               <input
-                className="input input-bordered join-item grow focus:border-primary transition-all h-12 bg-base-100/50 border-white/10"
+                className="input input-bordered grow focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all h-14 bg-base-300/30 border-white/5 rounded-2xl px-6 font-bold"
                 value={nick}
                 onChange={(e) => setNick(e.target.value)}
                 placeholder="Ex. Linda"
               />
-              <button onClick={handleSaveNick} className="btn btn-primary join-item h-12 px-6 font-bold">
-                Save
+              <button onClick={handleSaveNick} className="btn btn-primary h-14 w-14 rounded-2xl shadow-lg shadow-primary/20 p-0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                </svg>
               </button>
             </div>
-            <p className="text-[11px] opacity-40 leading-relaxed">Your public name visible to other users in groups and encrypted chats.</p>
+            <p className="text-[11px] opacity-40 font-medium leading-relaxed px-1">Your public name visible to other users in groups and encrypted chats.</p>
           </div>
         </div>
 
-        <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden hover:border-primary/20 transition-all">
-          <div className="card-body p-6 sm:p-8 gap-5">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 text-primary">Unique Handle</h3>
-            <div className="join w-full shadow-2xl">
+        <div className="card bg-base-200/60 backdrop-blur-2xl shadow-2xl border border-white/10 overflow-hidden hover:border-primary/30 transition-all rounded-[3rem]">
+          <div className="card-body p-8 sm:p-10 gap-6">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 text-primary">Unique Handle</h3>
+            <div className="flex gap-2 w-full">
               <input
-                className="input input-bordered join-item grow focus:border-primary transition-all h-12 bg-base-100/50 border-white/10"
+                className="input input-bordered grow focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all h-14 bg-base-300/30 border-white/5 rounded-2xl px-6 font-bold"
                 value={uniqueName}
                 onChange={(e) => setUniqueName(e.target.value)}
                 placeholder="@username"
               />
-              <button onClick={handleSaveUniqueUsername} className="btn btn-primary join-item h-12 px-6 font-bold">
-                Save
+              <button onClick={handleSaveUniqueUsername} className="btn btn-primary h-14 w-14 rounded-2xl shadow-lg shadow-primary/20 p-0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                </svg>
               </button>
             </div>
-            <p className="text-[11px] opacity-40 leading-relaxed">A unique handle that others can use to find and message you directly.</p>
+            <p className="text-[11px] opacity-40 font-medium leading-relaxed px-1">A unique handle that others can use to find and message you directly.</p>
           </div>
         </div>
       </div>
 
-      <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-white/10 overflow-hidden">
-        <div className="card-body p-6 sm:p-8 gap-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Security & Keys</h3>
-              <p className="text-sm opacity-70">Management of your private end-to-end encryption keys.</p>
+      <div className="card bg-base-200/60 backdrop-blur-2xl shadow-2xl border border-white/10 overflow-hidden rounded-[3rem]">
+        <div className="card-body p-8 sm:p-12 gap-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-8">
+            <div className="flex-1">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40 mb-2 text-primary">Security & Keys</h3>
+              <p className="text-sm opacity-70 font-medium">Management of your private end-to-end encryption keys.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <button 
-                className={`btn btn-sm sm:btn-md rounded-xl px-6 ${showKeys ? "btn-neutral" : "btn-outline border-white/10 shadow-sm"}`}
+                className={`btn btn-md rounded-full px-8 font-black text-xs ${showKeys ? "btn-neutral" : "btn-outline border-white/10"}`}
                 onClick={() => setShowKeys(!showKeys)}
               >
                 {showKeys ? "Hide Details" : "Reveal Keys"}
               </button>
-              <button className="btn btn-outline border-white/10 btn-sm sm:btn-md rounded-xl px-6 shadow-sm" onClick={handleCopyKeys}>
+              <button className="btn btn-outline border-white/10 btn-md rounded-full px-8 font-black text-xs" onClick={handleCopyKeys}>
                 {copyStatus || "Export JSON"}
               </button>
             </div>
@@ -235,23 +239,23 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           
           {showKeys && (
             <div className="relative animate-fadeIn pt-4">
-              <div className="mockup-code bg-base-300 shadow-inner text-xs border border-white/5 max-h-60 overflow-y-auto before:bg-primary/20">
-                <pre><code>{keys}</code></pre>
+              <div className="mockup-code bg-base-300/80 backdrop-blur-md shadow-inner text-xs border border-white/5 max-h-60 overflow-y-auto before:bg-primary/20 rounded-3xl">
+                <pre className="px-6 py-4"><code>{keys}</code></pre>
               </div>
-              <div className="absolute top-8 right-6 badge badge-warning badge-sm font-black shadow-2xl animate-pulse">SECRET KEYS</div>
+              <div className="absolute top-8 right-8 badge badge-warning font-black shadow-2xl animate-pulse rounded-full text-[10px] tracking-widest border-2">SECRET KEYS</div>
             </div>
           )}
         </div>
       </div>
 
-      <div className="card bg-error/5 border border-error/20 shadow-2xl group hover:bg-error/10 transition-all overflow-hidden rounded-[2rem]">
-        <div className="card-body p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+      <div className="card bg-error/5 border border-error/20 shadow-2xl group hover:bg-error/10 transition-all overflow-hidden rounded-[3rem]">
+        <div className="card-body p-8 sm:p-12 flex flex-col sm:flex-row items-center justify-between gap-8">
           <div className="text-center sm:text-left">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-error mb-1.5">Emergency Sign Out</h3>
-            <p className="text-sm opacity-60">Instantly sign out and destroy session data in this browser.</p>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-error mb-2">Emergency Sign Out</h3>
+            <p className="text-sm opacity-60 font-medium">Instantly sign out and destroy session data in this browser.</p>
           </div>
           <button 
-            className="btn btn-error btn-outline rounded-xl px-10 group-hover:bg-error group-hover:text-error-content transition-all border-error/30" 
+            className="btn btn-error btn-outline rounded-full px-12 font-black transition-all border-2 active:scale-95" 
             onClick={handleLogout}
           >
             Logout

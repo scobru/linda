@@ -15,6 +15,7 @@ export interface GroupInfo {
   avatar?: string;
   adminPub: string;
   secret: string; // Symmetric key for message encryption
+  type?: 'group' | 'broadcast';
   features?: {
     callsEnabled: boolean;
     activityEnabled: boolean;
@@ -49,7 +50,7 @@ export class GroupService {
   /**
    * Create a new encrypted group
    */
-  async createGroup(name: string, description: string): Promise<GroupInfo> {
+  async createGroup(name: string, description: string, type: 'group' | 'broadcast' = 'group'): Promise<GroupInfo> {
     const groupId = this.generateUUID();
     const groupSecret = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
     const myPub = this.db.getUserPub();
@@ -62,6 +63,7 @@ export class GroupService {
       description,
       adminPub: myPub,
       secret: groupSecret,
+      type,
       features: {
         callsEnabled: true,
         activityEnabled: true,
@@ -111,6 +113,18 @@ export class GroupService {
     }
 
     const role = await this.getMemberRole(groupId, myPub);
+    
+    // Broadcast check for send_message
+    if (action === "send_message") {
+      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      if (meta && meta.type === "broadcast") {
+        // In a broadcast group, only admins and moderators can talk
+        if (!role || (role !== "administrator" && role !== "moderator")) {
+          return false;
+        }
+      }
+    }
+
     if (!role) {
       // Final fallback for the creator if they are not yet in the members list
       const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;

@@ -237,8 +237,8 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
     <div className="p-4 sm:p-8 lg:p-12 max-w-4xl mx-auto space-y-8 sm:space-y-12 animate-fadeIn overflow-y-auto h-full">
       <header className="flex items-center gap-6 mb-12 relative z-10">
         <button 
-          className="btn btn-ghost btn-circle shadow-xl bg-base-200/80 backdrop-blur-md border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0" 
-          onClick={() => navigate(-1)}
+          className="btn btn-ghost btn-circle btn-sm shadow-xl bg-base-200/80 backdrop-blur-md border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0" 
+          onClick={() => navigate("/")}
           aria-label="Go back"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
