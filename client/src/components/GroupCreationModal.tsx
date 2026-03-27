@@ -133,7 +133,7 @@ export const GroupCreationModal: React.FC<GroupCreationModalProps> = ({
                 </div>
                 <label className="label mt-2 px-2">
                   <span className="label-text-alt opacity-40 font-medium italic text-xs">
-                    {groupType === 'broadcast' ? " seulement les admins possono inviare messaggi. Ideale per canali news." : "Tutti possono chattare, chiamare e condividere file."}
+                    {groupType === 'broadcast' ? "Solo gli amministratori possono inviare messaggi. Ideale per canali news." : "Tutti possono chattare, chiamare e condividere file."}
                   </span>
                 </label>
               </div>

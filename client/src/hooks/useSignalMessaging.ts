@@ -422,6 +422,11 @@ export const useSignalMessaging = (
       let ciphertext: any;
 
       if (isGroup) {
+        const canSend = await groupService.canPerform(recipient, "send_message");
+        if (!canSend) {
+           throw new Error("You do not have permission to send messages in this group");
+        }
+        
         const myRole = await groupService.getMemberRole(recipient, userPub);
         if (!myRole) throw new Error("Not a member");
         const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`);

@@ -122,8 +122,26 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             cPub = await signalService.getPubKeyFromUsername(contactId);
           }
           if (cPub) {
+            // Priority 1: User's profile graph (most accurate if synced)
             db.On(`~${cPub}/profile/avatar`, (data: any) => typeof data === "string" && setContactProfiles(prev => ({ ...prev, [contactId]: { ...prev[contactId], avatar: data } })), `avatar_${cPub}`);
             db.On(`~${cPub}/profile/nickname`, (data: any) => typeof data === "string" && setContactProfiles(prev => ({ ...prev, [contactId]: { ...prev[contactId], nickname: data } })), `nick_${cPub}`);
+            
+            // Priority 2: Public alias registry (fallback/faster sync)
+            db.On(`signal_aliases/${cPub}`, (data: any) => {
+              if (data && typeof data === "object") {
+                setContactProfiles(prev => {
+                  const existing = prev[contactId] || {};
+                  return {
+                    ...prev,
+                    [contactId]: {
+                      ...existing,
+                      nickname: existing.nickname || data.alias,
+                      uniqueUsername: existing.uniqueUsername || data.uniqueUsername
+                    }
+                  };
+                });
+              }
+            }, `alias_fallback_${cPub}`);
           }
         }
       } catch (e) {}

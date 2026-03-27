@@ -116,11 +116,23 @@ export class GroupService {
     
     // Broadcast check for send_message
     if (action === "send_message") {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      if (meta && meta.type === "broadcast") {
-        // In a broadcast group, only admins and moderators can talk
-        if (!role || (role !== "administrator" && role !== "moderator")) {
-          return false;
+      try {
+        const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+        if (meta && meta.type === "broadcast") {
+          // In a broadcast group, only admins and moderators can talk
+          if (!role || (role !== "administrator" && role !== "moderator")) {
+            return false;
+          }
+        }
+      } catch (e) {
+        // If meta retrieval fails, and it's a group UUID, better to be safe
+        const isGroup = groupId.length === 36 && groupId.includes("-");
+        if (isGroup) {
+          // If we can't verify it's NOT a broadcast, and we don't have a high role,
+          // we might want to be restrictive, OR we might want to allow it if they are a peer.
+          // However, in this specific bug, peers were allowed when meta was null.
+          // Let's ensure if it's a group, we AT LEAST have the role.
+          if (!role) return false;
         }
       }
     }
