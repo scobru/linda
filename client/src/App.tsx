@@ -345,7 +345,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         </div>
 
         {notification && (
-          <div className="toast toast-top toast-end">
+          <div className="toast toast-top toast-end z-[100]">
             <div className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-lg`}>
               <span>{notification.msg}</span>
             </div>
@@ -421,7 +421,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       </Routes>
       
       {notification && (
-        <div className="toast toast-top toast-end z-max">
+        <div className="toast toast-top toast-end z-[100]">
           <div className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-white/5`}>
             <span>{notification.msg}</span>
           </div>
