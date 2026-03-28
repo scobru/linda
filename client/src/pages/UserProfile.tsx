@@ -89,17 +89,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     const pub = db.getUserPub();
     if (!pub) return;
     try {
-      let takenPub: any = undefined;
-      try {
-        takenPub = await db.Get(`signal_global_nicknames/${nick}`);
-      } catch (e) {}
-      if (takenPub && takenPub !== pub) {
-        showNotification("Nickname already taken", "error");
-      } else {
-        await db.Put(`signal_global_nicknames/${nick}`, pub);
-        await db.userPut("profile/nickname", nick);
-        showNotification("Nickname updated", "info");
-      }
+      // Nickname doesn't need to be unique, we just store the association
+      // so others can see it when they look up this user.
+      await db.Put(`signal_global_nicknames/${nick}`, pub);
+      await db.userPut("profile/nickname", nick);
+      showNotification("Nickname updated", "info");
     } catch (e) {
       showNotification("Failed to save nickname", "error");
     }
