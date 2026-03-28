@@ -459,7 +459,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {isMuted ? "Sei stato mutato in questo gruppo" : "Solo gli amministratori possono inviare messaggi"}
           </div>
         ) : (
-          <div className="flex items-center gap-4 w-full px-2">
+          <div className="flex items-center gap-2 sm:gap-4 w-full px-2">
             <input
               type="file"
               ref={fileInputRef}
@@ -469,7 +469,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={recipient.length === 36 && recipient.includes("-")}
-              className={`btn btn-ghost btn-circle bg-base-300/40 border border-white/5 hover:bg-primary/10 hover:text-primary active:scale-95 transition-all flex items-center justify-center h-16 w-16 min-h-0 ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
+              className={`btn btn-ghost btn-circle bg-base-300/40 border border-white/5 hover:bg-primary/10 hover:text-primary active:scale-95 transition-all flex items-center justify-center h-12 w-12 sm:h-16 sm:w-16 min-h-0 ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
               title={recipient.length === 36 && recipient.includes("-") ? "P2P Transfers only available in 1:1" : "Attach File"}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
@@ -477,7 +477,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </svg>
             </button>
 
-            <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary border-white/5 flex items-center gap-4 h-16 bg-base-300/40 rounded-full transition-all px-8 shadow-inner group">
+            <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary border-white/5 flex items-center gap-2 sm:gap-4 h-12 sm:h-16 bg-base-300/40 rounded-full transition-all px-4 sm:px-8 shadow-inner group">
               <input
                 type="text"
                 className="grow font-bold text-base bg-transparent border-0 focus:ring-0"
@@ -500,7 +500,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               loading={!canSendMessage}
             />
             <button 
-              className="btn btn-primary btn-circle h-14 w-14 shadow-2xl shadow-primary/40 transition-all active:scale-95 border-0 hover:scale-110" 
+              className="btn btn-primary btn-circle h-11 w-11 sm:h-14 sm:w-14 shadow-2xl shadow-primary/40 transition-all active:scale-95 border-0 hover:scale-110" 
               onClick={() => {
                 if (message.trim()) {
                   handleSendMessage(message);
