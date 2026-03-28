@@ -476,9 +476,36 @@ export const useSignalMessaging = (
 
   const handleSendMessage = useCallback(async (message: string) => {
     if (!recipient || !message || !signalService || !userPub || !groupService) return;
+    
+    const msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
+    const timestamp = new Date();
+
+    // 1. Optimistic Update: Add message immediately with "sending" status
+    setMessages((prev) => {
+      const currentMsgs = prev[recipient] || [];
+      if (currentMsgs.some(m => m.id === msgId)) return prev;
+      
+      const next = { 
+        ...prev, 
+        [recipient]: [
+          ...currentMsgs, 
+          { 
+            id: msgId, 
+            sender: "Me", 
+            senderPub: userPub, 
+            text: message, 
+            timestamp, 
+            status: "sending" as const 
+          }
+        ] 
+      };
+      saveMessages(userPub, next);
+      return next;
+    });
+    setContacts((prev) => (prev.includes(recipient) ? prev : [...prev, recipient]));
+
     try {
       const isGroup = recipient.length === 36 && recipient.includes("-");
-      let msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
       let ciphertext: any;
 
       if (isGroup) {
@@ -491,7 +518,7 @@ export const useSignalMessaging = (
         if (!myRole) throw new Error("Not a member");
         const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`);
         ciphertext = await groupService.encryptGroupMessage(meta.secret, message);
-        await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: new Date().toISOString(), type: 'group' } as any);
+        await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type: 'group' } as any);
       } else {
         try {
           ciphertext = await signalService.encryptMessage(recipient, message);
@@ -500,22 +527,41 @@ export const useSignalMessaging = (
           ciphertext = await signalService.encryptMessage(recipient, message);
         }
         const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
-        await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: new Date().toISOString() } as any);
+        await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: timestamp.toISOString() } as any);
       }
 
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
+
+      // 2. Success Update: Change status from "sending" to "sent"
       setMessages((prev) => {
         const currentMsgs = prev[recipient] || [];
-        // Check if message was already added by the listener (happens with GunDB local priority)
-        if (currentMsgs.some(m => m.id === msgId)) return prev;
+        const msgIndex = currentMsgs.findIndex(m => m.id === msgId);
         
-        const next = { ...prev, [recipient]: [...currentMsgs, { id: msgId, sender: "Me", senderPub: userPub, text: message, timestamp: new Date(), status: "sent" as const }] };
+        if (msgIndex === -1) return prev;
+        
+        // Only update to "sent" if current status is "sending"
+        // This avoids overwriting "delivered" or "read" if the listener already updated it
+        if (currentMsgs[msgIndex].status !== "sending") return prev;
+
+        const updatedMsgs = [...currentMsgs];
+        updatedMsgs[msgIndex] = { ...updatedMsgs[msgIndex], status: "sent" as const };
+        
+        const next = { ...prev, [recipient]: updatedMsgs };
         saveMessages(userPub, next);
         return next;
       });
-      setContacts((prev) => (prev.includes(recipient) ? prev : [...prev, recipient]));
     } catch (err) {
       console.error("Send failed:", err);
+      // Rollback optimistic update on failure (optional, or mark as error)
+      setMessages((prev) => {
+        const currentMsgs = prev[recipient] || [];
+        const next = { 
+          ...prev, 
+          [recipient]: currentMsgs.filter(m => m.id !== msgId) 
+        };
+        saveMessages(userPub, next);
+        return next;
+      });
       throw err;
     }
   }, [recipient, signalService, userPub, groupService, db, saveMessages]);

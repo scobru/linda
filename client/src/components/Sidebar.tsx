@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate, NavLink } from "react-router-dom";
-import { getInitial } from "../utils/ui";
+import { getDiceBearAvatar } from "../utils/avatar";
 
 interface SidebarProps {
   userNick: string;
@@ -51,9 +51,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {userAvatar ? (
                 <img src={userAvatar} alt="avatar" className="object-cover" />
               ) : (
-                <div className="bg-primary text-primary-content flex items-center justify-center font-black text-lg h-full w-full">
-                  {getInitial(userNick || username)}
-                </div>
+                <img 
+                  src={getDiceBearAvatar(username || userNick)} 
+                  alt="avatar" 
+                  className="object-cover bg-primary/10" 
+                />
               )}
             </div>
           </div>
@@ -117,9 +119,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {contactProfiles[c]?.avatar ? (
                           <img src={contactProfiles[c].avatar} alt={c} className="object-cover" />
                         ) : (
-                          <div className={`flex items-center justify-center font-black text-lg h-full w-full ${isActive ? "bg-white/20 text-white" : "bg-neutral text-neutral-content"}`}>
-                            {getInitial(contactProfiles[c]?.nickname || c)}
-                          </div>
+                          <img 
+                            src={getDiceBearAvatar(c, c.length === 36 && c.includes("-"))} 
+                            alt={c} 
+                            className={`object-cover ${isActive ? "bg-white/20" : "bg-neutral"}`} 
+                          />
                         )}
                       </div>
                     </div>

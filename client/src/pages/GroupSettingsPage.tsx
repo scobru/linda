@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { GroupService } from "../GroupService";
 import type { GroupMember, GroupInfo, Role } from "../GroupService";
 import { DataBase } from "shogun-core";
+import { getDiceBearAvatar } from "../utils/avatar";
 
 interface GroupSettingsPageProps {
   groupService: GroupService;
@@ -266,7 +267,15 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
             <div className="relative z-10 shrink-0">
               <div className="avatar">
                 <div className="w-28 sm:w-36 rounded-[2rem] ring-4 ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl">
-                  {groupInfo?.avatar ? <img src={groupInfo.avatar} alt="Avatar" className="object-cover" /> : <div className="bg-primary text-primary-content flex items-center justify-center text-4xl sm:text-5xl font-black h-full w-full uppercase">{groupInfo?.name.charAt(0)}</div>}
+                  {groupInfo?.avatar ? (
+                    <img src={groupInfo.avatar} alt="Avatar" className="object-cover" />
+                  ) : (
+                    <img 
+                      src={getDiceBearAvatar(groupId || "", true)} 
+                      alt="Avatar" 
+                      className="object-cover bg-primary/10" 
+                    />
+                  )}
                 </div>
               </div>
               {['moderator', 'administrator'].includes(myRole) && (
@@ -303,9 +312,13 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                 {members.map(m => (
                   <div key={m.pub} className="flex items-center justify-between p-4 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/10 group hover:border-primary/20 transition-all shadow-lg">
                     <div className="flex items-center gap-4">
-                      <div className="avatar placeholder">
-                        <div className="bg-primary/20 text-primary rounded-xl w-12">
-                          <span className="text-sm font-black">{m.pub.slice(0, 1).toUpperCase()}</span>
+                      <div className="avatar">
+                        <div className="bg-primary/20 text-primary rounded-xl w-12 overflow-hidden border border-white/5">
+                          <img 
+                             src={getDiceBearAvatar(m.pub)} 
+                             alt={m.pub} 
+                             className="object-cover" 
+                          />
                         </div>
                       </div>
                       <div className="min-w-0">

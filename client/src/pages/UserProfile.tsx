@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataBase } from "shogun-core";
+import { getDiceBearAvatar } from "../utils/avatar";
 
 interface UserProfileProps {
   db: DataBase;
@@ -155,9 +156,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               {currentAvatar ? (
                 <img src={currentAvatar} alt="Avatar" className="object-cover" />
               ) : (
-                <div className="bg-primary text-primary-content flex items-center justify-center text-5xl sm:text-6xl font-black h-full w-full">
-                  {username.charAt(0).toUpperCase()}
-                </div>
+                <img 
+                  src={getDiceBearAvatar(username || currentNick)} 
+                  alt="Avatar" 
+                  className="object-cover bg-primary/10" 
+                />
               )}
             </div>
           </div>

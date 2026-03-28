@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getInitial } from "../utils/ui";
+import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
 
 interface Message {
@@ -151,9 +151,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {contactProfiles[recipient]?.avatar ? (
               <img src={contactProfiles[recipient].avatar} alt={recipient} className="object-cover" />
             ) : (
-              <div className="bg-neutral text-neutral-content flex items-center justify-center font-black text-lg">
-                {getInitial(contactProfiles[recipient]?.nickname || recipient)}
-              </div>
+              <img 
+                src={getDiceBearAvatar(recipient, recipient.length === 36 && recipient.includes("-"))} 
+                alt={recipient} 
+                className="object-cover bg-neutral" 
+              />
             )}
           </div>
         </div>
@@ -253,9 +255,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {msgAvatar ? (
                     <img src={msgAvatar} alt="avatar" className="object-cover" />
                   ) : (
-                    <div className="bg-neutral text-neutral-content flex items-center justify-center font-black text-xs h-full w-full">
-                      {getInitial(msgNick)}
-                    </div>
+                    <img 
+                      src={getDiceBearAvatar(isMe ? (username || userNick) : msg.sender, !isMe && msg.sender.length === 36 && msg.sender.includes("-"))} 
+                      alt="avatar" 
+                      className="object-cover bg-neutral" 
+                    />
                   )}
                 </div>
               </div>
