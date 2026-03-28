@@ -33,6 +33,7 @@ export const useSignalMessaging = (
   const lastTypingSentRef = useRef<number>(0);
   const recipientRef = useRef(recipient);
   const groupSubscriptionsRef = useRef<Set<string>>(new Set());
+  const messageQueueRef = useRef<Record<string, Promise<void>>>({});
 
   useEffect(() => {
     recipientRef.current = recipient;
@@ -162,57 +163,64 @@ export const useSignalMessaging = (
         db.gun.get(`signal_rooms/${contactId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           if (processedRef.current.has(gunKey)) return;
-          if (userPub) saveProcessedKey(userPub, gunKey);
 
-          try {
-            const plaintext = await groupService.decryptGroupMessage(meta.secret, data.body);
-            const isMe = data.sender === userPub;
-            const remoteMsgId = data.msgId || gunKey;
-
-            setMessages((prev) => {
-              const groupMsgs = prev[contactId] || [];
-              const isDuplicate = groupMsgs.some(
-                (m) =>
-                  m.id === remoteMsgId ||
-                  (m.sender === (isMe ? "Me" : data.sender) &&
-                    m.text === plaintext &&
-                    Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-              );
-              if (isDuplicate) {
-                // Update status of existing message if found by ID
-                if (groupMsgs.some(m => m.id === remoteMsgId)) {
-                   const updatedGroupMsgs = groupMsgs.map(m => m.id === remoteMsgId ? { ...m, status: "delivered" as const } : m);
-                   return { ...prev, [contactId]: updatedGroupMsgs };
-                }
-                return prev;
-              }
-
-              const updatedMessages = [
-                ...groupMsgs,
-                {
-                  id: remoteMsgId,
-                  sender: isMe ? "Me" : data.sender,
-                  senderPub: data.sender,
-                  text: plaintext,
-                  timestamp: new Date(data.timestamp || Date.now()),
-                  status: "delivered" as const,
-                },
-              ];
-
-              const updated = { ...prev, [contactId]: updatedMessages };
-              if (userPub) saveMessages(userPub, updated);
-              return updated;
-            });
-
-            if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
-              new Notification(`New message in ${meta.name}`, {
-                body: plaintext.substring(0, 50),
-                icon: meta.avatar || "/logo.svg"
-              });
-            }
-          } catch (e) {
-            console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
+          if (!messageQueueRef.current[contactId]) {
+            messageQueueRef.current[contactId] = Promise.resolve();
           }
+
+          messageQueueRef.current[contactId] = messageQueueRef.current[contactId].then(async () => {
+            try {
+              if (processedRef.current.has(gunKey)) return;
+              const plaintext = await groupService.decryptGroupMessage(meta.secret, data.body);
+              if (userPub) saveProcessedKey(userPub, gunKey);
+              const isMe = data.sender === userPub;
+              const remoteMsgId = data.msgId || gunKey;
+
+              setMessages((prev) => {
+                const groupMsgs = prev[contactId] || [];
+                const isDuplicate = groupMsgs.some(
+                  (m) =>
+                    m.id === remoteMsgId ||
+                    (m.sender === (isMe ? "Me" : data.sender) &&
+                      m.text === plaintext &&
+                      Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
+                );
+                if (isDuplicate) {
+                  // Update status of existing message if found by ID
+                  if (groupMsgs.some(m => m.id === remoteMsgId)) {
+                    const updatedGroupMsgs = groupMsgs.map(m => m.id === remoteMsgId ? { ...m, status: "delivered" as const } : m);
+                    return { ...prev, [contactId]: updatedGroupMsgs };
+                  }
+                  return prev;
+                }
+
+                const updatedMessages = [
+                  ...groupMsgs,
+                  {
+                    id: remoteMsgId,
+                    sender: isMe ? "Me" : data.sender,
+                    senderPub: data.sender,
+                    text: plaintext,
+                    timestamp: new Date(data.timestamp || Date.now()),
+                    status: "delivered" as const,
+                  },
+                ];
+
+                const updated = { ...prev, [contactId]: updatedMessages };
+                if (userPub) saveMessages(userPub, updated);
+                return updated;
+              });
+
+              if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
+                new Notification(`New message in ${meta.name}`, {
+                  body: plaintext.substring(0, 50),
+                  icon: meta.avatar || "/logo.svg"
+                });
+              }
+            } catch (e) {
+              console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
+            }
+          });
         });
 
         db.gun.get(`signal_rooms/${contactId}/deleted_messages`).map().on((data: any, msgId: string) => {
@@ -251,148 +259,200 @@ export const useSignalMessaging = (
       if (!data.sender || !data.body || !data.type) return;
       if (processedRef.current.has(gunKey)) return;
 
-      try {
-        await signalService.waitReady();
-        if (userPub) saveProcessedKey(userPub, gunKey);
+      const senderPubKeyRaw = data.sender;
+      if (!messageQueueRef.current[senderPubKeyRaw]) {
+        messageQueueRef.current[senderPubKeyRaw] = Promise.resolve();
+      }
 
-        const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
-        const isFreshMessage = msgTime > sessionStartTime - 30000;
-        let senderPubKey = data.sender;
-        
-        if (senderPubKey.length < 30) {
-          try {
-            senderPubKey = await signalService.getPubKeyFromUsername(data.sender);
-          } catch (err) {
-            console.warn("Could not resolve sender pubkey:", data.sender);
-          }
-        }
-
+      // Chain the message processing to ensure sequential execution per sender
+      messageQueueRef.current[senderPubKeyRaw] = messageQueueRef.current[senderPubKeyRaw].then(async () => {
         try {
-          const plaintext = await signalService.decryptMessage(senderPubKey, {
-            type: data.type,
-            body: data.body,
-          });
+          if (processedRef.current.has(gunKey)) return;
+          await signalService.waitReady();
 
-          setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
-
-          if (plaintext === "PING_HEAL") return;
-
-          if (plaintext.startsWith("RECEIPT_")) {
-            const parts = plaintext.split("_");
-            if (parts.length >= 3) {
-              const status = parts[1] as "delivered" | "read";
-              const msgId = parts.slice(2).join("_");
-
-              setMessages((prev) => {
-                const userMsgs = prev[senderPubKey] || [];
-                const updated = userMsgs.map((m) =>
-                  m.id === msgId && (m.status === "sent" || (m.status === "delivered" && status === "read"))
-                    ? { ...m, status }
-                    : m
-                );
-                const state = { ...prev, [senderPubKey]: updated };
-                if (userPub) saveMessages(userPub, state);
-                return state;
-              });
-            }
-            return;
-          }
-
-          const msgId = data.msgId || gunKey;
-
-          if (isFreshMessage) {
-            if (typeof window !== "undefined") {
-              try {
-                new Audio("/notification.mp3").play().catch(() => {});
-              } catch (e) {}
-            }
-
-            if (
-              (recipientRef.current !== senderPubKey || document.visibilityState !== "visible") &&
-              typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
-            ) {
-              const title = `New message from ${senderPubKey.slice(0, 8)}...`;
-              const notification = new Notification(title, {
-                body: plaintext.substring(0, 50),
-              });
-              notification.onclick = () => {
-                window.focus();
-                setRecipient(senderPubKey);
-                notification.close();
-              };
-            }
-          }
-
-          // Send receipt
-          try {
-            const receiptCipher = await signalService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
-            await db.Set(`signal_v3_inbox_${senderPubKey}`, {
-              sender: userPub,
-              type: receiptCipher.type,
-              body: receiptCipher.body,
-              timestamp: new Date().toISOString(),
-            } as any);
-          } catch (e) {}
-
-          setMessages((prev) => {
-            const userMsgs = prev[senderPubKey] || [];
-            const isDuplicate = userMsgs.some(
-              (m) =>
-                m.id === msgId ||
-                (m.sender === senderPubKey &&
-                  m.text === plaintext &&
-                  Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-            );
-
-            if (isDuplicate) {
-               if (userMsgs.some(m => m.id === msgId)) {
-                 const updatedUserMsgs = userMsgs.map(m => m.id === msgId ? { ...m, status: "delivered" as const } : m);
-                 return { ...prev, [senderPubKey]: updatedUserMsgs };
-               }
-               return prev;
-            }
-
-            const updated = {
-              ...prev,
-              [senderPubKey]: [
-                ...userMsgs,
-                {
-                  id: msgId,
-                  sender: senderPubKey,
-                  text: plaintext,
-                  timestamp: new Date(data.timestamp || Date.now()),
-                  status: "delivered" as const,
-                },
-              ],
-            };
-            if (userPub) saveMessages(userPub, updated);
-            return updated;
-          });
-
-          setContacts((prev) => (prev.includes(senderPubKey) ? prev : [...prev, senderPubKey]));
-
-        } catch (e: any) {
-          if (!isFreshMessage) return;
-          console.error(`Decryption failed for ${senderPubKey}:`, e.message);
-
-          if (!resetsRef.current.has(senderPubKey) && !pendingResets.has(senderPubKey)) {
-            pendingResets.add(senderPubKey);
-            resetsRef.current.add(senderPubKey);
+          const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
+          const isFreshMessage = msgTime > sessionStartTime - 30000;
+          let senderPubKey = senderPubKeyRaw;
+          
+          if (senderPubKey.length < 30) {
             try {
+              senderPubKey = await signalService.getPubKeyFromUsername(data.sender);
+            } catch (err) {
+              console.warn("[Signal] Could not resolve sender pubkey:", data.sender);
+            }
+          }
+
+          try {
+            console.log(`[Signal] Decrypting message ${gunKey} from ${senderPubKey.slice(0, 8)}...`);
+            const plaintext = await signalService.decryptMessage(senderPubKey, {
+              type: data.type,
+              body: data.body,
+            });
+
+            // Successfully decrypted! Mark as processed now.
+            if (userPub) saveProcessedKey(userPub, gunKey);
+            setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
+            resetsRef.current.delete(senderPubKey);
+
+            if (plaintext === "PING_HEAL") {
+              console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session...`);
               await signalService.resetSession(senderPubKey);
-              const pingCipher = await signalService.encryptMessage(senderPubKey, "PING_HEAL");
-              db.Set(`signal_v3_inbox_${senderPubKey}`, {
+              return;
+            }
+
+            if (plaintext.startsWith("RECEIPT_")) {
+              const parts = plaintext.split("_");
+              if (parts.length >= 3) {
+                const status = parts[1] as "delivered" | "read";
+                const msgId = parts.slice(2).join("_");
+
+                setMessages((prev) => {
+                  const userMsgs = prev[senderPubKey] || [];
+                  const updated = userMsgs.map((m) =>
+                    m.id === msgId && (m.status === "sent" || (m.status === "delivered" && status === "read"))
+                      ? { ...m, status }
+                      : m
+                  );
+                  const state = { ...prev, [senderPubKey]: updated };
+                  if (userPub) saveMessages(userPub, state);
+                  return state;
+                });
+              }
+              return;
+            }
+
+            const msgId = data.msgId || gunKey;
+
+            if (isFreshMessage) {
+              if (typeof window !== "undefined") {
+                try {
+                  new Audio("/notification.mp3").play().catch(() => {});
+                } catch (e) {}
+              }
+
+              if (
+                (recipientRef.current !== senderPubKey || document.visibilityState !== "visible") &&
+                typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
+              ) {
+                const title = `New message from ${senderPubKey.slice(0, 8)}...`;
+                const notification = new Notification(title, {
+                  body: plaintext.substring(0, 50),
+                });
+                notification.onclick = () => {
+                  window.focus();
+                  setRecipient(senderPubKey);
+                  notification.close();
+                };
+              }
+            }
+
+            // Send receipt
+            try {
+              const receiptCipher = await signalService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
+              await db.Set(`signal_v3_inbox_${senderPubKey}`, {
                 sender: userPub,
-                type: pingCipher.type,
-                body: pingCipher.body,
+                type: receiptCipher.type,
+                body: receiptCipher.body,
                 timestamp: new Date().toISOString(),
               } as any);
-            } catch (resetErr) {}
-          } else {
-            setContactErrors((prev) => ({ ...prev, [senderPubKey]: true }));
+            } catch (e) {}
+
+            setMessages((prev) => {
+              const userMsgs = prev[senderPubKey] || [];
+              const isDuplicate = userMsgs.some(
+                (m) =>
+                  m.id === msgId ||
+                  (m.sender === senderPubKey &&
+                    m.text === plaintext &&
+                    Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
+              );
+
+              if (isDuplicate) {
+                if (userMsgs.some(m => m.id === msgId)) {
+                  const updatedUserMsgs = userMsgs.map(m => m.id === msgId ? { ...m, status: "delivered" as const } : m);
+                  return { ...prev, [senderPubKey]: updatedUserMsgs };
+                }
+                return prev;
+              }
+
+              const updated = {
+                ...prev,
+                [senderPubKey]: [
+                  ...userMsgs,
+                  {
+                    id: msgId,
+                    sender: senderPubKey,
+                    text: plaintext,
+                    timestamp: new Date(data.timestamp || Date.now()),
+                    status: "delivered" as const,
+                  },
+                ],
+              };
+              if (userPub) saveMessages(userPub, updated);
+              return updated;
+            });
+
+            setContacts((prev) => (prev.includes(senderPubKey) ? prev : [...prev, senderPubKey]));
+
+          } catch (e: any) {
+            // Decryption failed.
+            console.error(`[Signal] Decryption failed for ${senderPubKey} (Message: ${gunKey}):`, e.message);
+
+            // CRITICAL: DO NOT mark as processed if decryption failed.
+            // This allows the message to be retried after session healing.
+            // However, if we've already reset recently, we might want to skip to avoid infinite loops.
+            const hasResetRecently = resetsRef.current.has(senderPubKey);
+
+            if (!hasResetRecently && !pendingResets.has(senderPubKey)) {
+              pendingResets.add(senderPubKey);
+              resetsRef.current.add(senderPubKey);
+              console.log(`[Signal] Triggering session healing for ${senderPubKey}...`);
+              try {
+                await signalService.resetSession(senderPubKey);
+                const pingCipher = await signalService.encryptMessage(senderPubKey, "PING_HEAL");
+                await db.Set(`signal_v3_inbox_${senderPubKey}`, {
+                  sender: userPub,
+                  type: pingCipher.type,
+                  body: pingCipher.body,
+                  timestamp: new Date().toISOString(),
+                } as any);
+                console.log(`[Signal] Session healing PING sent to ${senderPubKey}`);
+              } catch (resetErr: any) {
+                console.error(`[Signal] Healing failed for ${senderPubKey}:`, resetErr.message);
+              }
+            } else {
+              console.warn(`[Signal] Decryption failed AGAIN for ${senderPubKey}. Displaying placeholder message.`);
+              if (userPub) saveProcessedKey(userPub, gunKey);
+              setContactErrors((prev) => ({ ...prev, [senderPubKey]: true }));
+
+              // Instead of skipping, show a placeholder so the user knows something arrived
+              setMessages((prev) => {
+                const userMsgs = prev[senderPubKey] || [];
+                const msgId = data.msgId || gunKey;
+                if (userMsgs.some(m => m.id === msgId)) return prev;
+
+                const next = {
+                  ...prev,
+                  [senderPubKey]: [
+                    ...userMsgs,
+                    {
+                      id: msgId,
+                      sender: senderPubKey,
+                      text: "⚠️ [Encrypted message could not be decrypted. Session out of sync.]",
+                      timestamp: new Date(data.timestamp || Date.now()),
+                      status: "delivered" as const,
+                    },
+                  ],
+                };
+                if (userPub) saveMessages(userPub, next);
+                return next;
+              });
+            }
           }
+        } catch (e: any) {
+          console.error(`[Signal] Unexpected error in message queue for ${senderPubKeyRaw}:`, e.message);
         }
-      } catch (e) {}
+      });
     });
   }, [userPub, signalService, db, saveMessages, saveProcessedKey, setRecipient]);
 

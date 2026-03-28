@@ -109,6 +109,22 @@ export class GroupService {
     return null;
   }
 
+  /**
+   * Listening to mute status
+   */
+  onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
+    const path = `signal_rooms/${groupId}/mutes/${memberPub}`;
+    const evId = `mute_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
+    
+    (this.db.On as any)(path, (data: any) => {
+      callback(!!data);
+    }, evId);
+
+    return () => {
+      (this.db.Off as any)(evId);
+    };
+  }
+
   async canPerform(groupId: string, action: string): Promise<boolean> {
     const myPub = this.db.getUserPub();
     if (!myPub) return false;
@@ -118,7 +134,10 @@ export class GroupService {
       try {
         const isMuted = await this.isMuted(groupId, myPub);
         if (isMuted) return false;
-      } catch (e) {}
+      } catch (e) {
+        // If the check fails (e.g. timeout), it's safer to re-run the check or assume restricted if we suspect a mute
+        // But for now, let's keep it lenient if it's the first load.
+      }
     }
 
     const role = await this.getMemberRole(groupId, myPub);

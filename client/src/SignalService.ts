@@ -541,21 +541,27 @@ export class SignalService {
 
     if (!sessionExists) {
       const bundle = await this.getBundleFromUsername(pubKey);
-      console.log(`[SignalService] Building new session for ${pubKey} using bundle (RegistrationID: ${bundle.registrationId})`);
+      console.log(`[SignalService] Building NEW session for ${pubKey.slice(0, 8)}... (RegistrationID: ${bundle.registrationId})`);
       const builder = new SessionBuilder(this.store, address);
 
-      await builder.processPreKey({
-        registrationId: bundle.registrationId,
-        identityKey: this.b642ab(bundle.identityKey),
-        signedPreKey: {
-          keyId: bundle.signedPreKey.keyId,
-          publicKey: this.b642ab(bundle.signedPreKey.publicKey),
-          signature: this.b642ab(bundle.signedPreKey.signature),
-        },
-        // Omit One-Time PreKey to prevent exhaustion. X3DH gracefully falls back
-        // to using the SignedPreKey, allowing infinite session rebirths from a static bundle.
-        preKey: undefined,
-      });
+      try {
+        await builder.processPreKey({
+          registrationId: bundle.registrationId,
+          identityKey: this.b642ab(bundle.identityKey),
+          signedPreKey: {
+            keyId: bundle.signedPreKey.keyId,
+            publicKey: this.b642ab(bundle.signedPreKey.publicKey),
+            signature: this.b642ab(bundle.signedPreKey.signature),
+          },
+          preKey: undefined,
+        });
+        console.log(`[SignalService] Session successfully built for ${pubKey.slice(0, 8)}`);
+      } catch (e: any) {
+        console.error(`[SignalService] Failed to process pre-key for ${pubKey.slice(0, 8)}:`, e.message);
+        throw e;
+      }
+    } else {
+      console.log(`[SignalService] Using existing session for ${pubKey.slice(0, 8)}`);
     }
 
     const cipher = new SessionCipher(this.store, address);
@@ -570,13 +576,18 @@ export class SignalService {
     const address = new SignalProtocolAddress(pubKey, 1);
     const cipher = new SessionCipher(this.store, address);
 
-    let plaintext: ArrayBuffer;
-    if (ciphertext.type === 3) {
-      plaintext = await cipher.decryptPreKeyWhisperMessage(ciphertext.body, 'binary');
-    } else {
-      plaintext = await cipher.decryptWhisperMessage(ciphertext.body, 'binary');
+    try {
+      let plaintext: ArrayBuffer;
+      if (ciphertext.type === 3) {
+        plaintext = await cipher.decryptPreKeyWhisperMessage(ciphertext.body, 'binary');
+      } else {
+        plaintext = await cipher.decryptWhisperMessage(ciphertext.body, 'binary');
+      }
+      return new TextDecoder().decode(plaintext);
+    } catch (e: any) {
+      console.error(`[SignalService] Decryption error for ${senderUsernameOrPub.slice(0, 8)} (Type ${ciphertext.type}):`, e.message);
+      throw e;
     }
-    return new TextDecoder().decode(plaintext);
   }
 
   // ── Session Healing ──────────────────────────────────────────

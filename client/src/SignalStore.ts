@@ -19,7 +19,6 @@ export class SignalStore implements StorageType {
   private readonly dbName = 'SignalStoreDB';
   private readonly storeName = 'vaults';
   private db: IDBDatabase | null = null;
-  private isInitializing = false;
   private initPromise: Promise<void> | null = null;
 
   constructor(userPub: string = "default") {
@@ -36,13 +35,11 @@ export class SignalStore implements StorageType {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      this.isInitializing = true;
       try {
         await this.openDB();
         await this.loadFromVault();
         await this.migrateLegacyKeys();
       } finally {
-        this.isInitializing = false;
         this.initPromise = null;
       }
     })();

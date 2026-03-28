@@ -11,9 +11,8 @@ import { GroupCreationModal } from "./components/GroupCreationModal";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
-import "gun/lib/rindexed";
 import "gun/lib/yson";
-import "gun/lib/wire";
+import "gun/lib/rindexed";
 import { DataBase, ShogunCore } from "shogun-core";
 import {
   shogunConnector,
@@ -396,7 +395,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Login screen ──────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
-      <div className="hero min-h-dvh bg-base-100 relative overflow-hidden">
+      <div className="hero min-h-dvh bg-base-100 relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03]"></div>
         <div className="hero-content flex-col lg:flex-row-reverse gap-12 lg:gap-24 z-10 px-6">
           <div className="text-center lg:text-left max-w-lg">
@@ -426,8 +425,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             </div>
           </div>
 
-          <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] overflow-hidden">
-            <div className="card-body p-10 gap-10">
+          <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-white/10 rounded-[2.5rem]">
+            <div className="card-body p-10 pb-16 gap-10">
               <div className="flex justify-center">
                 <div className="avatar">
                   <div className="w-24 rounded-full bg-base-300/50 p-6 border-2 border-primary/20 shadow-inner">
@@ -692,15 +691,18 @@ const App: React.FC = () => {
 
     const init = async () => {
       try {
+        console.log("Relays: ", relays);
         // Initialize Gun and DataBase with the dynamic peer list
-        const gunInstance = new Gun({
+        const gunInstance = Gun({
           peers: relays,
-          localStorage: true,
-          radisk: true,
+          localStorage: false,
+          radisk:true,
           file: "radata",
         });
 
         window.gun = gunInstance;
+
+        console.log("Gun instance: ", gunInstance);
 
         // @ts-ignore - DataBase handles IGunInstance correctly internally
         const db = new DataBase(gunInstance);

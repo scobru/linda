@@ -62,6 +62,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [canSendMessage, setCanSendMessage] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Check permissions whenever recipient or role changes
   useEffect(() => {
@@ -75,6 +76,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
       }
     };
     checkPerms();
+
+    // Reactive mute subscription
+    if (groupService && recipient.length === 36 && recipient.includes("-")) {
+      const myPub = (groupService as any).db.getUserPub();
+      if (myPub) {
+        const unsubscribe = groupService.onMuteStatusChange(recipient, myPub, (muted) => {
+          setIsMuted(muted);
+          // If we receive a mute update, we should also re-evaluate canSendMessage
+          // although isMuted is checked inside canPerform, canPerform is not reactive.
+          // So we manually override if we know we are muted.
+          if (muted) setCanSendMessage(false);
+          else {
+            // Re-check full permissions when unmuted
+            checkPerms();
+          }
+        });
+        return unsubscribe;
+      }
+    } else {
+      setIsMuted(false);
+    }
   }, [recipient, groupService, myRole]);
 
   const currentMessages = useMemo(() => messages[recipient] || [], [messages, recipient]);
@@ -106,7 +128,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-base-100 overflow-hidden relative">
+    <div key={recipient} className="flex flex-col h-full bg-base-100 overflow-hidden relative animate-chat-fadeIn">
       {/* Header */}
       <div className="navbar bg-base-100/60 backdrop-blur-2xl border-b border-white/5 h-20 shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
@@ -300,11 +322,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Input Area */}
       <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0">
         {!canSendMessage ? (
-          <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 mr-3 text-primary opacity-60">
+          <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner transition-all animate-pulse">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 mr-3 text-error opacity-60">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
             </svg>
-            Solo gli amministratori possono inviare messaggi
+            {isMuted ? "Sei stato mutato in questo gruppo" : "Solo gli amministratori possono inviare messaggi"}
           </div>
         ) : (
           <div className="flex items-center gap-4 w-full px-2">

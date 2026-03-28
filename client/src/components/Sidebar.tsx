@@ -105,7 +105,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     isActive ? "bg-primary text-primary-content shadow-2xl shadow-primary/30 border border-white/10 scale-[1.02] z-10" : "hover:bg-white/5 active:scale-[0.98] border border-transparent"
                   }`
                 }
-                onClick={requestNotifications}
+                onClick={() => {
+                  setRecipient(c);
+                  requestNotifications();
+                }}
               >
                 {({ isActive }) => (
                   <>
