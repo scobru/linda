@@ -27,7 +27,7 @@ interface ChatViewProps {
   setMessage: (msg: string) => void;
   handleSendMessage: (msg?: string, audio?: string, fileMetadata?: FileMetadata) => void;
   handleTyping: () => void;
-  handleManualReset: () => void;
+  handleFixSync: () => void;
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
@@ -58,7 +58,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   setMessage,
   handleSendMessage,
   handleTyping,
-  handleManualReset,
+  handleFixSync,
   handlePinMessage,
   handleReportMessage,
   handleDeleteMessage,
@@ -287,14 +287,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
 
           <div className="flex gap-2">
-            {contactErrors[recipient] && (
-              <button
-                onClick={handleManualReset}
-                className="btn btn-warning btn-outline btn-sm rounded-full px-4 font-black text-[10px] tracking-widest"
-              >
-                HEAL
-              </button>
-            )}
+            {/* Removed Legacy HEAL Button */}
             
             <button
               onClick={() => {
@@ -395,7 +388,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }
                   />
                 ) : (
-                  <div className="py-0.5 leading-relaxed font-bold">{msg.text}</div>
+                  <div className="py-0.5 leading-relaxed font-bold">
+                    {msg.text}
+                    {msg.text?.includes("Impossibile decriptare") && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFixSync();
+                        }}
+                        className="btn btn-xs btn-error btn-outline rounded-full ml-3 mt-1 scale-90"
+                      >
+                        RIPRISTINA SINCRONIA
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* Bubble Actions on Hover */}

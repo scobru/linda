@@ -21,6 +21,7 @@ export class SignalService {
   private initPromise: Promise<void> | null = null;
   private pubkeyCache: Map<string, string> = new Map();
   private epubCache: Map<string, string> = new Map();
+  private myPair: any = null;
 
   constructor(db: DataBase) {
     this.db = db;
@@ -57,11 +58,21 @@ export class SignalService {
     this.initPromise = (async () => {
       console.log('[SignalService] Initializing SEA session...');
       try {
+        // Wait for pair to be available
+        let pair = (this.db.gun.user() as any)?._?.sea;
+        if (!pair) {
+           for (let i=0; i<10; i++) {
+             await new Promise(r => setTimeout(r, 200));
+             pair = (this.db.gun.user() as any)?._?.sea;
+             if (pair) break;
+           }
+        }
+        this.myPair = pair;
+        
         await this.publishBundle(username, uniqueUsername);
         await this.persistAlias(username, uniqueUsername);
       } catch (e) {
         console.warn('[SignalService] Initialization steps failed:', e);
-        // We still mark as initialized to allow the app to function
       }
       this.isInitialized = true;
       this.initPromise = null;
@@ -87,12 +98,22 @@ export class SignalService {
     };
 
     try {
-      // We use a new node 'signal_bundle_v7' to avoid conflicts with libsignal bundles
+      // 1. Primary path: user node root 'epub'
+      await new Promise<void>((resolve, reject) => {
+        const user = this.db.gun.user();
+        if (!user.is) return reject('No user');
+        user.get('epub').put(pair.epub, (ack: any) => {
+          if (ack.err) reject(ack.err);
+          else resolve();
+        });
+      });
+      
+      // 2. Secondary path: 'signal_bundle_v7' for full bundle data
       await this.db.userPut('signal_bundle_v7', bundlePayload as any);
-      console.log('[SignalService] Published SEA bundle (epub: ' + pair.epub.slice(0, 8) + '...)');
+      
+      console.log('[SignalService] Published SEA epub/bundle redundantly via direct put.');
     } catch (e) {
       console.error('[SignalService] GunDB error during bundle publish:', e);
-      throw new Error('Failed to publish Signal bundle');
     }
   }
 
@@ -167,20 +188,30 @@ export class SignalService {
   /**
    * Retrieves the 'epub' (Exchange Public Key) for a given GunDB pubkey.
    */
-  private async getEpubFromPub(pub: string): Promise<string> {
+  public async getEpubFromPub(pub: string): Promise<string> {
     const cached = this.epubCache.get(pub);
     if (cached) return cached;
 
-    console.log(`[SignalService] Fetching epub for: ${pub.slice(0, 8)}...`);
-    for (let i = 0; i < 5; i++) {
+    console.log(`[SignalService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`);
+    for (let i = 0; i < 6; i++) {
       try {
+        // Method A: Direct 'epub' node
+        const directEpub = await this.db.Get(`~${pub}/epub`) as any;
+        if (directEpub && typeof directEpub === 'string' && directEpub.length > 20) {
+           console.log(`[SignalService] Found epub via direct node for: ${pub.slice(0, 8)}`);
+           this.epubCache.set(pub, directEpub);
+           return directEpub;
+        }
+
+        // Method B: Bundle node
         const bundle = await this.db.Get(`~${pub}/signal_bundle_v7`) as any;
-        if (bundle && bundle.epub) {
+        if (bundle && bundle.epub && typeof bundle.epub === 'string' && bundle.epub.length > 20) {
+          console.log(`[SignalService] Found epub via bundle for: ${pub.slice(0, 8)}`);
           this.epubCache.set(pub, bundle.epub);
           return bundle.epub;
         }
       } catch (e) {}
-      await new Promise(r => setTimeout(r, 500 * (i + 1)));
+      await new Promise(r => setTimeout(r, 800 * (i + 1))); // Slightly longer wait
     }
     throw new Error(`Could not find SEA epub for ${pub}. User might not be updated to V7.`);
   }
@@ -201,6 +232,12 @@ export class SignalService {
 
     // Generate shared secret via Diffie-Hellman
     const secret = await this.db.sea.secret(recipientEpub, myPair);
+    
+    // Diagnostic for images/files
+    if (message.startsWith('{')) {
+      console.log(`[SignalService] Encrypting metadata payload (length: ${message.length})`);
+    }
+
     // Encrypt the message with the shared secret
     const encrypted = await this.db.sea.encrypt(message, secret);
 
@@ -212,24 +249,40 @@ export class SignalService {
   /**
    * Decrypts a message using SEA.secret and SEA.decrypt.
    */
-  async decryptMessage(senderUsernameOrPub: string, ciphertext: { type: number; body: string }) {
+  async decryptMessage(senderUsernameOrPub: string, ciphertext: { type: number; body: string }): Promise<string | undefined> {
     let pubKey = senderUsernameOrPub;
     if (pubKey.length < 30 || pubKey.startsWith('@')) {
       pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
     }
 
     const senderEpub = await this.getEpubFromPub(pubKey);
-    const myPair = (this.db.gun.user() as any)?._?.sea;
-    if (!myPair) throw new Error('User not logged in');
+    const myPair = this.myPair || (this.db.gun.user() as any)?._?.sea;
+    if (!myPair) throw new Error('User keys not available for decryption');
+
+    if (typeof ciphertext.body !== 'string') {
+      console.warn(`[SignalService] Body of message from ${pubKey.slice(0, 8)} is not a string (${typeof ciphertext.body}). Skipping decryption.`);
+      return undefined;
+    }
 
     const secret = await this.db.sea.secret(senderEpub, myPair);
     const decrypted = await this.db.sea.decrypt(ciphertext.body, secret);
 
     if (decrypted === undefined || decrypted === null) {
-      throw new Error('SEA Decryption failed. Potentially wrong key or corrupted data.');
+      console.warn(`[SignalService] SEA Decryption yielded UNDEFINED for sender: ${pubKey.slice(0, 8)}`);
+      return undefined;
     }
 
     return decrypted as string;
+  }
+
+  /**
+   * Force republish the user's bundle. Useful for fixing synchronization issues.
+   */
+  async republishBundle(): Promise<void> {
+    const username = localStorage.getItem('signal_alias') || 'Anonymous';
+    const uniqueUsername = localStorage.getItem('signal_unique_username') || undefined;
+    console.log('[SignalService] Action: Force republishing bundle...');
+    await this.publishBundle(username, uniqueUsername);
   }
 
   /**

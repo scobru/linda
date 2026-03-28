@@ -97,6 +97,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     unreadCounts,
     handleTyping,
     handleSendMessage: baseSendMessage,
+    handleFixSync: _unused,
     handleClearChat,
     saveContact,
     removeContact,
@@ -370,13 +371,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     callingServiceRef.current.initiateCall(pub, video);
   };
 
-  const handleManualReset = async () => {
+  const handleFixSync = async () => {
     if (!recipient || !signalService || !userPub) return;
     if (!window.confirm("Force-recreate secure session?")) return;
     try {
       await signalService.resetSession(recipient);
+      // Re-publish our own bundle to fix potential outgoing sync issues
+      await signalService.republishBundle().catch(() => {});
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
-      showNotification("Session reset triggered.", "info");
+      showNotification("Sincronizzazione avviata.", "info");
       const pub = await signalService.getPubKeyFromUsername(recipient);
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
       db.Set(`signal_v3_inbox_${pub}`, {
@@ -613,7 +616,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setMessage={setMessage}
                 handleSendMessage={handleSendMessage}
                 handleTyping={handleTyping}
-                handleManualReset={handleManualReset}
+                handleFixSync={handleFixSync}
                 handlePinMessage={handlePinMessage}
                 handleReportMessage={handleReportMessage}
                 handleDeleteMessage={handleDeleteMessage}
@@ -654,7 +657,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setMessage={setMessage}
                 handleSendMessage={handleSendMessage}
                 handleTyping={handleTyping}
-                handleManualReset={handleManualReset}
+                handleFixSync={handleFixSync}
                 handlePinMessage={handlePinMessage}
                 handleReportMessage={handleReportMessage}
                 handleDeleteMessage={handleDeleteMessage}
@@ -763,7 +766,7 @@ const ChatWrapper: React.FC<{
   setMessage: (msg: string) => void;
   handleSendMessage: (msg?: string, audio?: string, fileMetadata?: any) => void;
   handleTyping: () => void;
-  handleManualReset: () => void;
+  handleFixSync: () => void;
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;

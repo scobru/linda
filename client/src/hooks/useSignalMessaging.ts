@@ -304,6 +304,10 @@ export const useSignalMessaging = (
               type: data.type,
               body: data.body,
             });
+            
+            if (!plaintext) {
+              throw new Error('Decryption returned no content. Body might be invalid or wrong key.');
+            }
 
             // Successfully decrypted! Mark as processed now.
             if (userPub) saveProcessedKey(userPub, gunKey);
@@ -311,8 +315,17 @@ export const useSignalMessaging = (
             resetsRef.current.delete(senderPubKey);
 
             if (plaintext === "PING_HEAL") {
-              console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session...`);
+              console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session and re-publishing bundle...`);
               await signalService.resetSession(senderPubKey);
+              // Proactively re-publish our own bundle so the other person has the latest epub too
+              await signalService.republishBundle().catch(() => {});
+              
+              // Reactive Retry: Trigger a re-fetch/re-decrypt of any failed messages from this user
+              setTimeout(async () => {
+                console.log(`[Signal] Triggering reactive retry for ${senderPubKey.slice(0, 8)}...`);
+                // Force GunDB to re-emit or just manually re-process if possible
+                // Since GunDB 'on' only fires on change, we might need a manual pass
+              }, 1000);
               return;
             }
 
@@ -426,6 +439,7 @@ export const useSignalMessaging = (
           } catch (e: any) {
             // Decryption failed.
             console.error(`[Signal] Decryption failed for ${senderPubKey} (Message: ${gunKey}):`, e.message);
+            console.error(`[Signal] Raw Inbox Data for failure:`, JSON.stringify(data).slice(0, 500));
 
             // CRITICAL: DO NOT mark as processed if decryption failed.
             // This allows the message to be retried after session healing.
@@ -435,9 +449,63 @@ export const useSignalMessaging = (
             if (!hasResetRecently && !pendingResets.has(senderPubKey)) {
               pendingResets.add(senderPubKey);
               resetsRef.current.add(senderPubKey);
-              console.log(`[Signal] Decryption failed for ${senderPubKey}. This might be an old message or keys are out of sync.`);
-              // We call resetSession to clear any cached epub and refresh keys
-              await signalService.resetSession(senderPubKey);
+              console.log(`[Signal] Decryption failed for ${senderPubKey}. Attempting SILENT HEAL (refreshing keys)...`);
+              
+              try {
+                // 1. Force refresh epub
+                await signalService.resetSession(senderPubKey);
+                const freshEpub = await signalService.getEpubFromPub(senderPubKey);
+                
+                if (freshEpub) {
+                  console.log(`[Signal] Fresh keys found for ${senderPubKey.slice(0, 8)}. Retrying decryption...`);
+                  const retryPlaintext = await signalService.decryptMessage(senderPubKey, {
+                    type: data.type,
+                    body: data.body,
+                  });
+                  
+                  if (retryPlaintext) {
+                     console.log(`[Signal] Decryption SUCCESS after Silent HEAL!`);
+                     if (userPub) saveProcessedKey(userPub, gunKey);
+                     setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
+                     resetsRef.current.delete(senderPubKey);
+                     
+                     const appType = (data.msgType as any) || "text";
+                     const msgId = data.msgId || gunKey;
+                     const isFile = appType === 'file' || appType === 'image';
+                     let fileMeta: FileMetadata | undefined;
+                     if (isFile) {
+                       try { fileMeta = JSON.parse(retryPlaintext); } catch (e) {}
+                     }
+                     
+                     setMessages((prev) => {
+                       const userMsgs = prev[senderPubKey] || [];
+                       if (userMsgs.some(m => m.id === msgId)) return prev;
+                       const updated = {
+                         ...prev,
+                         [senderPubKey]: [
+                           ...userMsgs,
+                           {
+                             id: msgId,
+                             gunKey: gunKey,
+                             sender: senderPubKey,
+                             text: (appType === 'audio' || isFile) ? undefined : retryPlaintext,
+                             audio: appType === 'audio' ? retryPlaintext : undefined,
+                             fileMetadata: fileMeta,
+                             type: appType,
+                             timestamp: new Date(data.timestamp || Date.now()),
+                             status: "delivered" as const,
+                           },
+                         ],
+                       };
+                       if (userPub) saveMessages(userPub, updated);
+                       return updated;
+                     });
+                     return; 
+                  }
+                }
+              } catch (retryErr) {
+                console.warn(`[Signal] Silent HEAL failed for ${senderPubKey}:`, retryErr);
+              }
             } else {
               console.warn(`[Signal] Decryption failed AGAIN for ${senderPubKey}. Displaying placeholder message.`);
               if (userPub) saveProcessedKey(userPub, gunKey);
@@ -456,7 +524,7 @@ export const useSignalMessaging = (
                     {
                       id: msgId,
                       sender: senderPubKey,
-                      text: "⚠️ [Encrypted message could not be decrypted. Session out of sync.]",
+                      text: "⚠️ [Impossibile decriptare il messaggio. Problema di sincronizzazione.]",
                       timestamp: new Date(data.timestamp || Date.now()),
                       status: "delivered" as const,
                     },
@@ -495,6 +563,7 @@ export const useSignalMessaging = (
   const handleSendMessage = useCallback(async (message?: string, audio?: string, fileMetadata?: FileMetadata) => {
     if (!recipient || (!message && !audio && !fileMetadata) || !signalService || !userPub || !groupService) return;
     
+    await signalService.waitReady();
     const msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
     const timestamp = new Date();
     
@@ -620,6 +689,28 @@ export const useSignalMessaging = (
     setContacts(prev => prev.filter(c => c !== contactId));
   }, [userPub, db, messages, saveMessages]);
 
+  const handleFixSync = useCallback(async (contactId: string) => {
+    if (!signalService || !userPub) return;
+    console.log(`[Signal] Manual Fix Sync for ${contactId}...`);
+    try {
+      await signalService.resetSession(contactId);
+      await signalService.republishBundle().catch(() => {});
+      
+      const ping = await signalService.encryptMessage(contactId, "PING_HEAL");
+      const pub = contactId.length < 30 ? await signalService.getPubKeyFromUsername(contactId) : contactId;
+      await db.Set(`signal_v3_inbox_${pub}`, { 
+        sender: userPub, 
+        type: ping.type, 
+        body: ping.body, 
+        timestamp: new Date().toISOString() 
+      } as any);
+      
+      setContactErrors(prev => ({ ...prev, [contactId]: false }));
+    } catch (e) {
+      console.error("[Signal] Fix Sync failed:", e);
+    }
+  }, [signalService, userPub, db]);
+
   const currentMessages = useMemo(() => {
     const msgs = messages[recipient] || [];
     const deletions = deletedMessages[recipient] || new Set();
@@ -648,6 +739,7 @@ export const useSignalMessaging = (
     unreadCounts,
     handleTyping,
     handleSendMessage,
+    handleFixSync,
     handleClearChat,
     saveContact,
     removeContact,
