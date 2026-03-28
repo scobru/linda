@@ -31,6 +31,8 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   // Meta editing state
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+  const [publicName, setPublicName] = useState("");
 
   useEffect(() => {
     if (groupId) loadData();
@@ -44,6 +46,8 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       setGroupInfo(info);
       setEditName(info.name);
       setEditDesc(info.description || "");
+      setIsPublic(!!info.isPublic);
+      setPublicName(info.publicName || info.name.toLowerCase().replace(/\s+/g, '-'));
       
       const m = await groupService.getMembers(groupId);
       setMembers(m);
@@ -225,6 +229,21 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       loadData();
     } catch (e: any) {
       showNotification(e.message || "Failed to toggle feature", "error");
+    }
+  };
+
+  const handleTogglePublic = async (enabled: boolean) => {
+    if (!groupId) return;
+    try {
+      if (enabled && !publicName.trim()) {
+        showNotification("Public name is required to make group public", "error");
+        return;
+      }
+      await groupService.setGroupPublic(groupId, enabled, publicName);
+      showNotification(enabled ? "Group is now public" : "Group is now private", "info");
+      loadData();
+    } catch (e: any) {
+      showNotification(e.message || "Failed to update public status", "error");
     }
   };
 
@@ -416,6 +435,46 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {myRole === 'administrator' && (
+                  <div className="card bg-base-200/40 backdrop-blur-xl border border-white/10 shadow-2xl md:col-span-2 rounded-[2.5rem]">
+                    <div className="card-body p-8 sm:p-10">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-8 text-primary">Public Discovery</h4>
+                      <div className="space-y-6">
+                        <div className="flex items-center justify-between p-6 bg-base-100/30 rounded-[2rem] border border-white/5 transition-all hover:border-primary/20">
+                          <div className="min-w-0">
+                            <span className="text-sm font-bold block mb-1">Public Group</span>
+                            <span className="text-[10px] opacity-40 uppercase tracking-tight">Allow joining by name</span>
+                          </div>
+                          <input 
+                            type="checkbox" 
+                            className="toggle toggle-primary toggle-lg"
+                            checked={isPublic} 
+                            onChange={(e) => handleTogglePublic(e.target.checked)}
+                          />
+                        </div>
+                        
+                        {isPublic && (
+                          <div className="form-control animate-fadeIn">
+                            <label className="label"><span className="label-text font-bold opacity-50 tracking-widest text-[10px] uppercase">Registry Name</span></label>
+                            <div className="flex gap-2">
+                              <input 
+                                value={publicName} 
+                                onChange={e => setPublicName(e.target.value.toLowerCase().replace(/\s+/g, '-'))} 
+                                className="input input-bordered grow rounded-2xl focus:border-primary bg-base-100/50" 
+                                placeholder="e.g. community-chat"
+                              />
+                              <button onClick={() => handleTogglePublic(true)} className="btn btn-primary rounded-2xl px-8">Update Name</button>
+                            </div>
+                            <label className="label">
+                              <span className="label-text-alt opacity-40 italic">Users can join by typing this name in the "Join" section.</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

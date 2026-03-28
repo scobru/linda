@@ -20,6 +20,8 @@ export interface GroupInfo {
     callsEnabled: boolean;
     activityEnabled: boolean;
   };
+  isPublic?: boolean;
+  publicName?: string;
 }
 
 export interface GroupInvite {
@@ -500,5 +502,73 @@ export class GroupService {
     );
 
     return new TextDecoder().decode(decrypted);
+  }
+
+  /**
+   * Public Group Management
+   */
+  async setGroupPublic(groupId: string, isPublic: boolean, publicName?: string): Promise<void> {
+    const myPub = this.db.getUserPub();
+    if (!myPub) throw new Error("Not logged in");
+    
+    const role = await this.getMemberRole(groupId, myPub);
+    if (role !== "administrator") throw new Error("Only administrators can toggle public status");
+
+    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+    if (!meta) throw new Error("Group meta not found");
+
+    const oldPublicName = meta.publicName;
+    const normalizedName = publicName?.trim().toLowerCase().replace(/\s+/g, '-');
+
+    // 1. Update metadata
+    const updatedMeta: GroupInfo = { 
+      ...meta, 
+      isPublic, 
+      publicName: normalizedName || undefined 
+    };
+    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, updatedMeta);
+
+    // 2. Manage registry
+    if (isPublic && normalizedName) {
+      await (this.db.Put as any)(`signal_public_registry/${normalizedName}`, {
+        g: groupId,
+        s: meta.secret,
+        n: meta.name
+      });
+      console.log(`[GroupService] Published group ${groupId} as "${normalizedName}"`);
+    }
+
+    // 3. Cleanup old name if it changed or was disabled
+    if (oldPublicName && (oldPublicName !== normalizedName || !isPublic)) {
+      await (this.db.Put as any)(`signal_public_registry/${oldPublicName}`, null);
+    }
+  }
+
+  async getPublicGroup(name: string): Promise<{ g: string; s: string; n: string } | null> {
+    const normalizedName = name.trim().toLowerCase().replace(/\s+/g, '-');
+    try {
+      const data = await (this.db.Get as any)(`signal_public_registry/${normalizedName}`);
+      if (data && data.g && data.s) {
+        return data;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async joinPublicGroup(name: string): Promise<GroupInfo> {
+    const publicGroup = await this.getPublicGroup(name);
+    if (!publicGroup) throw new Error(`Public group "${name}" not found.`);
+
+    const myPub = this.db.getUserPub();
+    if (!myPub) throw new Error("Not logged in");
+
+    // Re-use logic from JoinGroup but with info from registry
+    await (this.db.Put as any)(`signal_rooms/${publicGroup.g}/members/${myPub}`, {
+      role: "peer" as Role,
+      joinedAt: Date.now()
+    } as GroupMember);
+
+    const meta = await (this.db.Get as any)(`signal_rooms/${publicGroup.g}/meta`) as GroupInfo;
+    return meta;
   }
 }

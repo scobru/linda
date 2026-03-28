@@ -2,15 +2,13 @@ import React, { useEffect, useRef, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
+import { AudioRecorder } from "./AudioRecorder";
+import { FileBubble } from "./FileBubble";
+import type { Message, FileMetadata } from "../hooks/useSignalMessaging";
+import type { TransferStatus } from "../FileTransferService";
+import { FileTransferService } from "../FileTransferService";
 
-interface Message {
-  id: string;
-  sender: string;
-  senderPub?: string;
-  text: string;
-  timestamp: Date;
-  status: "sending" | "sent" | "delivered" | "read";
-}
+// Moved interface to separate file or imported from hook
 
 interface ChatViewProps {
   recipient: string;
@@ -27,13 +25,20 @@ interface ChatViewProps {
   username: string;
   message: string;
   setMessage: (msg: string) => void;
-  handleSendMessage: () => void;
+  handleSendMessage: (msg?: string, audio?: string, fileMetadata?: FileMetadata) => void;
   handleTyping: () => void;
   handleManualReset: () => void;
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   setShowGroupSettings: (id: string | null) => void;
+  onInitiateCall: (video: boolean) => void;
+  fileTransferService: FileTransferService | null;
+  transferStatuses: Record<string, TransferStatus>;
+  transferProgress: Record<string, number>;
+  transferBlobs: Record<string, Blob>;
+  transferOffers: Record<string, any>;
+  handleClearChat: (id: string) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -58,9 +63,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handleReportMessage,
   handleDeleteMessage,
   setShowGroupSettings,
+  onInitiateCall,
+  fileTransferService,
+  transferStatuses,
+  transferProgress,
+  transferBlobs,
+  transferOffers,
+  handleClearChat
 }) => {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [canSendMessage, setCanSendMessage] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
 
@@ -104,6 +117,54 @@ export const ChatView: React.FC<ChatViewProps> = ({
     currentMessages.filter(m => pinnedMessages[recipient]?.has(m.id)),
     [currentMessages, pinnedMessages, recipient]
   );
+
+  // ── File Transfer Logic ──
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!fileTransferService) {
+      console.error("File transfer service not initialized");
+      return;
+    }
+
+    const meta: FileMetadata = {
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      hash: "tbd", 
+      id: Math.random().toString(36).substring(7),
+      status: 'offered'
+    };
+
+    try {
+      // 1. Send metadata through Signal protocol
+      handleSendMessage(undefined, undefined, meta);
+      
+      // 2. Start WebRTC offer
+      await fileTransferService.offerFile(recipient, file, meta.id);
+    } catch (err) {
+      console.error("Failed to initiate file transfer:", err);
+    } finally {
+      // Reset input value so same file can be selected again
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  // Auto-accept images
+  useEffect(() => {
+    currentMessages.forEach(msg => {
+      if (msg.type === 'image' && msg.sender !== 'Me' && msg.fileMetadata) {
+        const status = transferStatuses[msg.fileMetadata.id];
+        if (!status || status === 'idle' || status === 'incoming' || status === 'offered') {
+           const offer = transferOffers[msg.fileMetadata.id];
+           if (offer) {
+              fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: msg.fileMetadata.id });
+           }
+        }
+      }
+    });
+  }, [currentMessages, transferStatuses, fileTransferService]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -190,7 +251,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        <div className="flex-none gap-3">
+        <div className="flex-none gap-3 flex items-center">
           {recipient.length === 36 && recipient.includes("-") && (
             <button
               onClick={() => setShowGroupSettings(recipient)}
@@ -204,14 +265,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </button>
           )}
 
-          {contactErrors[recipient] && (
+          <div className="flex gap-2 mr-2">
             <button
-              onClick={handleManualReset}
-              className="btn btn-warning btn-outline btn-sm rounded-full px-4 font-black text-[10px] tracking-widest"
+              className="btn btn-ghost btn-circle bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
+              title="Voice Call"
+              onClick={() => onInitiateCall(false)}
             >
-              HEAL
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+              </svg>
             </button>
-          )}
+            <button
+              className="btn btn-ghost btn-circle bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
+              title="Video Call"
+              onClick={() => onInitiateCall(true)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            {contactErrors[recipient] && (
+              <button
+                onClick={handleManualReset}
+                className="btn btn-warning btn-outline btn-sm rounded-full px-4 font-black text-[10px] tracking-widest"
+              >
+                HEAL
+              </button>
+            )}
+            
+            <button
+              onClick={() => {
+                if (window.confirm("Sei sicuro di voler svuotare questa chat? Questa azione eliminerà i messaggi anche da GunDB.")) {
+                  handleClearChat(recipient);
+                }
+              }}
+              className="btn btn-ghost btn-circle text-error/60 hover:text-error hover:bg-error/10"
+              title="Clear History"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -270,7 +368,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               <div className={`chat-bubble shadow-2xl border border-white/5 min-h-[48px] flex items-center relative group p-4 sm:p-5 rounded-[2rem] ${isMe ? "chat-bubble-primary !text-slate-900 rounded-tr-md shadow-primary/20" : "chat-bubble-neutral rounded-tl-md"}`}>
                 {isPinned && <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-white/10">📌</span>}
-                <div className="py-0.5 leading-relaxed font-bold">{msg.text}</div>
+                
+                {msg.type === 'audio' ? (
+                  <div className="flex flex-col gap-2 min-w-[200px]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center shadow-inner">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-current/80">
+                          <path fillRule="evenodd" d="M19.952 1.251a.75.75 0 01.496.903l-3 10.5a.75.75 0 11-1.448-.414l2.833-9.916-11.75 2.136a.75.75 0 11-.267-1.477l12.5-2.273a.75.75 0 01.636.541zM3.75 7.5a.75.75 0 01.75.75v11.25c0 .414.336.75.75.75h10.5a.75.75 0 010 1.5H5.25A2.25 2.25 0 013 19.5V8.25a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <audio controls className="h-10 w-full opacity-80 mix-blend-multiply filter invert-[0.1] contrast-150">
+                        <source src={msg.audio} type="audio/webm" />
+                      </audio>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest opacity-40 ml-1">Audio Message</span>
+                  </div>
+                ) : (msg.type === 'file' || msg.type === 'image') && msg.fileMetadata ? (
+                  <FileBubble
+                    metadata={msg.fileMetadata}
+                    isMe={isMe}
+                    status={transferStatuses[msg.fileMetadata.id] || "idle"}
+                    progress={transferProgress[msg.fileMetadata.id] || 0}
+                    blob={transferBlobs[msg.fileMetadata.id] || transferBlobs.last}
+                    onAccept={() => 
+                        fileTransferService?.acceptFile(msg.sender, { sdp: transferOffers[msg.fileMetadata!.id], metaId: msg.fileMetadata!.id })
+                    }
+                  />
+                ) : (
+                  <div className="py-0.5 leading-relaxed font-bold">{msg.text}</div>
+                )}
 
                 {/* Bubble Actions on Hover */}
                 <div className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-white/10 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 scale-90 group-hover:scale-100 ${isMe ? "-left-24" : "-right-24"}`}>
@@ -324,7 +450,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       {/* Input Area */}
-      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0">
+      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0 z-20">
         {!canSendMessage ? (
           <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner transition-all animate-pulse">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 mr-3 text-error opacity-60">
@@ -334,22 +460,53 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-4 w-full px-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={recipient.length === 36 && recipient.includes("-")}
+              className={`btn btn-ghost btn-circle bg-base-300/40 border border-white/5 hover:bg-primary/10 hover:text-primary active:scale-95 transition-all flex items-center justify-center h-16 w-16 min-h-0 ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
+              title={recipient.length === 36 && recipient.includes("-") ? "P2P Transfers only available in 1:1" : "Attach File"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.5L8.25 18.75a1.5 1.5 0 11-2.122-2.122L17.25 5.25" />
+              </svg>
+            </button>
+
             <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary border-white/5 flex items-center gap-4 h-16 bg-base-300/40 rounded-full transition-all px-8 shadow-inner group">
               <input
                 type="text"
-                className="grow font-bold text-base"
+                className="grow font-bold text-base bg-transparent border-0 focus:ring-0"
                 placeholder="Write a message..."
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
                   handleTyping();
                 }}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                onKeyDown={(e) => {
+                   if (e.key === "Enter" && message.trim()) {
+                      handleSendMessage(message);
+                      setMessage("");
+                   }
+                }}
               />
             </label>
+            <AudioRecorder
+              onRecordingComplete={(base64) => handleSendMessage(undefined, base64)}
+              loading={!canSendMessage}
+            />
             <button 
               className="btn btn-primary btn-circle h-14 w-14 shadow-2xl shadow-primary/40 transition-all active:scale-95 border-0 hover:scale-110" 
-              onClick={handleSendMessage}
+              onClick={() => {
+                if (message.trim()) {
+                  handleSendMessage(message);
+                  setMessage("");
+                }
+              }}
               disabled={!message.trim()}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 translate-x-0.5">

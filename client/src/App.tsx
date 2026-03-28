@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -7,7 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
-import { GroupCreationModal } from "./components/GroupCreationModal";
+import { GroupCreationPage } from "./pages/GroupCreationPage";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
@@ -27,6 +27,11 @@ import { Layout } from "./components/Layout";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
+import { CallingService } from "./CallingService";
+import type { CallStatus } from "./CallingService";
+import { CallingOverlay } from "./components/CallingOverlay";
+import { FileTransferService } from "./FileTransferService";
+import type { TransferStatus } from "./FileTransferService";
 
 // Extend window interface
 declare global {
@@ -46,6 +51,21 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { isLoggedIn, userPub, logout, username } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
+  
+  // ── Call State ──
+  const [callStatus, setCallStatus] = useState<CallStatus>('idle');
+  const [callData, setCallData] = useState<any>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isVideoCall, setIsVideoCall] = useState(false);
+  const callingServiceRef = useRef<CallingService | null>(null);
+
+  // ── File Transfer State ──
+  const fileTransferServiceRef = useRef<FileTransferService | null>(null);
+  const [transferStatus, setTransferStatus] = useState<Record<string, TransferStatus>>({});
+  const [transferProgress, setTransferProgress] = useState<Record<string, number>>({});
+  const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
+  const [transferOffers, setTransferOffers] = useState<Record<string, any>>({});
+
   const [notification, setNotification] = useState<{
     msg: string;
     type: "info" | "error";
@@ -77,6 +97,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     unreadCounts,
     handleTyping,
     handleSendMessage: baseSendMessage,
+    handleClearChat,
     saveContact,
     removeContact,
     saveMessages,
@@ -119,6 +140,53 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       { avatar?: string; nickname?: string; uniqueUsername?: string }
     >
   >({});
+
+  useEffect(() => {
+    if (isLoggedIn && db && userPub) {
+      const callingService = new CallingService(window.gun as any, userPub);
+      
+      callingService.onStatusChange = (status: CallStatus, data?: any) => {
+        setCallStatus(status);
+        if (data) setCallData(data);
+        if (status === 'idle') {
+          setRemoteStream(null);
+          setCallData(null);
+        }
+      };
+
+      callingService.onRemoteStream = (stream: MediaStream) => {
+        setRemoteStream(stream);
+      };
+
+      callingServiceRef.current = callingService;
+
+      // Initialize FileTransferService
+      const fileTransferService = new FileTransferService(window.gun as any, userPub);
+      
+      fileTransferService.onStatusChange = (status, progress, data) => {
+        if (data?.metaId) {
+          setTransferStatus(prev => ({ ...prev, [data.metaId]: status }));
+          if (progress !== undefined) setTransferProgress(prev => ({ ...prev, [data.metaId]: progress }));
+          if (status === 'incoming' && data?.sdp) {
+            setTransferOffers(prev => ({ ...prev, [data.metaId]: data.sdp }));
+          }
+        }
+      };
+
+      fileTransferService.onFileReceived = (blob, _name, _mimeType) => {
+        // We might want to correlate this with a metaId later, 
+        // for now we'll store it by a generic key or handle it via metaId if provided.
+        // For simplicity in this iteration, we use the last active download or a map.
+        setTransferBlobs(prev => ({ ...prev, last: blob })); 
+      };
+
+      fileTransferServiceRef.current = fileTransferService;
+
+      return () => {
+        callingService.endCall(false);
+      };
+    }
+  }, [isLoggedIn, db, userPub]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -230,21 +298,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   const handleLogout = async () => {
     if (typeof localStorage !== "undefined") {
-      if (signalService && (signalService as any).store) {
-        try {
-          await (signalService as any).store.clearAll();
-        } catch (e) {}
-      }
       localStorage.clear();
     }
     logout();
   };
 
-  const handleSendMessage = async () => {
-    if (!message.trim()) return;
+  const handleSendMessage = async (msg?: string, audio?: string, fileMetadata?: any) => {
+    if (!recipient || (!msg && !message && !audio && !fileMetadata)) return;
     try {
-      await baseSendMessage(message);
-      setMessage("");
+      await baseSendMessage(msg || message, audio, fileMetadata);
+      if (!audio && !fileMetadata) setMessage("");
     } catch (err: any) {
       showNotification(
         "Send failed: " + (err.message || "Unknown error"),
@@ -294,6 +357,19 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     );
   };
 
+  const handleInitiateCall = async (video: boolean) => {
+    if (!recipient || !callingServiceRef.current) return;
+    setIsVideoCall(video);
+    
+    // Resolve recipient pubkey if it's a username
+    let pub = recipient;
+    if (recipient.length < 30 || recipient.startsWith("@")) {
+      pub = await signalService?.getPubKeyFromUsername(recipient) || recipient;
+    }
+    
+    callingServiceRef.current.initiateCall(pub, video);
+  };
+
   const handleManualReset = async () => {
     if (!recipient || !signalService || !userPub) return;
     if (!window.confirm("Force-recreate secure session?")) return;
@@ -313,8 +389,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       showNotification("Reset failed.", "error");
     }
   };
-
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   // Helper functions for ChatView
   const handleDeleteMessage = async (msgId: string, senderPub?: string) => {
@@ -507,7 +581,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 contactProfiles,
                 unreadCounts,
                 handleDeleteContact,
-                setShowCreateGroup,
                 signalService,
                 groupService,
                 showNotification,
@@ -547,6 +620,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setShowGroupSettings={(id) =>
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
+                onInitiateCall={handleInitiateCall}
+                fileTransferService={fileTransferServiceRef.current}
+                transferStatuses={transferStatus}
+                transferProgress={transferProgress}
+                                transferBlobs={transferBlobs}
+                transferOffers={transferOffers}
+                handleClearChat={handleClearChat}
               />
             }
           />
@@ -581,6 +661,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setShowGroupSettings={(id) =>
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
+                                onInitiateCall={handleInitiateCall}
+                fileTransferService={fileTransferServiceRef.current}
+                transferStatuses={transferStatus}
+                transferProgress={transferProgress}
+                                transferBlobs={transferBlobs}
+                transferOffers={transferOffers}
+                handleClearChat={handleClearChat}
               />
             }
           />
@@ -612,6 +699,23 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               />
             }
           />
+          <Route
+            path="/create-group"
+            element={
+              <GroupCreationPage
+                groupService={groupService!}
+                onCreated={(groupId) => {
+                  setContacts((prev) =>
+                    !prev.includes(groupId) ? [...prev, groupId] : prev,
+                  );
+                  saveContact(groupId);
+                  setRecipient(groupId);
+                  navigate(`/chat/${groupId}`);
+                }}
+                showNotification={showNotification}
+              />
+            }
+          />
         </Route>
       </Routes>
 
@@ -625,22 +729,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         </div>
       )}
 
-      {/* {showGroupSettings && groupService && <GroupSettings groupId={showGroupSettings} groupService={groupService} db={db} onClose={() => setShowGroupSettings(null)} showNotification={showNotification} />} */}
-      {showCreateGroup && groupService && (
-        <GroupCreationModal
-          groupService={groupService}
-          onClose={() => setShowCreateGroup(false)}
-          onCreated={(groupId) => {
-            setContacts((prev) =>
-              !prev.includes(groupId) ? [...prev, groupId] : prev,
-            );
-            saveContact(groupId);
-            setRecipient(groupId);
-            navigate(`/chat/${groupId}`);
-          }}
-          showNotification={showNotification}
-        />
-      )}
+      <CallingOverlay
+        status={callStatus}
+        localStream={callingServiceRef.current?.getLocalStream() || null}
+        remoteStream={remoteStream}
+        recipientProfile={callData?.from ? contactProfiles[callData.from] || { nickname: callData.from } : (recipient ? contactProfiles[recipient] : null)}
+        onAccept={() => callingServiceRef.current?.acceptCall(callData?.signal)}
+        onReject={() => callingServiceRef.current?.rejectCall()}
+        onEnd={() => callingServiceRef.current?.endCall()}
+        video={isVideoCall}
+      />
     </div>
   );
 };
@@ -663,13 +761,20 @@ const ChatWrapper: React.FC<{
   username: string;
   message: string;
   setMessage: (msg: string) => void;
-  handleSendMessage: () => void;
+  handleSendMessage: (msg?: string, audio?: string, fileMetadata?: any) => void;
   handleTyping: () => void;
   handleManualReset: () => void;
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   setShowGroupSettings: (id: string | null) => void;
+  onInitiateCall: (video: boolean) => void;
+  fileTransferService: FileTransferService | null;
+  transferStatuses: Record<string, TransferStatus>;
+  transferProgress: Record<string, number>;
+  transferBlobs: Record<string, Blob>;
+  transferOffers: Record<string, any>;
+  handleClearChat: (id: string) => void;
 }> = (props) => {
   return <ChatView {...props} />;
 };

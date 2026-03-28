@@ -42,20 +42,11 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
 
           const service = new SignalService(db);
           await service.initSession(username, uniqueName);
-          
-          // Re-persist alias to ensure it's in the public registry for others to see
-          try {
-             const pub = db.getUserPub();
-             if (pub) {
-               await (service as any).persistAlias(username, uniqueName);
-             }
-          } catch (e) {}
-
           setSignalService(service);
           
           const gService = new GroupService(db);
           setGroupService(gService);
-          showNotification(`Welcome, ${username}! Signal session ready.`);
+          showNotification(`Welcome, ${username}! Secure session ready.`);
         } catch (e) {
           console.error('[useSignalInit] Signal session initialization failed:', e);
           showNotification('Failed to initialize Signal keys', 'error');

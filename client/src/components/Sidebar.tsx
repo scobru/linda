@@ -12,7 +12,6 @@ interface SidebarProps {
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   unreadCounts: Record<string, number>;
   handleDeleteContact: (id: string, e: React.MouseEvent) => Promise<void>;
-  setShowCreateGroup: (show: boolean) => void;
   signalService: any;
   groupService: any;
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -29,7 +28,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   contactProfiles,
   unreadCounts,
   handleDeleteContact,
-  setShowCreateGroup,
   signalService,
   groupService,
   showNotification,
@@ -82,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 text-primary">Conversations</span>
         <button
           className="btn btn-ghost btn-circle btn-sm bg-primary/10 text-primary hover:bg-primary hover:text-primary-content transition-all shadow-lg shadow-primary/10"
-          onClick={() => setShowCreateGroup(true)}
+          onClick={() => navigate("/create-group")}
           title="Create New Group"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -189,16 +187,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 target.value = "";
 
                 try {
+                  // 1. Try to resolve as a public group name first
+                  const publicGroup = await groupService.getPublicGroup(name);
+                  if (publicGroup) {
+                    const groupInfo = await groupService.joinPublicGroup(name);
+                    setRecipient(groupInfo.id);
+                    showNotification(`Joined public group: ${groupInfo.name}`, "info");
+                    navigate(`/chat/${groupInfo.id}`);
+                    return;
+                  }
+
+                  // 2. Try to resolve as an invite code if it's long
                   if (name.length > 50 && !name.startsWith("@")) {
                     try {
                       const groupInfo = await groupService.joinGroup(name);
                       setRecipient(groupInfo.id);
-                      showNotification(`Joined group: ${groupInfo.name}`, "info");
+                      showNotification(`Joined group via invite: ${groupInfo.name}`, "info");
                       navigate(`/chat/${groupInfo.id}`);
                       return;
                     } catch (ge) {}
                   }
 
+                  // 3. Resolve as a pubkey/username for 1:1 chat
                   let pubKey = name;
                   if (name.length < 30 || name.startsWith("@")) {
                     pubKey = await signalService.getPubKeyFromUsername(name);
@@ -208,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   setRecipient(pubKey);
                   navigate(`/chat/${pubKey}`);
                 } catch (err: any) {
-                  showNotification(`User not found: ${name}`, "error");
+                  showNotification(`Could not resolve: ${name}`, "error");
                 } finally {
                   target.disabled = false;
                   target.placeholder = origPlaceholder;

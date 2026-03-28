@@ -4,11 +4,24 @@ import { SignalService } from "../SignalService";
 import { GroupService, type GroupInfo } from "../GroupService";
 import { generateSecureRandomString } from "../utils/crypto";
 
+export interface FileMetadata {
+  name: string;
+  size: number;
+  hash: string;
+  mimeType: string;
+  id: string; // Internal file transfer ID
+  status: 'offered' | 'incoming' | 'transferring' | 'completed' | 'failed';
+}
+
 export interface Message {
   id: string;
+  gunKey?: string; // Original GunDB ID for deletion
   sender: string;
   senderPub?: string;
-  text: string;
+  text?: string;
+  audio?: string; // Base64
+  fileMetadata?: FileMetadata;
+  type: "text" | "audio" | "call_signal" | "file" | "image";
   timestamp: Date;
   status: "sending" | "sent" | "delivered" | "read";
 }
@@ -198,9 +211,12 @@ export const useSignalMessaging = (
                   ...groupMsgs,
                   {
                     id: remoteMsgId,
+                    gunKey: gunKey,
                     sender: isMe ? "Me" : data.sender,
                     senderPub: data.sender,
-                    text: plaintext,
+                    text: data.type === 'audio' ? undefined : plaintext,
+                    audio: data.type === 'audio' ? plaintext : undefined,
+                    type: (data.type as any) || "text",
                     timestamp: new Date(data.timestamp || Date.now()),
                     status: "delivered" as const,
                   },
@@ -256,7 +272,7 @@ export const useSignalMessaging = (
 
     db.gun.get(`signal_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
       if (!data || typeof data !== "object") return;
-      if (!data.sender || !data.body || !data.type) return;
+      if (!data.sender || !data.body || data.type === undefined) return;
       if (processedRef.current.has(gunKey)) return;
 
       const senderPubKeyRaw = data.sender;
@@ -363,7 +379,7 @@ export const useSignalMessaging = (
                 (m) =>
                   m.id === msgId ||
                   (m.sender === senderPubKey &&
-                    m.text === plaintext &&
+                    (m.text === plaintext || m.audio === plaintext) &&
                     Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
               );
 
@@ -375,14 +391,27 @@ export const useSignalMessaging = (
                 return prev;
               }
 
+              const appType = (data.msgType as any) || "text";
+              const isFile = appType === 'file' || appType === 'image';
+              let fileMeta: FileMetadata | undefined;
+              if (isFile) {
+                try {
+                  fileMeta = JSON.parse(plaintext);
+                } catch (e) {}
+              }
+
               const updated = {
                 ...prev,
                 [senderPubKey]: [
                   ...userMsgs,
                   {
                     id: msgId,
+                    gunKey: gunKey,
                     sender: senderPubKey,
-                    text: plaintext,
+                    text: (appType === 'audio' || isFile) ? undefined : plaintext,
+                    audio: appType === 'audio' ? plaintext : undefined,
+                    fileMetadata: fileMeta,
+                    type: appType,
                     timestamp: new Date(data.timestamp || Date.now()),
                     status: "delivered" as const,
                   },
@@ -406,20 +435,9 @@ export const useSignalMessaging = (
             if (!hasResetRecently && !pendingResets.has(senderPubKey)) {
               pendingResets.add(senderPubKey);
               resetsRef.current.add(senderPubKey);
-              console.log(`[Signal] Triggering session healing for ${senderPubKey}...`);
-              try {
-                await signalService.resetSession(senderPubKey);
-                const pingCipher = await signalService.encryptMessage(senderPubKey, "PING_HEAL");
-                await db.Set(`signal_v3_inbox_${senderPubKey}`, {
-                  sender: userPub,
-                  type: pingCipher.type,
-                  body: pingCipher.body,
-                  timestamp: new Date().toISOString(),
-                } as any);
-                console.log(`[Signal] Session healing PING sent to ${senderPubKey}`);
-              } catch (resetErr: any) {
-                console.error(`[Signal] Healing failed for ${senderPubKey}:`, resetErr.message);
-              }
+              console.log(`[Signal] Decryption failed for ${senderPubKey}. This might be an old message or keys are out of sync.`);
+              // We call resetSession to clear any cached epub and refresh keys
+              await signalService.resetSession(senderPubKey);
             } else {
               console.warn(`[Signal] Decryption failed AGAIN for ${senderPubKey}. Displaying placeholder message.`);
               if (userPub) saveProcessedKey(userPub, gunKey);
@@ -474,11 +492,17 @@ export const useSignalMessaging = (
     }
   }, [recipient, userPub, signalService, db]);
 
-  const handleSendMessage = useCallback(async (message: string) => {
-    if (!recipient || !message || !signalService || !userPub || !groupService) return;
+  const handleSendMessage = useCallback(async (message?: string, audio?: string, fileMetadata?: FileMetadata) => {
+    if (!recipient || (!message && !audio && !fileMetadata) || !signalService || !userPub || !groupService) return;
     
     const msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
     const timestamp = new Date();
+    
+    let type: Message["type"] = "text";
+    if (audio) type = "audio";
+    else if (fileMetadata) {
+      type = fileMetadata.mimeType.startsWith('image/') ? 'image' : 'file';
+    }
 
     // 1. Optimistic Update: Add message immediately with "sending" status
     setMessages((prev) => {
@@ -493,10 +517,13 @@ export const useSignalMessaging = (
             id: msgId, 
             sender: "Me", 
             senderPub: userPub, 
-            text: message, 
+            text: type === 'text' ? message : undefined, 
+            audio: type === 'audio' ? audio : undefined,
+            fileMetadata: (type === 'file' || type === 'image') ? fileMetadata : undefined,
+            type: type,
             timestamp, 
             status: "sending" as const 
-          }
+          } as Message
         ] 
       };
       saveMessages(userPub, next);
@@ -507,6 +534,7 @@ export const useSignalMessaging = (
     try {
       const isGroup = recipient.length === 36 && recipient.includes("-");
       let ciphertext: any;
+      const payload = audio || (fileMetadata ? JSON.stringify(fileMetadata) : message);
 
       if (isGroup) {
         const canSend = await groupService.canPerform(recipient, "send_message");
@@ -517,17 +545,18 @@ export const useSignalMessaging = (
         const myRole = await groupService.getMemberRole(recipient, userPub);
         if (!myRole) throw new Error("Not a member");
         const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`);
-        ciphertext = await groupService.encryptGroupMessage(meta.secret, message);
-        await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type: 'group' } as any);
+        ciphertext = await groupService.encryptGroupMessage(meta.secret, payload || "");
+        await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
       } else {
         try {
-          ciphertext = await signalService.encryptMessage(recipient, message);
+          ciphertext = await signalService.encryptMessage(recipient, payload || "");
         } catch (err) {
+          // If encryption fails, try to reset the session (clear cache) and retry once
           await signalService.resetSession(recipient);
-          ciphertext = await signalService.encryptMessage(recipient, message);
+          ciphertext = await signalService.encryptMessage(recipient, payload || "");
         }
         const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
-        await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: timestamp.toISOString() } as any);
+        await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: timestamp.toISOString(), msgType: type } as any);
       }
 
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
@@ -566,6 +595,31 @@ export const useSignalMessaging = (
     }
   }, [recipient, signalService, userPub, groupService, db, saveMessages]);
 
+  const handleClearChat = useCallback(async (contactId: string) => {
+    if (!userPub || !db.gun) return;
+    const msgs = messages[contactId] || [];
+    
+    // 1. Clear from GunDB
+    const isGroup = contactId.length === 36 && contactId.includes("-");
+    const path = isGroup ? `signal_rooms/${contactId}/messages` : `signal_v3_inbox_${userPub}`;
+    
+    msgs.forEach(m => {
+      if (m.gunKey) {
+        db.gun.get(path).get(m.gunKey).put(null as any);
+      }
+    });
+
+    // 2. Clear from local state and Storage
+    setMessages(prev => {
+      const next = { ...prev };
+      delete next[contactId];
+      saveMessages(userPub, next);
+      return next;
+    });
+    
+    setContacts(prev => prev.filter(c => c !== contactId));
+  }, [userPub, db, messages, saveMessages]);
+
   const currentMessages = useMemo(() => {
     const msgs = messages[recipient] || [];
     const deletions = deletedMessages[recipient] || new Set();
@@ -594,6 +648,7 @@ export const useSignalMessaging = (
     unreadCounts,
     handleTyping,
     handleSendMessage,
+    handleClearChat,
     saveContact,
     removeContact,
     saveMessages

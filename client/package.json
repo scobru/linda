@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
     "axios": "^1.13.6",
     "gun": "git+https://github.com/scobru/gun",
     "react": "^19.2.0",
