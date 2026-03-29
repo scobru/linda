@@ -10,9 +10,12 @@ import { FileTransferService } from "../FileTransferService";
 
 // Moved interface to separate file or imported from hook
 
+import { SignalService } from "../SignalService";
+
 interface ChatViewProps {
   recipient: string;
   setRecipient: (id: string) => void;
+  signalService: SignalService | null;
   groupService: GroupService | null;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   typingStatuses: Record<string, number>;
@@ -44,6 +47,7 @@ interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = ({
   recipient,
   setRecipient,
+  signalService,
   groupService,
   contactProfiles,
   typingStatuses,
@@ -74,6 +78,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const acceptedMetaIds = useRef<Set<string>>(new Set());
   const [canSendMessage, setCanSendMessage] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
 
@@ -138,11 +143,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
 
     try {
+      // 0. Resolve recipient pubkey if needed
+      let targetPub = recipient;
+      if (signalService && (recipient.startsWith("@") || recipient.length < 30)) {
+        try {
+          targetPub = await signalService.getPubKeyFromUsername(recipient);
+        } catch (err) {
+          console.warn("[ChatView] Could not resolve pubkey for file transfer:", err);
+        }
+      }
+
       // 1. Send metadata through Signal protocol
       handleSendMessage(undefined, undefined, meta);
       
       // 2. Start WebRTC offer
-      await fileTransferService.offerFile(recipient, file, meta.id);
+      console.log(`[ChatView] Initiating file offer to ${targetPub.slice(0, 8)}...`);
+      await fileTransferService.offerFile(targetPub, file, meta.id);
     } catch (err) {
       console.error("Failed to initiate file transfer:", err);
     } finally {
@@ -155,11 +171,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => {
     currentMessages.forEach(msg => {
       if (msg.type === 'image' && msg.sender !== 'Me' && msg.fileMetadata) {
-        const status = transferStatuses[msg.fileMetadata.id];
-        if (!status || status === 'idle' || status === 'incoming' || status === 'offered') {
-           const offer = transferOffers[msg.fileMetadata.id];
+        const metaId = msg.fileMetadata.id;
+        const status = transferStatuses[metaId];
+        
+        if (!acceptedMetaIds.current.has(metaId) && (!status || status === 'idle' || status === 'incoming' || status === 'offered')) {
+           const offer = transferOffers[metaId];
            if (offer && typeof offer === 'object' && 'sdp' in offer) {
-              fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: msg.fileMetadata.id });
+              console.log(`[ChatView] Auto-accepting image ${metaId}`);
+              acceptedMetaIds.current.add(metaId);
+              fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: metaId });
            }
         }
       }

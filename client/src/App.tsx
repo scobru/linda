@@ -31,6 +31,7 @@ import type { CallStatus } from "./CallingService";
 import { CallingOverlay } from "./components/CallingOverlay";
 import { FileTransferService } from "./FileTransferService";
 import type { TransferStatus } from "./FileTransferService";
+import { SignalService } from "./SignalService";
 
 // Extend window interface
 declare global {
@@ -172,6 +173,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
+          console.log(`[App] Transfer ${status} for ${data.metaId}`, data);
           setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
           if (progress !== undefined)
             setTransferProgress((prev) => ({
@@ -618,6 +620,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   setRecipient(id);
                   if (id) navigate(`/chat/${id}`);
                 }}
+                signalService={signalService}
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
@@ -659,6 +662,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   if (id) navigate(`/chat/${id}`);
                   else navigate("/");
                 }}
+                signalService={signalService}
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
@@ -771,6 +775,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 const ChatWrapper: React.FC<{
   recipient: string;
   setRecipient: (id: string) => void;
+  signalService: SignalService | null;
   groupService: GroupService | null;
   contactProfiles: Record<
     string,
