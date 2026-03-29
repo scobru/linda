@@ -70,22 +70,29 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
         </div>
       )}
 
-      {!isMe && (status === 'idle' || status === 'offered' || status === 'incoming') && !isImage && (
-        <button onClick={onAccept} className="btn btn-sm btn-ghost gap-2 bg-black/10 hover:bg-black/20 mt-1">
+      {!isMe && status === 'incoming' && (!isImage || !blob) && (
+        <button onClick={onAccept} className="btn btn-sm btn-primary gap-2 mt-1 shadow-lg shadow-primary/20">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
           </svg>
-          Accept File
+          {isImage ? 'Accept Image' : 'Accept File'}
         </button>
       )}
 
-      {status === 'completed' && blob && !isImage && (
+      {!isMe && (status === 'idle' || status === 'offered') && (
+        <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-black/10 rounded-xl border border-white/5 animate-pulse">
+            <div className="loading loading-spinner loading-xs opacity-50"></div>
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Waiting for offer...</span>
+        </div>
+      )}
+
+      {status === 'completed' && blob && (
         <a 
           href={URL.createObjectURL(blob)} 
           download={metadata.name}
           className="btn btn-sm btn-success gap-2 mt-1 no-animation"
         >
-          Download
+          Download / Save
         </a>
       )}
 

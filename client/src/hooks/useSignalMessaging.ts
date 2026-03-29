@@ -271,8 +271,28 @@ export const useSignalMessaging = (
     const pendingResets = new Set<string>();
 
     db.gun.get(`signal_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
-      if (!data || typeof data !== "object") return;
-      if (!data.sender || !data.body || data.type === undefined) return;
+      // 1. Strict Data Validation (Avoid GunDB type errors and malformed nodes)
+      if (!data || typeof data !== "object") {
+        if (data !== null) console.warn(`[Signal] Skipping non-object inbox data at ${gunKey}:`, data);
+        return;
+      }
+      
+      // Basic field requirements for a message
+      if (!data.sender || !data.body || data.type === undefined) {
+        // Skip malformed nodes but don't log internal GunDB metadata
+        return;
+      }
+
+      // Convert timestamp safely
+      let messageTimestamp: Date;
+      try {
+        const rawTs = data.timestamp || Date.now();
+        messageTimestamp = new Date(typeof rawTs === 'string' || typeof rawTs === 'number' ? rawTs : Date.now());
+        if (isNaN(messageTimestamp.getTime())) messageTimestamp = new Date();
+      } catch (e) {
+        messageTimestamp = new Date();
+      }
+
       if (processedRef.current.has(gunKey)) return;
 
       const senderPubKeyRaw = data.sender;
@@ -284,6 +304,7 @@ export const useSignalMessaging = (
       messageQueueRef.current[senderPubKeyRaw] = messageQueueRef.current[senderPubKeyRaw].then(async () => {
         try {
           if (processedRef.current.has(gunKey)) return;
+          
           await signalService.waitReady();
 
           const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
@@ -300,37 +321,32 @@ export const useSignalMessaging = (
 
           try {
             console.log(`[Signal] Decrypting message ${gunKey} from ${senderPubKey.slice(0, 8)}...`);
-            const plaintext = await signalService.decryptMessage(senderPubKey, {
+            const plaintextValue = await signalService.decryptMessage(senderPubKey, {
               type: data.type,
               body: data.body,
             });
             
-            if (!plaintext) {
-              throw new Error('Decryption returned no content. Body might be invalid or wrong key.');
+            // Type Safety: Ensure we have a string before proceeding with string methods
+            if (!plaintextValue || typeof plaintextValue !== 'string') {
+              throw new Error(`Decryption result for ${gunKey} is not a valid string (${typeof plaintextValue}).`);
             }
+            
+            const validPlaintext = plaintextValue;
 
             // Successfully decrypted! Mark as processed now.
             if (userPub) saveProcessedKey(userPub, gunKey);
             setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
             resetsRef.current.delete(senderPubKey);
 
-            if (plaintext === "PING_HEAL") {
+            if (validPlaintext === "PING_HEAL") {
               console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session and re-publishing bundle...`);
               await signalService.resetSession(senderPubKey);
-              // Proactively re-publish our own bundle so the other person has the latest epub too
               await signalService.republishBundle().catch(() => {});
-              
-              // Reactive Retry: Trigger a re-fetch/re-decrypt of any failed messages from this user
-              setTimeout(async () => {
-                console.log(`[Signal] Triggering reactive retry for ${senderPubKey.slice(0, 8)}...`);
-                // Force GunDB to re-emit or just manually re-process if possible
-                // Since GunDB 'on' only fires on change, we might need a manual pass
-              }, 1000);
               return;
             }
 
-            if (plaintext.startsWith("RECEIPT_")) {
-              const parts = plaintext.split("_");
+            if (validPlaintext.startsWith("RECEIPT_")) {
+              const parts = validPlaintext.split("_");
               if (parts.length >= 3) {
                 const status = parts[1] as "delivered" | "read";
                 const msgId = parts.slice(2).join("_");
@@ -365,7 +381,7 @@ export const useSignalMessaging = (
               ) {
                 const title = `New message from ${senderPubKey.slice(0, 8)}...`;
                 const notification = new Notification(title, {
-                  body: plaintext.substring(0, 50),
+                  body: validPlaintext.length > 50 ? validPlaintext.substring(0, 50) + "..." : validPlaintext,
                 });
                 notification.onclick = () => {
                   window.focus();
@@ -378,7 +394,7 @@ export const useSignalMessaging = (
             // Send receipt
             try {
               const receiptCipher = await signalService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
-              await db.Set(`signal_v3_inbox_${senderPubKey}`, {
+              db.gun.get(`signal_v3_inbox_${senderPubKey}`).set({
                 sender: userPub,
                 type: receiptCipher.type,
                 body: receiptCipher.body,
@@ -392,7 +408,7 @@ export const useSignalMessaging = (
                 (m) =>
                   m.id === msgId ||
                   (m.sender === senderPubKey &&
-                    (m.text === plaintext || m.audio === plaintext) &&
+                    (m.text === validPlaintext || m.audio === validPlaintext) &&
                     Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
               );
 
@@ -409,7 +425,7 @@ export const useSignalMessaging = (
               let fileMeta: FileMetadata | undefined;
               if (isFile) {
                 try {
-                  fileMeta = JSON.parse(plaintext);
+                  fileMeta = JSON.parse(validPlaintext);
                 } catch (e) {}
               }
 
@@ -421,8 +437,8 @@ export const useSignalMessaging = (
                     id: msgId,
                     gunKey: gunKey,
                     sender: senderPubKey,
-                    text: (appType === 'audio' || isFile) ? undefined : plaintext,
-                    audio: appType === 'audio' ? plaintext : undefined,
+                    text: (appType === 'audio' || isFile) ? undefined : validPlaintext,
+                    audio: appType === 'audio' ? validPlaintext : undefined,
                     fileMetadata: fileMeta,
                     type: appType,
                     timestamp: new Date(data.timestamp || Date.now()),
@@ -439,11 +455,7 @@ export const useSignalMessaging = (
           } catch (e: any) {
             // Decryption failed.
             console.error(`[Signal] Decryption failed for ${senderPubKey} (Message: ${gunKey}):`, e.message);
-            console.error(`[Signal] Raw Inbox Data for failure:`, JSON.stringify(data).slice(0, 500));
-
-            // CRITICAL: DO NOT mark as processed if decryption failed.
-            // This allows the message to be retried after session healing.
-            // However, if we've already reset recently, we might want to skip to avoid infinite loops.
+            
             const hasResetRecently = resetsRef.current.has(senderPubKey);
 
             if (!hasResetRecently && !pendingResets.has(senderPubKey)) {
@@ -452,7 +464,6 @@ export const useSignalMessaging = (
               console.log(`[Signal] Decryption failed for ${senderPubKey}. Attempting SILENT HEAL (refreshing keys)...`);
               
               try {
-                // 1. Force refresh epub
                 await signalService.resetSession(senderPubKey);
                 const freshEpub = await signalService.getEpubFromPub(senderPubKey);
                 
@@ -463,7 +474,7 @@ export const useSignalMessaging = (
                     body: data.body,
                   });
                   
-                  if (retryPlaintext) {
+                  if (retryPlaintext && typeof retryPlaintext === 'string') {
                      console.log(`[Signal] Decryption SUCCESS after Silent HEAL!`);
                      if (userPub) saveProcessedKey(userPub, gunKey);
                      setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
@@ -511,7 +522,6 @@ export const useSignalMessaging = (
               if (userPub) saveProcessedKey(userPub, gunKey);
               setContactErrors((prev) => ({ ...prev, [senderPubKey]: true }));
 
-              // Instead of skipping, show a placeholder so the user knows something arrived
               setMessages((prev) => {
                 const userMsgs = prev[senderPubKey] || [];
                 const msgId = data.msgId || gunKey;

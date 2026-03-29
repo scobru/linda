@@ -109,7 +109,10 @@ export class SignalService {
       });
       
       // 2. Secondary path: 'signal_bundle_v7' for full bundle data
-      await this.db.userPut('signal_bundle_v7', bundlePayload as any);
+      const user = this.db.gun.user();
+      if (user.is) {
+        user.get('signal_bundle_v7').put(bundlePayload as any);
+      }
       
       console.log('[SignalService] Published SEA epub/bundle redundantly via direct put.');
     } catch (e) {
@@ -134,11 +137,15 @@ export class SignalService {
       const aliasPayload: Record<string, string> = { alias: username };
       if (uniqueUsername) aliasPayload.uniqueUsername = uniqueUsername;
       
-      await this.db.Put(`signal_aliases/${pub}`, aliasPayload);
+      await new Promise<void>((resolve) => {
+        this.db.gun.get('signal_aliases').get(pub).put(aliasPayload, () => resolve());
+      });
       
       if (uniqueUsername) {
         const normalized = uniqueUsername.startsWith('@') ? uniqueUsername : `@${uniqueUsername}`;
-        await this.db.Put(`signal_unique_usernames/${normalized}`, pub);
+        await new Promise<void>((resolve) => {
+          this.db.gun.get('signal_unique_usernames').get(normalized).put(pub, () => resolve());
+        });
       }
     } catch (e) {
       console.warn('[SignalService] Failed to persist alias to GunDB:', e);
@@ -250,29 +257,52 @@ export class SignalService {
    * Decrypts a message using SEA.secret and SEA.decrypt.
    */
   async decryptMessage(senderUsernameOrPub: string, ciphertext: { type: number; body: string }): Promise<string | undefined> {
-    let pubKey = senderUsernameOrPub;
-    if (pubKey.length < 30 || pubKey.startsWith('@')) {
-      pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
-    }
+    try {
+      let pubKey = senderUsernameOrPub;
+      if (pubKey.length < 30 || pubKey.startsWith('@')) {
+        pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
+      }
 
-    const senderEpub = await this.getEpubFromPub(pubKey);
-    const myPair = this.myPair || (this.db.gun.user() as any)?._?.sea;
-    if (!myPair) throw new Error('User keys not available for decryption');
+      const senderEpub = await this.getEpubFromPub(pubKey);
+      if (!senderEpub) {
+        console.warn(`[SignalService] No epub found for ${pubKey.slice(0, 8)}. Cannot decrypt.`);
+        return undefined;
+      }
+      
+      const myPair = this.myPair || (this.db.gun.user() as any)?._?.sea;
+      if (!myPair) throw new Error('User keys not available for decryption');
 
-    if (typeof ciphertext.body !== 'string') {
-      console.warn(`[SignalService] Body of message from ${pubKey.slice(0, 8)} is not a string (${typeof ciphertext.body}). Skipping decryption.`);
+      if (typeof ciphertext.body !== 'string') {
+        console.warn(`[SignalService] Body of message from ${pubKey.slice(0, 8)} is not a string (${typeof ciphertext.body}). Skipping decryption.`);
+        return undefined;
+      }
+
+      const secret = await this.db.sea.secret(senderEpub, myPair);
+      if (!secret) {
+        console.warn(`[SignalService] Could not derive secret for ${pubKey.slice(0, 8)}`);
+        return undefined;
+      }
+      
+      const decrypted = await this.db.sea.decrypt(ciphertext.body, secret);
+
+      if (decrypted === undefined || decrypted === null) {
+        console.warn(`[SignalService] SEA Decryption yielded ${decrypted === null ? 'NULL' : 'UNDEFINED'} for sender: ${pubKey.slice(0, 8)}`);
+        return undefined;
+      }
+
+      // Ensure we return a string to avoid .startsWith errors later. 
+      // If it's an object (file metadata), stringify it so downstream JSON.parse works.
+      if (typeof decrypted !== 'string') {
+        const stringified = typeof decrypted === 'object' ? JSON.stringify(decrypted) : String(decrypted);
+        console.log(`[SignalService] Decrypted non-string payload (${typeof decrypted}). Serialized to:`, stringified.substring(0, 50));
+        return stringified;
+      }
+
+      return decrypted;
+    } catch (err: any) {
+      console.error(`[SignalService] Error during decryption for ${senderUsernameOrPub}:`, err.message);
       return undefined;
     }
-
-    const secret = await this.db.sea.secret(senderEpub, myPair);
-    const decrypted = await this.db.sea.decrypt(ciphertext.body, secret);
-
-    if (decrypted === undefined || decrypted === null) {
-      console.warn(`[SignalService] SEA Decryption yielded UNDEFINED for sender: ${pubKey.slice(0, 8)}`);
-      return undefined;
-    }
-
-    return decrypted as string;
   }
 
   /**

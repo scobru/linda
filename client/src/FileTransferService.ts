@@ -19,9 +19,10 @@ export class FileTransferService {
   private dc: RTCDataChannel | null = null;
   
   public onStatusChange: (status: TransferStatus, progress?: number, data?: any) => void = () => {};
-  public onFileReceived: (blob: Blob, name: string, mimeType: string) => void = () => {};
+  public onFileReceived: (blob: Blob, name: string, mimeType: string, metaId?: string) => void = () => {};
 
   private currentStatus: TransferStatus = 'idle';
+  private currentMetaId: string | null = null;
 
   private iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -35,52 +36,97 @@ export class FileTransferService {
   }
 
   private setupIncomingListener() {
-    this.gun.get(`signal_v3_files_${this.myPub}`).on((data: any) => {
-      if (!data) return;
-      Object.keys(data).forEach(async (key) => {
-        if (key === '_') return;
-        const signal = data[key] as FileSignal;
-        if (!signal || typeof signal !== 'object') return;
-        if (signal.from === this.myPub) return;
-        
-        // Robust check for required fields
-        if (!signal.type || !signal.from || !signal.timestamp) return;
+    const seenSignals = new Set<string>();
+    const signalPath = `signal_v3_files_${this.myPub}`;
 
-        if (Date.now() - signal.timestamp > 60000) return;
+    this.gun.get(signalPath).map().on((signal: any, key: string) => {
+      if (!signal || typeof signal !== 'object') return;
+      if (seenSignals.has(key)) return;
+      seenSignals.add(key);
 
-        switch (signal.type) {
-          case 'file_offer':
-            if (this.currentStatus === 'idle') {
-              this.currentStatus = 'incoming';
-              this.onStatusChange('incoming', 0, signal.payload);
-            }
-            break;
-          case 'file_answer':
-            if (this.currentStatus === 'offering' && this.pc) {
-              await this.pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
-            }
-            break;
-          case 'file_candidate':
-            if (this.pc) {
-              await this.pc.addIceCandidate(new RTCIceCandidate(signal.payload));
-            }
-            break;
-          case 'file_reject':
+      if (signal.from === this.myPub) return;
+      
+      // Robust check for required fields
+      if (!signal.type || !signal.from || !signal.timestamp) return;
+
+      // Be more lenient with timestamps but ignore very old junk (e.g. > 1 hour)
+      if (Date.now() - signal.timestamp > 3600000) return;
+
+      switch (signal.type) {
+        case 'file_offer':
+          // Always notify UI about incoming offers so they are stored in state
+          // regardless of current service status
+          this.onStatusChange('incoming', 0, signal.payload);
+          
+          // If we are idle, track this as the most recent possible transfer
+          if (this.currentStatus === 'idle') {
+            this.currentMetaId = signal.payload?.metaId || null;
+          }
+          break;
+
+        case 'file_answer':
+          if (this.currentStatus === 'offering' && this.pc && signal.payload) {
+            this.handleAnswer(signal.payload);
+          }
+          break;
+
+        case 'file_candidate':
+          if (this.pc) {
+            this.pc.addIceCandidate(new RTCIceCandidate(signal.payload)).catch(e => {
+              console.warn('[FileTransfer] Failed to add ICE candidate:', e);
+            });
+          }
+          break;
+
+        case 'file_reject':
+          if (signal.payload?.metaId === this.currentMetaId) {
             this.cleanup();
             this.onStatusChange('failed', 0, 'Rejected');
+          }
+          break;
+
+        case 'file_bye':
+            if (signal.payload?.metaId === this.currentMetaId) {
+                this.cleanup();
+            }
             break;
-        }
-      });
+      }
     });
   }
 
+  private async handleAnswer(payload: any) {
+    try {
+      const answer = new RTCSessionDescription(payload);
+      if (answer.type && answer.sdp) {
+        await this.pc?.setRemoteDescription(answer);
+      } else {
+        console.warn('[FileTransfer] Invalid answer SDP received:', payload);
+      }
+    } catch (e) {
+      console.error('[FileTransfer] Failed to set remote description (answer):', e);
+      this.cleanup();
+      this.onStatusChange('failed', 0, 'Signaling Error');
+    }
+  }
+
   private async sendSignal(toPub: string, signal: FileSignal) {
-    const id = Math.random().toString(36).substring(7);
+    let id = Math.random().toString(36).substring(7);
+    
+    // For offers, we use a predictable key based on metaId 
+    // so the recipient can find it even if event was missed initially.
+    if (signal.type === 'file_offer' && signal.payload?.metaId) {
+       id = `offer_${signal.payload.metaId}`;
+    } else if (signal.payload?.metaId) {
+       // For other types, include metaId to help with cleanup later
+       id = `${signal.type}_${signal.payload.metaId}_${id}`;
+    }
+
     this.gun.get(`signal_v3_files_${toPub}`).get(id).put(signal);
   }
 
   public async offerFile(recipientPub: string, file: File, metaId: string) {
     this.currentStatus = 'offering';
+    this.currentMetaId = metaId;
     
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.dc = this.pc.createDataChannel('fileTransfer', { ordered: true });
@@ -105,13 +151,17 @@ export class FileTransferService {
     this.sendSignal(recipientPub, {
       type: 'file_offer',
       from: this.myPub,
-      payload: { sdp: offer, metaId },
+      payload: { 
+        sdp: { type: offer.type, sdp: offer.sdp }, 
+        metaId 
+      },
       timestamp: Date.now()
     });
   }
 
   public async acceptFile(senderPub: string, offer: any) {
     this.currentStatus = 'transferring';
+    this.currentMetaId = offer.metaId || null;
 
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
     
@@ -132,16 +182,28 @@ export class FileTransferService {
       }
     };
 
-    await this.pc.setRemoteDescription(new RTCSessionDescription(offer.sdp));
-    const answer = await this.pc.createAnswer();
-    await this.pc.setLocalDescription(answer);
+    try {
+      if (!offer?.sdp || !offer.sdp.type || !offer.sdp.sdp) {
+        console.error('[FileTransfer] Invalid offer received:', offer);
+        this.onStatusChange('failed', 0, 'Invalid Offer');
+        return;
+      }
 
-    this.sendSignal(senderPub, {
-      type: 'file_answer',
-      from: this.myPub,
-      payload: answer,
-      timestamp: Date.now()
-    });
+      await this.pc.setRemoteDescription(new RTCSessionDescription(offer.sdp));
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+
+      this.sendSignal(senderPub, {
+        type: 'file_answer',
+        from: this.myPub,
+        payload: { type: answer.type, sdp: answer.sdp },
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error('[FileTransfer] acceptFile failed:', e);
+      this.cleanup();
+      this.onStatusChange('failed', 0, 'Connection Error');
+    }
   }
 
   private async startSending(file: File) {
@@ -198,9 +260,9 @@ export class FileTransferService {
     dc.onclose = () => {
       if (chunks.length > 0) {
         const blob = new Blob(chunks);
-        this.onFileReceived(blob, "received_file", blob.type);
+        this.onFileReceived(blob, "received_file", blob.type, this.currentMetaId || undefined);
         this.currentStatus = 'completed';
-        this.onStatusChange('completed', 100);
+        this.onStatusChange('completed', 100, { metaId: this.currentMetaId });
       }
       this.cleanup();
     };
@@ -213,5 +275,6 @@ export class FileTransferService {
     }
     this.dc = null;
     this.currentStatus = 'idle';
+    this.currentMetaId = null;
   }
 }

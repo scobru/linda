@@ -158,13 +158,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const status = transferStatuses[msg.fileMetadata.id];
         if (!status || status === 'idle' || status === 'incoming' || status === 'offered') {
            const offer = transferOffers[msg.fileMetadata.id];
-           if (offer) {
+           if (offer && typeof offer === 'object' && 'sdp' in offer) {
               fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: msg.fileMetadata.id });
            }
         }
       }
     });
-  }, [currentMessages, transferStatuses, fileTransferService]);
+  }, [currentMessages, transferStatuses, transferOffers, fileTransferService]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -383,9 +383,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     status={transferStatuses[msg.fileMetadata.id] || "idle"}
                     progress={transferProgress[msg.fileMetadata.id] || 0}
                     blob={transferBlobs[msg.fileMetadata.id] || transferBlobs.last}
-                    onAccept={() => 
-                        fileTransferService?.acceptFile(msg.sender, { sdp: transferOffers[msg.fileMetadata!.id], metaId: msg.fileMetadata!.id })
-                    }
+                    onAccept={() => {
+                        const offer = transferOffers[msg.fileMetadata!.id];
+                        if (offer) {
+                            fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: msg.fileMetadata!.id });
+                        } else {
+                            console.warn("[ChatView] Cannot accept file: No offer found in state");
+                        }
+                    }}
                   />
                 ) : (
                   <div className="py-0.5 leading-relaxed font-bold">

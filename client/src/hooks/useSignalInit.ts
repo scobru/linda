@@ -32,10 +32,13 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
             uniqueName = `@${username}${digits}`;
             
             // Try to save it
-            await db.userPut('profile/uniqueUsername', uniqueName);
+            const user = db.gun.user();
+            if (user.is) {
+              user.get('profile').get('uniqueUsername').put(uniqueName);
+            }
             const pub = db.getUserPub();
             if (pub) {
-              await db.Put(`signal_unique_usernames/${uniqueName}`, pub);
+              db.gun.get('signal_unique_usernames').get(uniqueName).put(pub);
             }
           }
           setUserUniqueUsername(uniqueName);

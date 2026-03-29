@@ -12,7 +12,6 @@ import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
 import "gun/lib/yson";
-import "gun/lib/rindexed";
 import { DataBase, ShogunCore } from "shogun-core";
 import {
   shogunConnector,
@@ -51,9 +50,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { isLoggedIn, userPub, logout, username } = useShogun();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
-  
+
   // ── Call State ──
-  const [callStatus, setCallStatus] = useState<CallStatus>('idle');
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
   const [callData, setCallData] = useState<any>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isVideoCall, setIsVideoCall] = useState(false);
@@ -61,8 +60,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── File Transfer State ──
   const fileTransferServiceRef = useRef<FileTransferService | null>(null);
-  const [transferStatus, setTransferStatus] = useState<Record<string, TransferStatus>>({});
-  const [transferProgress, setTransferProgress] = useState<Record<string, number>>({});
+  const [transferStatus, setTransferStatus] = useState<
+    Record<string, TransferStatus>
+  >({});
+  const [transferProgress, setTransferProgress] = useState<
+    Record<string, number>
+  >({});
   const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
   const [transferOffers, setTransferOffers] = useState<Record<string, any>>({});
 
@@ -145,11 +148,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   useEffect(() => {
     if (isLoggedIn && db && userPub) {
       const callingService = new CallingService(window.gun as any, userPub);
-      
+
       callingService.onStatusChange = (status: CallStatus, data?: any) => {
         setCallStatus(status);
         if (data) setCallData(data);
-        if (status === 'idle') {
+        if (status === "idle") {
           setRemoteStream(null);
           setCallData(null);
         }
@@ -162,23 +165,31 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       callingServiceRef.current = callingService;
 
       // Initialize FileTransferService
-      const fileTransferService = new FileTransferService(window.gun as any, userPub);
-      
+      const fileTransferService = new FileTransferService(
+        window.gun as any,
+        userPub,
+      );
+
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
-          setTransferStatus(prev => ({ ...prev, [data.metaId]: status }));
-          if (progress !== undefined) setTransferProgress(prev => ({ ...prev, [data.metaId]: progress }));
-          if (status === 'incoming' && data?.sdp) {
-            setTransferOffers(prev => ({ ...prev, [data.metaId]: data.sdp }));
+          setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
+          if (progress !== undefined)
+            setTransferProgress((prev) => ({
+              ...prev,
+              [data.metaId]: progress,
+            }));
+          if (status === "incoming" && data?.sdp) {
+            setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.sdp }));
           }
         }
       };
 
-      fileTransferService.onFileReceived = (blob, _name, _mimeType) => {
-        // We might want to correlate this with a metaId later, 
-        // for now we'll store it by a generic key or handle it via metaId if provided.
-        // For simplicity in this iteration, we use the last active download or a map.
-        setTransferBlobs(prev => ({ ...prev, last: blob })); 
+      fileTransferService.onFileReceived = (blob, _name, _mimeType, metaId) => {
+        if (metaId) {
+          setTransferBlobs((prev) => ({ ...prev, [metaId]: blob }));
+        } else {
+          setTransferBlobs((prev) => ({ ...prev, last: blob }));
+        }
       };
 
       fileTransferServiceRef.current = fileTransferService;
@@ -304,7 +315,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     logout();
   };
 
-  const handleSendMessage = async (msg?: string, audio?: string, fileMetadata?: any) => {
+  const handleSendMessage = async (
+    msg?: string,
+    audio?: string,
+    fileMetadata?: any,
+  ) => {
     if (!recipient || (!msg && !message && !audio && !fileMetadata)) return;
     try {
       await baseSendMessage(msg || message, audio, fileMetadata);
@@ -361,13 +376,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const handleInitiateCall = async (video: boolean) => {
     if (!recipient || !callingServiceRef.current) return;
     setIsVideoCall(video);
-    
+
     // Resolve recipient pubkey if it's a username
     let pub = recipient;
     if (recipient.length < 30 || recipient.startsWith("@")) {
-      pub = await signalService?.getPubKeyFromUsername(recipient) || recipient;
+      pub =
+        (await signalService?.getPubKeyFromUsername(recipient)) || recipient;
     }
-    
+
     callingServiceRef.current.initiateCall(pub, video);
   };
 
@@ -627,7 +643,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 fileTransferService={fileTransferServiceRef.current}
                 transferStatuses={transferStatus}
                 transferProgress={transferProgress}
-                                transferBlobs={transferBlobs}
+                transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
               />
@@ -664,11 +680,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setShowGroupSettings={(id) =>
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
-                                onInitiateCall={handleInitiateCall}
+                onInitiateCall={handleInitiateCall}
                 fileTransferService={fileTransferServiceRef.current}
                 transferStatuses={transferStatus}
                 transferProgress={transferProgress}
-                                transferBlobs={transferBlobs}
+                transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
               />
@@ -736,7 +752,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         status={callStatus}
         localStream={callingServiceRef.current?.getLocalStream() || null}
         remoteStream={remoteStream}
-        recipientProfile={callData?.from ? contactProfiles[callData.from] || { nickname: callData.from } : (recipient ? contactProfiles[recipient] : null)}
+        recipientProfile={
+          callData?.from
+            ? contactProfiles[callData.from] || { nickname: callData.from }
+            : recipient
+              ? contactProfiles[recipient]
+              : null
+        }
         onAccept={() => callingServiceRef.current?.acceptCall(callData?.signal)}
         onReject={() => callingServiceRef.current?.rejectCall()}
         onEnd={() => callingServiceRef.current?.endCall()}
@@ -803,8 +825,8 @@ const App: React.FC = () => {
         // Initialize Gun and DataBase with the dynamic peer list
         const gunInstance = Gun({
           peers: relays,
-          localStorage: false,
-          radisk:true,
+          localStorage: true,
+          radisk: false,
           file: "radata",
         });
 
