@@ -43,13 +43,15 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
     <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in duration-500 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-tr from-primary/10 via-transparent to-black/80"></div>
       
-      {/* Background/Remote Video */}
-      {video && remoteStream && (
+      {/* Remote Video/Audio (Always rendered if stream exists to ensure audio plays) */}
+      {remoteStream && (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${status === 'connected' ? 'opacity-60' : 'opacity-0'}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+            status === 'connected' && video ? 'opacity-100' : 'opacity-0'
+          } ${!video ? 'pointer-events-none' : ''}`}
         />
       )}
 

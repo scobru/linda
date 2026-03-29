@@ -152,7 +152,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       callingService.onStatusChange = (status: CallStatus, data?: any) => {
         setCallStatus(status);
-        if (data) setCallData(data);
+        if (data) {
+          setCallData(data);
+          // Set video call state based on incoming signal
+          if (status === "incoming" && data.signal && typeof data.signal.video !== 'undefined') {
+            setIsVideoCall(!!data.signal.video);
+          }
+        }
         if (status === "idle") {
           setRemoteStream(null);
           setCallData(null);
