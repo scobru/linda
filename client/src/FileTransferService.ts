@@ -293,22 +293,6 @@ export class FileTransferService {
           
           this.ss.on('open', () => {
             console.log('[FileTransfer] SecretStream handshake successful.');
-            await new Promise<void>((resolve, reject) => {
-        user.get('epub').put(pair.epub, (ack: any) => {
-          if (ack.err) {
-              if (ack.err === 'Unverified data.') {
-                  console.error('[SignalService] Critical: Unverified data error while publishing epub. Local Gun session might be desynced.');
-                  // In Gun, this often means the node is corrupted or the session is invalid.
-                  // We resolve anyway to let the secondary path try to succeed.
-                  resolve();
-              } else {
-                  reject(ack.err);
-              }
-          } else {
-              resolve();
-          }
-        });
-      });
             this.setupReceiver(this.ss);
           });
 
