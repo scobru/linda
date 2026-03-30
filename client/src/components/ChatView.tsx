@@ -167,20 +167,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
+  const transferOffersRef = useRef(transferOffers);
+  useEffect(() => {
+    transferOffersRef.current = transferOffers;
+  }, [transferOffers]);
+
   // Auto-accept images
   useEffect(() => {
+    if (!fileTransferService) return;
+    
     currentMessages.forEach(msg => {
       if (msg.type === 'image' && msg.sender !== 'Me' && msg.fileMetadata) {
         const metaId = msg.fileMetadata.id;
-        const status = transferStatuses[metaId];
         
-        if (!acceptedMetaIds.current.has(metaId) && (!status || status === 'idle' || status === 'incoming' || status === 'offered')) {
-           const offer = transferOffers[metaId];
-           if (offer && typeof offer === 'object' && 'sdp' in offer) {
-              console.log(`[ChatView] Auto-accepting image ${metaId}`);
-              acceptedMetaIds.current.add(metaId);
-              fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: metaId });
-           }
+        // Final guard: Check ref immediately
+        if (acceptedMetaIds.current.has(metaId)) return;
+        
+        const status = transferStatuses[metaId];
+        const offer = transferOffers[metaId];
+
+        if (offer && typeof offer === 'object' && ('sdp' in offer || 'type' in offer)) {
+            // Only accept if clearly not already in progress
+            if (!status || status === 'idle' || status === 'incoming' || status === 'offered') {
+               console.log(`[ChatView] Auto-accepting image ${metaId}`);
+               acceptedMetaIds.current.add(metaId);
+               fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: metaId });
+            }
         }
       }
     });
@@ -264,7 +276,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             ) : (
               <div className={`flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] ${contactErrors[recipient] ? "text-error" : "opacity-30"}`}>
-                <span className={`status status-xs ${contactErrors[recipient] ? "status-error animate-pulse" : "status-success opacity-50"}`}></span>
+                <span className={`status status-xs ${contactErrors[recipient] ? "status-error !bg-error animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.5)]" : "status-success opacity-50"}`}></span>
                 {contactErrors[recipient] ? "Secure Session Error" : "E2E Encrypted"}
               </div>
             )}
@@ -403,12 +415,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     status={transferStatuses[msg.fileMetadata.id] || "idle"}
                     progress={transferProgress[msg.fileMetadata.id] || 0}
                     blob={transferBlobs[msg.fileMetadata.id] || transferBlobs.last}
-                    onAccept={() => {
-                        const offer = transferOffers[msg.fileMetadata!.id];
+                    onAccept={async () => {
+                        const metaId = msg.fileMetadata!.id;
+                        let offer = transferOffersRef.current[metaId];
+                        
+                        if (!offer) {
+                            console.log(`[ChatView] Offer for ${metaId} not found in state, waiting 3s...`);
+                            // Small wait to allow GunDB to sync the offer
+                            for (let i = 0; i < 6; i++) {
+                                await new Promise(r => setTimeout(r, 500));
+                                offer = transferOffersRef.current[metaId];
+                                if (offer) break;
+                            }
+                        }
+
                         if (offer) {
-                            fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: msg.fileMetadata!.id });
+                            fileTransferService?.acceptFile(msg.sender, { sdp: offer, metaId: metaId });
                         } else {
-                            console.warn("[ChatView] Cannot accept file: No offer found in state");
+                            console.warn(`[ChatView] Cannot accept file: No offer found in state for ${metaId} after wait.`);
+                            alert("Transfer offer not received yet. Please wait a moment or ask the sender to retry.");
                         }
                     }}
                   />

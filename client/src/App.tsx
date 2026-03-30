@@ -11,7 +11,7 @@ import { GroupCreationPage } from "./pages/GroupCreationPage";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
-import "gun/lib/yson";
+//import "gun/lib/yson";
 import { DataBase, ShogunCore } from "shogun-core";
 import {
   shogunConnector,
@@ -26,12 +26,11 @@ import { Layout } from "./components/Layout";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
-import { CallingService } from './CallingService';
-import type { CallStatus } from './CallingService';
+import { CallingService } from "./CallingService";
+import type { CallStatus } from "./CallingService";
 import { CallingOverlay } from "./components/CallingOverlay";
-import { FileTransferService } from './FileTransferService';
-import type { TransferStatus } from './FileTransferService';
-import { P2PDiscoveryService } from './P2PDiscoveryService';
+import { FileTransferService } from "./FileTransferService";
+import type { TransferStatus } from "./FileTransferService";
 import { SignalService } from "./SignalService";
 
 // Extend window interface
@@ -62,7 +61,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── File Transfer State ──
   const fileTransferServiceRef = useRef<FileTransferService | null>(null);
-  const p2pDiscoveryServiceRef = useRef<P2PDiscoveryService | null>(null);
   const [transferStatus, setTransferStatus] = useState<
     Record<string, TransferStatus>
   >({});
@@ -115,6 +113,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     groupService,
     recipient,
     setRecipient,
+    (from: string, signal: any) => {
+      fileTransferServiceRef.current?.handleIncomingSignal(from, signal);
+    },
   );
 
   // ── Sync Route & Recipient ──
@@ -157,7 +158,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         if (data) {
           setCallData(data);
           // Set video call state based on incoming signal
-          if (status === "incoming" && data.signal && typeof data.signal.video !== 'undefined') {
+          if (
+            status === "incoming" &&
+            data.signal &&
+            typeof data.signal.video !== "undefined"
+          ) {
             setIsVideoCall(!!data.signal.video);
           }
         }
@@ -173,18 +178,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       callingServiceRef.current = callingService;
 
-      // Initialize FileTransferService with SEA pair
-      const seaPair = (window.gun as any).user()._.sea;
+      // Initialize FileTransferService
       const fileTransferService = new FileTransferService(
         window.gun as any,
         userPub,
-        seaPair
       );
-      
-      // Initialize P2P Discovery
-      const p2pDiscovery = new P2PDiscoveryService();
-      p2pDiscovery.joinTopic(userPub);
-      p2pDiscoveryServiceRef.current = p2pDiscovery;
+
+      // Removed P2PDiscoveryService as signaling is now fully routed through Secure SEA
 
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
@@ -197,6 +197,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             }));
           if (status === "incoming" && data?.sdp) {
             setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.sdp }));
+          } else if (status === "offering" && data?.payload?.sdp) {
+            // Initiator needs to track the offer too, internally.
+            // setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.payload.sdp }));
           }
         }
       };
@@ -211,14 +214,85 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       fileTransferServiceRef.current = fileTransferService;
 
+      // Bridge: Configure FileTransferService to use SEA signaling
+      fileTransferService.setSignalSender(async (toPub, signal) => {
+        if (!signalService) return;
+        try {
+          const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
+          const cipher = await signalService.encryptMessage(toPub, payload);
+          // Use a dedicated signaling path to bypass main inbox decryption queue
+          db.gun.get(`signal_v3_signaling_${toPub}`).set(
+            {
+              sender: userPub,
+              type: cipher.type,
+              body: cipher.body,
+              timestamp: new Date().toISOString(),
+            } as any,
+            (ack: any) => {
+              if (ack.err)
+                console.error(
+                  `[App] Signaling GunDB PUT error for ${signal.type}:`,
+                  ack.err,
+                );
+              else
+                console.log(
+                  `[App] Secure signal ${signal.type} delivered to signaling path for ${toPub.substring(0, 8)}...`,
+                );
+            },
+          );
+        } catch (e) {
+          console.warn("[App] Failed to send secure P2P signal:", e);
+        }
+      });
+
       return () => {
         callingService.endCall(false);
-        if (p2pDiscoveryServiceRef.current) {
-          p2pDiscoveryServiceRef.current.destroy();
-        }
       };
     }
   }, [isLoggedIn, db, userPub]);
+
+  // Dedicated signaling listener for faster P2P connectivity
+  useEffect(() => {
+    if (!isLoggedIn || !db || !userPub || !signalService) return;
+
+    console.log(`[App] Starting dedicated signaling listener...`);
+    const signalingPath = `signal_v3_signaling_${userPub}`;
+    const processedSignals = new Set<string>();
+
+    const sub = db.gun.get(signalingPath).map().on(async (data: any, gunKey: string) => {
+      if (!data || typeof data !== 'object' || processedSignals.has(gunKey)) return;
+      if (!data.sender || !data.body || data.type === undefined) return;
+
+      processedSignals.add(gunKey);
+      
+      try {
+        await signalService.waitReady();
+        const plaintext = await signalService.decryptMessage(data.sender, {
+          type: data.type,
+          body: data.body
+        });
+
+        if (plaintext && plaintext.startsWith(" Linda:SIGNAL:")) {
+          const signalJson = plaintext.substring(" Linda:SIGNAL:".length);
+          const signal = JSON.parse(signalJson);
+          console.log(`[App] Received dedicated signal: ${signal.type} from ${data.sender.substring(0,8)}`);
+          fileTransferServiceRef.current?.handleIncomingSignal(data.sender, signal);
+          
+          // Cleanup: Remove processed signal to keep the node small
+          setTimeout(() => {
+            db.gun.get(signalingPath).get(gunKey).put(null as any);
+          }, 2000);
+        }
+      } catch (e) {
+        console.warn("[App] Failed to process dedicated signal:", e);
+      }
+    });
+
+    return () => {
+      // Gun .off() is preferred if available in the shim
+      if ((sub as any).off) (sub as any).off();
+    };
+  }, [isLoggedIn, db, userPub, signalService]);
 
   useEffect(() => {
     if (!isLoggedIn) return;

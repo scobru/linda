@@ -13,20 +13,15 @@ export class P2PDiscoveryService {
 
 
   constructor(opts: { bootstrap?: string[]; wsProxy?: string[]; webrtcBootstrap?: string[] } = {}) {
-    // Only use the most reliable public signaling servers to reduce noise
-    const defaultBootstrap = [
-      'wss://hyperswarm.mauve.moe/',
-      'wss://signal.dat-web.eu/'
-    ];
+    // We are migrating entirely to Secure SEA Signaling.
+    // Leaving this empty stops the client from spamming broken hyperswarm arrays.
+    const defaultBootstrap: string[] = [];
 
     const swarmOpts = {
       ...opts,
-      bootstrap: opts.bootstrap || defaultBootstrap,
-      wsProxy: opts.wsProxy || [ 'wss://hyperswarm.mauve.moe/' ],
-      webrtcBootstrap: opts.webrtcBootstrap || [
-        'wss://hyperswarm.mauve.moe/',
-        'wss://signal.dat-web.eu/'
-      ]
+      bootstrap: defaultBootstrap,
+      wsProxy: [],
+      webrtcBootstrap: []
     };
 
     this.swarm = new Hyperswarm(swarmOpts);

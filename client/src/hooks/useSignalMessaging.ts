@@ -32,7 +32,8 @@ export const useSignalMessaging = (
   signalService: SignalService | null,
   groupService: GroupService | null,
   recipient: string,
-  setRecipient: (id: string) => void
+  setRecipient: (id: string) => void,
+  onSignalReceived?: (from: string, signal: any) => void
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
@@ -279,9 +280,14 @@ export const useSignalMessaging = (
       
       // Basic field requirements for a message
       if (!data.sender || !data.body || data.type === undefined) {
-        // Skip malformed nodes but don't log internal GunDB metadata
         return;
       }
+
+      const senderPubKeyRaw = data.sender;
+      if (processedRef.current.has(gunKey)) return;
+
+      // DIAGNOSTIC: Log every incoming raw inbox item
+      console.log(`[Signal] Raw inbox hit: ${gunKey} from ${senderPubKeyRaw.slice(0, 8)}... (body type: ${typeof data.body})`);
 
       // Convert timestamp safely
       let messageTimestamp: Date;
@@ -295,7 +301,6 @@ export const useSignalMessaging = (
 
       if (processedRef.current.has(gunKey)) return;
 
-      const senderPubKeyRaw = data.sender;
       if (!messageQueueRef.current[senderPubKeyRaw]) {
         messageQueueRef.current[senderPubKeyRaw] = Promise.resolve();
       }
@@ -327,10 +332,35 @@ export const useSignalMessaging = (
             });
             
             // Type Safety: Ensure we have a string before proceeding with string methods
-            if (!plaintextValue || typeof plaintextValue !== 'string') {
-              throw new Error(`Decryption result for ${gunKey} is not a valid string (${typeof plaintextValue}).`);
+            if (plaintextValue === "LEGACY_UNSUPPORTED") {
+               if (userPub) saveProcessedKey(userPub, gunKey);
+               setMessages((prev) => {
+                  const userMsgs = prev[senderPubKey] || [];
+                  const msgId = data.msgId || gunKey;
+                  if (userMsgs.some(m => m.id === msgId)) return prev;
+                  const next = {
+                    ...prev,
+                    [senderPubKey]: [
+                      ...userMsgs,
+                      {
+                        id: msgId,
+                        sender: senderPubKey,
+                        text: "📜 [Messaggio del vecchio sistema - non più supportato]",
+                        timestamp: messageTimestamp,
+                        status: "read" as const,
+                        type: "text",
+                      },
+                    ],
+                  };
+                  if (userPub) saveMessages(userPub, next);
+                  return next;
+               });
+               return;
             }
-            
+            if (!plaintextValue || typeof plaintextValue !== 'string') {
+               throw new Error(`Decryption result for ${gunKey} is not a valid string (${typeof plaintextValue}).`);
+            }
+
             const validPlaintext = plaintextValue;
 
             // Successfully decrypted! Mark as processed now.
@@ -457,8 +487,9 @@ export const useSignalMessaging = (
             console.error(`[Signal] Decryption failed for ${senderPubKey} (Message: ${gunKey}):`, e.message);
             
             const hasResetRecently = resetsRef.current.has(senderPubKey);
+            const isFreshMessage = messageTimestamp.getTime() > sessionStartTime - 30000;
 
-            if (!hasResetRecently && !pendingResets.has(senderPubKey)) {
+            if (isFreshMessage && !hasResetRecently && !pendingResets.has(senderPubKey)) {
               pendingResets.add(senderPubKey);
               resetsRef.current.add(senderPubKey);
               console.log(`[Signal] Decryption failed for ${senderPubKey}. Attempting SILENT HEAL (refreshing keys)...`);

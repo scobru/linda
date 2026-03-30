@@ -21,7 +21,9 @@ export class SignalService {
   private initPromise: Promise<void> | null = null;
   private pubkeyCache: Map<string, string> = new Map();
   private epubCache: Map<string, string> = new Map();
+  private secretCache: Map<string, any> = new Map(); // Memoized DH secrets
   private myPair: any = null;
+  private cryptoMutex: Promise<any> = Promise.resolve(); // Serialize all WebCrypto operations
 
   constructor(db: DataBase) {
     this.db = db;
@@ -58,19 +60,30 @@ export class SignalService {
     this.initPromise = (async () => {
       console.log('[SignalService] Initializing SEA session...');
       try {
-        // Wait for pair to be available
-        let pair = (this.db.gun.user() as any)?._?.sea;
-        if (!pair) {
-           for (let i=0; i<10; i++) {
+        // Wait for pair to be available and user to be logged in
+        let user = this.db.gun.user();
+        let pair = (user as any)?._?.sea;
+        if (!pair || !user.is) {
+           for (let i=0; i<20; i++) {
              await new Promise(r => setTimeout(r, 200));
-             pair = (this.db.gun.user() as any)?._?.sea;
-             if (pair) break;
+             user = this.db.gun.user();
+             pair = (user as any)?._?.sea;
+             if (pair && user.is) break;
            }
         }
+        
+        if (!user.is) {
+          console.warn('[SignalService] User not logged in after waiting. Bundle publish might fail.');
+        }
+
         this.myPair = pair;
         
         await this.publishBundle(username, uniqueUsername);
-        await this.persistAlias(username, uniqueUsername);
+        
+        // Discovery metadata persistence is non-blocking to prevent slow relays from hanging initialization
+        this.persistAlias(username, uniqueUsername).catch(e => {
+           console.warn('[SignalService] Background alias persistence failed (session still active):', e);
+        });
       } catch (e) {
         console.warn('[SignalService] Initialization steps failed:', e);
       }
@@ -105,14 +118,19 @@ export class SignalService {
           return;
       }
 
+      const publishTimeout = setTimeout(() => {
+          console.warn('[SignalService] Primary epub publish timed out after 5s. Continuing with initialization...');
+      }, 5000);
+
       await new Promise<void>((resolve, reject) => {
         user.get('epub').put(pair.epub, (ack: any) => {
+          clearTimeout(publishTimeout);
           if (ack.err) {
               if (ack.err === 'Unverified data.') {
-                  console.error('[SignalService] Critical: Unverified data error while publishing epub. Attempting to re-authenticate...');
-                  // In GunDB, Unverified data usually means we are writing to a node without a valid session.
-                  // We could try to trigger a re-login here, but for now we'll just log and try again once.
-                  resolve(); // Don't throw to allow secondary path
+                  console.error('[SignalService] Critical: Unverified data error while publishing epub. This usually means the Gun session is invalid.');
+                  // Fallback: Try to use the root 'epub' path anyway, but don't resolve yet if we want to honor the error, 
+                  // but here we resolve to unblock the UI.
+                  resolve(); 
               } else {
                   reject(ack.err);
               }
@@ -122,12 +140,29 @@ export class SignalService {
         });
       });
       
-      // 2. Secondary path: 'signal_bundle_v7' for full bundle data
-      user.get('signal_bundle_v7').put(bundlePayload as any, (ack: any) => {
-          if (ack?.err) console.warn('[SignalService] Error in secondary bundle path:', ack.err);
-      });
+      // 2. Secondary path: individual fields for maximum GunDB verification reliability
+      // We wrap this in a timeout to avoid blocking if the primary path is already struggling
+      setTimeout(() => {
+        if (user.is) {
+          // Publish individual fields to ensure relay verification succeeds even if the full object fails
+          user.get('signal_bundle_v7').get('epub').put(pair.epub);
+          user.get('signal_bundle_v7').get('username').put(username);
+          if (uniqueUsername) user.get('signal_bundle_v7').get('uniqueUsername').put(uniqueUsername);
+          
+          // Also put the full object as back-compatibility for some discovery modes
+          user.get('signal_bundle_v7').put(bundlePayload as any, (ack: any) => {
+            if (ack?.err) {
+              if (ack.err === 'Unverified data.') {
+                console.warn('[SignalService] Secondary full bundle publish failed: Unverified data (individual fields likely succeeded).');
+              } else {
+                console.warn('[SignalService] Error in secondary bundle path:', ack.err);
+              }
+            }
+          });
+        }
+      }, 500);
       
-      console.log('[SignalService] Published SEA epub/bundle redundantly via direct put.');
+      console.log('[SignalService] Published SEA epub/bundle redundantly.');
     } catch (e) {
       console.error('[SignalService] GunDB error during bundle publish:', e);
     }
@@ -150,18 +185,26 @@ export class SignalService {
       const aliasPayload: Record<string, string> = { alias: username };
       if (uniqueUsername) aliasPayload.uniqueUsername = uniqueUsername;
       
-      await new Promise<void>((resolve) => {
-        this.db.gun.get('signal_aliases').get(pub).put(aliasPayload, () => resolve());
-      });
+      const aliasTimeout = 5000;
+
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          this.db.gun.get('signal_aliases').get(pub).put(aliasPayload, () => resolve());
+        }),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Alias put timeout')), aliasTimeout))
+      ]);
       
       if (uniqueUsername) {
         const normalized = uniqueUsername.startsWith('@') ? uniqueUsername : `@${uniqueUsername}`;
-        await new Promise<void>((resolve) => {
-          this.db.gun.get('signal_unique_usernames').get(normalized).put(pub, () => resolve());
-        });
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            this.db.gun.get('signal_unique_usernames').get(normalized).put(pub, () => resolve());
+          }),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Unique username put timeout')), aliasTimeout))
+        ]);
       }
     } catch (e) {
-      console.warn('[SignalService] Failed to persist alias to GunDB:', e);
+      console.warn('[SignalService] Failed to persist alias to GunDB (possibly slow relay or timeout):', e);
     }
   }
 
@@ -240,30 +283,38 @@ export class SignalService {
    * Encrypts a message using SEA.secret and SEA.encrypt.
    * Returns a format compatible with existing messaging hooks.
    */
-  async encryptMessage(recipientUsernameOrPub: string, message: string) {
-    let pubKey = recipientUsernameOrPub;
-    if (pubKey.length < 30 || pubKey.startsWith('@')) {
-      pubKey = await this.getPubKeyFromUsername(recipientUsernameOrPub);
-    }
+  async encryptMessage(recipientUsernameOrPub: string, message: string): Promise<{ type: number, body: string }> {
+    return new Promise((resolve, reject) => {
+      this.cryptoMutex = this.cryptoMutex.then(async () => {
+        try {
+          let pubKey = recipientUsernameOrPub;
+          if (pubKey.length < 30 || pubKey.startsWith('@')) {
+            pubKey = await this.getPubKeyFromUsername(recipientUsernameOrPub);
+          }
 
-    const recipientEpub = await this.getEpubFromPub(pubKey);
-    const myPair = (this.db.gun.user() as any)?._?.sea;
-    if (!myPair) throw new Error('User not logged in');
+          const recipientEpub = await this.getEpubFromPub(pubKey);
+          const myPair = (this.db.gun.user() as any)?._?.sea;
+          if (!myPair) throw new Error('User not logged in');
 
-    // Generate shared secret via Diffie-Hellman
-    const secret = await this.db.sea.secret(recipientEpub, myPair);
-    
-    // Diagnostic for images/files
-    if (message.startsWith('{')) {
-      console.log(`[SignalService] Encrypting metadata payload (length: ${message.length})`);
-    }
+          let secret = this.secretCache.get(recipientEpub);
+          if (!secret) {
+              secret = await this.db.sea.secret(recipientEpub, myPair);
+              if (secret) this.secretCache.set(recipientEpub, secret);
+          }
 
-    // Encrypt the message with the shared secret
-    const encrypted = await this.db.sea.encrypt(message, secret);
+          if (!secret) throw new Error('DH Derivation failed');
 
-    // Existing UI/hooks expect an object with body and type (0 = whisper, 1 = prekey)
-    // We use type 0 for all SEA messages as they are effectively "whisper" messages.
-    return { type: 0, body: encrypted };
+          if (message.startsWith('{')) {
+            console.log(`[SignalService] Encrypting metadata payload (length: ${message.length})`);
+          }
+
+          const encrypted = await this.db.sea.encrypt(message, secret);
+          resolve({ type: 0, body: encrypted });
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
   }
 
   /**
@@ -290,16 +341,57 @@ export class SignalService {
         return undefined;
       }
 
-      const secret = await this.db.sea.secret(senderEpub, myPair);
+      // LEGACY GUARD: If it doesn't look like a SEA ciphertext, don't try to decrypt it with SEA
+      // SEA strings usually start with SEA{"ct":...}
+      if (!ciphertext.body.startsWith('SEA{"')) {
+        // Return a special indicator for legacy messages to avoid heal loops
+        return "LEGACY_UNSUPPORTED";
+      }
+
+      let secret = this.secretCache.get(senderEpub);
+      if (!secret) {
+        secret = await this.db.sea.secret(senderEpub, myPair);
+        if (secret) this.secretCache.set(senderEpub, secret);
+      }
+
       if (!secret) {
         console.warn(`[SignalService] Could not derive secret for ${pubKey.slice(0, 8)}`);
         return undefined;
       }
       
-      const decrypted = await this.db.sea.decrypt(ciphertext.body, secret);
+      console.log(`[SignalService] Derived secret for ${pubKey.slice(0, 8)}. Calling SEA.decrypt... (cipher length: ${ciphertext.body.length})`);
+      let decrypted;
+      try {
+        decrypted = await Promise.race([
+          this.db.sea.decrypt(ciphertext.body, secret),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SEA.decrypt timeout')), 10000))
+        ]);
+        console.log(`[SignalService] SEA.decrypt resolved. decryped value type: ${typeof decrypted}`);
+      } catch (decryptErr: any) {
+        console.error(`[SignalService] SEA.decrypt threw or timed out:`, decryptErr.message);
+        decrypted = undefined;
+      }
+
+      // If decryption fails, try a one-time "silent heal" by refreshing the epub
+      if (decrypted === undefined || decrypted === null) {
+        console.log(`[SignalService] Decryption failed for ${pubKey.slice(0, 8)}. Attempting one-time EPUB refresh...`);
+        this.epubCache.delete(pubKey);
+        this.secretCache.delete(senderEpub);
+        try {
+          const freshEpub = await this.getEpubFromPub(pubKey);
+          const freshSecret = await this.db.sea.secret(freshEpub, myPair);
+          if (freshSecret) this.secretCache.set(freshEpub, freshSecret);
+          decrypted = await Promise.race([
+            this.db.sea.decrypt(ciphertext.body, freshSecret),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SEA.decrypt fresh retry timeout')), 10000))
+          ]);
+        } catch (e) {
+          console.warn(`[SignalService] One-time refresh failed for ${pubKey.slice(0, 8)}`);
+        }
+      }
 
       if (decrypted === undefined || decrypted === null) {
-        console.warn(`[SignalService] SEA Decryption yielded ${decrypted === null ? 'NULL' : 'UNDEFINED'} for sender: ${pubKey.slice(0, 8)}`);
+        console.warn(`[SignalService] SEA Decryption yielded ${decrypted === null ? 'NULL' : 'UNDEFINED'} for sender: ${pubKey.slice(0, 8)} after retry.`);
         return undefined;
       }
 
@@ -334,6 +426,8 @@ export class SignalService {
   async resetSession(contactUsernameOrPub: string): Promise<void> {
     console.log(`[SignalService] Reset requested for ${contactUsernameOrPub} (SEA mode is stateless).`);
     // Clear cache to force fresh epub fetch
+    const oldEpub = this.epubCache.get(contactUsernameOrPub);
+    if (oldEpub) this.secretCache.delete(oldEpub);
     this.epubCache.delete(contactUsernameOrPub);
     this.pubkeyCache.delete(contactUsernameOrPub);
   }
