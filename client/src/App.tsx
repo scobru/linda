@@ -112,10 +112,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     signalService,
     groupService,
     recipient,
-    setRecipient,
-    (from: string, signal: any) => {
-      fileTransferServiceRef.current?.handleIncomingSignal(from, signal);
-    },
+    setRecipient
   );
 
   // ── Sync Route & Recipient ──

@@ -32,8 +32,7 @@ export const useSignalMessaging = (
   signalService: SignalService | null,
   groupService: GroupService | null,
   recipient: string,
-  setRecipient: (id: string) => void,
-  onSignalReceived?: (from: string, signal: any) => void
+  setRecipient: (id: string) => void
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
