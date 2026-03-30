@@ -11,22 +11,28 @@ export class P2PDiscoveryService {
   private topics: Set<string> = new Set();
   public onConnection: (socket: any, info: any) => void = () => {};
 
+  private iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+  ];
+
   constructor(opts: { bootstrap?: string[]; wsProxy?: string[]; webrtcBootstrap?: string[] } = {}) {
+    // Only use the most reliable public signaling servers to reduce noise
     const defaultBootstrap = [
       'wss://hyperswarm.mauve.moe/',
-      'wss://signal.dat-web.eu/',
-      'wss://geut-webrtc-signal-v3.glitch.me/',
-      'wss://geut-webrtc-signal-v3.herokuapp.com/'
+      'wss://signal.dat-web.eu/'
     ];
 
     const swarmOpts = {
       ...opts,
       bootstrap: opts.bootstrap || defaultBootstrap,
-      wsProxy: opts.wsProxy || [ 'wss://hyperswarm.mauve.moe/proxy' ],
+      wsProxy: opts.wsProxy || [ 'wss://hyperswarm.mauve.moe/' ],
       webrtcBootstrap: opts.webrtcBootstrap || [
-        'wss://signal.dat-web.eu/signal',
-        'wss://geut-webrtc-signal-v3.glitch.me/signal',
-        'wss://geut-webrtc-signal-v3.herokuapp.com/signal'
+        'wss://hyperswarm.mauve.moe/',
+        'wss://signal.dat-web.eu/'
       ]
     };
 
