@@ -99,20 +99,29 @@ export class SignalService {
 
     try {
       // 1. Primary path: user node root 'epub'
+      const user = this.db.gun.user();
+      if (!user.is) {
+          console.warn('[SignalService] Gun user is not logged in. Cannot publish bundle.');
+          return;
+      }
+
       await new Promise<void>((resolve, reject) => {
-        const user = this.db.gun.user();
-        if (!user.is) return reject('No user');
         user.get('epub').put(pair.epub, (ack: any) => {
-          if (ack.err) reject(ack.err);
-          else resolve();
+          if (ack.err) {
+              if (ack.err === 'Unverified data.') {
+                  console.error('[SignalService] Critical: Unverified data error while publishing epub. Local session might be out of sync.');
+              }
+              reject(ack.err);
+          } else {
+              resolve();
+          }
         });
       });
       
       // 2. Secondary path: 'signal_bundle_v7' for full bundle data
-      const user = this.db.gun.user();
-      if (user.is) {
-        user.get('signal_bundle_v7').put(bundlePayload as any);
-      }
+      user.get('signal_bundle_v7').put(bundlePayload as any, (ack: any) => {
+          if (ack?.err) console.warn('[SignalService] Error in secondary bundle path:', ack.err);
+      });
       
       console.log('[SignalService] Published SEA epub/bundle redundantly via direct put.');
     } catch (e) {

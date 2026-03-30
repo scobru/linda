@@ -26,11 +26,12 @@ import { Layout } from "./components/Layout";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
-import { CallingService } from "./CallingService";
-import type { CallStatus } from "./CallingService";
+import { CallingService } from './CallingService';
+import type { CallStatus } from './CallingService';
 import { CallingOverlay } from "./components/CallingOverlay";
-import { FileTransferService } from "./FileTransferService";
-import type { TransferStatus } from "./FileTransferService";
+import { FileTransferService } from './FileTransferService';
+import type { TransferStatus } from './FileTransferService';
+import { P2PDiscoveryService } from './P2PDiscoveryService';
 import { SignalService } from "./SignalService";
 
 // Extend window interface
@@ -61,6 +62,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // ── File Transfer State ──
   const fileTransferServiceRef = useRef<FileTransferService | null>(null);
+  const p2pDiscoveryServiceRef = useRef<P2PDiscoveryService | null>(null);
   const [transferStatus, setTransferStatus] = useState<
     Record<string, TransferStatus>
   >({});
@@ -171,11 +173,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       callingServiceRef.current = callingService;
 
-      // Initialize FileTransferService
+      // Initialize FileTransferService with SEA pair
+      const seaPair = (window.gun as any).user()._.sea;
       const fileTransferService = new FileTransferService(
         window.gun as any,
         userPub,
+        seaPair
       );
+      
+      // Initialize P2P Discovery
+      const p2pDiscovery = new P2PDiscoveryService();
+      p2pDiscovery.joinTopic(userPub);
+      p2pDiscoveryServiceRef.current = p2pDiscovery;
 
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
@@ -204,6 +213,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       return () => {
         callingService.endCall(false);
+        if (p2pDiscoveryServiceRef.current) {
+          p2pDiscoveryServiceRef.current.destroy();
+        }
       };
     }
   }, [isLoggedIn, db, userPub]);

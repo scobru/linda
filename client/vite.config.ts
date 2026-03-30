@@ -9,8 +9,15 @@ export default defineConfig({
     react(),
     tailwindcss(),
     nodePolyfills({
-      // Whether to polyfill `node:` protocol imports.
       protocolImports: true,
     }),
   ],
+  resolve: {
+    alias: {
+      'sodium-native': 'sodium-javascript',
+    }
+  },
+  optimizeDeps: {
+    include: ['sodium-javascript', 'sodium-universal', 'buffer']
+  }
 })
