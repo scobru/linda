@@ -11,13 +11,6 @@ export class P2PDiscoveryService {
   private topics: Set<string> = new Set();
   public onConnection: (socket: any, info: any) => void = () => {};
 
-  private iceServers = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-  ];
 
   constructor(opts: { bootstrap?: string[]; wsProxy?: string[]; webrtcBootstrap?: string[] } = {}) {
     // Only use the most reliable public signaling servers to reduce noise

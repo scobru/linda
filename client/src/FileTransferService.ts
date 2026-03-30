@@ -35,6 +35,9 @@ export class FileTransferService {
   private iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ];
 
   constructor(gun: IGunInstance, myPub: string, myPair?: { epub: string; epriv: string }) {
@@ -290,6 +293,22 @@ export class FileTransferService {
           
           this.ss.on('open', () => {
             console.log('[FileTransfer] SecretStream handshake successful.');
+            await new Promise<void>((resolve, reject) => {
+        user.get('epub').put(pair.epub, (ack: any) => {
+          if (ack.err) {
+              if (ack.err === 'Unverified data.') {
+                  console.error('[SignalService] Critical: Unverified data error while publishing epub. Local Gun session might be desynced.');
+                  // In Gun, this often means the node is corrupted or the session is invalid.
+                  // We resolve anyway to let the secondary path try to succeed.
+                  resolve();
+              } else {
+                  reject(ack.err);
+              }
+          } else {
+              resolve();
+          }
+        });
+      });
             this.setupReceiver(this.ss);
           });
 
