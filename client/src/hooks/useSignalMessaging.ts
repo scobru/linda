@@ -36,6 +36,8 @@ export const useSignalMessaging = (
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
+  const [trustedContacts, setTrustedContacts] = useState<Set<string>>(new Set());
+  const [blockedContacts, setBlockedContacts] = useState<Set<string>>(new Set());
   const [typingStatuses, setTypingStatuses] = useState<Record<string, number>>({});
   const [contactErrors, setContactErrors] = useState<Record<string, boolean>>({});
   const [deletedMessages, setDeletedMessages] = useState<Record<string, Set<string>>>({});
@@ -43,6 +45,7 @@ export const useSignalMessaging = (
   
   const processedRef = useRef<Set<string>>(new Set());
   const resetsRef = useRef<Set<string>>(new Set());
+  const blockedContactsRef = useRef<Set<string>>(new Set());
   const lastTypingSentRef = useRef<number>(0);
   const recipientRef = useRef(recipient);
   const groupSubscriptionsRef = useRef<Set<string>>(new Set());
@@ -116,11 +119,66 @@ export const useSignalMessaging = (
       .on((data: any, contactId: string) => {
         if (data === true) {
           setContacts((prev) => (prev.includes(contactId) ? prev : [...prev, contactId]));
+          setTrustedContacts((prev) => new Set(prev).add(contactId));
+          setBlockedContacts((prev) => {
+            const next = new Set(prev);
+            next.delete(contactId);
+            blockedContactsRef.current = next;
+            return next;
+          });
+        } else if (data === false) {
+          setContacts((prev) => prev.filter((c) => c !== contactId));
+          setTrustedContacts((prev) => {
+            const next = new Set(prev);
+            next.delete(contactId);
+            return next;
+          });
+          setBlockedContacts((prev) => {
+            const next = new Set(prev).add(contactId);
+            blockedContactsRef.current = next;
+            return next;
+          });
         } else if (data === null) {
           setContacts((prev) => prev.filter((c) => c !== contactId));
+          setTrustedContacts((prev) => {
+            const next = new Set(prev);
+            next.delete(contactId);
+            return next;
+          });
+          setBlockedContacts((prev) => {
+            const next = new Set(prev);
+            next.delete(contactId);
+            blockedContactsRef.current = next;
+            return next;
+          });
         }
       });
   }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
+
+  const acceptContact = useCallback(async (contactId: string) => {
+    if (!userPub || !db.gun || !signalService) return;
+    console.log(`[Signal] Accepting contact: ${contactId.slice(0, 8)}`);
+    
+    // 1. Issue certificate for this user (LoneWolf protocol)
+    await signalService.issueCertificate(contactId);
+    
+    // 2. Add to trusted contacts in GunDB
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
+  }, [userPub, db, signalService]);
+
+  const blockContact = useCallback(async (contactId: string) => {
+    if (!userPub || !db.gun || !signalService) return;
+    console.log(`[Signal] Blocking contact: ${contactId.slice(0, 8)}`);
+    
+    // 1. Revoke certificate
+    await signalService.revokeCertificate(contactId);
+    
+    // 2. Mark as blocked in contacts list
+    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(false as any);
+    
+    setRecipient("");
+  }, [userPub, db, signalService, setRecipient]);
+
 
   // ── Typing Listeners ──
   useEffect(() => {
@@ -130,6 +188,7 @@ export const useSignalMessaging = (
       .get(`signal_v2_typing_${userPub}`)
       .map()
       .on((data: any, senderPubKey: string) => {
+        if (blockedContactsRef.current.has(senderPubKey)) return;
         if (!data || typeof data !== "object" || Array.isArray(data)) return;
         if (data.typing && data.ts) {
           const now = Date.now();
@@ -175,6 +234,10 @@ export const useSignalMessaging = (
 
         db.gun.get(`signal_rooms/${contactId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
+          if (blockedContactsRef.current.has(data.sender)) {
+            if (userPub) saveProcessedKey(userPub, gunKey);
+            return;
+          }
           if (processedRef.current.has(gunKey)) return;
 
           if (!messageQueueRef.current[contactId]) {
@@ -284,6 +347,13 @@ export const useSignalMessaging = (
 
       const senderPubKeyRaw = data.sender;
       if (processedRef.current.has(gunKey)) return;
+
+      // Check if contact is blocked
+      if (blockedContactsRef.current.has(senderPubKeyRaw)) {
+        console.log(`[Signal] Ignoring message from blocked contact: ${senderPubKeyRaw.slice(0, 8)}`);
+        if (userPub) saveProcessedKey(userPub, gunKey);
+        return;
+      }
 
       // DIAGNOSTIC: Log every incoming raw inbox item
       console.log(`[Signal] Raw inbox hit: ${gunKey} from ${senderPubKeyRaw.slice(0, 8)}... (body type: ${typeof data.body})`);
@@ -770,6 +840,10 @@ export const useSignalMessaging = (
     setMessages,
     contacts,
     setContacts,
+    trustedContacts,
+    blockedContacts,
+    acceptContact,
+    blockContact,
     typingStatuses,
     contactErrors,
     setContactErrors,

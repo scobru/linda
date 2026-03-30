@@ -69,6 +69,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   >({});
   const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
   const [transferOffers, setTransferOffers] = useState<Record<string, any>>({});
+  const processedSignalsRef = useRef<Set<string>>(new Set());
 
   const [notification, setNotification] = useState<{
     msg: string;
@@ -106,6 +107,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     saveContact,
     removeContact,
     saveMessages,
+    trustedContacts,
+    acceptContact,
+    blockContact,
   } = useSignalMessaging(
     db,
     userPub || null,
@@ -154,7 +158,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         setCallStatus(status);
         if (data) {
           setCallData(data);
-          // Set video call state based on incoming signal
           if (
             status === "incoming" &&
             data.signal &&
@@ -175,13 +178,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       callingServiceRef.current = callingService;
 
-      // Initialize FileTransferService
       const fileTransferService = new FileTransferService(
         window.gun as any,
         userPub,
       );
-
-      // Removed P2PDiscoveryService as signaling is now fully routed through Secure SEA
 
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
@@ -194,9 +194,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             }));
           if (status === "incoming" && data?.sdp) {
             setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.sdp }));
-          } else if (status === "offering" && data?.payload?.sdp) {
-            // Initiator needs to track the offer too, internally.
-            // setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.payload.sdp }));
           }
         }
       };
@@ -211,19 +208,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       fileTransferServiceRef.current = fileTransferService;
 
-      // Bridge: Configure FileTransferService to use SEA signaling
       fileTransferService.setSignalSender(async (toPub, signal) => {
         if (!signalService) return;
         try {
+          const cert = await signalService.getInboxCertificate(toPub);
           const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
           
           const signalKey = `sig_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          const signalingPath = `signal_v3_signaling_${toPub}`;
           
-          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} at ${signalingPath}/${signalKey}`);
+          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox`);
           
-          db.gun.get(signalingPath).get(signalKey).put(
+          db.gun.user(toPub).get('signal_inbox').get(signalKey).put(
             {
               sender: userPub,
               type: cipher.type,
@@ -236,45 +232,52 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               else
                 console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
             },
+            { opt: { cert } } as any
           );
         } catch (e) {
           console.warn("[App] Failed to send secure P2P signal:", e);
         }
       });
 
-      // Unified signaling listener - must be inside same effect to ensure service availability
-      const signalingPath = `signal_v3_signaling_${userPub}`;
-      console.log(`[App] Starting unified signaling listener on: ${signalingPath}`);
-      const processedSignals = new Set<string>();
+      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox`);
 
-      const sub = db.gun.get(signalingPath).map().on(async (data: any, gunKey: string) => {
+      const sub = db.gun.user(userPub).get('signal_inbox').map().on(async (data: any, gunKey: string) => {
         if (!data || typeof data !== 'object') return;
-        if (processedSignals.has(gunKey)) return;
+        if (processedSignalsRef.current.has(gunKey)) return;
         if (!data.sender || !data.body || data.type === undefined) return;
 
-        processedSignals.add(gunKey);
+        processedSignalsRef.current.add(gunKey);
         console.log(`[App] Signaling hit: ${gunKey} from ${data.sender.substring(0,8)}...`);
-        
+
         try {
           if (!signalService) {
             console.warn("[App] Signal received but signalService is null!");
             return;
           }
-          await signalService.waitReady();
+
+          await Promise.race([
+            signalService.waitReady(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SignalService waitReady timeout')), 5000))
+          ]);
+
           const plaintext = await signalService.decryptMessage(data.sender, {
             type: data.type,
             body: data.body
           });
 
-          if (plaintext && typeof plaintext === 'string' && plaintext.startsWith(" Linda:SIGNAL:")) {
-            const signalJson = plaintext.substring(" Linda:SIGNAL:".length);
+          if (!plaintext || typeof plaintext !== 'string') return;
+          const trimmed = plaintext.trim();
+
+          if (trimmed.startsWith(" Linda:SIGNAL:")) {
+            const signalJson = trimmed.substring(" Linda:SIGNAL:".length);
             const signal = JSON.parse(signalJson);
-            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)}`);
+            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)} (metaId: ${signal.payload?.metaId || signal.payload?.id})`);
             fileTransferService.handleIncomingSignal(data.sender, signal);
             
-            // Keep signal for 30s to ensure reliable delivery across devices/networks
             setTimeout(() => {
-              db.gun.get(signalingPath).get(gunKey).put(null as any);
+              if (userPub) {
+                db.gun.user(userPub).get('signal_inbox').get(gunKey).put(null as any);
+              }
             }, 30000);
           }
         } catch (e) {
@@ -428,20 +431,33 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!window.confirm("Delete this conversation and all history?")) return;
-
-    // If it's a group, we should leave it in GunDB too
+    
     const isGroup = contactKey.length === 36 && contactKey.includes("-");
-    if (isGroup && groupService) {
+    const confirmMsg = isGroup 
+      ? "Vuoi davvero lasciare questo gruppo ed eliminare la cronologia?" 
+      : "Vuoi eliminare questa conversazione e BLOCCARE l'utente sul tuo grafo? Non potrà più scriverti finché non lo riaggiungerai.";
+      
+    if (!window.confirm(confirmMsg)) return;
+
+    if (isGroup) {
+      if (groupService) {
+        try {
+          await groupService.leaveGroup(contactKey);
+        } catch (err) {
+          console.warn("Failed to leave group during deletion:", err);
+        }
+      }
+      removeContact(contactKey);
+    } else {
+      // 1:1 Chat - Block on graph (revokes certificate)
       try {
-        await groupService.leaveGroup(contactKey);
+        await blockContact(contactKey);
       } catch (err) {
-        console.warn("Failed to leave group during deletion:", err);
+        console.warn("Failed to block contact on graph:", err);
+        removeContact(contactKey); // Fallback to local removal
       }
     }
 
-    setContacts((prev) => prev.filter((c) => c !== contactKey));
-    removeContact(contactKey);
     if (recipient === contactKey) {
       setRecipient("");
       navigate("/");
@@ -458,7 +474,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       return next;
     });
     showNotification(
-      isGroup ? "Group removed" : "Conversation deleted",
+      isGroup ? "Group removed" : "User blocked and chat deleted",
       "info",
     );
   };
@@ -488,12 +504,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       showNotification("Sincronizzazione avviata.", "info");
       const pub = await signalService.getPubKeyFromUsername(recipient);
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
-      db.Set(`signal_v3_inbox_${pub}`, {
+      
+      const cert = await signalService.getInboxCertificate(pub);
+      db.gun.user(pub).get('signal_inbox').get('ping_heal_' + Date.now()).put({
         sender: userPub,
         type: ping.type,
         body: ping.body,
         timestamp: new Date().toISOString(),
-      } as any);
+      } as any, undefined, { opt: { cert } } as any);
     } catch (err) {
       showNotification("Reset failed.", "error");
     }
@@ -677,6 +695,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           element={
             <Layout
               sidebarProps={{
+                userPub,
                 userNick,
                 username: username || "",
                 userAvatar,
@@ -716,6 +735,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 pinnedMessages={pinnedMessages}
                 messages={messages}
                 myRole={myRole}
+                userPub={userPub || ""}
                 userAvatar={userAvatar}
                 userNick={userNick}
                 username={username || ""}
@@ -737,6 +757,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
+                trustedContacts={trustedContacts}
+                acceptContact={acceptContact}
+                blockContact={blockContact}
               />
             }
           />
@@ -758,6 +781,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 pinnedMessages={pinnedMessages}
                 messages={messages}
                 myRole={myRole}
+                userPub={userPub || ""}
                 userAvatar={userAvatar}
                 userNick={userNick}
                 username={username || ""}
@@ -779,6 +803,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
+                trustedContacts={trustedContacts}
+                acceptContact={acceptContact}
+                blockContact={blockContact}
               />
             }
           />
@@ -874,6 +901,7 @@ const ChatWrapper: React.FC<{
   pinnedMessages: Record<string, Set<string>>;
   messages: Record<string, any[]>;
   myRole: string | null;
+  userPub: string;
   userAvatar: string | null;
   userNick: string;
   username: string;
@@ -893,6 +921,9 @@ const ChatWrapper: React.FC<{
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
   handleClearChat: (id: string) => void;
+  trustedContacts: Set<string>;
+  acceptContact: (id: string) => Promise<void>;
+  blockContact: (id: string) => Promise<void>;
 }> = (props) => {
   return <ChatView {...props} />;
 };

@@ -40,7 +40,7 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
   if (status === 'idle') return null;
 
   return (
-    <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in duration-500 overflow-hidden">
+    <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in duration-500 overflow-hidden font-narrow">
       <div className="absolute inset-0 bg-gradient-to-tr from-primary/10 via-transparent to-black/80"></div>
       
       {/* Remote Video/Audio (Always rendered if stream exists to ensure audio plays) */}
@@ -66,10 +66,10 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
             </div>
           </div>
           <div className="text-center">
-            <h2 className="text-4xl font-black text-white tracking-tighter mb-2">{recipientProfile?.nickname || 'Unknown User'}</h2>
+            <h2 className="text-4xl font-bold text-white tracking-tighter mb-2">{recipientProfile?.nickname || 'Unknown User'}</h2>
             <div className="flex items-center justify-center gap-2">
               <span className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-success' : 'bg-primary animate-pulse'}`}></span>
-              <p className="text-primary font-black uppercase tracking-[0.3em] text-[10px] opacity-80">
+              <p className="text-primary font-bold uppercase tracking-[0.2em] text-[10px] opacity-80">
                 {status === 'incoming' && 'In arrivo...'}
                 {status === 'calling' && 'Chiamando...'}
                 {status === 'connected' && 'Collegato'}
@@ -89,7 +89,7 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
               muted
               className="w-full h-full object-cover"
             />
-            <div className="absolute bottom-3 left-3 px-3 py-1 bg-black/60 backdrop-blur-md rounded-lg text-[8px] font-black uppercase text-white/60 tracking-wider">Tu</div>
+            <div className="absolute bottom-3 left-3 px-3 py-1 bg-black/60 backdrop-blur-md rounded-lg text-[8px] font-bold uppercase text-white/60 tracking-wider">Tu</div>
           </div>
         )}
 

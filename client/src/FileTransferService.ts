@@ -5,6 +5,7 @@ export type TransferStatus = 'idle' | 'offering' | 'incoming' | 'transferring' |
 export interface FileSignal {
   type: 'file_offer' | 'file_answer' | 'file_candidate' | 'file_reject' | 'file_bye';
   from: string;
+  clientId?: string;
   payload: any;
   timestamp: number;
 }
@@ -14,6 +15,7 @@ const BUFFER_THRESHOLD = 512 * 1024; // 512 KB backpressure
 
 export class FileTransferService {
   private myPub: string;
+  private clientId: string;
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
   
@@ -35,6 +37,19 @@ export class FileTransferService {
 
   constructor(_gun: IGunInstance, myPub: string) {
     this.myPub = myPub;
+    this.clientId = Math.random().toString(36).substring(7);
+    console.log(`[FileTransfer] Instance initialized with clientId: ${this.clientId}`);
+  }
+
+  /**
+   * Returns true if the given metaId was initiated by this specific instance/tab.
+   */
+  public isMyOwnTransfer(metaId: string): boolean {
+    return this.currentMetaId === metaId && this.currentStatus === 'offering';
+  }
+
+  public getClientId(): string {
+    return this.clientId;
   }
 
   private startTimeout() {
@@ -55,7 +70,12 @@ export class FileTransferService {
   public handleIncomingSignal(from: string, signal: FileSignal) {
     if (!signal || !signal.type) return;
     
-    console.log(`[FileTransfer] Received secure signal: ${signal.type} from ${from.substring(0, 8)}...`);
+    // Ignore signals from self-instance to avoid loopback collisions
+    if (signal.clientId === this.clientId) {
+      return;
+    }
+    
+    console.log(`[FileTransfer] Received secure signal: ${signal.type} from ${from.substring(0, 8)}... (Remote Client: ${signal.clientId})`);
 
     switch (signal.type) {
       case 'file_offer':
@@ -119,8 +139,8 @@ export class FileTransferService {
   }
 
   private async sendSignal(toPub: string, signal: FileSignal) {
-    console.log(`[FileTransfer] Sending secure signal: ${signal.type} to ${toPub.substring(0, 8)}...`);
-    this.onSendSignal(toPub, signal);
+    console.log(`[FileTransfer] Sending secure signal: ${signal.type} to ${toPub.substring(0, 8)}... (My Client: ${this.clientId})`);
+    this.onSendSignal(toPub, { ...signal, clientId: this.clientId });
   }
 
   public async offerFile(recipientPub: string, file: File, metaId: string) {

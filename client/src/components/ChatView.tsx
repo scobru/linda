@@ -23,6 +23,7 @@ interface ChatViewProps {
   pinnedMessages: Record<string, Set<string>>;
   messages: Record<string, Message[]>;
   myRole: string | null;
+  userPub: string;
   userAvatar: string | null;
   userNick: string;
   username: string;
@@ -42,6 +43,9 @@ interface ChatViewProps {
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
   handleClearChat: (id: string) => void;
+  trustedContacts: Set<string>;
+  acceptContact: (id: string) => Promise<void>;
+  blockContact: (id: string) => Promise<void>;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -55,6 +59,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   pinnedMessages,
   messages,
   myRole,
+  userPub,
   userAvatar,
   userNick,
   username,
@@ -73,7 +78,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   transferProgress,
   transferBlobs,
   transferOffers,
-  handleClearChat
+  handleClearChat,
+  trustedContacts,
+  acceptContact,
+  blockContact
 }) => {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -81,8 +89,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const acceptedMetaIds = useRef<Set<string>>(new Set());
   const [canSendMessage, setCanSendMessage] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
 
-  // Check permissions whenever recipient or role changes
+  const isTrusted = useMemo(() => {
+    if (!recipient) return true;
+    if (recipient.length === 36 && recipient.includes("-")) return true; // Groups are trusted by join
+    return trustedContacts.has(recipient);
+  }, [recipient, trustedContacts]);
   useEffect(() => {
     const checkPerms = async () => {
       // If looks like a group UUID
@@ -156,7 +169,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // 1. Send metadata through Signal protocol
       handleSendMessage(undefined, undefined, meta);
       
-      // 2. Start WebRTC offer
+      // 2. Start WebRTC offer for all transfers (including self-transfers to other devices)
       console.log(`[ChatView] Initiating file offer to ${targetPub.slice(0, 8)}...`);
       await fileTransferService.offerFile(targetPub, file, meta.id);
     } catch (err) {
@@ -204,16 +217,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   if (!recipient) {
     return (
-      <div className="flex flex-col h-full items-center justify-center bg-base-100 text-center p-8 gap-6 animate-fadeIn">
+      <div className="flex flex-col h-full items-center justify-center bg-base-100 text-center p-8 gap-6 animate-fadeIn font-narrow">
         <div className="avatar">
-          <div className="w-24 rounded-full bg-primary/10 p-4 border border-primary/20 shadow-2xl shadow-primary/10">
-            <img src="/logo.svg" alt="Linda Logo" className="opacity-80" />
+          <div className="w-20 h-20 rounded-full bg-primary/5 flex items-center justify-center border border-primary/10 shadow-inner">
+            <img src="/logo.svg" alt="Linda Logo" className="w-10 h-10 opacity-40 grayscale" />
           </div>
         </div>
-        <div className="max-w-sm">
-          <h2 className="text-3xl font-black text-primary mb-2">Linda Secure</h2>
-          <p className="opacity-60 text-sm leading-relaxed">
-            Select a contact or add a new one to start an encrypted conversation. Your messages are stored locally on your device.
+        <div className="max-w-xs">
+          <h2 className="text-2xl font-bold text-primary mb-2">Linda Messenger</h2>
+          <p className="opacity-40 text-[13px] leading-relaxed">
+            Select a contact to start an encrypted conversation. Your messages are stored locally.
           </p>
         </div>
       </div>
@@ -221,12 +234,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }
 
   return (
-    <div key={recipient} className="flex flex-col h-full bg-base-100 overflow-hidden relative animate-chat-fadeIn">
-      {/* Header */}
-      <div className="navbar bg-base-100/60 backdrop-blur-2xl border-b border-white/5 h-20 shrink-0 px-6 gap-4 z-10 sticky top-0">
+    <div key={recipient} className="flex flex-col h-full bg-base-100 overflow-hidden relative animate-chat-fadeIn font-narrow">
+      {/* Header - Telegram Premium Style */}
+      <div className="navbar bg-base-100/60 backdrop-blur-2xl border-b border-white/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
-            className="btn btn-ghost btn-circle shadow-xl bg-base-200/90 border border-white/10 active:scale-90 transition-all flex items-center justify-center p-0 mr-1"
+            className="btn btn-ghost btn-circle bg-base-200/50 border border-white/5"
             onClick={() => { 
                 setRecipient(""); 
                 navigate("/"); 
@@ -255,7 +268,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         <div className="flex-1 overflow-hidden ml-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-black truncate tracking-tight">
+            <h3 className="text-sm font-bold truncate tracking-tight">
               {contactProfiles[recipient]?.nickname ||
                 (recipient.length === 36 && recipient.includes("-")
                   ? "Loading group..."
@@ -271,13 +284,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex items-center gap-2 mt-0.5">
             {typingStatuses[recipient] && Date.now() - typingStatuses[recipient] <= 3000 ? (
               <div className="flex gap-1.5 items-center">
-                <span className="loading loading-dots loading-xs text-primary scale-75"></span>
-                <span className="text-[9px] text-primary font-black uppercase tracking-[0.2em]">Typing</span>
+                <span className="loading loading-dots loading-xs text-primary scale-50"></span>
+                <span className="text-[9px] text-primary font-bold uppercase tracking-widest">Typing</span>
               </div>
             ) : (
-              <div className={`flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] ${contactErrors[recipient] ? "text-error" : "opacity-30"}`}>
-                <span className={`status status-xs ${contactErrors[recipient] ? "status-error !bg-error animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.5)]" : "status-success opacity-50"}`}></span>
-                {contactErrors[recipient] ? "Secure Session Error" : "E2E Encrypted"}
+              <div className={`flex items-center gap-2 text-[9px] font-bold uppercase tracking-widest ${contactErrors[recipient] ? "text-error" : "opacity-30"}`}>
+                <span className={`status status-xs ${contactErrors[recipient] ? "status-error !bg-error" : "status-success opacity-50"}`}></span>
+                {contactErrors[recipient] ? "Session Error" : "Encrypted"}
               </div>
             )}
           </div>
@@ -354,11 +367,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
         {currentMessages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center opacity-10 gap-6">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-24 h-24">
+          <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16">
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.625-12.125a.75.75 0 0 1 .75.75V4.5a.75.75 0 0 1-1.5 0V1.375a.75.75 0 0 1 .75-.75ZM13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm7 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-14 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
             </svg>
-            <span className="text-2xl font-black tracking-tight italic">Start messaging...</span>
+            <span className="text-xl font-bold tracking-tight">No messages here yet...</span>
           </div>
         )}
         
@@ -387,11 +400,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               </div>
               
-              <div className="chat-header opacity-50 text-[10px] font-black uppercase tracking-[0.1em] mb-1.5 flex gap-2 mx-2">
+              <div className="chat-header opacity-40 text-[9px] font-bold uppercase tracking-widest mb-1 mx-2">
                 {!isMe && <span>{msgNick}</span>}
               </div>
 
-              <div className={`chat-bubble shadow-2xl border border-white/5 min-h-[48px] flex items-center relative group p-4 sm:p-5 rounded-[2rem] ${isMe ? "chat-bubble-primary !text-slate-900 rounded-tr-md shadow-primary/20" : "chat-bubble-neutral rounded-tl-md"}`}>
+              <div className={`chat-bubble shadow-lg border border-white/5 min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2 rounded-2xl ${isMe ? "bg-secondary text-white rounded-tr-sm" : "bg-accent text-white rounded-tl-sm"}`}>
                 {isPinned && <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-white/10">📌</span>}
                 
                 {msg.type === 'audio' ? (
@@ -420,9 +433,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         let offer = transferOffersRef.current[metaId];
                         
                         if (!offer) {
-                            console.log(`[ChatView] Offer for ${metaId} not found in state, waiting 3s...`);
-                            // Small wait to allow GunDB to sync the offer
-                            for (let i = 0; i < 6; i++) {
+                            console.log(`[ChatView] Offer for ${metaId} not found in state, waiting 12s...`);
+                            // Increased wait to allow GunDB to sync the offer
+                            for (let i = 0; i < 24; i++) {
                                 await new Promise(r => setTimeout(r, 500));
                                 offer = transferOffersRef.current[metaId];
                                 if (offer) break;
@@ -438,7 +451,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }}
                   />
                 ) : (
-                  <div className="py-0.5 leading-relaxed font-bold">
+                  <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
                     {msg.text}
                     {msg.text?.includes("Impossibile decriptare") && (
                       <button 
@@ -488,7 +501,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               </div>
 
-              <div className="chat-footer opacity-40 text-[9px] font-black flex items-center gap-1.5 mt-2 mx-1">
+              <div className="chat-footer opacity-30 text-[9px] font-bold flex items-center gap-1.5 mt-1 mx-1">
                 {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 {isMe && (
                   <span className="flex items-center scale-90">
@@ -507,7 +520,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Input Area */}
       <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0 z-20">
-        {!canSendMessage ? (
+        {!isTrusted ? (
+          <div className="flex flex-col items-center gap-6 p-8 bg-base-300/40 rounded-[2rem] border border-white/5 shadow-inner animate-pulse">
+            <div className="text-center space-y-2">
+              <h4 className="text-lg font-black text-primary">Unknown Contact</h4>
+              <p className="text-xs opacity-60 font-bold max-w-xs">Questa persona sta cercando di scriverti. Vuoi accettare la conversazione e permettergli di scrivere nel tuo grafo?</p>
+            </div>
+            <div className="flex gap-4 w-full max-w-sm">
+              <button 
+                onClick={async () => {
+                  setIsAccepting(true);
+                  try {
+                    await acceptContact(recipient);
+                  } finally {
+                    setIsAccepting(false);
+                  }
+                }}
+                disabled={isAccepting}
+                className="btn btn-primary flex-1 rounded-full shadow-xl shadow-primary/20 h-14"
+              >
+                {isAccepting ? <span className="loading loading-spinner"></span> : "Accetta"}
+              </button>
+              <button 
+                onClick={() => blockContact(recipient)}
+                className="btn btn-error btn-outline flex-1 rounded-full h-14"
+              >
+                Blocca
+              </button>
+            </div>
+          </div>
+        ) : !canSendMessage ? (
           <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner transition-all animate-pulse">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 mr-3 text-error opacity-60">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
@@ -533,11 +575,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </svg>
             </button>
 
-            <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary border-white/5 flex items-center gap-2 sm:gap-4 h-12 sm:h-16 bg-base-300/40 rounded-full transition-all px-4 sm:px-8 shadow-inner group">
+            <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 border-white/5 flex items-center gap-2 sm:gap-4 h-11 sm:h-12 bg-base-300/40 rounded-full transition-all px-4 sm:px-6 shadow-inner group">
               <input
                 type="text"
-                className="grow font-bold text-base bg-transparent border-0 focus:ring-0"
-                placeholder="Write a message..."
+                className="grow font-semibold text-[13px] bg-transparent border-0 focus:ring-0 placeholder:opacity-20"
+                placeholder="Type something ..."
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
@@ -556,7 +598,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               loading={!canSendMessage}
             />
             <button 
-              className="btn btn-primary btn-circle h-11 w-11 sm:h-14 sm:w-14 shadow-2xl shadow-primary/40 transition-all active:scale-95 border-0 hover:scale-110" 
+              className="btn btn-ghost btn-circle btn-sm h-11 w-11 text-primary transition-all active:scale-95 hover:bg-primary/10" 
               onClick={() => {
                 if (message.trim()) {
                   handleSendMessage(message);
@@ -565,7 +607,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               }}
               disabled={!message.trim()}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 translate-x-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
               </svg>
             </button>

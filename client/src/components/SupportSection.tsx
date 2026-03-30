@@ -27,14 +27,14 @@ const SupportSection: React.FC<SupportSectionProps> = ({ onClose }) => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <span className="text-xl font-black text-primary tracking-tight uppercase">Linda Support</span>
+          <span className="text-xl font-bold text-primary tracking-tight uppercase">Linda Support</span>
         </div>
         <button onClick={onClose} className="btn btn-ghost btn-circle">✕</button>
       </div>
 
       {!selectedArticle && (
         <div className="text-center space-y-8 py-16 bg-base-300/20 rounded-[3rem] border border-white/5 shadow-inner px-6">
-          <h1 className="text-5xl font-black tracking-tighter">How can we help?</h1>
+          <h1 className="text-5xl font-bold tracking-tighter">How can we help?</h1>
           <div className="relative max-w-xl mx-auto">
             <input 
               type="text" 
@@ -59,9 +59,9 @@ const SupportSection: React.FC<SupportSectionProps> = ({ onClose }) => {
             <div className="card bg-base-200 border border-white/5 shadow-2xl overflow-hidden rounded-[2.5rem]">
               <div className="p-10 space-y-6">
                 <div className="flex items-center gap-2">
-                  <span className="badge badge-primary badge-outline h-6 px-3 text-[10px] font-black uppercase tracking-widest">{selectedArticle.category}</span>
+                  <span className="badge badge-primary badge-outline h-6 px-3 text-[10px] font-bold uppercase tracking-widest">{selectedArticle.category}</span>
                 </div>
-                <h2 className="text-4xl font-black tracking-tight">{selectedArticle.title}</h2>
+                <h2 className="text-4xl font-bold tracking-tight">{selectedArticle.title}</h2>
                 <div className="space-y-4 opacity-80 leading-relaxed text-lg pt-4 border-t border-white/5">
                   {selectedArticle.content.split('\n').map((para, i) => (
                     <p key={i}>{para}</p>
@@ -75,7 +75,7 @@ const SupportSection: React.FC<SupportSectionProps> = ({ onClose }) => {
             {categories.map(category => (
               <div key={category} className="card bg-base-200 shadow-xl border border-white/5 hover:border-primary/20 transition-all group rounded-[2rem]">
                 <div className="card-body gap-6 p-8">
-                  <h3 className="card-title text-sm font-black uppercase tracking-widest opacity-40 text-primary">{category}</h3>
+                  <h3 className="card-title text-sm font-bold uppercase tracking-widest opacity-40 text-primary">{category}</h3>
                   <ul className="space-y-1">
                     {filteredArticles
                       .filter(a => a.category === category)

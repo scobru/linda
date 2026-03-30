@@ -3,6 +3,7 @@ import { useNavigate, NavLink } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
 
 interface SidebarProps {
+  userPub: string | null;
   userNick: string;
   username: string;
   userAvatar: string | null;
@@ -20,6 +21,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  userPub,
   userNick,
   username,
   userAvatar,
@@ -37,9 +39,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col h-full bg-base-200/90 backdrop-blur-3xl border-r border-white/5 w-full transition-all overflow-hidden shadow-2xl">
-      {/* User info Header */}
-      <div className="p-6 flex items-center justify-between border-b border-white/5 bg-base-300/40 h-20 shrink-0">
+    <div className="flex flex-col h-full bg-base-200/95 backdrop-blur-3xl border-r border-white/5 w-full transition-all overflow-hidden shadow-2xl font-narrow">
+      {/* User info Header - Telegram Style */}
+      <div className="px-6 flex items-center justify-between border-b border-white/5 bg-base-300/20 h-16 shrink-0">
         <div
           className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-all grow mr-4 group"
           onClick={() => navigate("/profile")}
@@ -58,8 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
           <div className="overflow-hidden">
-            <div className="font-black truncate text-sm tracking-tight">{userNick || username}</div>
-            <div className="flex items-center gap-2 text-[9px] opacity-40 font-black uppercase tracking-[0.2em] mt-0.5">
+            <div className="font-bold truncate text-sm tracking-tight">{userNick || username}</div>
+            <div className="flex items-center gap-2 text-[9px] opacity-40 font-semibold uppercase tracking-[0.1em] mt-0.5">
               <span className="status status-success status-xs scale-75"></span> Online
             </div>
           </div>
@@ -76,8 +78,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
-      <div className="px-6 py-5 flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 text-primary">Conversations</span>
+      <div className="px-6 py-4 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 text-primary">Conversations</span>
         <button
           className="btn btn-ghost btn-circle btn-sm bg-primary/10 text-primary hover:bg-primary hover:text-primary-content transition-all shadow-lg shadow-primary/10"
           onClick={() => navigate("/create-group")}
@@ -91,18 +93,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         <ul className="menu menu-md w-full p-0 gap-2">
-          {contacts.length === 0 && (
+          {/* My Cloud / Self Transfer Section */}
+          {userPub && (
+            <li key="self-transfer">
+              <NavLink
+                to={`/chat/${userPub}`}
+                className={({ isActive }) => 
+                  `flex items-center p-4 gap-4 rounded-2xl transition-all relative group h-16 ${
+                    isActive ? "bg-primary text-primary-content shadow-xl shadow-primary/20 border-white/10" : "hover:bg-white/5 border-transparent active:scale-[0.98]"
+                  }`
+                }
+                onClick={() => {
+                  setRecipient(userPub);
+                  requestNotifications();
+                }}
+              >
+                {({ isActive }) => (
+                  <>
+                    <div className="avatar">
+                      <div className={`w-12 rounded-full border-2 shadow-xl ring-4 ring-offset-4 ring-offset-transparent transition-all ${isActive ? "border-white/30 ring-white/10" : "border-secondary/20 ring-secondary/5"}`}>
+                        <div className={`w-full h-full flex items-center justify-center ${isActive ? "bg-white/20" : "bg-secondary/10"}`}>
+                           <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${isActive ? "text-white" : "text-secondary"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                           </svg>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center gap-2">
+                        <span className={`font-bold truncate tracking-tight text-sm ${isActive ? "text-white" : ""}`}>
+                          My Cloud
+                        </span>
+                        <div className={`text-[8px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md ${isActive ? "bg-white/20 text-white" : "bg-primary/10 text-primary"}`}>SYNC</div>
+                      </div>
+                      <div className={`text-[9px] font-semibold uppercase tracking-[0.1em] mt-0.5 ${isActive ? "text-white/60" : "text-base-content/40"}`}>Personal Storage</div>
+                    </div>
+                  </>
+                )}
+              </NavLink>
+            </li>
+          )}
+
+          {contacts.length === 0 && !userPub && (
             <div className="p-12 text-center opacity-20 text-xs italic font-medium">
               No conversations yet
             </div>
           )}
-          {contacts.map((c) => (
+          {contacts.filter(c => c !== userPub).map((c) => (
             <li key={c}>
               <NavLink
                 to={`/chat/${c}`}
                 className={({ isActive }) => 
-                  `flex items-center p-4 gap-4 rounded-[2rem] transition-all relative group h-20 ${
-                    isActive ? "bg-primary text-primary-content shadow-2xl shadow-primary/30 border border-white/10 scale-[1.02] z-10" : "hover:bg-white/5 active:scale-[0.98] border border-transparent"
+                  `flex items-center p-4 gap-4 rounded-2xl transition-all relative group h-16 ${
+                    isActive ? "bg-primary text-primary-content shadow-xl shadow-primary/20 border border-white/10" : "hover:bg-white/5 border-transparent active:scale-[0.98]"
                   }`
                 }
                 onClick={() => {
@@ -128,19 +172,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center gap-2">
-                        <span className={`font-black truncate tracking-tight text-sm ${isActive ? "!text-slate-900" : ""}`}>
+                        <span className={`font-bold truncate tracking-tight text-sm ${isActive ? "text-white" : ""}`}>
                           {contactProfiles[c]?.nickname ||
                             (c.length === 36 && c.includes("-") ? "Loading group..." :
                             c.length > 20 ? `${c.slice(0, 8)}...${c.slice(-4)}` : c)}
                         </span>
                         {unreadCounts[c] > 0 && (
-                          <span className={`badge badge-sm font-black shadow-lg rounded-full px-2.5 h-6 animate-pulse border-2 ${isActive ? "bg-slate-900 text-primary border-slate-900" : "badge-primary shadow-primary/20"}`}>
+                          <span className={`badge badge-sm font-bold shadow-lg rounded-full px-2 h-5 ${isActive ? "bg-white text-primary border-white" : "badge-primary shadow-primary/20"}`}>
                             {unreadCounts[c]}
                           </span>
                         )}
                       </div>
                       {c.length === 36 && c.includes("-") && (
-                         <div className={`text-[9px] font-black uppercase tracking-[0.2em] mt-0.5 ${isActive ? "text-slate-900/60" : "text-primary opacity-60"}`}>GROUP CHANNEL</div>
+                         <div className={`text-[9px] font-semibold uppercase tracking-[0.1em] mt-0.5 ${isActive ? "text-white/60" : "text-primary/60"}`}>GROUP CHANNEL</div>
                       )}
                     </div>
 
@@ -165,13 +209,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </ul>
       </div>
 
-      <div className="p-6 sm:p-8 bg-base-300/60 backdrop-blur-2xl border-t border-white/5 shrink-0">
-        <label className="input input-sm h-14 w-full bg-base-100/40 border-white/5 flex items-center gap-4 focus-within:ring-4 focus-within:ring-primary/10 focus-within:border-primary transition-all rounded-full px-6 shadow-inner group">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5 opacity-30 group-focus-within:opacity-100 transition-opacity"><path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" /></svg>
+      <div className="p-4 bg-base-300/40 border-t border-white/5 shrink-0">
+        <label className="input input-sm h-12 w-full bg-base-100/40 border-white/5 flex items-center gap-3 focus-within:ring-4 focus-within:ring-primary/10 transition-all rounded-xl px-4 shadow-inner group">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 opacity-30 group-focus-within:opacity-100 transition-opacity"><path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" /></svg>
           <input
             type="text"
-            className="grow font-bold placeholder:opacity-40"
-            placeholder="Search or join canal..."
+            className="grow font-semibold text-xs placeholder:opacity-30"
+            placeholder="Search or join..."
             onKeyDown={async (e: any) => {
               if (e.key === "Enter" && e.target.value.trim()) {
                 if (!signalService || !groupService) {

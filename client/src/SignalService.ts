@@ -1,4 +1,6 @@
 import { DataBase } from 'shogun-core';
+import Gun from 'gun/gun';
+import 'gun/sea';
 
 interface SignalBundle {
   username: string;
@@ -22,6 +24,7 @@ export class SignalService {
   private pubkeyCache: Map<string, string> = new Map();
   private epubCache: Map<string, string> = new Map();
   private secretCache: Map<string, any> = new Map(); // Memoized DH secrets
+  private inboxCertCache: Map<string, string> = new Map(); // Memoized SEA certs
   private myPair: any = null;
   private cryptoMutex: Promise<any> = Promise.resolve(); // Serialize all WebCrypto operations
 
@@ -79,6 +82,7 @@ export class SignalService {
         this.myPair = pair;
         
         await this.publishBundle(username, uniqueUsername);
+        await this.initInboxCertificate(pair);
         
         // Discovery metadata persistence is non-blocking to prevent slow relays from hanging initialization
         this.persistAlias(username, uniqueUsername).catch(e => {
@@ -277,6 +281,122 @@ export class SignalService {
       await new Promise(r => setTimeout(r, 800 * (i + 1))); // Slightly longer wait
     }
     throw new Error(`Could not find SEA epub for ${pub}. User might not be updated to V7.`);
+  }
+
+  /**
+   * Initializes the user's SEA certificate for their secure signal_inbox
+   * allowing anyone (or specific peers) to write signals to ~${pub}/signal_inbox
+   */
+  private async initInboxCertificate(pair: any): Promise<void> {
+    const user = this.db.gun.user();
+    if (!user.is) return;
+
+    try {
+      let exists = false;
+      await new Promise<void>((resolve) => {
+        let timeout = setTimeout(() => resolve(), 3000);
+        user.get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
+          clearTimeout(timeout);
+          if (data && typeof data === 'string') exists = true;
+          resolve();
+        });
+      });
+      if (exists) {
+        console.log('[SignalService] Found existing SEA inbox certificate.');
+        return;
+      }
+
+      console.log('[SignalService] Generating initial public SEA certificate for signal_inbox (Discovery mode)...');
+      // By default we allow any public key ["*"] to write to our "signal_inbox"
+      // In a strict LoneWolf mode, we might remove this and use specific certs.
+      const cert = await (Gun as any).SEA.certify(
+        ["*"],
+        [{ "#": "signal_inbox" }],
+        pair,
+        null
+      );
+
+      user.get('signal_bundle_v7').get('inbox_cert').put(cert, (ack: any) => {
+        if (ack?.err) {
+          console.warn('[SignalService] Failed to publish inbox certificate:', ack.err);
+        } else {
+          console.log('[SignalService] Published initial inbox certificate.');
+        }
+      });
+    } catch (e) {
+      console.error('[SignalService] Error during inbox certificate generation:', e);
+    }
+  }
+
+  /**
+   * Issues a specific SEA certificate for a peer. (LoneWolf style)
+   */
+  public async issueCertificate(peerPub: string): Promise<string> {
+    if (!this.myPair) throw new Error('Not logged in');
+    console.log(`[SignalService] Issuing specific certificate for: ${peerPub.slice(0, 8)}...`);
+    
+    const cert = await (Gun as any).SEA.certify(
+      [peerPub],
+      [{ "#": "signal_inbox" }],
+      this.myPair,
+      null
+    );
+
+    const user = this.db.gun.user();
+    await new Promise<void>((resolve, reject) => {
+        user.get('certs').get(peerPub).put(cert, (ack: any) => {
+            if (ack.err) reject(ack.err);
+            else resolve();
+        });
+    });
+    
+    return cert;
+  }
+
+  /**
+   * Revokes a specific certificate for a peer.
+   */
+  public async revokeCertificate(peerPub: string): Promise<void> {
+    const user = this.db.gun.user();
+    if (!user.is) return;
+    console.log(`[SignalService] Revoking certificate for: ${peerPub.slice(0, 8)}`);
+    user.get('certs').get(peerPub).put(null as any);
+  }
+
+  /**
+   * Retrieves the SEA certificate allowing writes to a peer's signal_inbox
+   */
+  public async getInboxCertificate(pub: string): Promise<string> {
+    const cached = this.inboxCertCache.get(pub);
+    if (cached) return cached;
+
+    const myPub = this.db.getUserPub();
+    console.log(`[SignalService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`);
+    
+    for (let i = 0; i < 5; i++) {
+        try {
+            // Priority 1: Check if they issued a specific certificate for me
+            if (myPub) {
+                const specificCert = await this.db.Get(`~${pub}/certs/${myPub}`);
+                if (specificCert && typeof specificCert === 'string') {
+                    console.log(`[SignalService] Using specific certificate for ${pub.slice(0, 8)}`);
+                    this.inboxCertCache.set(pub, specificCert);
+                    return specificCert;
+                }
+            }
+
+            // Priority 2: Fallback to their public inbox certificate
+            const cert = await this.db.Get(`~${pub}/signal_bundle_v7/inbox_cert`);
+            if (cert && typeof cert === 'string') {
+                this.inboxCertCache.set(pub, cert);
+                return cert;
+            }
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 600 * (i + 1)));
+    }
+    
+    console.warn(`[SignalService] Could not find SEA inbox certificate for ${pub}.`);
+    throw new Error('Peer signaling certificate missing.');
   }
 
   /**
