@@ -217,8 +217,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         try {
           const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
-          // Use a dedicated signaling path to bypass main inbox decryption queue
-          db.gun.get(`signal_v3_signaling_${toPub}`).set(
+          
+          const signalKey = `sig_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const signalingPath = `signal_v3_signaling_${toPub}`;
+          
+          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} at ${signalingPath}/${signalKey}`);
+          
+          db.gun.get(signalingPath).get(signalKey).put(
             {
               sender: userPub,
               type: cipher.type,
@@ -227,14 +232,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             } as any,
             (ack: any) => {
               if (ack.err)
-                console.error(
-                  `[App] Signaling GunDB PUT error for ${signal.type}:`,
-                  ack.err,
-                );
+                console.error(`[App] Signaling GunDB error for ${signal.type}:`, ack.err);
               else
-                console.log(
-                  `[App] Secure signal ${signal.type} delivered to signaling path for ${toPub.substring(0, 8)}...`,
-                );
+                console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
             },
           );
         } catch (e) {
@@ -242,53 +242,52 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
       });
 
+      // Unified signaling listener - must be inside same effect to ensure service availability
+      const signalingPath = `signal_v3_signaling_${userPub}`;
+      console.log(`[App] Starting unified signaling listener on: ${signalingPath}`);
+      const processedSignals = new Set<string>();
+
+      const sub = db.gun.get(signalingPath).map().on(async (data: any, gunKey: string) => {
+        if (!data || typeof data !== 'object') return;
+        if (processedSignals.has(gunKey)) return;
+        if (!data.sender || !data.body || data.type === undefined) return;
+
+        processedSignals.add(gunKey);
+        console.log(`[App] Signaling hit: ${gunKey} from ${data.sender.substring(0,8)}...`);
+        
+        try {
+          if (!signalService) {
+            console.warn("[App] Signal received but signalService is null!");
+            return;
+          }
+          await signalService.waitReady();
+          const plaintext = await signalService.decryptMessage(data.sender, {
+            type: data.type,
+            body: data.body
+          });
+
+          if (plaintext && typeof plaintext === 'string' && plaintext.startsWith(" Linda:SIGNAL:")) {
+            const signalJson = plaintext.substring(" Linda:SIGNAL:".length);
+            const signal = JSON.parse(signalJson);
+            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)}`);
+            fileTransferService.handleIncomingSignal(data.sender, signal);
+            
+            // Keep signal for 30s to ensure reliable delivery across devices/networks
+            setTimeout(() => {
+              db.gun.get(signalingPath).get(gunKey).put(null as any);
+            }, 30000);
+          }
+        } catch (e) {
+          console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
+        }
+      });
+
       return () => {
+        console.log(`[App] Cleaning up services and signaling for ${userPub.substring(0,8)}...`);
         callingService.endCall(false);
+        if ((sub as any).off) (sub as any).off();
       };
     }
-  }, [isLoggedIn, db, userPub]);
-
-  // Dedicated signaling listener for faster P2P connectivity
-  useEffect(() => {
-    if (!isLoggedIn || !db || !userPub || !signalService) return;
-
-    console.log(`[App] Starting dedicated signaling listener...`);
-    const signalingPath = `signal_v3_signaling_${userPub}`;
-    const processedSignals = new Set<string>();
-
-    const sub = db.gun.get(signalingPath).map().on(async (data: any, gunKey: string) => {
-      if (!data || typeof data !== 'object' || processedSignals.has(gunKey)) return;
-      if (!data.sender || !data.body || data.type === undefined) return;
-
-      processedSignals.add(gunKey);
-      
-      try {
-        await signalService.waitReady();
-        const plaintext = await signalService.decryptMessage(data.sender, {
-          type: data.type,
-          body: data.body
-        });
-
-        if (plaintext && plaintext.startsWith(" Linda:SIGNAL:")) {
-          const signalJson = plaintext.substring(" Linda:SIGNAL:".length);
-          const signal = JSON.parse(signalJson);
-          console.log(`[App] Received dedicated signal: ${signal.type} from ${data.sender.substring(0,8)}`);
-          fileTransferServiceRef.current?.handleIncomingSignal(data.sender, signal);
-          
-          // Cleanup: Remove processed signal to keep the node small
-          setTimeout(() => {
-            db.gun.get(signalingPath).get(gunKey).put(null as any);
-          }, 2000);
-        }
-      } catch (e) {
-        console.warn("[App] Failed to process dedicated signal:", e);
-      }
-    });
-
-    return () => {
-      // Gun .off() is preferred if available in the shim
-      if ((sub as any).off) (sub as any).off();
-    };
   }, [isLoggedIn, db, userPub, signalService]);
 
   useEffect(() => {
