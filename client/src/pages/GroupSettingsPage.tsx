@@ -53,12 +53,14 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
         setMyRole(role);
       }
 
-      // Load mutes for all members
-      const mutesData: Record<string, boolean> = {};
-      for (const member of m) {
-        mutesData[member.pub] = await groupService.isMuted(groupId, member.pub);
-      }
-      setMutes(mutesData);
+      // Load mutes for all members in parallel
+      const muteEntries = await Promise.all(
+        m.map(async (member) => [
+          member.pub,
+          await groupService.isMuted(groupId, member.pub),
+        ] as [string, boolean])
+      );
+      setMutes(Object.fromEntries(muteEntries));
 
     } catch (e) {
       showNotification("Failed to load group data", "error");
