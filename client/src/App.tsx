@@ -11,7 +11,8 @@ import { GroupCreationPage } from "./pages/GroupCreationPage";
 import Gun from "gun";
 import type { IGunInstance } from "gun";
 import "gun/sea";
-//import "gun/lib/yson";
+import "gun/lib/yson";
+import "gun/lib/webrtc";
 import { DataBase, ShogunCore } from "shogun-core";
 import {
   shogunConnector,
@@ -244,12 +245,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
           const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
-          const signalKey = `sig_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          // Standard flat unique key: senderPub_timestamp_random
+          const signalKey = `${userPub.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
           
-          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox`);
+          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox_v8`);
           
-          // Use sender-specific node within recipient's signal_inbox to avoid collisions and simplify ACL
-          db.gun.user(toPub).get('signal_inbox').get(userPub).get(signalKey).put(
+          // Use flat structure under signal_inbox for maximum certificate compatibility
+          db.gun.get(`~${toPub}`).get('signal_inbox').get(signalKey).put(
             {
               sender: userPub,
               type: cipher.type,
@@ -273,10 +275,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
       });
 
-      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox`);
+      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox (v8)`);
 
-      // Listen recursively to any sender's signals in our inbox
-      const sub = db.gun.user(userPub).get('signal_inbox').map().map().on(async (data: any, gunKey: string) => {
+      // Simple flat listener for optimal performance and reliability
+      const sub = db.gun.user(userPub).get('signal_inbox').map().on(async (data: any, gunKey: string) => {
         if (!data || typeof data !== 'object') return;
         if (processedSignalsRef.current.has(gunKey)) return;
         if (!data.sender || !data.body || data.type === undefined) return;

@@ -317,19 +317,19 @@ export class SignalService {
     try {
       let currentCert = await new Promise<any>((resolve) => {
         let timeout = setTimeout(() => resolve(null), 2500);
-        user.get('inbox_cert').once((data: any) => {
+        user.get('inbox_cert_v8').once((data: any) => {
           clearTimeout(timeout);
           resolve(data);
         });
       });
 
       if (currentCert && typeof currentCert === 'string' && currentCert.includes('signal_inbox')) {
-        console.log('[SignalService] Valid SEA inbox certificate found.');
+        console.log('[SignalService] Valid SEA inbox certificate (v8) found.');
         return;
       }
 
-      console.log('[SignalService] Generating broad recursive SEA certificate for signal_inbox...');
-      // Policy: Allow writing to 'signal_inbox' and any properties/paths within it.
+      console.log('[SignalService] Generating fresh recursive SEA certificate for signal_inbox_v8...');
+      // Policy: Allow writing to ANY property under 'signal_inbox' soul.
       const cert = await (Gun as any).SEA.certify(
         ["*"],
         [
@@ -342,11 +342,11 @@ export class SignalService {
 
       // Publish in multiple locations for maximum discoverability
       user.get('signal_bundle_v7').get('inbox_cert').put(cert);
-      user.get('inbox_cert').put(cert, (ack: any) => {
+      user.get('inbox_cert_v8').put(cert, (ack: any) => {
         if (ack?.err) {
           console.warn('[SignalService] Failed to publish primary inbox certificate:', ack.err);
         } else {
-          console.log('[SignalService] Published recursive inbox certificates.');
+          console.log('[SignalService] Published fresh recursive inbox certificates (v8).');
         }
       });
     } catch (e) {
