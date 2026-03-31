@@ -1,4 +1,5 @@
 import { DataBase } from "shogun-core";
+import { generateSecureRandomInt, generateSecureRandomString } from "./utils/crypto";
 
 export type Role = "peer" | "moderator" | "administrator";
 
@@ -41,7 +42,7 @@ export class GroupService {
   private generateUUID(): string {
     if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
+      const r = generateSecureRandomInt(16);
       const v = c === 'x' ? r : (r & 0x3) | 0x8;
       return v.toString(16);
     });
@@ -114,7 +115,7 @@ export class GroupService {
    */
   onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
     const path = `signal_rooms/${groupId}/mutes/${memberPub}`;
-    const evId = `mute_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
+    const evId = `mute_${groupId}_${memberPub}_${generateSecureRandomString(7)}`;
     
     (this.db.On as any)(path, (data: any) => {
       callback(!!data);
@@ -383,7 +384,7 @@ export class GroupService {
 
   async reportUser(groupId: string, targetPub: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
-    const reportId = crypto.randomUUID();
+    const reportId = this.generateUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
       type: "user",
       targetPub,
