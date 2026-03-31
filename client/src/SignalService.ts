@@ -43,14 +43,12 @@ export class SignalService {
     if (this.isInitialized) return;
     if (this.initPromise) return this.initPromise;
     
-    let retries = 0;
-    while (!this.initPromise && !this.isInitialized && retries < 10) {
-      await new Promise(r => setTimeout(r, 500));
-      retries++;
+    // Wait for initPromise to be set or isInitialized to become true
+    for (let i = 0; i < 20; i++) {
+        if (this.isInitialized) return;
+        if (this.initPromise) return this.initPromise;
+        await new Promise(r => setTimeout(r, 250));
     }
-    
-    if (this.initPromise) return this.initPromise;
-    if (!this.isInitialized) throw new Error('SignalService not initializing');
   }
 
   /**
@@ -116,59 +114,54 @@ export class SignalService {
 
     try {
       // 1. Primary path: user node root 'epub'
+      // This is the most important field for E2E encryption.
       const user = this.db.gun.user();
       if (!user.is) {
-          console.warn('[SignalService] Gun user is not logged in. Cannot publish bundle.');
+          console.warn('[SignalService] Gun user is not logged in. Cannot verify identity for bundle publish.');
           return;
       }
 
-      const publishTimeout = setTimeout(() => {
-          console.warn('[SignalService] Primary epub publish timed out after 5s. Continuing with initialization...');
-      }, 5000);
-
-      await new Promise<void>((resolve, reject) => {
+      const epubPromise = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Primary epub publish timeout')), 8000);
         user.get('epub').put(pair.epub, (ack: any) => {
-          clearTimeout(publishTimeout);
+          clearTimeout(timeout);
           if (ack.err) {
               if (ack.err === 'Unverified data.') {
-                  console.error('[SignalService] Critical: Unverified data error while publishing epub. This usually means the Gun session is invalid.');
-                  // Fallback: Try to use the root 'epub' path anyway, but don't resolve yet if we want to honor the error, 
-                  // but here we resolve to unblock the UI.
-                  resolve(); 
+                  console.error('[SignalService] Critical: Unverified data error while publishing epub. Attempting staged recovery...');
+                  resolve(); // Proceed to secondary fields to see if they stick
               } else {
-                  reject(ack.err);
+                  reject(new Error(ack.err));
               }
           } else {
               resolve();
           }
         });
       });
+
+      await epubPromise.catch(e => console.warn('[SignalService] Primary EPUB write failed (non-critical if secondary succeeds):', e.message));
       
       // 2. Secondary path: individual fields for maximum GunDB verification reliability
-      // We wrap this in a timeout to avoid blocking if the primary path is already struggling
-      setTimeout(() => {
-        if (user.is) {
-          // Publish individual fields to ensure relay verification succeeds even if the full object fails
+      // We space these out to avoid overwhelming the Gun graph with simultaneous puts on the same root
+      await new Promise(r => setTimeout(r, 1000));
+      
+      if (user.is) {
+          console.log('[SignalService] Publishing secondary signal_bundle_v7 metadata...');
           user.get('signal_bundle_v7').get('epub').put(pair.epub);
           user.get('signal_bundle_v7').get('username').put(username);
           if (uniqueUsername) user.get('signal_bundle_v7').get('uniqueUsername').put(uniqueUsername);
           
           // Also put the full object as back-compatibility for some discovery modes
+          // We don't await this as it's the most likely to fail due to object size/depth
           user.get('signal_bundle_v7').put(bundlePayload as any, (ack: any) => {
             if (ack?.err) {
-              if (ack.err === 'Unverified data.') {
-                console.warn('[SignalService] Secondary full bundle publish failed: Unverified data (individual fields likely succeeded).');
-              } else {
-                console.warn('[SignalService] Error in secondary bundle path:', ack.err);
-              }
+              console.warn('[SignalService] Secondary full bundle publish result:', ack.err);
             }
           });
-        }
-      }, 500);
+      }
       
       console.log('[SignalService] Published SEA epub/bundle redundantly.');
-    } catch (e) {
-      console.error('[SignalService] GunDB error during bundle publish:', e);
+    } catch (e: any) {
+      console.error('[SignalService] GunDB error during bundle publish:', e.message || e);
     }
   }
 
@@ -260,7 +253,7 @@ export class SignalService {
     if (cached) return cached;
 
     console.log(`[SignalService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       try {
         // Method A: Direct 'epub' node
         const directEpub = await this.db.Get(`~${pub}/epub`) as any;
@@ -270,17 +263,37 @@ export class SignalService {
            return directEpub;
         }
 
-        // Method B: Bundle node
+        // Method B: Explicit Gun once fallback (bypass db.Get cache/abstraction)
+        const gunEpub = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 3000);
+            this.db.gun.get(`~${pub}`).get('epub').once((data: any) => {
+                clearTimeout(timeout);
+                if (data && typeof data === 'string' && data.length > 20) resolve(data);
+                else resolve(null);
+            });
+        });
+        if (gunEpub) {
+            console.log(`[SignalService] Found epub via direct Gun fallback for: ${pub.slice(0, 8)}`);
+            this.epubCache.set(pub, gunEpub);
+            return gunEpub;
+        }
+
+        // Method C: Bundle node
         const bundle = await this.db.Get(`~${pub}/signal_bundle_v7`) as any;
         if (bundle && bundle.epub && typeof bundle.epub === 'string' && bundle.epub.length > 20) {
           console.log(`[SignalService] Found epub via bundle for: ${pub.slice(0, 8)}`);
           this.epubCache.set(pub, bundle.epub);
           return bundle.epub;
         }
-      } catch (e) {}
-      await new Promise(r => setTimeout(r, 800 * (i + 1))); // Slightly longer wait
+      } catch (e: any) {
+          console.warn(`[SignalService] Epub fetch attempt ${i+1} failed:`, e.message);
+      }
+      
+      // Jittered backoff: 1s, 2s, 3s... with some randomness
+      const backoff = (1000 * (i + 1)) + (Math.random() * 500);
+      await new Promise(r => setTimeout(r, backoff));
     }
-    throw new Error(`Could not find SEA epub for ${pub}. User might not be updated to V7.`);
+    throw new Error(`Could not find SEA epub for ${pub}. User might not be updated to V7 or relays are desynced.`);
   }
 
   /**
@@ -297,7 +310,18 @@ export class SignalService {
         let timeout = setTimeout(() => resolve(), 3000);
         user.get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
           clearTimeout(timeout);
-          if (data && typeof data === 'string') exists = true;
+          // Automatic migration: If cert exists but it's the old strict format (doesn't contain wildcards or is just a string),
+          // we might want to force regenerate. But for now, let's just check for existence.
+          // Gun certs are complex objects stringified or not.
+          if (data && typeof data === 'string') {
+             // Basic detection of policy - this is just a hint
+             if (data.includes('signal_inbox') && !data.includes('*')) {
+                console.log('[SignalService] Old inbox certificate detected. Will regenerate with recursive policy.');
+                exists = false; 
+             } else {
+                exists = true;
+             }
+          }
           resolve();
         });
       });
@@ -306,12 +330,11 @@ export class SignalService {
         return;
       }
 
-      console.log('[SignalService] Generating initial public SEA certificate for signal_inbox (Discovery mode)...');
-      // By default we allow any public key ["*"] to write to our "signal_inbox"
-      // In a strict LoneWolf mode, we might remove this and use specific certs.
+      console.log('[SignalService] Generating recursive SEA certificate for signal_inbox...');
+      // Broaden policy: allow writing to any key ("*") under "signal_inbox"
       const cert = await (Gun as any).SEA.certify(
         ["*"],
-        [{ "#": "signal_inbox" }],
+        [{ "#": { "*": "signal_inbox" } }, { "#": "signal_inbox" }],
         pair,
         null
       );
@@ -337,7 +360,7 @@ export class SignalService {
     
     const cert = await (Gun as any).SEA.certify(
       [peerPub],
-      [{ "#": "signal_inbox" }],
+      [{ "#": { "*": "signal_inbox" } }, { "#": "signal_inbox" }],
       this.myPair,
       null
     );
@@ -495,18 +518,33 @@ export class SignalService {
       // If decryption fails, try a one-time "silent heal" by refreshing the epub
       if (decrypted === undefined || decrypted === null) {
         console.log(`[SignalService] Decryption failed for ${pubKey.slice(0, 8)}. Attempting one-time EPUB refresh...`);
+        
+        // Anti-flap guard: if we already refreshed this sender in the last 10s, don't loop
+        const lastRefresh = (this as any)._lastRefreshMap?.[pubKey] || 0;
+        if (Date.now() - lastRefresh < 10000) {
+            console.warn(`[SignalService] Skipping redundant EPUB refresh for ${pubKey.slice(0, 8)} (anti-flap).`);
+            return undefined;
+        }
+        (this as any)._lastRefreshMap = { ...((this as any)._lastRefreshMap || {}), [pubKey]: Date.now() };
+
         this.epubCache.delete(pubKey);
         this.secretCache.delete(senderEpub);
         try {
           const freshEpub = await this.getEpubFromPub(pubKey);
           const freshSecret = await this.db.sea.secret(freshEpub, myPair);
           if (freshSecret) this.secretCache.set(freshEpub, freshSecret);
+          else throw new Error("Fresh secret derivation failed");
+
           decrypted = await Promise.race([
             this.db.sea.decrypt(ciphertext.body, freshSecret),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SEA.decrypt fresh retry timeout')), 10000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SEA.decrypt fresh retry timeout')), 8000))
           ]);
-        } catch (e) {
-          console.warn(`[SignalService] One-time refresh failed for ${pubKey.slice(0, 8)}`);
+          
+          if (decrypted) {
+             console.log(`[SignalService] Silent heal SUCCESS for ${pubKey.slice(0, 8)}`);
+          }
+        } catch (e: any) {
+          console.warn(`[SignalService] One-time refresh failed for ${pubKey.slice(0, 8)}:`, e.message);
         }
       }
 

@@ -618,10 +618,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       }
 
                       if (offer) {
-                        fileTransferService?.acceptFile(msg.sender, {
-                          sdp: offer,
-                          metaId: metaId,
-                        });
+                        // Pass the offer object directly as it now contains all needed fields
+                        fileTransferService?.acceptFile(msg.sender, offer);
                       } else {
                         console.warn(
                           `[ChatView] Cannot accept file: No offer found in state for ${metaId} after wait.`,
