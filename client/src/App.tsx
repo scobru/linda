@@ -191,13 +191,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       fileTransferService.onStatusChange = (status, progress, data) => {
         if (data?.metaId) {
-          console.log(`[App] Transfer ${status} for ${data.metaId}`, data);
+          // console.log(`[App] Transfer ${status} for ${data.metaId}`, data);
           setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
-          if (progress !== undefined)
+          
+          if (progress !== undefined) {
             setTransferProgress((prev) => ({
               ...prev,
               [data.metaId]: progress,
             }));
+          }
           
           // Store the whole data object as the offer if it contains SDP info
           if (status === "incoming" && (data?.sdp || data?.type)) {

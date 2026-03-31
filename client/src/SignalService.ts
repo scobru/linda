@@ -249,23 +249,18 @@ export class SignalService {
    * Retrieves the 'epub' (Exchange Public Key) for a given GunDB pubkey.
    */
   public async getEpubFromPub(pub: string): Promise<string> {
+    if (!pub) throw new Error('Pubkey is required for epub fetch');
     const cached = this.epubCache.get(pub);
     if (cached) return cached;
 
     console.log(`[SignalService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`);
-    for (let i = 0; i < 8; i++) {
+    
+    // Attempt multiple paths and methods to find the epub
+    for (let i = 0; i < 10; i++) {
       try {
-        // Method A: Direct 'epub' node
-        const directEpub = await this.db.Get(`~${pub}/epub`) as any;
-        if (directEpub && typeof directEpub === 'string' && directEpub.length > 20) {
-           console.log(`[SignalService] Found epub via direct node for: ${pub.slice(0, 8)}`);
-           this.epubCache.set(pub, directEpub);
-           return directEpub;
-        }
-
-        // Method B: Explicit Gun once fallback (bypass db.Get cache/abstraction)
+        // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
         const gunEpub = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 3000);
+            const timeout = setTimeout(() => resolve(null), 2500);
             this.db.gun.get(`~${pub}`).get('epub').once((data: any) => {
                 clearTimeout(timeout);
                 if (data && typeof data === 'string' && data.length > 20) resolve(data);
@@ -273,27 +268,42 @@ export class SignalService {
             });
         });
         if (gunEpub) {
-            console.log(`[SignalService] Found epub via direct Gun fallback for: ${pub.slice(0, 8)}`);
+            console.log(`[SignalService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`);
             this.epubCache.set(pub, gunEpub);
             return gunEpub;
         }
 
-        // Method C: Bundle node
-        const bundle = await this.db.Get(`~${pub}/signal_bundle_v7`) as any;
-        if (bundle && bundle.epub && typeof bundle.epub === 'string' && bundle.epub.length > 20) {
+        // Method B: Bundle node (V7 format)
+        const bundle = await new Promise<any>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 2500);
+            this.db.gun.get(`~${pub}`).get('signal_bundle_v7').once((data: any) => {
+                clearTimeout(timeout);
+                if (data && data.epub) resolve(data);
+                else resolve(null);
+            });
+        });
+        if (bundle && typeof bundle.epub === 'string' && bundle.epub.length > 20) {
           console.log(`[SignalService] Found epub via bundle for: ${pub.slice(0, 8)}`);
           this.epubCache.set(pub, bundle.epub);
           return bundle.epub;
         }
+
+        // Method C: Root node (Old/Alternative format)
+        const rootData = await this.db.Get(`~${pub}`) as any;
+        if (rootData && typeof rootData.epub === 'string' && rootData.epub.length > 20) {
+           console.log(`[SignalService] Found epub via root node for: ${pub.slice(0, 8)}`);
+           this.epubCache.set(pub, rootData.epub);
+           return rootData.epub;
+        }
       } catch (e: any) {
-          console.warn(`[SignalService] Epub fetch attempt ${i+1} failed:`, e.message);
+          console.warn(`[SignalService] Epub fetch attempt ${i+1} for ${pub.slice(0,8)} failed:`, e?.message || e || 'Unknown error');
       }
       
-      // Jittered backoff: 1s, 2s, 3s... with some randomness
-      const backoff = (1000 * (i + 1)) + (Math.random() * 500);
+      // Jittered exponential-ish backoff
+      const backoff = Math.min(5000, (1000 * (i + 1)) + (Math.random() * 500));
       await new Promise(r => setTimeout(r, backoff));
     }
-    throw new Error(`Could not find SEA epub for ${pub}. User might not be updated to V7 or relays are desynced.`);
+    throw new Error(`Could not find SEA epub for ${pub.slice(0,8)} after 10 attempts.`);
   }
 
   /**
@@ -305,36 +315,47 @@ export class SignalService {
     if (!user.is) return;
 
     try {
-      let exists = false;
-      await new Promise<void>((resolve) => {
-        let timeout = setTimeout(() => resolve(), 3000);
+      let currentCert = await new Promise<any>((resolve) => {
+        let timeout = setTimeout(() => resolve(null), 3000);
         user.get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
           clearTimeout(timeout);
-          // Automatic migration: If cert exists but it's the old strict format (doesn't contain wildcards or is just a string),
-          // we might want to force regenerate. But for now, let's just check for existence.
-          // Gun certs are complex objects stringified or not.
-          if (data && typeof data === 'string') {
-             // Basic detection of policy - this is just a hint
-             if (data.includes('signal_inbox') && !data.includes('*')) {
-                console.log('[SignalService] Old inbox certificate detected. Will regenerate with recursive policy.');
-                exists = false; 
-             } else {
-                exists = true;
-             }
-          }
-          resolve();
+          resolve(data);
         });
       });
-      if (exists) {
-        console.log('[SignalService] Found existing SEA inbox certificate.');
+
+      // Verification: Does the existing cert allow recursive writing?
+      // SEA certificates are complex, but we check if we should regenerate to be safe
+      // In this version, we force regenerate if it looks like the old non-recursive format
+      let needsRegen = !currentCert;
+      if (currentCert && typeof currentCert === 'string') {
+          try {
+              const parsed = JSON.parse(currentCert);
+              const policy = parsed?.c?.["#"];
+              // If policy is just "signal_inbox" without wildcards, it's the old restricted format
+              if (policy === "signal_inbox") {
+                  console.log('[SignalService] Old restricted certificate detected. Regenerating...');
+                  needsRegen = true;
+              }
+          } catch (e) {
+              // If it's a raw Gun cert string, we might not be able to parse easily, 
+              // but we'll regenerate if it's not a proper object structure
+              needsRegen = true;
+          }
+      }
+
+      if (!needsRegen) {
+        console.log('[SignalService] Valid SEA inbox certificate found.');
         return;
       }
 
       console.log('[SignalService] Generating recursive SEA certificate for signal_inbox...');
-      // Broaden policy: allow writing to any key ("*") under "signal_inbox"
+      // Policy: Allow writing to 'signal_inbox' AND any path UNDER it (e.g. 'signal_inbox/msg_123')
       const cert = await (Gun as any).SEA.certify(
         ["*"],
-        [{ "#": { "*": "signal_inbox" } }, { "#": "signal_inbox" }],
+        [
+            { "#": { "*": "signal_inbox" } }, // Allow recursive properties
+            { "#": "signal_inbox" }           // Allow direct property
+        ],
         pair,
         null
       );
@@ -343,7 +364,7 @@ export class SignalService {
         if (ack?.err) {
           console.warn('[SignalService] Failed to publish inbox certificate:', ack.err);
         } else {
-          console.log('[SignalService] Published initial inbox certificate.');
+          console.log('[SignalService] Published recursive inbox certificate.');
         }
       });
     } catch (e) {
@@ -356,11 +377,14 @@ export class SignalService {
    */
   public async issueCertificate(peerPub: string): Promise<string> {
     if (!this.myPair) throw new Error('Not logged in');
-    console.log(`[SignalService] Issuing specific certificate for: ${peerPub.slice(0, 8)}...`);
+    console.log(`[SignalService] Issuing specific recursive certificate for: ${peerPub.slice(0, 8)}...`);
     
     const cert = await (Gun as any).SEA.certify(
       [peerPub],
-      [{ "#": { "*": "signal_inbox" } }, { "#": "signal_inbox" }],
+      [
+          { "#": { "*": "signal_inbox" } },
+          { "#": "signal_inbox" }
+      ],
       this.myPair,
       null
     );
