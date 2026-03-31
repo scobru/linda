@@ -90,6 +90,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const { signalService, groupService, isLoading, userUniqueUsername } =
     useSignalInit(db, showNotification);
 
+  // Sync ref for async listeners
+  const signalServiceRef = useRef<SignalService | null>(null);
+  useEffect(() => {
+    signalServiceRef.current = signalService;
+  }, [signalService]);
+
   const {
     messages,
     setMessages,
@@ -192,8 +198,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               ...prev,
               [data.metaId]: progress,
             }));
-          if (status === "incoming" && data?.sdp) {
-            setTransferOffers((prev) => ({ ...prev, [data.metaId]: data.sdp }));
+          
+          // Store the whole data object as the offer if it contains SDP info
+          if (status === "incoming" && (data?.sdp || data?.type)) {
+            setTransferOffers((prev) => ({ ...prev, [data.metaId]: data }));
           }
         }
       };
@@ -211,10 +219,20 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       fileTransferService.setSignalSender(async (toPub, signal) => {
         if (!signalService) return;
         try {
-          const cert = await signalService.getInboxCertificate(toPub);
+          // Robust certificate fetching with short retries to handle discovery lag
+          let cert;
+          for (let i = 0; i < 3; i++) {
+              try {
+                  cert = await signalService.getInboxCertificate(toPub);
+                  if (cert) break;
+              } catch (e) {
+                  if (i === 2) throw e;
+                  await new Promise(r => setTimeout(r, 1000));
+              }
+          }
+
           const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
-          
           const signalKey = `sig_${Date.now()}_${Math.random().toString(36).substring(7)}`;
           
           console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox`);
@@ -227,15 +245,19 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               timestamp: new Date().toISOString(),
             } as any,
             (ack: any) => {
-              if (ack.err)
+              if (ack.err) {
                 console.error(`[App] Signaling GunDB error for ${signal.type}:`, ack.err);
-              else
+              } else {
                 console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
+              }
             },
             { opt: { cert } } as any
           );
-        } catch (e) {
-          console.warn("[App] Failed to send secure P2P signal:", e);
+        } catch (e: any) {
+          console.warn("[App] Failed to send secure P2P signal:", e.message);
+          if (signal.type === 'file_offer') {
+             showNotification("Impossibile contattare l'utente: certificato mancante o utente offline.", "error");
+          }
         }
       });
 
@@ -250,17 +272,31 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         console.log(`[App] Signaling hit: ${gunKey} from ${data.sender.substring(0,8)}...`);
 
         try {
-          if (!signalService) {
-            console.warn("[App] Signal received but signalService is null!");
-            return;
+          // Use a retry loop to wait for signalService instance to be set by state
+          let currentService = signalServiceRef.current;
+          if (!currentService) {
+              console.warn("[App] Signal hit but SignalService is null. Waiting up to 5s for initialization...");
+              for (let i = 0; i < 10; i++) {
+                  await new Promise(r => setTimeout(r, 500));
+                  if (signalServiceRef.current) {
+                      currentService = signalServiceRef.current;
+                      break;
+                  }
+              }
           }
 
+          if (!currentService) {
+              console.warn("[App] SignalService still null after 5s! Signaling hit lost.");
+              return;
+          }
+
+          // Ensure the service internal state is ready (SEA bundle published etc)
           await Promise.race([
-            signalService.waitReady(),
+            currentService.waitReady(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('SignalService waitReady timeout')), 5000))
           ]);
 
-          const plaintext = await signalService.decryptMessage(data.sender, {
+          const plaintext = await currentService.decryptMessage(data.sender, {
             type: data.type,
             body: data.body
           });
@@ -268,17 +304,41 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           if (!plaintext || typeof plaintext !== 'string') return;
           const trimmed = plaintext.trim();
 
+          // PING_HEAL handler: if we receive this, others are having trouble decrypting us.
+          // Trigger a silent republish of our own bundle.
+          if (trimmed === "PING_HEAL") {
+             console.log(`[App] Received PING_HEAL from ${data.sender.substring(0,8)}. Refreshing bundle...`);
+             currentService.republishBundle().catch(() => {});
+             return;
+          }
+
           if (trimmed.startsWith(" Linda:SIGNAL:")) {
             const signalJson = trimmed.substring(" Linda:SIGNAL:".length);
             const signal = JSON.parse(signalJson);
-            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)} (metaId: ${signal.payload?.metaId || signal.payload?.id})`);
+            
+            // Loopback check: if it's from context7 or similar, but we check pubkey
+            if (data.sender === userPub) {
+                // Determine if we should handle this (Multi-device sync)
+                // For now, only handle if the clientId is different to avoid self-collision
+                const myClientId = (fileTransferService as any).clientId;
+                if (signal.clientId === myClientId) {
+                    console.log(`[App] Ignoring true loopback signal from same client: ${signal.type}`);
+                    return;
+                }
+            }
+
+            // Robust metaId extraction
+            const metaId = signal.payload?.metaId || signal.payload?.id || signal.payload?.sdp?.metaId;
+            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)} (metaId: ${metaId})`);
+            
             fileTransferService.handleIncomingSignal(data.sender, signal);
             
+            // Faster cleanup (15s) to reduce Gun node bloat
             setTimeout(() => {
               if (userPub) {
                 db.gun.user(userPub).get('signal_inbox').get(gunKey).put(null as any);
               }
-            }, 30000);
+            }, 15000);
           }
         } catch (e) {
           console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
