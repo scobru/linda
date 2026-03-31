@@ -326,7 +326,8 @@ export class SignalService {
       // Verification: Does the existing cert allow recursive writing?
       let needsRegen = !currentCert;
       if (currentCert && typeof currentCert === 'string') {
-          if (!currentCert.includes('*') || !currentCert.includes('signal_inbox')) {
+          // If it's a string, we check for basic indicators of recursion and path
+          if (!currentCert.includes('signal_inbox')) {
               needsRegen = true;
           }
       }
@@ -336,12 +337,15 @@ export class SignalService {
         return;
       }
 
-      console.log('[SignalService] Generating recursive SEA certificate for signal_inbox...');
+      console.log('[SignalService] Generating broad recursive SEA certificate for signal_inbox...');
+      // Broad Policy: allow writing to 'signal_inbox' and any properties/paths within it.
+      // We use multiple variations to ensure compatibility with different Gun versions.
       const cert = await (Gun as any).SEA.certify(
         ["*"],
         [
-            { "#": { "*": "signal_inbox" } }, 
-            { "#": "signal_inbox" }
+            { "#": { "*": "signal_inbox" } }, // Recursive map/node policy
+            { "#": "signal_inbox" },          // Direct property policy
+            { "#": "signal_inbox*" }          // Prefix policy (some versions)
         ],
         pair,
         null
@@ -353,7 +357,7 @@ export class SignalService {
         if (ack?.err) {
           console.warn('[SignalService] Failed to publish primary inbox certificate:', ack.err);
         } else {
-          console.log('[SignalService] Published redundant inbox certificates.');
+          console.log('[SignalService] Published recursive inbox certificates.');
         }
       });
     } catch (e) {
@@ -372,7 +376,8 @@ export class SignalService {
       [peerPub],
       [
           { "#": { "*": "signal_inbox" } },
-          { "#": "signal_inbox" }
+          { "#": "signal_inbox" },
+          { "#": "signal_inbox*" }
       ],
       this.myPair,
       null

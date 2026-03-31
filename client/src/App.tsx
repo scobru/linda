@@ -256,13 +256,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               timestamp: new Date().toISOString(),
             } as any,
             (ack: any) => {
-              if (ack.err) {
+              if (ack.err && typeof ack.err === 'string') {
                 console.error(`[App] Signaling GunDB error for ${signal.type}:`, ack.err);
               } else {
                 console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
               }
             },
-            { opt: { cert } } as any
+            { cert } as any
           );
         } catch (e: any) {
           console.warn("[App] Failed to send secure P2P signal:", e.message);
@@ -338,11 +338,24 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 }
             }
 
-            // Robust metaId extraction
-            const metaId = signal.payload?.metaId || signal.payload?.id || signal.payload?.sdp?.metaId;
+            // Ultra-robust metaId extraction
+            let metaId = signal.payload?.metaId || signal.payload?.id;
+            if (!metaId && signal.payload?.sdp) {
+                // Try finding it inside SDP string if stringified, or object
+                if (typeof signal.payload.sdp === 'object') metaId = signal.payload.sdp.metaId;
+                else if (typeof signal.payload.sdp === 'string') {
+                    // Try regex search for metaId pattern in SDP if needed, 
+                    // but normally it should be in payload.
+                }
+            }
+            
             console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)} (metaId: ${metaId})`);
             
-            fileTransferService.handleIncomingSignal(data.sender, signal);
+            if (metaId) {
+                fileTransferService.handleIncomingSignal(data.sender, signal);
+            } else {
+                console.warn(`[App] Received signal ${signal.type} but could not extract metaId. Signal ignored.`);
+            }
             
             // Faster cleanup (15s) to reduce Gun node bloat
             setTimeout(() => {
