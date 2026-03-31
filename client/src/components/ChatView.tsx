@@ -51,6 +51,7 @@ interface ChatViewProps {
   transferOffers: Record<string, any>;
   handleClearChat: (id: string) => void;
   trustedContacts: Set<string>;
+  isContactsLoading: boolean;
   acceptContact: (id: string) => Promise<void>;
   blockContact: (id: string) => Promise<void>;
 }
@@ -86,6 +87,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   transferOffers,
   handleClearChat,
   trustedContacts,
+  isContactsLoading,
   acceptContact,
   blockContact,
 }) => {
@@ -98,10 +100,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [isAccepting, setIsAccepting] = useState(false);
 
   const isTrusted = useMemo(() => {
+    if (isContactsLoading) return true;
     if (!recipient) return true;
     if (recipient.length === 36 && recipient.includes("-")) return true; // Groups are trusted by join
     return trustedContacts.has(recipient);
-  }, [recipient, trustedContacts]);
+  }, [recipient, trustedContacts, isContactsLoading]);
   useEffect(() => {
     const checkPerms = async () => {
       // If looks like a group UUID

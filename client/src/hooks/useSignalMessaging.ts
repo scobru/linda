@@ -37,6 +37,7 @@ export const useSignalMessaging = (
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
   const [trustedContacts, setTrustedContacts] = useState<Set<string>>(new Set());
+  const [isContactsLoading, setIsContactsLoading] = useState(true);
   const [blockedContacts, setBlockedContacts] = useState<Set<string>>(new Set());
   const [typingStatuses, setTypingStatuses] = useState<Record<string, number>>({});
   const [contactErrors, setContactErrors] = useState<Record<string, boolean>>({});
@@ -153,6 +154,11 @@ export const useSignalMessaging = (
           });
         }
       });
+
+    // Mark as loaded once the initial fetch from the relay is done
+    db.gun.get(`signal_v3_contacts_${userPub}`).once(() => {
+        setIsContactsLoading(false);
+    });
   }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
 
   const acceptContact = useCallback(async (contactId: string) => {
@@ -841,6 +847,7 @@ export const useSignalMessaging = (
     contacts,
     setContacts,
     trustedContacts,
+    isContactsLoading,
     blockedContacts,
     acceptContact,
     blockContact,

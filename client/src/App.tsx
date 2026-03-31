@@ -115,6 +115,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     removeContact,
     saveMessages,
     trustedContacts,
+    isContactsLoading,
     acceptContact,
     blockContact,
   } = useSignalMessaging(
@@ -846,6 +847,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
                 trustedContacts={trustedContacts}
+                isContactsLoading={isContactsLoading}
                 acceptContact={acceptContact}
                 blockContact={blockContact}
               />
@@ -892,6 +894,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
                 trustedContacts={trustedContacts}
+                isContactsLoading={isContactsLoading}
                 acceptContact={acceptContact}
                 blockContact={blockContact}
               />
@@ -1010,6 +1013,7 @@ const ChatWrapper: React.FC<{
   transferOffers: Record<string, any>;
   handleClearChat: (id: string) => void;
   trustedContacts: Set<string>;
+  isContactsLoading: boolean;
   acceptContact: (id: string) => Promise<void>;
   blockContact: (id: string) => Promise<void>;
 }> = (props) => {
