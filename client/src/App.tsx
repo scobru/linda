@@ -221,6 +221,15 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       fileTransferService.setSignalSender(async (toPub, signal) => {
         if (!signalService) return;
         try {
+          // Force Gun to refresh the recipient's node to find certificates/epub faster
+          await new Promise<void>((resolve) => {
+              const timeout = setTimeout(resolve, 2000);
+              db.gun.get(`~${toPub}`).once(() => {
+                  clearTimeout(timeout);
+                  resolve();
+              });
+          });
+
           // Robust certificate fetching with short retries to handle discovery lag
           let cert;
           for (let i = 0; i < 3; i++) {

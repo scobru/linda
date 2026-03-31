@@ -316,7 +316,7 @@ export class SignalService {
 
     try {
       let currentCert = await new Promise<any>((resolve) => {
-        let timeout = setTimeout(() => resolve(null), 3000);
+        let timeout = setTimeout(() => resolve(null), 2500);
         user.get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
           clearTimeout(timeout);
           resolve(data);
@@ -324,21 +324,9 @@ export class SignalService {
       });
 
       // Verification: Does the existing cert allow recursive writing?
-      // SEA certificates are complex, but we check if we should regenerate to be safe
-      // In this version, we force regenerate if it looks like the old non-recursive format
       let needsRegen = !currentCert;
       if (currentCert && typeof currentCert === 'string') {
-          try {
-              const parsed = JSON.parse(currentCert);
-              const policy = parsed?.c?.["#"];
-              // If policy is just "signal_inbox" without wildcards, it's the old restricted format
-              if (policy === "signal_inbox") {
-                  console.log('[SignalService] Old restricted certificate detected. Regenerating...');
-                  needsRegen = true;
-              }
-          } catch (e) {
-              // If it's a raw Gun cert string, we might not be able to parse easily, 
-              // but we'll regenerate if it's not a proper object structure
+          if (!currentCert.includes('*') || !currentCert.includes('signal_inbox')) {
               needsRegen = true;
           }
       }
@@ -349,22 +337,23 @@ export class SignalService {
       }
 
       console.log('[SignalService] Generating recursive SEA certificate for signal_inbox...');
-      // Policy: Allow writing to 'signal_inbox' AND any path UNDER it (e.g. 'signal_inbox/msg_123')
       const cert = await (Gun as any).SEA.certify(
         ["*"],
         [
-            { "#": { "*": "signal_inbox" } }, // Allow recursive properties
-            { "#": "signal_inbox" }           // Allow direct property
+            { "#": { "*": "signal_inbox" } }, 
+            { "#": "signal_inbox" }
         ],
         pair,
         null
       );
 
-      user.get('signal_bundle_v7').get('inbox_cert').put(cert, (ack: any) => {
+      // Publish in multiple locations for maximum discoverability
+      user.get('signal_bundle_v7').get('inbox_cert').put(cert);
+      user.get('inbox_cert').put(cert, (ack: any) => {
         if (ack?.err) {
-          console.warn('[SignalService] Failed to publish inbox certificate:', ack.err);
+          console.warn('[SignalService] Failed to publish primary inbox certificate:', ack.err);
         } else {
-          console.log('[SignalService] Published recursive inbox certificate.');
+          console.log('[SignalService] Published redundant inbox certificates.');
         }
       });
     } catch (e) {
@@ -390,13 +379,7 @@ export class SignalService {
     );
 
     const user = this.db.gun.user();
-    await new Promise<void>((resolve, reject) => {
-        user.get('certs').get(peerPub).put(cert, (ack: any) => {
-            if (ack.err) reject(ack.err);
-            else resolve();
-        });
-    });
-    
+    user.get('certs').get(peerPub).put(cert);
     return cert;
   }
 
@@ -414,36 +397,68 @@ export class SignalService {
    * Retrieves the SEA certificate allowing writes to a peer's signal_inbox
    */
   public async getInboxCertificate(pub: string): Promise<string> {
+    if (!pub) throw new Error('Recipient pubkey required for certificate fetch');
     const cached = this.inboxCertCache.get(pub);
     if (cached) return cached;
 
     const myPub = this.db.getUserPub();
     console.log(`[SignalService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`);
     
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
         try {
-            // Priority 1: Check if they issued a specific certificate for me
+            // Method 1: Specific certificate issued for ME
             if (myPub) {
-                const specificCert = await this.db.Get(`~${pub}/certs/${myPub}`);
-                if (specificCert && typeof specificCert === 'string') {
-                    console.log(`[SignalService] Using specific certificate for ${pub.slice(0, 8)}`);
+                const specificCert = await new Promise<string | null>((resolve) => {
+                    const timeout = setTimeout(() => resolve(null), 2000);
+                    this.db.gun.get(`~${pub}`).get('certs').get(myPub).once((data: any) => {
+                        clearTimeout(timeout);
+                        if (data && typeof data === 'string') resolve(data);
+                        else resolve(null);
+                    });
+                });
+                if (specificCert) {
+                    console.log(`[SignalService] Found specific certificate for ${pub.slice(0, 8)}`);
                     this.inboxCertCache.set(pub, specificCert);
                     return specificCert;
                 }
             }
 
-            // Priority 2: Fallback to their public inbox certificate
-            const cert = await this.db.Get(`~${pub}/signal_bundle_v7/inbox_cert`);
-            if (cert && typeof cert === 'string') {
-                this.inboxCertCache.set(pub, cert);
-                return cert;
+            // Method 2: Public certificate at root
+            const rootCert = await new Promise<string | null>((resolve) => {
+                const timeout = setTimeout(() => resolve(null), 2000);
+                this.db.gun.get(`~${pub}`).get('inbox_cert').once((data: any) => {
+                    clearTimeout(timeout);
+                    if (data && typeof data === 'string') resolve(data);
+                    else resolve(null);
+                });
+            });
+            if (rootCert) {
+                console.log(`[SignalService] Found root certificate for ${pub.slice(0, 8)}`);
+                this.inboxCertCache.set(pub, rootCert);
+                return rootCert;
+            }
+
+            // Method 3: Public certificate in bundle
+            const bundleCert = await new Promise<string | null>((resolve) => {
+                const timeout = setTimeout(() => resolve(null), 2000);
+                this.db.gun.get(`~${pub}`).get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
+                    clearTimeout(timeout);
+                    if (data && typeof data === 'string') resolve(data);
+                    else resolve(null);
+                });
+            });
+            if (bundleCert) {
+                console.log(`[SignalService] Found bundle certificate for ${pub.slice(0, 8)}`);
+                this.inboxCertCache.set(pub, bundleCert);
+                return bundleCert;
             }
         } catch (e) {}
-        await new Promise(r => setTimeout(r, 600 * (i + 1)));
+        
+        const backoff = 500 * (i + 1) + Math.random() * 500;
+        await new Promise(r => setTimeout(r, backoff));
     }
     
-    console.warn(`[SignalService] Could not find SEA inbox certificate for ${pub}.`);
-    throw new Error('Peer signaling certificate missing.');
+    throw new Error(`Could not find SEA inbox certificate for ${pub.slice(0,8)} after multiple attempts.`);
   }
 
   /**
