@@ -317,35 +317,24 @@ export class SignalService {
     try {
       let currentCert = await new Promise<any>((resolve) => {
         let timeout = setTimeout(() => resolve(null), 2500);
-        user.get('signal_bundle_v7').get('inbox_cert').once((data: any) => {
+        user.get('inbox_cert').once((data: any) => {
           clearTimeout(timeout);
           resolve(data);
         });
       });
 
-      // Verification: Does the existing cert allow recursive writing?
-      let needsRegen = !currentCert;
-      if (currentCert && typeof currentCert === 'string') {
-          // If it's a string, we check for basic indicators of recursion and path
-          if (!currentCert.includes('signal_inbox')) {
-              needsRegen = true;
-          }
-      }
-
-      if (!needsRegen) {
+      if (currentCert && typeof currentCert === 'string' && currentCert.includes('signal_inbox')) {
         console.log('[SignalService] Valid SEA inbox certificate found.');
         return;
       }
 
       console.log('[SignalService] Generating broad recursive SEA certificate for signal_inbox...');
-      // Broad Policy: allow writing to 'signal_inbox' and any properties/paths within it.
-      // We use multiple variations to ensure compatibility with different Gun versions.
+      // Policy: Allow writing to 'signal_inbox' and any properties/paths within it.
       const cert = await (Gun as any).SEA.certify(
         ["*"],
         [
-            { "#": { "*": "signal_inbox" } }, // Recursive map/node policy
-            { "#": "signal_inbox" },          // Direct property policy
-            { "#": "signal_inbox*" }          // Prefix policy (some versions)
+            { "#": { "*": "signal_inbox" } }, // Allowed nested paths
+            { "#": "signal_inbox" }           // Allowed direct property
         ],
         pair,
         null
@@ -366,7 +355,7 @@ export class SignalService {
   }
 
   /**
-   * Issues a specific SEA certificate for a peer. (LoneWolf style)
+   * Issues a specific SEA certificate for a peer.
    */
   public async issueCertificate(peerPub: string): Promise<string> {
     if (!this.myPair) throw new Error('Not logged in');
@@ -376,8 +365,7 @@ export class SignalService {
       [peerPub],
       [
           { "#": { "*": "signal_inbox" } },
-          { "#": "signal_inbox" },
-          { "#": "signal_inbox*" }
+          { "#": "signal_inbox" }
       ],
       this.myPair,
       null

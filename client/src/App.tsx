@@ -248,7 +248,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           
           console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox`);
           
-          db.gun.user(toPub).get('signal_inbox').get(signalKey).put(
+          // Use sender-specific node within recipient's signal_inbox to avoid collisions and simplify ACL
+          db.gun.user(toPub).get('signal_inbox').get(userPub).get(signalKey).put(
             {
               sender: userPub,
               type: cipher.type,
@@ -274,7 +275,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
       console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox`);
 
-      const sub = db.gun.user(userPub).get('signal_inbox').map().on(async (data: any, gunKey: string) => {
+      // Listen recursively to any sender's signals in our inbox
+      const sub = db.gun.user(userPub).get('signal_inbox').map().map().on(async (data: any, gunKey: string) => {
         if (!data || typeof data !== 'object') return;
         if (processedSignalsRef.current.has(gunKey)) return;
         if (!data.sender || !data.body || data.type === undefined) return;
