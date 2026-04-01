@@ -249,10 +249,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           // Standard flat unique key: senderPub_timestamp_random
           const signalKey = `${userPub.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
           
-          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox_v8`);
+          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via v9 inbox (metaId: ${signal.payload?.metaId || signal.payload?.id})`);
           
-          // Use flat structure under signal_inbox for maximum certificate compatibility
-          db.gun.get(`~${toPub}`).get('signal_inbox').get(signalKey).put(
+          // Optimization: if sending to self, use our own authed user shell for maximum reliability
+          const targetUser = (toPub === userPub) ? db.gun.user() : db.gun.user(toPub);
+          
+          targetUser.get('signal_inbox_v9').get(signalKey).put(
             {
               sender: userPub,
               type: cipher.type,
@@ -266,7 +268,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
               }
             },
-            { cert } as any
+            { opt: { cert } } as any
           );
         } catch (e: any) {
           console.warn("[App] Failed to send secure P2P signal:", e.message);
@@ -276,10 +278,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
       });
 
-      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox (v8)`);
+      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox_v9`);
 
       // Simple flat listener for optimal performance and reliability
-      const sub = db.gun.user(userPub).get('signal_inbox').map().on(async (data: any, gunKey: string) => {
+      const sub = db.gun.user(userPub).get('signal_inbox_v9').map().on(async (data: any, gunKey: string) => {
         if (!data || typeof data !== 'object') return;
         if (processedSignalsRef.current.has(gunKey)) return;
         if (!data.sender || !data.body || data.type === undefined) return;
@@ -328,14 +330,23 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
              return;
           }
 
+          let signal;
           if (trimmed.startsWith(" Linda:SIGNAL:")) {
             const signalJson = trimmed.substring(" Linda:SIGNAL:".length);
-            const signal = JSON.parse(signalJson);
-            
-            // Loopback check: if it's from context7 or similar, but we check pubkey
+            signal = JSON.parse(signalJson);
+          } else if (trimmed.startsWith("{")) {
+            // Resilient parsing: try direct JSON if prefix is missing
+            try {
+              signal = JSON.parse(trimmed);
+            } catch (e) {
+              console.warn("[App] Failed to parse non-prefixed signal JSON:", e);
+              return;
+            }
+          }
+
+          if (signal) {
+            // Loopback check: if it's from current user, check clientId to avoid self-collision
             if (data.sender === userPub) {
-                // Determine if we should handle this (Multi-device sync)
-                // For now, only handle if the clientId is different to avoid self-collision
                 const myClientId = (fileTransferService as any).clientId;
                 if (signal.clientId === myClientId) {
                     console.log(`[App] Ignoring true loopback signal from same client: ${signal.type}`);
@@ -365,7 +376,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             // Faster cleanup (15s) to reduce Gun node bloat
             setTimeout(() => {
               if (userPub) {
-                db.gun.user(userPub).get('signal_inbox').get(gunKey).put(null as any);
+                db.gun.user(userPub).get('signal_inbox_v9').get(gunKey).put(null as any);
               }
             }, 15000);
           }
