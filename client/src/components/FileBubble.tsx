@@ -5,6 +5,7 @@ import type { TransferStatus } from '../FileTransferService';
 interface FileBubbleProps {
   metadata: FileMetadata;
   isMe: boolean;
+  isCloud?: boolean;
   onAccept: () => void;
   progress: number;
   status: TransferStatus;
@@ -14,6 +15,7 @@ interface FileBubbleProps {
 export const FileBubble: React.FC<FileBubbleProps> = ({
   metadata,
   isMe,
+  isCloud = false,
   onAccept,
   progress,
   status,
@@ -100,11 +102,19 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
       )}
 
       {isMe && (status === 'offering' || status === 'signaling') && (
-        <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-black/10 rounded-xl border border-white/5 animate-pulse">
-            <div className="loading loading-spinner loading-xs opacity-50"></div>
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">
-              {status === 'signaling' ? 'Connecting...' : 'Preparing transfer...'}
-            </span>
+        <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-black/10 rounded-xl border border-white/5">
+            {isCloud && previewUrl ? (
+                <span className="text-[9px] font-black uppercase tracking-widest opacity-40">
+                   ☁️ Ready for other devices
+                </span>
+            ) : (
+              <>
+                <div className="loading loading-spinner loading-xs opacity-50"></div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-50 animate-pulse">
+                  {status === 'signaling' ? 'Connecting...' : 'Preparing transfer...'}
+                </span>
+              </>
+            )}
         </div>
       )}
 
@@ -114,7 +124,7 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
           download={metadata.name}
           className="btn btn-sm btn-success gap-2 mt-1 no-animation"
         >
-          Download / Save
+          {isCloud ? '💾 Saved in Cloud' : 'Download / Save'}
         </a>
       )}
 

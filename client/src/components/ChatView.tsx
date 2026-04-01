@@ -67,6 +67,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   pinnedMessages,
   messages,
   myRole,
+  userPub,
   userAvatar,
   userNick,
   username,
@@ -214,7 +215,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (!fileTransferService) return;
 
     currentMessages.forEach((msg) => {
-      if (msg.type === "image" && msg.sender !== "Me" && msg.fileMetadata) {
+      // Auto-accept if it's an image AND (not from me OR in My Cloud chat)
+      const isCloudChat = recipient === userPub;
+      const isIncoming = msg.sender !== "Me";
+      
+      if (msg.type === "image" && (isIncoming || isCloudChat) && msg.fileMetadata) {
         const metaId = msg.fileMetadata.id;
 
         // Final guard: Check ref immediately
@@ -235,14 +240,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             status === "incoming" ||
             status === "offered"
           ) {
-            console.log(`[ChatView] Auto-accepting image ${metaId}`);
+            console.log(`[ChatView] Auto-accepting image ${metaId} in ${isCloudChat ? 'Cloud' : 'p2p'} mode`);
             acceptedMetaIds.current.add(metaId);
-            fileTransferService?.acceptFile(msg.sender, offer);
+            fileTransferService?.acceptFile(msg.senderPub || msg.sender, offer);
           }
         }
       }
     });
-  }, [currentMessages, transferStatuses, transferOffers, fileTransferService]);
+  }, [currentMessages, transferStatuses, transferOffers, fileTransferService, recipient, userPub]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -596,6 +601,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <FileBubble
                     metadata={msg.fileMetadata}
                     isMe={isMe}
+                    isCloud={recipient === userPub}
                     status={transferStatuses[msg.fileMetadata.id] || "idle"}
                     progress={transferProgress[msg.fileMetadata.id] || 0}
                     blob={
