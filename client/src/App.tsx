@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -30,7 +30,7 @@ import { GroupService, type Role } from "./GroupService";
 import { CallingService } from "./CallingService";
 import type { CallStatus } from "./CallingService";
 import { CallingOverlay } from "./components/CallingOverlay";
-import { FileTransferService } from "./FileTransferService";
+import { FileTransferService, type FileSignal } from "./FileTransferService";
 import type { TransferStatus } from "./FileTransferService";
 import { SignalService } from "./SignalService";
 
@@ -97,6 +97,187 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     signalServiceRef.current = signalService;
   }, [signalService]);
 
+  // ── Persistent Service Instances ──
+  useMemo(() => {
+    if (!isLoggedIn || !userPub) return;
+    const service = new CallingService(window.gun as any, userPub);
+    service.onStatusChange = (status: CallStatus, data?: any) => {
+      setCallStatus(status);
+      if (data) {
+        setCallData(data);
+        if (
+          status === "incoming" &&
+          data.signal &&
+          typeof data.signal.video !== "undefined"
+        ) {
+          setIsVideoCall(!!data.signal.video);
+        }
+      }
+      if (status === "idle") {
+        setRemoteStream(null);
+        setCallData(null);
+      }
+    };
+    service.onRemoteStream = (stream: MediaStream) => {
+      setRemoteStream(stream);
+    };
+    callingServiceRef.current = service;
+  }, [isLoggedIn, userPub]);
+
+  const fileTransferServiceInst = useMemo(() => {
+    if (!isLoggedIn || !userPub) return null;
+    const service = new FileTransferService(window.gun as any, userPub);
+    service.onStatusChange = (status, progress, data) => {
+      if (data?.metaId) {
+        setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
+        if (progress !== undefined) {
+          setTransferProgress((prev) => ({ ...prev, [data.metaId]: progress }));
+        }
+        if ((status === "incoming" || status === "signaling") && (data?.sdp || data?.type)) {
+          setTransferOffers((prev) => ({ ...prev, [data.metaId]: data }));
+        }
+      }
+    };
+    service.onFileReceived = (blob, _name, _mimeType, metaId) => {
+      if (metaId) {
+        setTransferBlobs((prev) => ({ ...prev, [metaId]: blob }));
+      } else {
+        setTransferBlobs((prev) => ({ ...prev, last: blob }));
+      }
+    };
+    fileTransferServiceRef.current = service;
+    return service;
+  }, [isLoggedIn, userPub]);
+
+  // Update signal sender whenever signalService becomes available
+  useEffect(() => {
+    if (fileTransferServiceInst && signalService) {
+      fileTransferServiceInst.setSignalSender(async (toPub: string, signal: FileSignal) => {
+        try {
+          db.gun.get(`~${toPub}`).once(() => {});
+          let cert;
+          for (let i = 0; i < 3; i++) {
+            try {
+              cert = await signalService.getInboxCertificate(toPub);
+              if (cert) break;
+            } catch (e) {
+              if (i === 2) throw e;
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          }
+          const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
+          const cipher = await signalService.encryptMessage(toPub, payload);
+          const signalKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const targetInbox = db.gun.get(`signal_v13_inbox_${toPub}`);
+
+          const doSend = (sendCert: string | null, retryLabel: string): Promise<boolean> => {
+            return new Promise((resolve) => {
+              const putOptions = (toPub === userPub) ? {} : { opt: { cert: sendCert } };
+              targetInbox.get(signalKey).put(
+                {
+                  sender: userPub,
+                  type: cipher.type,
+                  body: cipher.body,
+                  timestamp: new Date().toISOString(),
+                } as any,
+                (ack: any) => {
+                  if (ack.err && typeof ack.err === 'string') {
+                    if (ack.err.includes('Certificate')) resolve(false);
+                    else resolve(true);
+                  } else {
+                    console.log(`[App] ${retryLabel} signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
+                    resolve(true);
+                  }
+                },
+                putOptions as any
+              );
+              setTimeout(() => resolve(true), 5000);
+            });
+          };
+
+          const delivered = await doSend(cert ?? null, '[1st]');
+          if (!delivered && toPub !== userPub) {
+            signalService.clearCertCache(toPub);
+            const freshCert = await signalService.getInboxCertificate(toPub);
+            const retryKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            await new Promise((resolve) => {
+              db.gun.get(`signal_v13_inbox_${toPub}`).get(retryKey).put(
+                { sender: userPub, type: cipher.type, body: cipher.body, timestamp: new Date().toISOString() } as any,
+                () => resolve(true),
+                { opt: { cert: freshCert } } as any
+              );
+              setTimeout(() => resolve(true), 5000);
+            });
+          }
+        } catch (e: any) {
+          console.warn("[App] Failed to send secure P2P signal:", e.message);
+        }
+      });
+    }
+  }, [fileTransferServiceInst, signalService, db, userPub]);
+
+  // ── Signaling Listener ──
+  useEffect(() => {
+    if (!isLoggedIn || !userPub || !fileTransferServiceInst) return;
+
+    console.log(`[App] Starting securely authorized signaling listener on signal_v13_inbox_${userPub}`);
+    const sub = db.gun.get(`signal_v13_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+      if (!data || typeof data !== 'object' || processedSignalsRef.current.has(gunKey)) return;
+      if (!data.sender || !data.body || data.type === undefined) return;
+
+      processedSignalsRef.current.add(gunKey);
+      
+      try {
+        let currentService = signalServiceRef.current;
+        if (!currentService) {
+          for (let i = 0; i < 10; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            if (signalServiceRef.current) {
+              currentService = signalServiceRef.current;
+              break;
+            }
+          }
+        }
+        if (!currentService) return;
+
+        await Promise.race([
+          currentService.waitReady(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SignalService timeout')), 5000))
+        ]);
+
+        const plaintext = await currentService.decryptMessage(data.sender, { type: data.type, body: data.body });
+        if (!plaintext || typeof plaintext !== 'string') return;
+        
+        const trimmed = plaintext.trim();
+        if (trimmed === "PING_HEAL") {
+           currentService.republishBundle().catch(() => {});
+           return;
+        }
+
+        let signal;
+        if (trimmed.startsWith(" Linda:SIGNAL:")) {
+          signal = JSON.parse(trimmed.substring(" Linda:SIGNAL:".length));
+        } else if (trimmed.startsWith("{")) {
+          try { signal = JSON.parse(trimmed); } catch (e) {}
+        }
+
+        if (signal) {
+          if (data.sender === userPub && signal.clientId === (fileTransferServiceInst as any).clientId) return;
+          fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+          setTimeout(() => {
+            if (userPub) db.gun.get(`signal_v13_inbox_${userPub}`).get(gunKey).put(null as any);
+          }, 15000);
+        }
+      } catch (e) {
+        console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
+      }
+    });
+
+    return () => {
+      if ((sub as any).off) (sub as any).off();
+    };
+  }, [isLoggedIn, userPub, db, fileTransferServiceInst]);
+
   const {
     messages,
     setMessages,
@@ -132,7 +313,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     const chatMatch = location.pathname.match(/\/chat\/([^\/]+)/);
     const idFromRoute = chatMatch ? chatMatch[1] : "";
     if (idFromRoute !== recipient) setRecipient(idFromRoute);
-  }, [location.pathname]);
+  }, [location.pathname, recipient]);
 
   const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
@@ -157,241 +338,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       { avatar?: string; nickname?: string; uniqueUsername?: string }
     >
   >({});
-
-  useEffect(() => {
-    if (isLoggedIn && db && userPub) {
-      const callingService = new CallingService(window.gun as any, userPub);
-
-      callingService.onStatusChange = (status: CallStatus, data?: any) => {
-        setCallStatus(status);
-        if (data) {
-          setCallData(data);
-          if (
-            status === "incoming" &&
-            data.signal &&
-            typeof data.signal.video !== "undefined"
-          ) {
-            setIsVideoCall(!!data.signal.video);
-          }
-        }
-        if (status === "idle") {
-          setRemoteStream(null);
-          setCallData(null);
-        }
-      };
-
-      callingService.onRemoteStream = (stream: MediaStream) => {
-        setRemoteStream(stream);
-      };
-
-      callingServiceRef.current = callingService;
-
-      const fileTransferService = new FileTransferService(
-        window.gun as any,
-        userPub,
-      );
-
-      fileTransferService.onStatusChange = (status, progress, data) => {
-        if (data?.metaId) {
-          // console.log(`[App] Transfer ${status} for ${data.metaId}`, data);
-          setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
-          
-          if (progress !== undefined) {
-            setTransferProgress((prev) => ({
-              ...prev,
-              [data.metaId]: progress,
-            }));
-          }
-          
-          // Store the whole data object as the offer if it contains SDP info
-          if (status === "incoming" && (data?.sdp || data?.type)) {
-            setTransferOffers((prev) => ({ ...prev, [data.metaId]: data }));
-          }
-        }
-      };
-
-      fileTransferService.onFileReceived = (blob, _name, _mimeType, metaId) => {
-        if (metaId) {
-          setTransferBlobs((prev) => ({ ...prev, [metaId]: blob }));
-        } else {
-          setTransferBlobs((prev) => ({ ...prev, last: blob }));
-        }
-      };
-
-      fileTransferServiceRef.current = fileTransferService;
-
-      fileTransferService.setSignalSender(async (toPub, signal) => {
-        if (!signalService) return;
-        try {
-          // Force Gun to refresh the recipient's node to find certificates/epub faster
-          await new Promise<void>((resolve) => {
-              const timeout = setTimeout(resolve, 2000);
-              db.gun.get(`~${toPub}`).once(() => {
-                  clearTimeout(timeout);
-                  resolve();
-              });
-          });
-
-          // Robust certificate fetching with short retries to handle discovery lag
-          let cert;
-          for (let i = 0; i < 3; i++) {
-              try {
-                  cert = await signalService.getInboxCertificate(toPub);
-                  if (cert) break;
-              } catch (e) {
-                  if (i === 2) throw e;
-                  await new Promise(r => setTimeout(r, 1000));
-              }
-          }
-
-          const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
-          const cipher = await signalService.encryptMessage(toPub, payload);
-          // Standard flat unique key: senderPub_timestamp_random
-          const signalKey = `${userPub.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          
-          console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via v9 inbox (metaId: ${signal.payload?.metaId || signal.payload?.id})`);
-          
-          // Optimization: if sending to self, use our own authed user shell for maximum reliability
-          const targetUser = (toPub === userPub) ? db.gun.user() : db.gun.user(toPub);
-          
-          targetUser.get('signal_inbox_v9').get(signalKey).put(
-            {
-              sender: userPub,
-              type: cipher.type,
-              body: cipher.body,
-              timestamp: new Date().toISOString(),
-            } as any,
-            (ack: any) => {
-              if (ack.err && typeof ack.err === 'string') {
-                console.error(`[App] Signaling GunDB error for ${signal.type}:`, ack.err);
-              } else {
-                console.log(`[App] Secure signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
-              }
-            },
-            { opt: { cert } } as any
-          );
-        } catch (e: any) {
-          console.warn("[App] Failed to send secure P2P signal:", e.message);
-          if (signal.type === 'file_offer') {
-             showNotification("Impossibile contattare l'utente: certificato mancante o utente offline.", "error");
-          }
-        }
-      });
-
-      console.log(`[App] Starting securely authorized signaling listener on ~${userPub}/signal_inbox_v9`);
-
-      // Simple flat listener for optimal performance and reliability
-      const sub = db.gun.user(userPub).get('signal_inbox_v9').map().on(async (data: any, gunKey: string) => {
-        if (!data || typeof data !== 'object') return;
-        if (processedSignalsRef.current.has(gunKey)) return;
-        if (!data.sender || !data.body || data.type === undefined) return;
-
-        processedSignalsRef.current.add(gunKey);
-        console.log(`[App] Signaling hit: ${gunKey} from ${data.sender.substring(0,8)}...`);
-
-        try {
-          // Use a retry loop to wait for signalService instance to be set by state
-          let currentService = signalServiceRef.current;
-          if (!currentService) {
-              console.warn("[App] Signal hit but SignalService is null. Waiting up to 5s for initialization...");
-              for (let i = 0; i < 10; i++) {
-                  await new Promise(r => setTimeout(r, 500));
-                  if (signalServiceRef.current) {
-                      currentService = signalServiceRef.current;
-                      break;
-                  }
-              }
-          }
-
-          if (!currentService) {
-              console.warn("[App] SignalService still null after 5s! Signaling hit lost.");
-              return;
-          }
-
-          // Ensure the service internal state is ready (SEA bundle published etc)
-          await Promise.race([
-            currentService.waitReady(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SignalService waitReady timeout')), 5000))
-          ]);
-
-          const plaintext = await currentService.decryptMessage(data.sender, {
-            type: data.type,
-            body: data.body
-          });
-
-          if (!plaintext || typeof plaintext !== 'string') return;
-          const trimmed = plaintext.trim();
-
-          // PING_HEAL handler: if we receive this, others are having trouble decrypting us.
-          // Trigger a silent republish of our own bundle.
-          if (trimmed === "PING_HEAL") {
-             console.log(`[App] Received PING_HEAL from ${data.sender.substring(0,8)}. Refreshing bundle...`);
-             currentService.republishBundle().catch(() => {});
-             return;
-          }
-
-          let signal;
-          if (trimmed.startsWith(" Linda:SIGNAL:")) {
-            const signalJson = trimmed.substring(" Linda:SIGNAL:".length);
-            signal = JSON.parse(signalJson);
-          } else if (trimmed.startsWith("{")) {
-            // Resilient parsing: try direct JSON if prefix is missing
-            try {
-              signal = JSON.parse(trimmed);
-            } catch (e) {
-              console.warn("[App] Failed to parse non-prefixed signal JSON:", e);
-              return;
-            }
-          }
-
-          if (signal) {
-            // Loopback check: if it's from current user, check clientId to avoid self-collision
-            if (data.sender === userPub) {
-                const myClientId = (fileTransferService as any).clientId;
-                if (signal.clientId === myClientId) {
-                    console.log(`[App] Ignoring true loopback signal from same client: ${signal.type}`);
-                    return;
-                }
-            }
-
-            // Ultra-robust metaId extraction
-            let metaId = signal.payload?.metaId || signal.payload?.id;
-            if (!metaId && signal.payload?.sdp) {
-                // Try finding it inside SDP string if stringified, or object
-                if (typeof signal.payload.sdp === 'object') metaId = signal.payload.sdp.metaId;
-                else if (typeof signal.payload.sdp === 'string') {
-                    // Try regex search for metaId pattern in SDP if needed, 
-                    // but normally it should be in payload.
-                }
-            }
-            
-            console.log(`[App] Processing signal: ${signal.type} from ${data.sender.substring(0,8)} (metaId: ${metaId})`);
-            
-            if (metaId) {
-                fileTransferService.handleIncomingSignal(data.sender, signal);
-            } else {
-                console.warn(`[App] Received signal ${signal.type} but could not extract metaId. Signal ignored.`);
-            }
-            
-            // Faster cleanup (15s) to reduce Gun node bloat
-            setTimeout(() => {
-              if (userPub) {
-                db.gun.user(userPub).get('signal_inbox_v9').get(gunKey).put(null as any);
-              }
-            }, 15000);
-          }
-        } catch (e) {
-          console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
-        }
-      });
-
-      return () => {
-        console.log(`[App] Cleaning up services and signaling for ${userPub.substring(0,8)}...`);
-        callingService.endCall(false);
-        if ((sub as any).off) (sub as any).off();
-      };
-    }
-  }, [isLoggedIn, db, userPub, signalService]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -606,7 +552,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
       
       const cert = await signalService.getInboxCertificate(pub);
-      db.gun.user(pub).get('signal_inbox').get('ping_heal_' + Date.now()).put({
+      db.gun.get(`signal_v13_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
         sender: userPub,
         type: ping.type,
         body: ping.body,

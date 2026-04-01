@@ -25,6 +25,22 @@ export class CallingService {
   private iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ];
 
   private iceCandidateQueue: RTCIceCandidateInit[] = [];
@@ -170,6 +186,18 @@ export class CallingService {
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[CallingService] ICE state (offer): ${pc.iceConnectionState}`);
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log(`[CallingService] ICE gathering state: ${pc.iceGatheringState}`);
+      };
+
+      pc.onsignalingstatechange = () => {
+        console.log(`[CallingService] Signaling state: ${pc.signalingState}`);
+      };
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -216,6 +244,18 @@ export class CallingService {
             timestamp: Date.now()
           });
         }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[CallingService] ICE state (accept): ${pc.iceConnectionState}`);
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log(`[CallingService] ICE gathering state: ${pc.iceGatheringState}`);
+      };
+
+      pc.onsignalingstatechange = () => {
+        console.log(`[CallingService] Signaling state: ${pc.signalingState}`);
       };
 
       await pc.setRemoteDescription(new RTCSessionDescription(offerPayload.sdp));

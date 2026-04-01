@@ -117,7 +117,7 @@ export class GroupService {
   onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
     const path = `signal_rooms/${groupId}/mutes/${memberPub}`;
     const evId = `mute_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
-    
+
     (this.db.On as any)(path, (data: any) => {
       callback(!!data);
     }, evId);
@@ -143,7 +143,7 @@ export class GroupService {
     }
 
     const role = await this.getMemberRole(groupId, myPub);
-    
+
     // Broadcast check for send_message
     if (action === "send_message") {
       try {
@@ -158,8 +158,8 @@ export class GroupService {
         // If meta retrieval fails, and it's a group UUID, better to be safe
         const isGroup = groupId.length === 36 && groupId.includes("-");
         if (isGroup && (e?.err === 'notfound' || e?.err === 'timeout')) {
-           // If it's a known group but meta is missing, treat as restricted if no role
-           if (!role) return false;
+          // If it's a known group but meta is missing, treat as restricted if no role
+          if (!role) return false;
         }
       }
     }
@@ -171,7 +171,7 @@ export class GroupService {
         if (meta && meta.adminPub === myPub) {
           return true; // Admins can perform everything
         }
-      } catch (e) {}
+      } catch (e) { }
       return false;
     }
 
@@ -249,15 +249,15 @@ export class GroupService {
 
     // Specific logic for self-downgrade
     if (myPub === memberPub) {
-       if (newRole === 'administrator') throw new Error("Cannot promote self to admin");
-       if (myRole === 'administrator') {
-         // Count admins
-         const members = await this.getMembers(groupId);
-         const adminCount = members.filter(m => m.role === 'administrator').length;
-         if (adminCount <= 1) throw new Error("Cannot downgrade the last administrator");
-       }
-       await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}/role`, newRole);
-       return;
+      if (newRole === 'administrator') throw new Error("Cannot promote self to admin");
+      if (myRole === 'administrator') {
+        // Count admins
+        const members = await this.getMembers(groupId);
+        const adminCount = members.filter(m => m.role === 'administrator').length;
+        if (adminCount <= 1) throw new Error("Cannot downgrade the last administrator");
+      }
+      await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}/role`, newRole);
+      return;
     }
 
     if (newRole === "administrator" && !(await this.canPerform(groupId, "promote_admin_manual"))) {
@@ -276,54 +276,54 @@ export class GroupService {
     try {
       const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
       const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
-    
-    const members: GroupMember[] = [];
-    if (membersNode) {
-      Object.entries(membersNode)
-        .filter(([pub, data]) => pub !== "_" && pub !== ">" && data !== null)
-        .forEach(([pub, data]) => {
-          if (data && typeof data === "object") {
-            members.push({
-              pub,
-              role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
-              joinedAt: data.joinedAt || Date.now(),
-            });
-          } else {
-            // Handle pointers or corrupted data
-            members.push({
-              pub,
-              role: (meta && meta.adminPub === pub ? "administrator" : "peer"),
-              joinedAt: Date.now(),
-            });
-          }
+
+      const members: GroupMember[] = [];
+      if (membersNode) {
+        Object.entries(membersNode)
+          .filter(([pub, data]) => pub !== "_" && pub !== ">" && data !== null)
+          .forEach(([pub, data]) => {
+            if (data && typeof data === "object") {
+              members.push({
+                pub,
+                role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
+                joinedAt: data.joinedAt || Date.now(),
+              });
+            } else {
+              // Handle pointers or corrupted data
+              members.push({
+                pub,
+                role: (meta && meta.adminPub === pub ? "administrator" : "peer"),
+                joinedAt: Date.now(),
+              });
+            }
+          });
+      }
+
+      // Ensure the creator/admin is always in the list even if members node sync is delayed
+      if (meta && meta.adminPub && !members.find((m) => m.pub === (meta as any).adminPub)) {
+        members.push({
+          pub: meta.adminPub,
+          role: "administrator",
+          joinedAt: Date.now(),
         });
-    }
+      }
 
-    // Ensure the creator/admin is always in the list even if members node sync is delayed
-    if (meta && meta.adminPub && !members.find((m) => m.pub === (meta as any).adminPub)) {
-      members.push({
-        pub: meta.adminPub,
-        role: "administrator",
-        joinedAt: Date.now(),
-      });
+      return members;
+    } catch (e) {
+      console.warn(`[GroupService] Failed to get members for ${groupId}:`, e);
+      return [];
     }
-
-    return members;
-  } catch (e) {
-    console.warn(`[GroupService] Failed to get members for ${groupId}:`, e);
-    return [];
   }
-}
 
   /**
    * Kick Member
    */
   async kickMember(groupId: string, memberPub: string): Promise<void> {
     if (!(await this.canPerform(groupId, "kick_user"))) throw new Error("Unauthorized");
-    
+
     // 1. Remove from group members node
     await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}`, null);
-    
+
     // 2. Also try to remove the group from the target user's contact list 
     // This works if the admin has permission to write to that specific node or if it's a shared pointer
     await (this.db.Put as any)(`signal_v3_contacts_${memberPub}/${groupId}`, null);
@@ -354,7 +354,7 @@ export class GroupService {
   async deleteMessage(groupId: string, messageId: string, senderPub: string): Promise<void> {
     const myPub = this.db.getUserPub();
     const isOwn = myPub === senderPub;
-    
+
     if (isOwn) {
       if (!(await this.canPerform(groupId, "delete_own_message"))) throw new Error("Unauthorized");
     } else {
@@ -450,9 +450,9 @@ export class GroupService {
     if (Date.now() > invite.t) throw new Error("Invite expired");
 
     if (invite.u && invite.id) {
-       const inviteStatus = await (this.db.Get as any)(`signal_rooms/${invite.g}/active_invites/${invite.id}`) as any;
-       if (!inviteStatus || inviteStatus.status !== 'active') throw new Error("Invite already used or invalid");
-       await (this.db.Put as any)(`signal_rooms/${invite.g}/active_invites/${invite.id}`, { status: 'used', usedBy: myPub });
+      const inviteStatus = await (this.db.Get as any)(`signal_rooms/${invite.g}/active_invites/${invite.id}`) as any;
+      if (!inviteStatus || inviteStatus.status !== 'active') throw new Error("Invite already used or invalid");
+      await (this.db.Put as any)(`signal_rooms/${invite.g}/active_invites/${invite.id}`, { status: 'used', usedBy: myPub });
     }
 
     const meta = await (this.db.Get as any)(`signal_rooms/${invite.g}/meta`) as GroupInfo;
@@ -510,7 +510,7 @@ export class GroupService {
   async setGroupPublic(groupId: string, isPublic: boolean, publicName?: string): Promise<void> {
     const myPub = this.db.getUserPub();
     if (!myPub) throw new Error("Not logged in");
-    
+
     const role = await this.getMemberRole(groupId, myPub);
     if (role !== "administrator") throw new Error("Only administrators can toggle public status");
 
@@ -521,10 +521,10 @@ export class GroupService {
     const normalizedName = publicName?.trim().toLowerCase().replace(/\s+/g, '-');
 
     // 1. Update metadata
-    const updatedMeta: GroupInfo = { 
-      ...meta, 
-      isPublic, 
-      publicName: normalizedName || undefined 
+    const updatedMeta: GroupInfo = {
+      ...meta,
+      isPublic,
+      publicName: normalizedName || undefined
     };
     await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, updatedMeta);
 
@@ -551,7 +551,7 @@ export class GroupService {
       if (data && data.g && data.s) {
         return data;
       }
-    } catch (e) {}
+    } catch (e) { }
     return null;
   }
 

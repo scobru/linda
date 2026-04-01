@@ -237,10 +237,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           ) {
             console.log(`[ChatView] Auto-accepting image ${metaId}`);
             acceptedMetaIds.current.add(metaId);
-            fileTransferService?.acceptFile(msg.sender, {
-              sdp: offer,
-              metaId: metaId,
-            });
+            fileTransferService?.acceptFile(msg.sender, offer);
           }
         }
       }
@@ -622,6 +619,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                       if (offer) {
                         // Pass the offer object directly as it now contains all needed fields
+                        console.log(`[ChatView] Accepting offer for ${metaId} (current status: ${status})`);
                         fileTransferService?.acceptFile(msg.sender, offer);
                       } else {
                         console.warn(

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import type { FileMetadata } from '../hooks/useSignalMessaging';
+import type { TransferStatus } from '../FileTransferService';
 
 interface FileBubbleProps {
   metadata: FileMetadata;
   isMe: boolean;
   onAccept: () => void;
   progress: number;
-  status: 'idle' | 'offering' | 'incoming' | 'transferring' | 'completed' | 'failed' | 'offered';
+  status: TransferStatus;
   blob?: Blob | null;
 }
 
@@ -79,25 +80,31 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
         </button>
       )}
 
-      {!isMe && (status === 'idle' || status === 'offered') && (
+      {!isMe && (status === 'idle' || status === 'offered' || status === 'signaling') && (
         <div className="flex flex-col gap-2 mt-1">
           <div className="flex items-center gap-2 px-3 py-2 bg-black/10 rounded-xl border border-white/5 animate-pulse">
               <div className="loading loading-spinner loading-xs opacity-50"></div>
-              <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Waiting for offer...</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+                {status === 'signaling' ? 'Connecting...' : 'Waiting for offer...'}
+              </span>
           </div>
-          <button 
-            onClick={onAccept}
-            className="btn btn-xs btn-ghost text-[10px] opacity-30 hover:opacity-100"
-          >
-            Force Accept (Try anyway)
-          </button>
+          {(status === 'idle' || status === 'offered') && (
+            <button 
+              onClick={onAccept}
+              className="btn btn-xs btn-ghost text-[10px] opacity-30 hover:opacity-100"
+            >
+              Force Accept (Try anyway)
+            </button>
+          )}
         </div>
       )}
 
-      {isMe && status === 'offering' && (
+      {isMe && (status === 'offering' || status === 'signaling') && (
         <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-black/10 rounded-xl border border-white/5 animate-pulse">
             <div className="loading loading-spinner loading-xs opacity-50"></div>
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Preparing transfer...</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+              {status === 'signaling' ? 'Connecting...' : 'Preparing transfer...'}
+            </span>
         </div>
       )}
 
