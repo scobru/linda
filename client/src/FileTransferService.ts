@@ -218,6 +218,8 @@ export class FileTransferService {
     this.currentStatus = 'offering';
     this.currentMetaId = metaId;
     this.onStatusChange('offering', 0, { metaId });
+    // Trigger local preview for sender
+    this.onFileReceived(file, file.name, file.type, metaId);
     this.startTimeout();
 
     try {

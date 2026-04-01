@@ -41,10 +41,10 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
     <div className={`flex flex-col gap-2 max-w-sm rounded-2xl p-3 ${isMe ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content'} shadow-lg border border-white/5`}>
       {isImage && (previewUrl || isMe) ? (
         <div className="relative rounded-lg overflow-hidden bg-black/20 min-h-[100px] flex items-center justify-center">
-            {isMe ? (
-                 <div className="text-xs opacity-50 italic">Image Sent</div>
-            ) : previewUrl ? (
+            {previewUrl ? (
                 <img src={previewUrl} alt={metadata.name} className="max-w-full h-auto object-cover" />
+            ) : isMe ? (
+                 <div className="text-xs opacity-50 italic">Image Sent</div>
             ) : (
                 <div className="loading loading-spinner loading-md text-primary"></div>
             )}
