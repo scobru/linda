@@ -18,15 +18,21 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
         try {
           // 1. Fetch or generate uniqueUsername
           let uniqueName: string | undefined;
-          try {
-            uniqueName = (await db.userGet('profile/uniqueUsername')) as string;
-          } catch (e: any) {
-            if (e && e.err !== 'notfound') {
-              throw e;
+          
+          // Wait for sync: Retry fetch multiple times over 10s before giving up
+          console.log(`[useSignalInit] Fetching uniqueUsername for ${username}...`);
+          for (let i = 0; i < 15; i++) {
+            try {
+              uniqueName = (await db.userGet('profile/uniqueUsername')) as string;
+              if (uniqueName && typeof uniqueName === 'string') break;
+            } catch (e: any) {
+              if (e && e.err !== 'notfound') console.warn("[useSignalInit] Fetch error:", e);
             }
+            await new Promise(r => setTimeout(r, 750));
           }
 
           if (!uniqueName) {
+            console.log(`[useSignalInit] Handle not found for ${username}, generating random fallback...`);
             // Generate a default one: @name + 4 random digits
             const digits = Math.floor(1000 + Math.random() * 9000);
             uniqueName = `@${username}${digits}`;
