@@ -443,6 +443,8 @@ export class WormholeService {
         }
       });
     });
+  }
+
   /**
    * Cleans up transfers that have been pending for too long without completion.
    */
