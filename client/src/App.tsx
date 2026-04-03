@@ -299,9 +299,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         }
 
         // Cleanup signal node from GunDB after processing
+        // We use a longer timeout (60s) for file transfer signals to ensure reliability on slow mobile networks
+        const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:") ? 60000 : 20000;
         setTimeout(() => {
           if (userPub) db.gun.get(`signal_v13_inbox_${userPub}`).get(gunKey).put(null as any);
-        }, 15000);
+        }, cleanupDelay);
       } catch (e) {
         console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
       }

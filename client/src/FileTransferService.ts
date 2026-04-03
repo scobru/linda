@@ -11,7 +11,8 @@ export interface FileSignal {
 }
 
 const CHUNK_SIZE = 16384; // 16 KB - optimized for mobile/Safari
-const BUFFER_THRESHOLD = 256 * 1024; // 256 KB backpressure - tighter for mobile
+const BUFFER_THRESHOLD = 512 * 1024; // 512 KB soft limit
+const BUFFER_LOW_THRESHOLD = 64 * 1024; // 64 KB low-water mark for backpressure
 
 export class FileTransferService {
   private myPub: string;
@@ -38,6 +39,8 @@ export class FileTransferService {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.services.mozilla.com' },
     { urls: 'stun:stun.relay.metered.ca:80' },
     {
       urls: 'turn:global.relay.metered.ca:80',
@@ -110,6 +113,12 @@ export class FileTransferService {
         const metaId = signal.payload?.metaId || signal.payload?.id;
         console.log(`[FileTransfer] Received offer for metaId: ${metaId}. SDP exists: ${!!(signal.payload?.sdp || signal.payload?.type)}`);
 
+        // Prevent "Reset Loop": Ignore duplicate file_offers for the same metaId if we are already dealing with it
+        if (this.currentMetaId === metaId && (this.currentStatus === 'signaling' || this.currentStatus === 'transferring')) {
+          console.log(`[FileTransfer] Ignoring duplicate offer for ${metaId} (current status: ${this.currentStatus})`);
+          return;
+        }
+
         // Clean up any stale transfer before accepting a new one
         if (this.currentStatus !== 'idle' && this.currentMetaId && this.currentMetaId !== metaId) {
           console.log(`[FileTransfer] Cleaning up stale transfer ${this.currentMetaId} to accept new offer ${metaId}`);
@@ -140,7 +149,10 @@ export class FileTransferService {
       case 'file_candidate':
         const candidatePayload = signal.payload;
         const candMetaId = candidatePayload?.metaId;
-        if (!candMetaId) return;
+        if (!candMetaId) {
+          console.warn(`[FileTransfer] Received candidate without metaId from ${from.substring(0, 8)}`);
+          return;
+        }
 
         // De-duplicate candidates using their serialized JSON representation
         const candString = JSON.stringify(candidatePayload);
@@ -159,7 +171,8 @@ export class FileTransferService {
                                  (candidatePayload.sdpMLineIndex !== null && candidatePayload.sdpMLineIndex !== undefined);
 
           if (isValidCandidate) {
-            if (this.pc.remoteDescription) {
+            if (this.pc.remoteDescription && this.pc.remoteDescription.type) {
+                console.log(`[FileTransfer] Adding candidate for ${candMetaId}`);
                 this.pc.addIceCandidate(new RTCIceCandidate(candidatePayload)).catch(e => {
                   console.warn('[FileTransfer] Failed to add candidate:', e.message);
                 });
@@ -245,9 +258,17 @@ export class FileTransferService {
       const pc = new RTCPeerConnection({ 
         iceServers: this.iceServers,
         bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
-        iceCandidatePoolSize: 10
+        iceCandidatePoolSize: 5 // Reduced for mobile CPU/network efficiency
       });
       this.pc = pc;
+
+      // Monitor connection health with more granularity for mobile diagnostics
+      pc.onconnectionstatechange = () => {
+        console.log(`[FileTransfer] Connection state: ${pc.connectionState} (metaId: ${metaId})`);
+        if (pc.connectionState === 'failed') {
+          console.error(`[FileTransfer] PeerConnection FAILED for ${metaId}`);
+        }
+      };
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
@@ -294,6 +315,7 @@ export class FileTransferService {
       const dc = pc.createDataChannel('fileTransfer', { ordered: true });
       this.dc = dc;
       dc.binaryType = 'arraybuffer';
+      dc.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
 
       dc.onopen = () => {
         console.log('[FileTransfer] DataChannel OPENED (Initiator/Sender)');
@@ -381,9 +403,13 @@ export class FileTransferService {
       const pc = new RTCPeerConnection({ 
         iceServers: this.iceServers,
         bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
-        iceCandidatePoolSize: 10
+        iceCandidatePoolSize: 5 // Reduced for mobile
       });
       this.pc = pc;
+
+      pc.onconnectionstatechange = () => {
+        console.log(`[FileTransfer] Connection state (accept): ${pc.connectionState} (metaId: ${metaId})`);
+      };
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
@@ -428,6 +454,7 @@ export class FileTransferService {
             console.log('[FileTransfer] DataChannel OPENED (Receiver/Acceptor)');
             this.currentStatus = 'transferring';
             this.onStatusChange('transferring', 0, { metaId: this.currentMetaId });
+            dc.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
             this.startHeartbeat();
         };
         this.setupReceiver(dc);
@@ -525,14 +552,19 @@ export class FileTransferService {
       if (!(result instanceof ArrayBuffer)) return;
 
       // Handle backpressure
+      // High-performance backpressure using native 'onbufferedamountlow' event
       if (this.dc && this.dc.bufferedAmount > BUFFER_THRESHOLD) {
-        await new Promise(r => {
-          const check = setInterval(() => {
-            if (!this.dc || this.dc.bufferedAmount < BUFFER_THRESHOLD / 2) {
-              clearInterval(check);
-              r(null);
-            }
-          }, 30);
+        await new Promise<void>(r => {
+          const timeout = setTimeout(() => {
+            if (this.dc) this.dc.onbufferedamountlow = null;
+            r();
+          }, 5000); // 5s safety timeout
+
+          this.dc!.onbufferedamountlow = () => {
+            clearTimeout(timeout);
+            if (this.dc) this.dc.onbufferedamountlow = null;
+            r();
+          };
         });
       }
 
@@ -544,7 +576,9 @@ export class FileTransferService {
       packet.set(new Uint8Array(result), 1);
       
       // Proper slicing for iOS/Safari compatibility
-      this.dc.send(packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength));
+      // Efficient binary sending: use the underlying buffer view directly if possible
+      // Using dc.send(Uint8Array) is standard and avoids explicit buffer slicing in many engines
+      this.dc.send(packet);
       
       offset += result.byteLength;
       
