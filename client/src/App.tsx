@@ -278,10 +278,23 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             callingServiceRef.current.handleIncomingSignal(data.sender, signal);
           }
         } else if (trimmed.startsWith("{")) {
-          // Legacy support or fallback
+          // Legacy support or fallback - handle signals without prefix
           try { 
             const signal = JSON.parse(trimmed); 
-            if (signal) fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+            if (signal) {
+              const type = signal.type || "";
+              // Video call signals use plain types: offer, answer, candidate, etc.
+              // File transfer signals use prefixed types: file_offer, file_answer, etc.
+              const isCallSignal = ['offer', 'answer', 'candidate', 'ringing', 'reject', 'bye'].includes(type);
+              
+              if (isCallSignal && callingServiceRef.current) {
+                console.log(`[App] Routing prefix-less ${type} signal to CallingService`);
+                callingServiceRef.current.handleIncomingSignal(data.sender, signal);
+              } else {
+                // Default to file transfer for 'file_*' types or unknown signals
+                fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+              }
+            }
           } catch (e) {}
         }
 
