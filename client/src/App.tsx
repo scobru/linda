@@ -31,8 +31,8 @@ import { CallingService } from "./CallingService";
 import type { CallStatus } from "./CallingService";
 import { CallingOverlay } from "./components/CallingOverlay";
 import { FileTransferService } from "./FileTransferService";
-import type { TransferStatus } from "./FileTransferService";
 import { SignalService } from "./SignalService";
+import { WormholeService } from "./WormholeService";
 
 // Extend window interface
 declare global {
@@ -60,16 +60,17 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [isVideoCall, setIsVideoCall] = useState(false);
   const callingServiceRef = useRef<CallingService | null>(null);
 
+  // ── Wormhole State ──
+  const wormholeServiceRef = useRef<WormholeService | null>(null);
+  const [wormholeStatuses, setWormholeStatuses] = useState<Record<string, string>>({});
+
   // ── File Transfer State ──
   const fileTransferServiceRef = useRef<FileTransferService | null>(null);
-  const [transferStatus, setTransferStatus] = useState<
-    Record<string, TransferStatus>
-  >({});
   const [transferProgress, setTransferProgress] = useState<
     Record<string, number>
   >({});
   const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
-  const [transferOffers, setTransferOffers] = useState<Record<string, any>>({});
+  const [transferOffers] = useState<Record<string, any>>({});
   const processedSignalsRef = useRef<Set<string>>(new Set());
 
   const [notification, setNotification] = useState<{
@@ -130,17 +131,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const fileTransferServiceInst = useMemo(() => {
     if (!isLoggedIn || !userPub) return null;
     const service = new FileTransferService(window.gun as any, userPub);
-    service.onStatusChange = (status, progress, data) => {
-      if (data?.metaId) {
-        setTransferStatus((prev) => ({ ...prev, [data.metaId]: status }));
-        if (progress !== undefined) {
-          setTransferProgress((prev) => ({ ...prev, [data.metaId]: progress }));
-        }
-        if ((status === "incoming" || status === "signaling") && (data?.sdp || data?.type)) {
-          setTransferOffers((prev) => ({ ...prev, [data.metaId]: data }));
-        }
-      }
-    };
+
     service.onFileReceived = (blob, _name, _mimeType, metaId) => {
       if (metaId) {
         setTransferBlobs((prev) => ({ ...prev, [metaId]: blob }));
@@ -154,6 +145,25 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     fileTransferServiceRef.current = service;
     return service;
   }, [isLoggedIn, userPub]);
+
+  const wormholeServiceInst = useMemo(() => {
+    if (!isLoggedIn || !db.gun) return null;
+    const service = new WormholeService(db.gun);
+    service.onStatusChange = ({ code, status, message, fileData }) => {
+      console.log(`[Wormhole] ${code} status: ${status} - ${message}`);
+      setWormholeStatuses((prev) => ({ ...prev, [code]: status }));
+      if (fileData?.blob) {
+        setTransferBlobs((prev) => ({ ...prev, [code]: fileData.blob }));
+      }
+    };
+    service.onProgress = ({ progress, code }: any) => {
+      if (code) {
+        setTransferProgress((prev) => ({ ...prev, [code]: progress }));
+      }
+    };
+    wormholeServiceRef.current = service;
+    return service;
+  }, [isLoggedIn, db.gun]);
 
   // Update signal sender whenever signalService becomes available
   useEffect(() => {
@@ -843,8 +853,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
                 onInitiateCall={handleInitiateCall}
-                fileTransferService={fileTransferServiceRef.current}
-                transferStatuses={transferStatus}
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
@@ -853,6 +861,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 isContactsLoading={isContactsLoading}
                 acceptContact={acceptContact}
                 blockContact={blockContact}
+                wormholeService={wormholeServiceInst}
+                wormholeStatuses={wormholeStatuses}
               />
             }
           />
@@ -890,8 +900,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
                 onInitiateCall={handleInitiateCall}
-                fileTransferService={fileTransferServiceRef.current}
-                transferStatuses={transferStatus}
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
@@ -900,6 +908,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 isContactsLoading={isContactsLoading}
                 acceptContact={acceptContact}
                 blockContact={blockContact}
+                wormholeService={wormholeServiceInst}
+                wormholeStatuses={wormholeStatuses}
               />
             }
           />
@@ -1009,8 +1019,6 @@ const ChatWrapper: React.FC<{
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   setShowGroupSettings: (id: string | null) => void;
   onInitiateCall: (video: boolean) => void;
-  fileTransferService: FileTransferService | null;
-  transferStatuses: Record<string, TransferStatus>;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
@@ -1019,6 +1027,8 @@ const ChatWrapper: React.FC<{
   isContactsLoading: boolean;
   acceptContact: (id: string) => Promise<void>;
   blockContact: (id: string) => Promise<void>;
+  wormholeService: WormholeService | null;
+  wormholeStatuses: Record<string, string>;
 }> = (props) => {
   return <ChatView {...props} />;
 };

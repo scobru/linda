@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import type { FileMetadata } from '../hooks/useSignalMessaging';
-import type { TransferStatus } from '../FileTransferService';
 
 interface FileBubbleProps {
   metadata: FileMetadata;
@@ -8,7 +7,8 @@ interface FileBubbleProps {
   isCloud?: boolean;
   onAccept: () => void;
   progress: number;
-  status: TransferStatus;
+  status: string;
+  wormholeStatus?: string;
   blob?: Blob | null;
 }
 
@@ -19,6 +19,7 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
   onAccept,
   progress,
   status,
+  wormholeStatus,
   blob
 }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -63,65 +64,46 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
         </div>
       )}
 
-      {status === 'transferring' && (
+      {(metadata.method === 'wormhole' && wormholeStatus === 'downloading') && (
         <div className="w-full mt-2">
           <div className="flex justify-between text-[10px] mb-1 opacity-70">
-            <span>Transferring...</span>
-            <span>{Math.round((progress / metadata.size) * 100)}%</span>
+            <span>Downloading...</span>
+            <span>{progress}%</span>
           </div>
-          <progress className="progress progress-primary w-full h-1.5" value={progress} max={metadata.size}></progress>
-          <div className="text-[9px] mt-1.5 opacity-50 font-bold uppercase tracking-tighter animate-pulse text-center">
-            ⚠️ Tenere aperta la scheda / Keep tab open
-          </div>
+          <progress className="progress progress-primary w-full h-1.5" value={progress} max={100}></progress>
         </div>
       )}
 
-      {(!isMe || isCloud) && status === 'incoming' && (!isImage || !blob) && (
+      {(!isMe || isCloud) && (metadata.method === 'wormhole' && status !== 'completed' && !wormholeStatus) && (!isImage || !blob) && (
         <button onClick={onAccept} className="btn btn-sm btn-primary gap-2 mt-1 shadow-lg shadow-primary/20">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
           </svg>
-          {isCloud ? '☁️ Download from Cloud' : isImage ? 'Accept Image' : 'Accept File'}
+          {metadata.method === 'wormhole' ? 'Reliable Download' : isCloud ? '☁️ Download from Cloud' : isImage ? 'Accept Image' : 'Accept File'}
         </button>
       )}
 
-      {(!isMe || isCloud) && (status === 'idle' || status === 'offered' || status === 'signaling') && (
+      {(!isMe || isCloud) && (metadata.method === 'wormhole' && wormholeStatus && ['connecting', 'found', 'checking-relay', 'encrypting', 'uploading'].includes(wormholeStatus)) && (
         <div className="flex flex-col gap-2 mt-1">
           <div className="flex items-center gap-2 px-3 py-2 bg-black/10 rounded-xl border border-white/5 animate-pulse">
               <div className="loading loading-spinner loading-xs opacity-50"></div>
               <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">
-                {status === 'signaling' ? 'Connecting...' : isCloud ? 'Waiting for device...' : 'Waiting for offer...'}
+                {`Wormhole: ${wormholeStatus}`}
               </span>
           </div>
-          {(status === 'idle' || status === 'offered') && (
-            <button 
-              onClick={onAccept}
-              className="btn btn-xs btn-ghost text-[10px] opacity-30 hover:opacity-100"
-            >
-              Force Accept (Try anyway)
-            </button>
-          )}
         </div>
       )}
 
-      {isMe && (status === 'offering' || status === 'signaling') && (
+      {isMe && metadata.method === 'wormhole' && wormholeStatus && ['encrypting', 'uploading'].includes(wormholeStatus) && (
         <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-black/10 rounded-xl border border-white/5">
-            {isCloud && previewUrl ? (
-                <span className="text-[9px] font-black uppercase tracking-widest opacity-40">
-                   ☁️ Ready for other devices
-                </span>
-            ) : (
-              <>
-                <div className="loading loading-spinner loading-xs opacity-50"></div>
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-50 animate-pulse">
-                  {status === 'signaling' ? 'Connecting...' : 'Preparing transfer...'}
-                </span>
-              </>
-            )}
+            <div className="loading loading-spinner loading-xs opacity-50"></div>
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-50 animate-pulse">
+              {wormholeStatus === 'encrypting' ? 'Encrypting...' : 'Uploading to IPFS...'}
+            </span>
         </div>
       )}
 
-      {status === 'completed' && blob && (
+      {(status === 'completed' || (metadata.method === 'wormhole' && wormholeStatus === 'downloaded')) && blob && (
         <a 
           href={URL.createObjectURL(blob)} 
           download={metadata.name}

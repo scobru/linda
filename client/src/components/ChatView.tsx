@@ -5,12 +5,8 @@ import { GroupService } from "../GroupService";
 import { AudioRecorder } from "./AudioRecorder";
 import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useSignalMessaging";
-import type { TransferStatus } from "../FileTransferService";
-import { FileTransferService } from "../FileTransferService";
-
-// Moved interface to separate file or imported from hook
-
 import { SignalService } from "../SignalService";
+import { WormholeService } from "../WormholeService";
 
 interface ChatViewProps {
   recipient: string;
@@ -44,11 +40,11 @@ interface ChatViewProps {
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   setShowGroupSettings: (id: string | null) => void;
   onInitiateCall: (video: boolean) => void;
-  fileTransferService: FileTransferService | null;
-  transferStatuses: Record<string, TransferStatus>;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
+  wormholeService: WormholeService | null;
+  wormholeStatuses: Record<string, string>;
   handleClearChat: (id: string) => void;
   trustedContacts: Set<string>;
   isContactsLoading: boolean;
@@ -81,11 +77,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handleDeleteMessage,
   setShowGroupSettings,
   onInitiateCall,
-  fileTransferService,
-  transferStatuses,
   transferProgress,
   transferBlobs,
   transferOffers,
+  wormholeService,
+  wormholeStatuses,
   handleClearChat,
   trustedContacts,
   isContactsLoading,
@@ -95,7 +91,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const acceptedMetaIds = useRef<Set<string>>(new Set());
   const [canSendMessage, setCanSendMessage] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
@@ -146,19 +141,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // ── Prevent Tab Close During Transfer ──
   useEffect(() => {
-    const isTransferring = Object.values(transferStatuses).some(
-      s => s === 'transferring' || s === 'signaling' || s === 'offering'
+    const isTransferring = Object.values(wormholeStatuses).some(
+      s => s === 'uploading' || s === 'downloading' || s === 'encrypting' || s === 'decrypting'
     );
 
     if (isTransferring) {
       const handleBeforeUnload = (e: BeforeUnloadEvent) => {
         e.preventDefault();
-        e.returnValue = ''; // Standard for modern browsers to show confirmation
+        e.returnValue = '';
       };
       window.addEventListener('beforeunload', handleBeforeUnload);
       return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }
-  }, [transferStatuses]);
+  }, [wormholeStatuses]);
 
   const currentMessages = useMemo(
     () => messages[recipient] || [],
@@ -174,10 +169,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!fileTransferService) {
-      console.error("File transfer service not initialized");
+
+    if (!wormholeService) {
+      console.error("Wormhole service not initialized");
       return;
     }
+
 
     const meta: FileMetadata = {
       name: file.name,
@@ -189,14 +186,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
 
     try {
-      // 0. Resolve recipient pubkey if needed
-      let targetPub = recipient;
+      // Initiate Wormhole transfer
       if (
         signalService &&
         (recipient.startsWith("@") || recipient.length < 30)
       ) {
         try {
-          targetPub = await signalService.getPubKeyFromUsername(recipient);
         } catch (err) {
           console.warn(
             "[ChatView] Could not resolve pubkey for file transfer:",
@@ -205,14 +200,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }
       }
 
-      // 1. Send metadata through Signal protocol
-      handleSendMessage(undefined, undefined, meta);
-
-      // 2. Start WebRTC offer for all transfers (including self-transfers to other devices)
-      console.log(
-        `[ChatView] Initiating file offer to ${targetPub.slice(0, 8)}...`,
-      );
-      await fileTransferService.offerFile(targetPub, file, meta.id);
+      // Initiate Wormhole transfer
+      if (wormholeService) {
+        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
+        const authToken = import.meta.env.VITE_AUTH_TOKEN || 'dummy';
+        
+        const code = await wormholeService.send({
+          file,
+          filename: file.name,
+          size: file.size,
+          type: file.type,
+          relayUrl,
+          authToken
+        });
+        
+        meta.wormholeCode = code;
+        meta.method = 'wormhole';
+        meta.status = 'offered';
+        handleSendMessage(undefined, undefined, meta);
+      }
     } catch (err) {
       console.error("Failed to initiate file transfer:", err);
     } finally {
@@ -226,50 +232,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
     transferOffersRef.current = transferOffers;
   }, [transferOffers]);
 
-  // Auto-accept images
+  // Auto-accept images for Cloud Sync
   useEffect(() => {
-    if (!fileTransferService) return;
+    if (!wormholeService) return;
 
     currentMessages.forEach((msg) => {
-      // Auto-accept if it's an image AND:
-      // - It's from another user (incoming), OR
-      // - It's in My Cloud chat (cross-device sync — sender is "Me" from another device)
+      // Auto-accept if it's an image in Cloud/Self chat
       const isCloudChat = recipient === userPub;
-      const isIncoming = msg.sender !== "Me";
-      
-      // In Cloud mode, auto-accept ALL image offers (they come from our other devices).
-      // In normal mode, only auto-accept incoming images.
-      if (msg.type === "image" && (isIncoming || isCloudChat) && msg.fileMetadata) {
-        const metaId = msg.fileMetadata.id;
+      if (msg.type === "image" && isCloudChat && msg.fileMetadata?.wormholeCode) {
+        const code = msg.fileMetadata.wormholeCode;
+        if (wormholeStatuses[code]) return; // Already in progress or completed
 
-        // Final guard: Check ref immediately
-        if (acceptedMetaIds.current.has(metaId)) return;
-
-        const status = transferStatuses[metaId];
-        const offer = transferOffers[metaId];
-
-        if (
-          offer &&
-          typeof offer === "object" &&
-          ("sdp" in offer || "type" in offer)
-        ) {
-          // Only accept if clearly not already in progress
-          if (
-            !status ||
-            status === "idle" ||
-            status === "incoming" ||
-            status === "offered"
-          ) {
-            console.log(`[ChatView] Auto-accepting image ${metaId} in ${isCloudChat ? 'Cloud' : 'p2p'} mode`);
-            acceptedMetaIds.current.add(metaId);
-            // In Cloud mode, use our own pubkey as the sender
-            const senderPub = isCloudChat ? userPub : (msg.senderPub || msg.sender);
-            fileTransferService?.acceptFile(senderPub, offer);
-          }
-        }
+        console.log(`[ChatView] Auto-accepting Cloud Sync image ${code}`);
+        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
+        wormholeService.receive(code, relayUrl);
       }
     });
-  }, [currentMessages, transferStatuses, transferOffers, fileTransferService, recipient, userPub]);
+  }, [currentMessages, wormholeStatuses, wormholeService, recipient, userPub]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -624,38 +603,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     metadata={msg.fileMetadata}
                     isMe={isMe}
                     isCloud={recipient === userPub}
-                    status={transferStatuses[msg.fileMetadata.id] || "idle"}
-                    progress={transferProgress[msg.fileMetadata.id] || 0}
+                    status="idle"
+                    wormholeStatus={msg.fileMetadata.method === 'wormhole' ? wormholeStatuses[msg.fileMetadata.wormholeCode || ''] : undefined}
+                    progress={
+                      msg.fileMetadata.method === 'wormhole' 
+                        ? transferProgress[msg.fileMetadata.wormholeCode || ''] || 0
+                        : 0
+                    }
                     blob={
-                      transferBlobs[msg.fileMetadata.id] || transferBlobs.last
+                      msg.fileMetadata.method === 'wormhole'
+                        ? transferBlobs[msg.fileMetadata.wormholeCode || '']
+                        : undefined
                     }
                     onAccept={async () => {
-                      const metaId = msg.fileMetadata!.id;
-                      let offer = transferOffersRef.current[metaId];
-
-                      if (!offer) {
-                        console.log(
-                          `[ChatView] Offer for ${metaId} not found in state, waiting 12s...`,
-                        );
-                        // Increased wait to allow GunDB to sync the offer
-                        for (let i = 0; i < 24; i++) {
-                          await new Promise((r) => setTimeout(r, 500));
-                          offer = transferOffersRef.current[metaId];
-                          if (offer) break;
-                        }
-                      }
-
-                      if (offer) {
-                        // Pass the offer object directly as it now contains all needed fields
-                        console.log(`[ChatView] Accepting offer for ${metaId} (current status: ${status})`);
-                        fileTransferService?.acceptFile(msg.sender, offer);
-                      } else {
-                        console.warn(
-                          `[ChatView] Cannot accept file: No offer found in state for ${metaId} after wait.`,
-                        );
-                        alert(
-                          "Transfer offer not received yet. Please wait a moment or ask the sender to retry.",
-                        );
+                      const meta = msg.fileMetadata!;
+                      if (meta.method === 'wormhole' && meta.wormholeCode && wormholeService) {
+                        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
+                        await wormholeService.receive(meta.wormholeCode, relayUrl);
                       }
                     }}
                   />
@@ -816,7 +780,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               title={
                 recipient.length === 36 && recipient.includes("-")
                   ? "P2P Transfers only available in 1:1"
-                  : "Attach File"
+                  : "Reliable Attach File (Wormhole)"
               }
             >
               <svg

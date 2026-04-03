@@ -11,6 +11,8 @@ export interface FileMetadata {
   mimeType: string;
   id: string; // Internal file transfer ID
   status: 'offered' | 'incoming' | 'transferring' | 'completed' | 'failed';
+  method?: 'webrtc' | 'wormhole';
+  wormholeCode?: string;
 }
 
 export interface Message {
