@@ -18,7 +18,8 @@ export class FileTransferService {
   private clientId: string;
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
-  private remoteCandidates: RTCIceCandidateInit[] = [];
+  private remoteCandidates = new Map<string, RTCIceCandidateInit[]>();
+  private processedCandidates = new Map<string, Set<string>>();
   
   public onStatusChange: (status: TransferStatus, progress?: number, data?: any) => void = () => {};
   public onFileReceived: (blob: Blob, name: string, mimeType: string, metaId?: string) => void = () => {};
@@ -29,7 +30,8 @@ export class FileTransferService {
   private timeoutId: any = null;
   private readonly TIMEOUT_MS = 120000; // 120 seconds
   private pendingOps = new Set<string>();
-  private processedCandidates = new Set<string>();
+  private heartbeatInterval: any = null;
+  private hasAttemptedIceRestart = false;
 
   private iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -58,7 +60,6 @@ export class FileTransferService {
       credential: 'kMYL/EfiJ0GIGHWI'
     }
   ];
-  private hasAttemptedIceRestart = false;
 
   constructor(_gun: IGunInstance, myPub: string) {
     this.myPub = myPub;
@@ -139,24 +140,20 @@ export class FileTransferService {
       case 'file_candidate':
         const candidatePayload = signal.payload;
         const candMetaId = candidatePayload?.metaId;
-
-        // Only process candidates if they match our current metaId or if we don't have one yet (start buffering)
-        if (candMetaId && this.currentMetaId && candMetaId !== this.currentMetaId) {
-          console.log(`[FileTransfer] Ignoring candidate for different metaId: ${candMetaId} (Current: ${this.currentMetaId})`);
-          return;
-        }
+        if (!candMetaId) return;
 
         // De-duplicate candidates using their serialized JSON representation
         const candString = JSON.stringify(candidatePayload);
-        if (this.processedCandidates.has(candString)) return;
-        this.processedCandidates.add(candString);
+        let processedSet = this.processedCandidates.get(candMetaId);
+        if (!processedSet) {
+          processedSet = new Set();
+          this.processedCandidates.set(candMetaId, processedSet);
+        }
+        if (processedSet.has(candString)) return;
+        processedSet.add(candString);
 
-        if (this.pc) {
-          // Relaxed check: allow null/empty sdpMid/sdpMLineIndex for end-of-candidates
+        if (this.pc && candMetaId === this.currentMetaId) {
           const isEndOfCandidates = !candidatePayload.candidate || candidatePayload.candidate === "";
-
-          // Some browsers/networks might send candidates with missing metadata
-          // We add them if it's an end-of-candidates OR if it has at least one identifier
           const isValidCandidate = isEndOfCandidates || 
                                  (candidatePayload.sdpMid !== null && candidatePayload.sdpMid !== undefined) || 
                                  (candidatePayload.sdpMLineIndex !== null && candidatePayload.sdpMLineIndex !== undefined);
@@ -167,16 +164,23 @@ export class FileTransferService {
                   console.warn('[FileTransfer] Failed to add candidate:', e.message);
                 });
             } else {
-                console.log('[FileTransfer] Buffering remote candidate (remoteDescription not set yet)');
-                this.remoteCandidates.push(candidatePayload);
+                let list = this.remoteCandidates.get(candMetaId);
+                if (!list) {
+                  list = [];
+                  this.remoteCandidates.set(candMetaId, list);
+                }
+                list.push(candidatePayload);
             }
-          } else {
-            console.warn('[FileTransfer] Ignoring potentially malformed candidate:', candidatePayload);
           }
         } else {
-          // Buffer candidate even if PC is not yet created (arrived before acceptFile/offerFile)
-          console.log(`[FileTransfer] Buffering remote candidate for future PC (metaId: ${candMetaId})`);
-          this.remoteCandidates.push(candidatePayload);
+          // Buffer candidate for future or matching PC
+          let list = this.remoteCandidates.get(candMetaId);
+          if (!list) {
+            list = [];
+            this.remoteCandidates.set(candMetaId, list);
+          }
+          list.push(candidatePayload);
+          console.log(`[FileTransfer] Buffered remote candidate for metaId: ${candMetaId} (Total: ${list.length})`);
         }
         break;
 
@@ -206,12 +210,14 @@ export class FileTransferService {
       if (!sdpStr || typeof sdpStr !== 'string') throw new Error(`Invalid answer SDP string: ${JSON.stringify(payload)}`);
 
       await this.pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp: sdpStr }));
-      console.log('[FileTransfer] Remote description set successfully. Draining buffered candidates:', this.remoteCandidates.length);
+      const metaId = this.currentMetaId || "";
+      const list = this.remoteCandidates.get(metaId) || [];
+      console.log(`[FileTransfer] Remote description set. Draining ${list.length} buffered candidates for ${metaId}`);
 
-      this.remoteCandidates.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
+      list.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
         console.warn('[FileTransfer] Failed to add buffered candidate after answer:', err);
       }));
-      this.remoteCandidates = [];
+      this.remoteCandidates.delete(metaId);
     } catch (e) {
       console.error('[FileTransfer] Failed to set answer:', e);
       this.cleanup('answer_error');
@@ -226,12 +232,6 @@ export class FileTransferService {
   public async offerFile(recipientPub: string, file: File, metaId: string) {
     if (this.pendingOps.has(metaId) || (this.currentStatus !== 'idle' && this.currentMetaId !== metaId)) return;
     this.pendingOps.add(metaId);
-
-    // Only clear candidates and state if this is a brand new metaId
-    if (this.currentMetaId !== metaId) {
-      this.remoteCandidates = [];
-      this.processedCandidates.clear();
-    }
 
     this.currentStatus = 'offering';
     this.currentMetaId = metaId;
@@ -256,7 +256,7 @@ export class FileTransferService {
           if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
             console.warn(`[FileTransfer] ICE failed for ${metaId}, attempting ICE restart...`);
             this.hasAttemptedIceRestart = true;
-            pc.restartIce();
+            this.triggerIceRestart(recipientPub, file, metaId);
           } else if (this.currentStatus !== 'completed') {
             console.error(`[FileTransfer] ICE connection failed after restart for ${metaId}`);
             this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE failed` });
@@ -270,7 +270,7 @@ export class FileTransferService {
               if (!this.hasAttemptedIceRestart) {
                 console.warn(`[FileTransfer] ICE disconnected timeout for ${metaId}, trying restart...`);
                 this.hasAttemptedIceRestart = true;
-                pc.restartIce();
+                this.triggerIceRestart(recipientPub, file, metaId);
               } else {
                 console.error(`[FileTransfer] ICE disconnected timeout for ${metaId}`);
                 this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE disconnected` });
@@ -299,6 +299,7 @@ export class FileTransferService {
         console.log('[FileTransfer] DataChannel OPENED (Initiator/Sender)');
         this.currentStatus = 'transferring';
         this.onStatusChange('transferring', 0, { metaId: this.currentMetaId });
+        this.startHeartbeat();
         this.startSending(file);
       };
 
@@ -341,6 +342,23 @@ export class FileTransferService {
     }
   }
 
+  private async triggerIceRestart(recipientPub: string, file: File | null, metaId: string) {
+    if (!this.pc) return;
+    try {
+      console.log(`[FileTransfer] Triggering ICE restart for ${metaId}...`);
+      const offer = await this.pc.createOffer({ iceRestart: true });
+      await this.pc.setLocalDescription(offer);
+      this.sendSignal(recipientPub, {
+        type: 'file_offer',
+        from: this.myPub,
+        payload: { type: offer.type, sdp: offer.sdp, metaId: metaId },
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error("[FileTransfer] ICE restart signaling failed:", e);
+    }
+  }
+
   public async acceptFile(senderPub: string, offer: any) {
     const metaId = offer?.metaId;
     if (!metaId || this.pendingOps.has(metaId)) return;
@@ -351,12 +369,6 @@ export class FileTransferService {
     }
 
     this.pendingOps.add(metaId);
-
-    // Only clear candidates if this is a brand new metaId
-    if (this.currentMetaId !== metaId) {
-      this.remoteCandidates = [];
-      this.processedCandidates.clear();
-    }
 
     this.currentStatus = 'signaling';
     this.currentMetaId = metaId;
@@ -416,6 +428,7 @@ export class FileTransferService {
             console.log('[FileTransfer] DataChannel OPENED (Receiver/Acceptor)');
             this.currentStatus = 'transferring';
             this.onStatusChange('transferring', 0, { metaId: this.currentMetaId });
+            this.startHeartbeat();
         };
         this.setupReceiver(dc);
       };
@@ -462,12 +475,14 @@ export class FileTransferService {
 
       console.log(`[FileTransfer] Setting remote description: type=${sdpType}, sdp length=${sdpStr.length}`);
       await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp: sdpStr }));
-      console.log('[FileTransfer] Remote description set successfully. Draining buffered candidates:', this.remoteCandidates.length);
+      
+      const list = this.remoteCandidates.get(metaId) || [];
+      console.log(`[FileTransfer] Remote description set. Draining ${list.length} buffered candidates for ${metaId}`);
 
-      this.remoteCandidates.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
+      list.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
          console.warn('[FileTransfer] Failed to add buffered candidate after accept:', err);
       }));
-      this.remoteCandidates = [];
+      this.remoteCandidates.delete(metaId);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -575,6 +590,14 @@ export class FileTransferService {
     let receivedBytes = 0;
 
     dc.onmessage = (e) => {
+      if (typeof e.data === 'string' && e.data === 'ping') {
+        if (dc.readyState === 'open') dc.send('pong');
+        return;
+      }
+      if (typeof e.data === 'string' && e.data === 'pong') {
+        return;
+      }
+
       if (!(e.data instanceof ArrayBuffer)) return;
       const packet = new Uint8Array(e.data);
       const type = packet[0];
@@ -609,11 +632,33 @@ export class FileTransferService {
     this.onStatusChange('transferring', val, { metaId: this.currentMetaId });
   }
 
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.dc && this.dc.readyState === 'open') {
+        this.dc.send('ping');
+      } else {
+        this.stopHeartbeat();
+      }
+    }, 5000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
   private cleanup(source: string) {
     console.log(`[FileTransfer] Cleanup triggered from source: ${source}`);
     this.clearTimeout();
-    this.remoteCandidates = [];
-    this.processedCandidates.clear();
+    this.stopHeartbeat();
+    // We only clear ALL candidates on full cleanup if we are going to 'idle'
+    if (source.includes('success') || source.includes('crash') || source.includes('timeout')) {
+        this.remoteCandidates.clear();
+        this.processedCandidates.clear();
+    }
     this.hasAttemptedIceRestart = false;
     if (this.pc) { 
         console.log('[FileTransfer] Closing PeerConnection');
