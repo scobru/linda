@@ -120,7 +120,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
     };
     service.onRemoteStream = (stream: MediaStream) => {
-      setRemoteStream(stream);
+      // Force a new reference to trigger React re-render in the Overlay
+      setRemoteStream(new MediaStream(stream));
     };
     service.onStats = (stats: any) => {
       console.log(`[CallingService] Stats:`, stats);
@@ -190,7 +191,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           const payload = prefix + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
           const signalKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          const targetInbox = db.gun.get(`signal_v13_inbox_${toPub}`);
+          
+          // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
+          const targetInbox = db.gun.user(toPub).get(`signal_inbox_v13`);
 
           const doSend = (sendCert: string | null, retryLabel: string): Promise<boolean> => {
             return new Promise((resolve) => {
@@ -246,9 +249,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Signaling Listener ──
   useEffect(() => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst) return;
+    
+    const inboxSoul = `~${userPub}/signal_inbox_v13`;
+    console.log(`[App] Starting securely authorized signaling listener on ${inboxSoul}`);
 
-    console.log(`[App] Starting securely authorized signaling listener on signal_v13_inbox_${userPub}`);
-    db.gun.get(`signal_v13_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+    db.gun.get(inboxSoul).map().on(async (data: any, gunKey: string) => {
       if (!data || typeof data !== 'object' || processedSignalsRef.current.has(gunKey)) return;
       if (!data.sender || !data.body || data.type === undefined) return;
 
@@ -318,7 +323,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         // We use a longer timeout (60s) for file transfer signals to ensure reliability on slow mobile networks
         const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:") ? 60000 : 20000;
         setTimeout(() => {
-          if (userPub) db.gun.get(`signal_v13_inbox_${userPub}`).get(gunKey).put(null as any);
+          if (userPub) db.gun.user(userPub).get('signal_inbox_v13').get(gunKey).put(null as any);
         }, cleanupDelay);
       } catch (e) {
         console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
@@ -334,7 +339,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
     const kickInterval = setInterval(() => {
       console.log("[App] Sync Kick: Poking GunDB inbox...");
-      db.gun.get(`signal_v13_inbox_${userPub}`).get('_poke').put(Date.now());
+      db.gun.user(userPub).get('signal_inbox_v13').get('_poke').put(Date.now());
     }, 45000);
 
     return () => clearInterval(kickInterval);
