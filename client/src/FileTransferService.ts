@@ -342,7 +342,7 @@ export class FileTransferService {
     }
   }
 
-  private async triggerIceRestart(recipientPub: string, file: File | null, metaId: string) {
+  private async triggerIceRestart(recipientPub: string, _file: any, metaId: string) {
     if (!this.pc) return;
     try {
       console.log(`[FileTransfer] Triggering ICE restart for ${metaId}...`);
