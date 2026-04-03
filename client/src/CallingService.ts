@@ -1,6 +1,4 @@
-import { CallStatus } from './CallingService';
-
-export type { CallStatus };
+export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
 export interface CallSignal {
   id: string; // Unique ID per signal to prevent de-duplication of distinct packets (like ICE candidates)
