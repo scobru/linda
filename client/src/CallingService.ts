@@ -52,9 +52,51 @@ export class CallingService {
 
   private iceCandidateQueue: RTCIceCandidateInit[] = [];
   private seenSignals = new Set<string>();
+  private hasAttemptedIceRestart = false;
 
   constructor(myPub: string) {
     this.myPub = myPub;
+  }
+
+  public async triggerIceRestart() {
+    if (!this.peerConnection || !this.currentRecipient) return;
+    try {
+      console.log(`[CallingService] Triggering ICE restart for ${this.currentRecipient}...`);
+      this.hasAttemptedIceRestart = true;
+      const offer = await this.peerConnection.createOffer({ iceRestart: true });
+      await this.peerConnection.setLocalDescription(offer);
+
+      const video = this.localStream?.getVideoTracks().length ? this.localStream.getVideoTracks().length > 0 : false;
+      this.sendSignal(this.currentRecipient, {
+        type: 'offer',
+        from: this.myPub,
+        payload: { sdp: { type: offer.type, sdp: offer.sdp }, video },
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error("[CallingService] ICE restart signaling failed:", e);
+    }
+  }
+
+  public async handleIceRestartOffer(from: string, payload: any) {
+    if (!this.peerConnection || this.currentStatus !== 'connected') return;
+    try {
+      console.log(`[CallingService] Handling ICE restart offer from ${from.substring(0, 8)}`);
+      await this.peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      const answer = await this.peerConnection.createAnswer();
+      await this.peerConnection.setLocalDescription(answer);
+
+      this.sendSignal(from, {
+        type: 'answer',
+        from: this.myPub,
+        payload: { type: answer.type, sdp: answer.sdp },
+        timestamp: Date.now()
+      });
+      // process ICE queue just in case new candidates arrived
+      this.processIceQueue();
+    } catch (e) {
+      console.error('[CallingService] handleIceRestartOffer error:', e);
+    }
   }
 
   private onSendSignal: (to: string, signal: CallSignal) => void = () => {};
@@ -87,6 +129,9 @@ export class CallingService {
           this.currentRecipient = from;
           this.onStatusChange('incoming', { from, signal: payload });
           this.sendSignal(from, { type: 'ringing', from: this.myPub, payload: null, timestamp: Date.now() });
+        } else if (this.currentStatus === 'connected' && this.currentRecipient === from) {
+          // It's an ICE restart
+          this.handleIceRestartOffer(from, payload);
         } else {
           this.sendSignal(from, { type: 'reject', from: this.myPub, payload: 'busy', timestamp: Date.now() });
         }
@@ -97,15 +142,17 @@ export class CallingService {
         }
         break;
       case 'answer':
-        if (this.currentStatus === 'calling' && this.peerConnection) {
+        if ((this.currentStatus === 'calling' || this.currentStatus === 'connected') && this.peerConnection) {
           try {
             if (this.peerConnection.signalingState !== 'stable') {
               await this.peerConnection.setRemoteDescription(new RTCSessionDescription(payload));
-              this.currentStatus = 'connected';
-              this.onStatusChange('connected');
+              if (this.currentStatus !== 'connected') {
+                this.currentStatus = 'connected';
+                this.onStatusChange('connected');
+                this.startStatsLoop();
+                this.applyBitrateConstraints();
+              }
               this.processIceQueue();
-              this.startStatsLoop();
-              this.applyBitrateConstraints();
             }
           } catch (e) {
             console.error("[CallingService] Error setting remote description (answer):", e);
@@ -190,7 +237,17 @@ export class CallingService {
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log(`[CallingService] ICE state (offer): ${pc.iceConnectionState}`);
+        console.log(`[CallingService] ICE state (accept): ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+           if (!this.hasAttemptedIceRestart && this.currentStatus === 'connected') {
+              console.warn(`[CallingService] ICE ${pc.iceConnectionState}, attempting restart...`);
+              this.triggerIceRestart();
+           } else if (pc.iceConnectionState === 'failed') {
+              console.error("[CallingService] ICE connection failed after restart.");
+           }
+        } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+           this.hasAttemptedIceRestart = false;
+        }
       };
 
       pc.onicegatheringstatechange = () => {
@@ -323,6 +380,7 @@ export class CallingService {
     this.currentStatus = 'idle';
     this.currentRecipient = null;
     this.iceCandidateQueue = [];
+    this.hasAttemptedIceRestart = false;
     
     // Clear seen signals after a delay to allow final signaling to settle
     setTimeout(() => this.seenSignals.clear(), 10000);

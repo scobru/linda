@@ -113,10 +113,11 @@ export class FileTransferService {
         const metaId = signal.payload?.metaId || signal.payload?.id;
         console.log(`[FileTransfer] Received offer for metaId: ${metaId}. SDP exists: ${!!(signal.payload?.sdp || signal.payload?.type)}`);
 
-        // Prevent "Reset Loop": Ignore duplicate file_offers for the same metaId if we are already dealing with it
-        if (this.currentMetaId === metaId && (this.currentStatus === 'signaling' || this.currentStatus === 'transferring')) {
-          console.log(`[FileTransfer] Ignoring duplicate offer for ${metaId} (current status: ${this.currentStatus})`);
-          return;
+        // Check for ICE Restart condition
+        if (this.currentMetaId === metaId && (this.currentStatus === 'signaling' || this.currentStatus === 'transferring') && this.pc) {
+           console.log(`[FileTransfer] Received duplicate offer for ${metaId}. Assuming ICE restart.`);
+           this.handleIceRestartOffer(from, signal.payload);
+           return;
         }
 
         // Clean up any stale transfer before accepting a new one
@@ -203,6 +204,29 @@ export class FileTransferService {
           this.cleanup('remote_bye');
         }
         break;
+    }
+  }
+
+  public async handleIceRestartOffer(senderPub: string, offer: any) {
+    if (!this.pc) return;
+    try {
+      console.log(`[FileTransfer] Handling ICE restart offer from ${senderPub.substring(0, 8)}`);
+
+      let sdpType: RTCSdpType = offer.type || offer.sdp?.type || 'offer';
+      let sdpStr: string = typeof offer.sdp === 'string' ? offer.sdp : offer.sdp?.sdp;
+
+      await this.pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp: sdpStr }));
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+
+      this.sendSignal(senderPub, {
+        type: 'file_answer',
+        from: this.myPub,
+        payload: { type: answer.type, sdp: answer.sdp, metaId: this.currentMetaId },
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error('[FileTransfer] handleIceRestartOffer error:', e);
     }
   }
 
@@ -418,7 +442,7 @@ export class FileTransferService {
           if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
             console.warn(`[FileTransfer] ICE failed (accept) for ${metaId}, attempting ICE restart...`);
             this.hasAttemptedIceRestart = true;
-            pc.restartIce();
+            this.triggerIceRestart(senderPub, null, metaId);
           } else if (this.currentStatus !== 'completed') {
             console.error(`[FileTransfer] ICE connection failed after restart (accept) for ${metaId}`);
             this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE failed` });
@@ -578,7 +602,13 @@ export class FileTransferService {
       // Proper slicing for iOS/Safari compatibility
       // Efficient binary sending: use the underlying buffer view directly if possible
       // Using dc.send(Uint8Array) is standard and avoids explicit buffer slicing in many engines
-      this.dc.send(packet);
+      try {
+        this.dc.send(packet);
+      } catch (err) {
+        console.warn('[FileTransfer] dc.send failed (buffer issue?), retrying chunk...', err);
+        setTimeout(readNextChunk, 100);
+        return;
+      }
       
       offset += result.byteLength;
       
