@@ -1,8 +1,9 @@
+import { CallStatus } from './CallingService';
 
-
-export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
+export type { CallStatus };
 
 export interface CallSignal {
+  id: string; // Unique ID per signal to prevent de-duplication of distinct packets (like ICE candidates)
   type: 'offer' | 'answer' | 'candidate' | 'reject' | 'bye' | 'ringing';
   from: string;
   payload: any;
@@ -68,6 +69,7 @@ export class CallingService {
 
       const video = this.localStream?.getVideoTracks().length ? this.localStream.getVideoTracks().length > 0 : false;
       this.sendSignal(this.currentRecipient, {
+        id: Math.random().toString(36).substring(7),
         type: 'offer',
         from: this.myPub,
         payload: { sdp: { type: offer.type, sdp: offer.sdp }, video },
@@ -87,6 +89,7 @@ export class CallingService {
       await this.peerConnection.setLocalDescription(answer);
 
       this.sendSignal(from, {
+        id: Math.random().toString(36).substring(7),
         type: 'answer',
         from: this.myPub,
         payload: { type: answer.type, sdp: answer.sdp },
@@ -108,10 +111,12 @@ export class CallingService {
   public async handleIncomingSignal(from: string, signal: CallSignal) {
     if (!signal || typeof signal !== 'object') return;
     
-    // De-duplicate signals
-    const signalKey = `${signal.type}_${signal.timestamp}_${from}`;
-    if (this.seenSignals.has(signalKey)) return;
-    this.seenSignals.add(signalKey);
+    // De-duplicate signals using unique ID
+    const signalId = signal.id || `${signal.type}_${signal.timestamp}_${from}`;
+    if (this.seenSignals.has(signalId)) {
+        return;
+    }
+    this.seenSignals.add(signalId);
 
     if (from === this.myPub) return;
     
@@ -128,12 +133,24 @@ export class CallingService {
           this.currentStatus = 'incoming';
           this.currentRecipient = from;
           this.onStatusChange('incoming', { from, signal: payload });
-          this.sendSignal(from, { type: 'ringing', from: this.myPub, payload: null, timestamp: Date.now() });
+          this.sendSignal(from, { 
+            id: Math.random().toString(36).substring(7),
+            type: 'ringing', 
+            from: this.myPub, 
+            payload: null, 
+            timestamp: Date.now() 
+          });
         } else if (this.currentStatus === 'connected' && this.currentRecipient === from) {
           // It's an ICE restart
           this.handleIceRestartOffer(from, payload);
         } else {
-          this.sendSignal(from, { type: 'reject', from: this.myPub, payload: 'busy', timestamp: Date.now() });
+          this.sendSignal(from, { 
+            id: Math.random().toString(36).substring(7),
+            type: 'reject', 
+            from: this.myPub, 
+            payload: 'busy', 
+            timestamp: Date.now() 
+          });
         }
         break;
       case 'ringing':
@@ -221,13 +238,20 @@ export class CallingService {
       });
 
       pc.ontrack = (event) => {
-        this.remoteStream = event.streams[0];
+        console.log(`[CallingService] Remote track received: ${event.track.kind}`);
+        if (event.streams && event.streams[0]) {
+            this.remoteStream = event.streams[0];
+        } else {
+            if (!this.remoteStream) this.remoteStream = new MediaStream();
+            this.remoteStream.addTrack(event.track);
+        }
         this.onRemoteStream(this.remoteStream);
       };
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           this.sendSignal(recipientPub, {
+            id: Math.random().toString(36).substring(7),
             type: 'candidate',
             from: this.myPub,
             payload: event.candidate.toJSON(),
@@ -237,7 +261,7 @@ export class CallingService {
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log(`[CallingService] ICE state (accept): ${pc.iceConnectionState}`);
+        console.log(`[CallingService] ICE state: ${pc.iceConnectionState}`);
         if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
            if (!this.hasAttemptedIceRestart && this.currentStatus === 'connected') {
               console.warn(`[CallingService] ICE ${pc.iceConnectionState}, attempting restart...`);
@@ -262,6 +286,7 @@ export class CallingService {
       await pc.setLocalDescription(offer);
 
       this.sendSignal(recipientPub, {
+        id: Math.random().toString(36).substring(7),
         type: 'offer',
         from: this.myPub,
         payload: { sdp: { type: offer.type, sdp: offer.sdp }, video },
@@ -294,13 +319,20 @@ export class CallingService {
       });
 
       pc.ontrack = (event) => {
-        this.remoteStream = event.streams[0];
+        console.log(`[CallingService] Remote track received (accept): ${event.track.kind}`);
+        if (event.streams && event.streams[0]) {
+            this.remoteStream = event.streams[0];
+        } else {
+            if (!this.remoteStream) this.remoteStream = new MediaStream();
+            this.remoteStream.addTrack(event.track);
+        }
         this.onRemoteStream(this.remoteStream);
       };
 
       pc.onicecandidate = (event) => {
         if (event.candidate && this.currentRecipient) {
           this.sendSignal(this.currentRecipient, {
+            id: Math.random().toString(36).substring(7),
             type: 'candidate',
             from: this.myPub,
             payload: event.candidate.toJSON(),
@@ -326,6 +358,7 @@ export class CallingService {
       await pc.setLocalDescription(answer);
 
       this.sendSignal(this.currentRecipient, {
+        id: Math.random().toString(36).substring(7),
         type: 'answer',
         from: this.myPub,
         payload: { type: answer.type, sdp: answer.sdp },
@@ -347,6 +380,7 @@ export class CallingService {
   public rejectCall() {
     if (this.currentRecipient) {
       this.sendSignal(this.currentRecipient, {
+        id: Math.random().toString(36).substring(7),
         type: 'reject',
         from: this.myPub,
         payload: 'declined',
@@ -359,6 +393,7 @@ export class CallingService {
   public endCall(sendBye: boolean = true) {
     if (sendBye && this.currentRecipient) {
       this.sendSignal(this.currentRecipient, {
+        id: Math.random().toString(36).substring(7),
         type: 'bye',
         from: this.myPub,
         payload: null,

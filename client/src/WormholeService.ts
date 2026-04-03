@@ -294,6 +294,9 @@ export class WormholeService {
               Authorization: `Bearer ${authToken}`,
             },
             body: JSON.stringify({ cid: ipfsHash }),
+          }).then(() => {
+            // Remove from cleanup tracking once unpinned
+            this.gun.get('shogun/wormhole').get('transfers').get(code).put(null as any);
           }).catch(console.warn);
         }
       };
@@ -439,6 +442,45 @@ export class WormholeService {
           reject(error);
         }
       });
+    });
+  /**
+   * Cleans up transfers that have been pending for too long without completion.
+   */
+  async cleanupStaleTransfers(relayUrl: string, authToken: string, maxAgeMs: number = 7200000) { // Default 2 hours
+    console.log(`[Wormhole] Running stale transfer cleanup (threshold: ${maxAgeMs/3600000}h)...`);
+    const now = Date.now();
+    
+    this.gun.get('shogun/wormhole').get('transfers').map().once(async (data: any, code: string) => {
+      if (!data || !data.createdAt || !code || code === '_') return;
+      
+      const age = now - data.createdAt;
+      if (age > maxAgeMs) {
+        console.log(`[Wormhole] Cleanup: Found stale transfer ${code} (age: ${Math.round(age/60000)}m)`);
+        
+        // Fetch original transfer data to get IPFS hash
+        this.gun.get(code).once(async (transfer: any) => {
+          if (transfer && transfer.ipfsHash) {
+            console.log(`[Wormhole] Cleanup: Unpinning ${transfer.ipfsHash} for ${code}...`);
+            try {
+              await fetch(`${relayUrl}/api/v1/ipfs/pin/rm`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${authToken}`,
+                },
+                body: JSON.stringify({ cid: transfer.ipfsHash }),
+              });
+            } catch (e) {
+              console.warn(`[Wormhole] Cleanup unpin failed for ${code}:`, e);
+            }
+          }
+          
+          // Remove from GunDB completely
+          this.gun.get(code).put(null as any);
+          this.gun.get(`${code}-received`).put(null as any);
+          this.gun.get('shogun/wormhole').get('transfers').get(code).put(null as any);
+        });
+      }
     });
   }
 }

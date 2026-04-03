@@ -162,6 +162,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
     };
     wormholeServiceRef.current = service;
+    
+    // Auto-cleanup stale transfers on initialization (older than 1h)
+    const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
+    const authToken = import.meta.env.VITE_AUTH_TOKEN || 'dummy';
+    service.cleanupStaleTransfers(relayUrl, authToken, 3600000).catch(console.warn);
+
     return service;
   }, [isLoggedIn, db.gun]);
 
