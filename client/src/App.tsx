@@ -30,7 +30,7 @@ import { GroupService, type Role } from "./GroupService";
 import { CallingService } from "./CallingService";
 import type { CallStatus } from "./CallingService";
 import { CallingOverlay } from "./components/CallingOverlay";
-import { FileTransferService, type FileSignal } from "./FileTransferService";
+import { FileTransferService } from "./FileTransferService";
 import type { TransferStatus } from "./FileTransferService";
 import { SignalService } from "./SignalService";
 
@@ -100,7 +100,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Persistent Service Instances ──
   useMemo(() => {
     if (!isLoggedIn || !userPub) return;
-    const service = new CallingService(window.gun as any, userPub);
+    const service = new CallingService(userPub);
     service.onStatusChange = (status: CallStatus, data?: any) => {
       setCallStatus(status);
       if (data) {
@@ -120,6 +120,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     };
     service.onRemoteStream = (stream: MediaStream) => {
       setRemoteStream(stream);
+    };
+    service.onStats = (stats: any) => {
+      console.log(`[CallingService] Stats:`, stats);
     };
     callingServiceRef.current = service;
   }, [isLoggedIn, userPub]);
@@ -145,6 +148,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         setTransferBlobs((prev) => ({ ...prev, last: blob }));
       }
     };
+    service.onStats = (stats) => {
+      console.log(`[FileTransfer] Stats:`, stats);
+    };
     fileTransferServiceRef.current = service;
     return service;
   }, [isLoggedIn, userPub]);
@@ -152,7 +158,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // Update signal sender whenever signalService becomes available
   useEffect(() => {
     if (fileTransferServiceInst && signalService) {
-      fileTransferServiceInst.setSignalSender(async (toPub: string, signal: FileSignal) => {
+      const sendUnifiedSignal = async (toPub: string, signal: any, prefix: string) => {
         try {
           db.gun.get(`~${toPub}`).once(() => {});
           let cert;
@@ -165,7 +171,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               await new Promise(r => setTimeout(r, 1000));
             }
           }
-          const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
+          const payload = prefix + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
           const signalKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
           const targetInbox = db.gun.get(`signal_v13_inbox_${toPub}`);
@@ -173,6 +179,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           const doSend = (sendCert: string | null, retryLabel: string): Promise<boolean> => {
             return new Promise((resolve) => {
               const putOptions = (toPub === userPub) ? {} : { opt: { cert: sendCert } };
+              const timeout = setTimeout(() => {
+                console.warn(`[App] ${retryLabel} signal ${signal.type} put timeout (15s) for ${toPub.substring(0, 8)}`);
+                resolve(true); 
+              }, 15000);
+
               targetInbox.get(signalKey).put(
                 {
                   sender: userPub,
@@ -181,38 +192,38 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                   timestamp: new Date().toISOString(),
                 } as any,
                 (ack: any) => {
+                  clearTimeout(timeout);
                   if (ack.err && typeof ack.err === 'string') {
-                    if (ack.err.includes('Certificate')) resolve(false);
-                    else resolve(true);
+                    if (ack.err.includes('Certificate')) {
+                      resolve(false);
+                    } else {
+                      resolve(true);
+                    }
                   } else {
-                    console.log(`[App] ${retryLabel} signal ${signal.type} CONFIRMED delivered to ${toPub.substring(0, 8)}`);
+                    console.log(`[App] ${retryLabel} signal delivered to ${toPub.substring(0, 8)}`);
                     resolve(true);
                   }
                 },
                 putOptions as any
               );
-              setTimeout(() => resolve(true), 5000);
             });
           };
 
           const delivered = await doSend(cert ?? null, '[1st]');
           if (!delivered && toPub !== userPub) {
             signalService.clearCertCache(toPub);
-            const freshCert = await signalService.getInboxCertificate(toPub);
-            const retryKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-            await new Promise((resolve) => {
-              db.gun.get(`signal_v13_inbox_${toPub}`).get(retryKey).put(
-                { sender: userPub, type: cipher.type, body: cipher.body, timestamp: new Date().toISOString() } as any,
-                () => resolve(true),
-                { opt: { cert: freshCert } } as any
-              );
-              setTimeout(() => resolve(true), 5000);
-            });
+            const freshCert = await signalService.getInboxCertificate(toPub).catch(() => null);
+            if (freshCert) await doSend(freshCert, '[Retry]');
           }
         } catch (e: any) {
           console.warn("[App] Failed to send secure P2P signal:", e.message);
         }
-      });
+      };
+
+      fileTransferServiceInst.setSignalSender((toPub, signal) => sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"));
+      if (callingServiceRef.current) {
+        callingServiceRef.current.setSignalSender((toPub, signal) => sendUnifiedSignal(toPub, signal, " Linda:CALL_SIGNAL:"));
+      }
     }
   }, [fileTransferServiceInst, signalService, db, userPub]);
 
@@ -221,7 +232,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst) return;
 
     console.log(`[App] Starting securely authorized signaling listener on signal_v13_inbox_${userPub}`);
-    const sub = db.gun.get(`signal_v13_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+    db.gun.get(`signal_v13_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
       if (!data || typeof data !== 'object' || processedSignalsRef.current.has(gunKey)) return;
       if (!data.sender || !data.body || data.type === undefined) return;
 
@@ -254,29 +265,49 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
            return;
         }
 
-        let signal;
         if (trimmed.startsWith(" Linda:SIGNAL:")) {
-          signal = JSON.parse(trimmed.substring(" Linda:SIGNAL:".length));
+          const signal = JSON.parse(trimmed.substring(" Linda:SIGNAL:".length));
+          if (signal) {
+            const isSameInstance = signal.clientId === fileTransferServiceInst.getClientId();
+            if (data.sender === userPub && isSameInstance) return;
+            fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+          }
+        } else if (trimmed.startsWith(" Linda:CALL_SIGNAL:")) {
+          const signal = JSON.parse(trimmed.substring(" Linda:CALL_SIGNAL:".length));
+          if (signal && callingServiceRef.current) {
+            callingServiceRef.current.handleIncomingSignal(data.sender, signal);
+          }
         } else if (trimmed.startsWith("{")) {
-          try { signal = JSON.parse(trimmed); } catch (e) {}
+          // Legacy support or fallback
+          try { 
+            const signal = JSON.parse(trimmed); 
+            if (signal) fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+          } catch (e) {}
         }
 
-        if (signal) {
-          if (data.sender === userPub && signal.clientId === (fileTransferServiceInst as any).clientId) return;
-          fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
-          setTimeout(() => {
-            if (userPub) db.gun.get(`signal_v13_inbox_${userPub}`).get(gunKey).put(null as any);
-          }, 15000);
-        }
+        // Cleanup signal node from GunDB after processing
+        setTimeout(() => {
+          if (userPub) db.gun.get(`signal_v13_inbox_${userPub}`).get(gunKey).put(null as any);
+        }, 15000);
       } catch (e) {
         console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
       }
     });
 
-    return () => {
-      if ((sub as any).off) (sub as any).off();
-    };
   }, [isLoggedIn, userPub, db, fileTransferServiceInst]);
+
+  // ── GunDB Sync Kick (Mobile Reliability) ──
+  useEffect(() => {
+    if (!isLoggedIn || !userPub) return;
+    
+    // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
+    const kickInterval = setInterval(() => {
+      console.log("[App] Sync Kick: Poking GunDB inbox...");
+      db.gun.get(`signal_v13_inbox_${userPub}`).get('_poke').put(Date.now());
+    }, 45000);
+
+    return () => clearInterval(kickInterval);
+  }, [isLoggedIn, userPub, db]);
 
   const {
     messages,

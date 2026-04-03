@@ -144,6 +144,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [recipient, groupService, myRole]);
 
+  // ── Prevent Tab Close During Transfer ──
+  useEffect(() => {
+    const isTransferring = Object.values(transferStatuses).some(
+      s => s === 'transferring' || s === 'signaling' || s === 'offering'
+    );
+
+    if (isTransferring) {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = ''; // Standard for modern browsers to show confirmation
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }
+  }, [transferStatuses]);
+
   const currentMessages = useMemo(
     () => messages[recipient] || [],
     [messages, recipient],
@@ -215,10 +231,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (!fileTransferService) return;
 
     currentMessages.forEach((msg) => {
-      // Auto-accept if it's an image AND (not from me OR in My Cloud chat)
+      // Auto-accept if it's an image AND:
+      // - It's from another user (incoming), OR
+      // - It's in My Cloud chat (cross-device sync — sender is "Me" from another device)
       const isCloudChat = recipient === userPub;
       const isIncoming = msg.sender !== "Me";
       
+      // In Cloud mode, auto-accept ALL image offers (they come from our other devices).
+      // In normal mode, only auto-accept incoming images.
       if (msg.type === "image" && (isIncoming || isCloudChat) && msg.fileMetadata) {
         const metaId = msg.fileMetadata.id;
 
@@ -242,7 +262,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           ) {
             console.log(`[ChatView] Auto-accepting image ${metaId} in ${isCloudChat ? 'Cloud' : 'p2p'} mode`);
             acceptedMetaIds.current.add(metaId);
-            fileTransferService?.acceptFile(msg.senderPub || msg.sender, offer);
+            // In Cloud mode, use our own pubkey as the sender
+            const senderPub = isCloudChat ? userPub : (msg.senderPub || msg.sender);
+            fileTransferService?.acceptFile(senderPub, offer);
           }
         }
       }

@@ -10,8 +10,8 @@ export interface FileSignal {
   timestamp: number;
 }
 
-const CHUNK_SIZE = 65536; // 64 KB
-const BUFFER_THRESHOLD = 512 * 1024; // 512 KB backpressure
+const CHUNK_SIZE = 16384; // 16 KB - optimized for mobile/Safari
+const BUFFER_THRESHOLD = 256 * 1024; // 256 KB backpressure - tighter for mobile
 
 export class FileTransferService {
   private myPub: string;
@@ -22,6 +22,7 @@ export class FileTransferService {
   
   public onStatusChange: (status: TransferStatus, progress?: number, data?: any) => void = () => {};
   public onFileReceived: (blob: Blob, name: string, mimeType: string, metaId?: string) => void = () => {};
+  public onStats: (stats: { bitrate: number; bufferedAmount: number }) => void = () => {};
 
   private currentStatus: TransferStatus = 'idle';
   private currentMetaId: string | null = null;
@@ -35,22 +36,29 @@ export class FileTransferService {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:80',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:443',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
+    },
+    {
+      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     }
   ];
+  private hasAttemptedIceRestart = false;
 
   constructor(_gun: IGunInstance, myPub: string) {
     this.myPub = myPub;
@@ -147,13 +155,23 @@ export class FileTransferService {
           // Relaxed check: allow null/empty sdpMid/sdpMLineIndex for end-of-candidates
           const isEndOfCandidates = !candidatePayload.candidate || candidatePayload.candidate === "";
 
-          if (isEndOfCandidates || candidatePayload.sdpMid !== null || candidatePayload.sdpMLineIndex !== null) {
+          // Some browsers/networks might send candidates with missing metadata
+          // We add them if it's an end-of-candidates OR if it has at least one identifier
+          const isValidCandidate = isEndOfCandidates || 
+                                 (candidatePayload.sdpMid !== null && candidatePayload.sdpMid !== undefined) || 
+                                 (candidatePayload.sdpMLineIndex !== null && candidatePayload.sdpMLineIndex !== undefined);
+
+          if (isValidCandidate) {
             if (this.pc.remoteDescription) {
-                this.pc.addIceCandidate(new RTCIceCandidate(candidatePayload)).catch(e => console.warn('[FileTransfer] Failed to add candidate:', e));
+                this.pc.addIceCandidate(new RTCIceCandidate(candidatePayload)).catch(e => {
+                  console.warn('[FileTransfer] Failed to add candidate:', e.message);
+                });
             } else {
                 console.log('[FileTransfer] Buffering remote candidate (remoteDescription not set yet)');
                 this.remoteCandidates.push(candidatePayload);
             }
+          } else {
+            console.warn('[FileTransfer] Ignoring potentially malformed candidate:', candidatePayload);
           }
         } else {
           // Buffer candidate even if PC is not yet created (arrived before acceptFile/offerFile)
@@ -224,18 +242,44 @@ export class FileTransferService {
 
     try {
       console.log(`[FileTransfer] Offering file to ${recipientPub.substring(0, 8)}... (metaId: ${metaId})`);
-      const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+      const pc = new RTCPeerConnection({ 
+        iceServers: this.iceServers,
+        bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
+        iceCandidatePoolSize: 10
+      });
       this.pc = pc;
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
         console.log(`[FileTransfer] ICE state (offer): ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          console.error(`[FileTransfer] ICE connection ${pc.iceConnectionState} for ${metaId}`);
-          if (this.currentStatus !== 'completed') {
-            this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE ${pc.iceConnectionState}` });
+        if (pc.iceConnectionState === 'failed') {
+          if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
+            console.warn(`[FileTransfer] ICE failed for ${metaId}, attempting ICE restart...`);
+            this.hasAttemptedIceRestart = true;
+            pc.restartIce();
+          } else if (this.currentStatus !== 'completed') {
+            console.error(`[FileTransfer] ICE connection failed after restart for ${metaId}`);
+            this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE failed` });
             this.cleanup('ice_failure');
           }
+        } else if (pc.iceConnectionState === 'disconnected') {
+          console.warn(`[FileTransfer] ICE disconnected for ${metaId}, waiting for recovery...`);
+          // Give mobile browsers time to recover from brief disconnections
+          setTimeout(() => {
+            if (this.pc === pc && pc.iceConnectionState === 'disconnected' && this.currentStatus !== 'completed') {
+              if (!this.hasAttemptedIceRestart) {
+                console.warn(`[FileTransfer] ICE disconnected timeout for ${metaId}, trying restart...`);
+                this.hasAttemptedIceRestart = true;
+                pc.restartIce();
+              } else {
+                console.error(`[FileTransfer] ICE disconnected timeout for ${metaId}`);
+                this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE disconnected` });
+                this.cleanup('ice_failure');
+              }
+            }
+          }, 3000);
+        } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          this.hasAttemptedIceRestart = false;
         }
       };
 
@@ -322,18 +366,36 @@ export class FileTransferService {
     try {
       console.log(`[FileTransfer] Accepting file from ${senderPub.substring(0, 8)}... (metaId: ${metaId})`);
       console.log(`[FileTransfer] Offer payload keys: ${Object.keys(offer).join(', ')}`);
-      const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+      const pc = new RTCPeerConnection({ 
+        iceServers: this.iceServers,
+        bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
+        iceCandidatePoolSize: 10
+      });
       this.pc = pc;
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
         console.log(`[FileTransfer] ICE state (accept): ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          console.error(`[FileTransfer] ICE connection ${pc.iceConnectionState} for ${metaId}`);
-          if (this.currentStatus !== 'completed') {
-            this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE ${pc.iceConnectionState}` });
+        if (pc.iceConnectionState === 'failed') {
+          if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
+            console.warn(`[FileTransfer] ICE failed (accept) for ${metaId}, attempting ICE restart...`);
+            this.hasAttemptedIceRestart = true;
+            pc.restartIce();
+          } else if (this.currentStatus !== 'completed') {
+            console.error(`[FileTransfer] ICE connection failed after restart (accept) for ${metaId}`);
+            this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE failed` });
             this.cleanup('ice_failure_accept');
           }
+        } else if (pc.iceConnectionState === 'disconnected') {
+          console.warn(`[FileTransfer] ICE disconnected (accept) for ${metaId}, waiting for recovery...`);
+          setTimeout(() => {
+            if (this.pc === pc && pc.iceConnectionState === 'disconnected' && this.currentStatus !== 'completed') {
+              this.onStatusChange('failed', 0, { metaId: this.currentMetaId, error: `ICE disconnected` });
+              this.cleanup('ice_failure_accept');
+            }
+          }, 5000);
+        } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          this.hasAttemptedIceRestart = false;
         }
       };
 
@@ -428,54 +490,84 @@ export class FileTransferService {
     if (!this.dc || this.dc.readyState !== 'open') return;
     this.currentStatus = 'transferring';
 
-    const buffer = await file.arrayBuffer();
-    const totalSize = buffer.byteLength;
-    const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
-
+    const totalSize = file.size;
+    let offset = 0;
+    
     console.log(`[FileTransfer] STARTING SEND: ${file.name} (${totalSize} bytes)`);
 
-    for (let i = 0; i < totalChunks; i++) {
-      if (this.dc.readyState !== 'open') break;
+    const reader = new FileReader();
+    let lastStatsTime = Date.now();
+    let lastStatsBytes = 0;
+
+    const readNextChunk = () => {
+      if (!this.dc || this.dc.readyState !== 'open') return;
+      const slice = file.slice(offset, offset + CHUNK_SIZE);
+      reader.readAsArrayBuffer(slice);
+    };
+
+    reader.onload = async (e) => {
+      const result = e.target?.result;
+      if (!(result instanceof ArrayBuffer)) return;
 
       // Handle backpressure
-      if (this.dc.bufferedAmount > BUFFER_THRESHOLD) {
+      if (this.dc && this.dc.bufferedAmount > BUFFER_THRESHOLD) {
         await new Promise(r => {
-             const check = setInterval(() => {
-                 if (!this.dc || this.dc.bufferedAmount < BUFFER_THRESHOLD / 2) {
-                     clearInterval(check);
-                     r(null);
-                 }
-             }, 30);
+          const check = setInterval(() => {
+            if (!this.dc || this.dc.bufferedAmount < BUFFER_THRESHOLD / 2) {
+              clearInterval(check);
+              r(null);
+            }
+          }, 30);
         });
       }
 
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, totalSize);
-      const data = buffer.slice(start, end);
+      if (!this.dc || this.dc.readyState !== 'open') return;
 
       // Prefix 0x00 for data
-      const packet = new Uint8Array(data.byteLength + 1);
+      const packet = new Uint8Array(result.byteLength + 1);
       packet[0] = 0;
-      packet.set(new Uint8Array(data), 1);
-
-      this.dc.send(packet.buffer);
-
-      if (i % 10 === 0 || i === totalChunks - 1) {
-        this.updateProgress(end);
+      packet.set(new Uint8Array(result), 1);
+      
+      // Proper slicing for iOS/Safari compatibility
+      this.dc.send(packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength));
+      
+      offset += result.byteLength;
+      
+      // Update stats and progress periodically
+      const now = Date.now();
+      if (now - lastStatsTime > 1000) {
+        const bytesSent = offset - lastStatsBytes;
+        const bitrate = (bytesSent * 8) / ((now - lastStatsTime) / 1000); // bits per sec
+        this.onStats({ bitrate, bufferedAmount: this.dc.bufferedAmount });
+        lastStatsTime = now;
+        lastStatsBytes = offset;
+        this.updateProgress(offset);
+      } else if (offset === totalSize) {
+        this.updateProgress(offset);
       }
-    }
 
-    // Send EOF
-    if (this.dc && this.dc.readyState === 'open') {
+      if (offset < totalSize) {
+        // Yield to browser and then read next chunk
+        setTimeout(readNextChunk, 0); 
+      } else {
+        // Send EOF
         console.log('[FileTransfer] Sending EOF packet.');
         const eof = new Uint8Array([1]);
-        this.dc.send(eof.buffer);
-    }
+        this.dc.send(eof.buffer.slice(eof.byteOffset, eof.byteOffset + eof.byteLength));
 
-    this.currentStatus = 'completed';
-    console.log('[FileTransfer] Send operation COMPLETED.');
-    this.onStatusChange('completed', totalSize, { metaId: this.currentMetaId });
-    setTimeout(() => this.cleanup('success_sender'), 5000);
+        this.currentStatus = 'completed';
+        console.log('[FileTransfer] Send operation COMPLETED.');
+        this.onStatusChange('completed', totalSize, { metaId: this.currentMetaId });
+        setTimeout(() => this.cleanup('success_sender'), 5000);
+      }
+    };
+
+    reader.onerror = (err) => {
+      console.error('[FileTransfer] FileReader Error:', err);
+      this.cleanup('filereader_error');
+    };
+
+    readNextChunk();
   }
 
   private setupReceiver(dc: RTCDataChannel) {
@@ -522,6 +614,7 @@ export class FileTransferService {
     this.clearTimeout();
     this.remoteCandidates = [];
     this.processedCandidates.clear();
+    this.hasAttemptedIceRestart = false;
     if (this.pc) { 
         console.log('[FileTransfer] Closing PeerConnection');
         this.pc.close(); 

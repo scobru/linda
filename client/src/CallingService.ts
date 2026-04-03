@@ -1,4 +1,4 @@
-import type { IGunInstance } from 'gun';
+
 
 export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -10,7 +10,6 @@ export interface CallSignal {
 }
 
 export class CallingService {
-  private gun: IGunInstance;
   private myPub: string;
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
@@ -18,6 +17,7 @@ export class CallingService {
 
   public onStatusChange: (status: CallStatus, data?: any) => void = () => {};
   public onRemoteStream: (stream: MediaStream) => void = () => {};
+  public onStats: (stats: any) => void = () => {};
 
   private currentStatus: CallStatus = 'idle';
   private currentRecipient: string | null = null;
@@ -26,106 +26,112 @@ export class CallingService {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:80',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: 'turn:global.relay.metered.ca:443',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
+    },
+    {
+      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+      username: 'e7e4e09073e0810e4a5a6a66',
+      credential: 'kMYL/EfiJ0GIGHWI'
     }
   ];
 
   private iceCandidateQueue: RTCIceCandidateInit[] = [];
   private seenSignals = new Set<string>();
 
-  constructor(gun: IGunInstance, myPub: string) {
-    this.gun = gun;
+  constructor(myPub: string) {
     this.myPub = myPub;
-    this.setupIncomingListener();
   }
 
-  private setupIncomingListener() {
-    const signalPath = `signal_v3_calls_${this.myPub}`;
+  private onSendSignal: (to: string, signal: CallSignal) => void = () => {};
+
+  public setSignalSender(sender: (to: string, signal: CallSignal) => void) {
+    this.onSendSignal = sender;
+  }
+
+  public async handleIncomingSignal(from: string, signal: CallSignal) {
+    if (!signal || typeof signal !== 'object') return;
     
-    this.gun.get(signalPath).map().on(async (signal: any, key: string) => {
-      if (!signal || typeof signal !== 'object') return;
-      if (this.seenSignals.has(key)) return;
-      this.seenSignals.add(key);
+    // De-duplicate signals
+    const signalKey = `${signal.type}_${signal.timestamp}_${from}`;
+    if (this.seenSignals.has(signalKey)) return;
+    this.seenSignals.add(signalKey);
 
-      if (signal.from === this.myPub) return;
-      
-      // Robust check for required fields
-      if (!signal.type || !signal.from || !signal.timestamp) return;
-      
-      // Ignore old signals (older than 60s)
-      if (Date.now() - signal.timestamp > 60000) return;
+    if (from === this.myPub) return;
+    
+    console.log("[CallingService] Received Signal via Inbox:", signal.type, "from", from.slice(0,8));
 
-      console.log("[CallingService] Received Signal:", signal.type, "from", signal.from.slice(0,8));
+    let payload = signal.payload;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch(e) {}
+    }
 
-      let payload = signal.payload;
-      if (typeof payload === 'string') {
-        try { payload = JSON.parse(payload); } catch(e) {}
-      }
-
-      switch (signal.type) {
-        case 'offer':
-          if (this.currentStatus === 'idle') {
-            this.currentStatus = 'incoming';
-            this.currentRecipient = signal.from;
-            this.onStatusChange('incoming', { from: signal.from, signal: payload });
-            this.sendSignal(signal.from, { type: 'ringing', from: this.myPub, payload: null, timestamp: Date.now() });
-          } else {
-            this.sendSignal(signal.from, { type: 'reject', from: this.myPub, payload: 'busy', timestamp: Date.now() });
-          }
-          break;
-        case 'ringing':
-          if (this.currentStatus === 'calling') {
-             console.log("[CallingService] Remote is ringing...");
-          }
-          break;
-        case 'answer':
-          if (this.currentStatus === 'calling' && this.peerConnection) {
-            try {
-              if (this.peerConnection.signalingState !== 'stable') {
-                await this.peerConnection.setRemoteDescription(new RTCSessionDescription(payload));
-                this.currentStatus = 'connected';
-                this.onStatusChange('connected');
-                this.processIceQueue();
-              }
-            } catch (e) {
-              console.error("[CallingService] Error setting remote description (answer):", e);
+    switch (signal.type) {
+      case 'offer':
+        if (this.currentStatus === 'idle') {
+          this.currentStatus = 'incoming';
+          this.currentRecipient = from;
+          this.onStatusChange('incoming', { from, signal: payload });
+          this.sendSignal(from, { type: 'ringing', from: this.myPub, payload: null, timestamp: Date.now() });
+        } else {
+          this.sendSignal(from, { type: 'reject', from: this.myPub, payload: 'busy', timestamp: Date.now() });
+        }
+        break;
+      case 'ringing':
+        if (this.currentStatus === 'calling') {
+           console.log("[CallingService] Remote is ringing...");
+        }
+        break;
+      case 'answer':
+        if (this.currentStatus === 'calling' && this.peerConnection) {
+          try {
+            if (this.peerConnection.signalingState !== 'stable') {
+              await this.peerConnection.setRemoteDescription(new RTCSessionDescription(payload));
+              this.currentStatus = 'connected';
+              this.onStatusChange('connected');
+              this.processIceQueue();
+              this.startStatsLoop();
+              this.applyBitrateConstraints();
             }
+          } catch (e) {
+            console.error("[CallingService] Error setting remote description (answer):", e);
           }
-          break;
-        case 'candidate':
-          if (this.peerConnection && this.peerConnection.remoteDescription) {
-            try {
-              await this.peerConnection.addIceCandidate(new RTCIceCandidate(payload));
-            } catch (e) {
-              console.warn("[CallingService] Error adding ICE candidate:", e);
-            }
-          } else {
-            this.iceCandidateQueue.push(payload);
+        }
+        break;
+      case 'candidate':
+        if (this.peerConnection && this.peerConnection.remoteDescription) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(payload));
+          } catch (e) {
+            console.warn("[CallingService] Error adding ICE candidate:", e);
           }
-          break;
-        case 'reject':
-          this.endCall(false);
-          this.onStatusChange('ended', { reason: payload || 'Rejected' });
-          break;
-        case 'bye':
-          this.endCall(false);
-          this.onStatusChange('ended', { reason: 'Hung up' });
-          break;
-      }
-    });
+        } else {
+          this.iceCandidateQueue.push(payload);
+        }
+        break;
+      case 'reject':
+        this.endCall(false);
+        this.onStatusChange('ended', { reason: payload || 'Rejected' });
+        break;
+      case 'bye':
+        this.endCall(false);
+        this.onStatusChange('ended', { reason: 'Hung up' });
+        break;
+    }
   }
 
   private processIceQueue() {
@@ -141,13 +147,7 @@ export class CallingService {
   }
 
   private async sendSignal(toPub: string, signal: CallSignal) {
-    const signalId = Math.random().toString(36).substring(7);
-    const signalToPut = {
-      ...signal,
-      payload: typeof signal.payload === 'object' ? JSON.stringify(signal.payload) : signal.payload,
-      timestamp: Date.now()
-    };
-    this.gun.get(`signal_v3_calls_${toPub}`).get(signalId).put(signalToPut);
+    this.onSendSignal(toPub, signal);
   }
 
   public async initiateCall(recipientPub: string, video: boolean = false) {
@@ -162,8 +162,11 @@ export class CallingService {
         audio: true, 
         video: video 
       });
-
-      const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+      const pc = new RTCPeerConnection({ 
+        iceServers: this.iceServers,
+        bundlePolicy: 'max-bundle',
+        iceCandidatePoolSize: 10
+      });
       this.peerConnection = pc;
       
       this.localStream.getTracks().forEach(track => {
@@ -222,8 +225,11 @@ export class CallingService {
         audio: true, 
         video: !!offerPayload.video 
       });
-
-      const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+      const pc = new RTCPeerConnection({ 
+        iceServers: this.iceServers,
+        bundlePolicy: 'max-bundle',
+        iceCandidatePoolSize: 10
+      });
       this.peerConnection = pc;
 
       this.localStream.getTracks().forEach(track => {
@@ -272,6 +278,8 @@ export class CallingService {
       this.currentStatus = 'connected';
       this.onStatusChange('connected');
       this.processIceQueue();
+      this.startStatsLoop();
+      this.applyBitrateConstraints();
 
     } catch (err) {
       console.error("Failed to accept call:", err);
@@ -324,4 +332,59 @@ export class CallingService {
 
   public getLocalStream() { return this.localStream; }
   public getRemoteStream() { return this.remoteStream; }
+
+  private async startStatsLoop() {
+    const pc = this.peerConnection;
+    if (!pc) return;
+
+    const interval = setInterval(async () => {
+      if (this.peerConnection !== pc || pc.signalingState === 'closed') {
+        clearInterval(interval);
+        return;
+      }
+
+      try {
+        const stats = await pc.getStats();
+        let activeCandidatePair: any;
+        stats.forEach(report => {
+          if (report.type === 'transport') {
+            activeCandidatePair = stats.get(report.selectedCandidatePairId);
+          }
+        });
+        
+        if (activeCandidatePair) {
+            this.onStats({
+                availableOutgoingBitrate: activeCandidatePair.availableOutgoingBitrate,
+                currentRoundTripTime: activeCandidatePair.currentRoundTripTime,
+                bytesReceived: activeCandidatePair.bytesReceived,
+                bytesSent: activeCandidatePair.bytesSent
+            });
+        }
+      } catch (e) {
+        console.warn("[CallingService] Stats error:", e);
+      }
+    }, 2000);
+  }
+
+  private async applyBitrateConstraints() {
+    if (!this.peerConnection) return;
+    
+    // Limit video bitrate to 1.5Mbps for mobile stability
+    const senders = this.peerConnection.getSenders();
+    for (const sender of senders) {
+      if (sender.track && sender.track.kind === 'video') {
+        const parameters = sender.getParameters();
+        if (!parameters.encodings) {
+          parameters.encodings = [{}];
+        }
+        parameters.encodings[0].maxBitrate = 1500000; // 1.5 Mbps
+        try {
+          await sender.setParameters(parameters);
+          console.log("[CallingService] Applied 1.5Mbps video bitrate limit");
+        } catch (e) {
+          console.warn("[CallingService] Failed to set bitrate parameters:", e);
+        }
+      }
+    }
+  }
 }

@@ -25,7 +25,8 @@
     "sodium-javascript": "^0.8.0",
     "sodium-universal": "^5.0.1",
     "vercel": "^50.28.0",
-    "vite-plugin-node-polyfills": "^0.25.0"
+    "vite-plugin-node-polyfills": "^0.25.0",
+    "webrtc-adapter": "^9.0.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

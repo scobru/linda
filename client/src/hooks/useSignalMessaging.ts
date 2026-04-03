@@ -361,6 +361,22 @@ export const useSignalMessaging = (
         return;
       }
 
+      // Skip self-messages in inbox to prevent duplication in My Cloud
+      // When we send to ourselves, the optimistic update in handleSendMessage already added the message.
+      // The inbox listener firing again would create a duplicate.
+      if (senderPubKeyRaw === userPub) {
+        const selfMsgId = data.msgId;
+        if (selfMsgId) {
+          // Check if we already have this message from the optimistic update
+          const existingMsgs = messages[userPub] || [];
+          if (existingMsgs.some(m => m.id === selfMsgId)) {
+            console.log(`[Signal] Skipping self-message ${selfMsgId} (already in local state via optimistic update)`);
+            if (userPub) saveProcessedKey(userPub, gunKey);
+            return;
+          }
+        }
+      }
+
       // DIAGNOSTIC: Log every incoming raw inbox item
       console.log(`[Signal] Raw inbox hit: ${gunKey} from ${senderPubKeyRaw.slice(0, 8)}... (body type: ${typeof data.body})`);
 
@@ -733,6 +749,9 @@ export const useSignalMessaging = (
         ciphertext = await groupService.encryptGroupMessage(meta.secret, payload || "");
         await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
       } else {
+        // 1:1 direct message
+        const isSelfChat = recipient === userPub;
+
         try {
           ciphertext = await signalService.encryptMessage(recipient, payload || "");
         } catch (err) {
@@ -740,8 +759,16 @@ export const useSignalMessaging = (
           await signalService.resetSession(recipient);
           ciphertext = await signalService.encryptMessage(recipient, payload || "");
         }
-        const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
-        await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: timestamp.toISOString(), msgType: type } as any);
+
+        // For My Cloud (self-chat) text/audio, skip GunDB round-trip to avoid duplication.
+        // The optimistic update above already added the message locally.
+        // File metadata still needs to go to GunDB for cross-device signaling.
+        if (isSelfChat && !fileMetadata) {
+          console.log(`[Signal] My Cloud: skipping GunDB write for text/audio (local-only)`);
+        } else {
+          const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
+          await db.Set(`signal_v3_inbox_${pub}`, { msgId, sender: userPub, type: ciphertext.type, body: ciphertext.body, timestamp: timestamp.toISOString(), msgType: type } as any);
+        }
       }
 
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
