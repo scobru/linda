@@ -1,3 +1,4 @@
+import { generateSecureRandomString } from "./utils/crypto";
 export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
 export interface CallSignal {
@@ -67,7 +68,7 @@ export class CallingService {
 
       const video = this.localStream?.getVideoTracks().length ? this.localStream.getVideoTracks().length > 0 : false;
       this.sendSignal(this.currentRecipient, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'offer',
         from: this.myPub,
         payload: { sdp: { type: offer.type, sdp: offer.sdp }, video },
@@ -87,7 +88,7 @@ export class CallingService {
       await this.peerConnection.setLocalDescription(answer);
 
       this.sendSignal(from, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'answer',
         from: this.myPub,
         payload: { type: answer.type, sdp: answer.sdp },
@@ -132,7 +133,7 @@ export class CallingService {
           this.currentRecipient = from;
           this.onStatusChange('incoming', { from, signal: payload });
           this.sendSignal(from, { 
-            id: Math.random().toString(36).substring(7),
+            id: generateSecureRandomString(10),
             type: 'ringing', 
             from: this.myPub, 
             payload: null, 
@@ -143,7 +144,7 @@ export class CallingService {
           this.handleIceRestartOffer(from, payload);
         } else {
           this.sendSignal(from, { 
-            id: Math.random().toString(36).substring(7),
+            id: generateSecureRandomString(10),
             type: 'reject', 
             from: this.myPub, 
             payload: 'busy', 
@@ -249,7 +250,7 @@ export class CallingService {
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           this.sendSignal(recipientPub, {
-            id: Math.random().toString(36).substring(7),
+            id: generateSecureRandomString(10),
             type: 'candidate',
             from: this.myPub,
             payload: event.candidate.toJSON(),
@@ -284,7 +285,7 @@ export class CallingService {
       await pc.setLocalDescription(offer);
 
       this.sendSignal(recipientPub, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'offer',
         from: this.myPub,
         payload: { sdp: { type: offer.type, sdp: offer.sdp }, video },
@@ -330,7 +331,7 @@ export class CallingService {
       pc.onicecandidate = (event) => {
         if (event.candidate && this.currentRecipient) {
           this.sendSignal(this.currentRecipient, {
-            id: Math.random().toString(36).substring(7),
+            id: generateSecureRandomString(10),
             type: 'candidate',
             from: this.myPub,
             payload: event.candidate.toJSON(),
@@ -356,7 +357,7 @@ export class CallingService {
       await pc.setLocalDescription(answer);
 
       this.sendSignal(this.currentRecipient, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'answer',
         from: this.myPub,
         payload: { type: answer.type, sdp: answer.sdp },
@@ -378,7 +379,7 @@ export class CallingService {
   public rejectCall() {
     if (this.currentRecipient) {
       this.sendSignal(this.currentRecipient, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'reject',
         from: this.myPub,
         payload: 'declined',
@@ -391,7 +392,7 @@ export class CallingService {
   public endCall(sendBye: boolean = true) {
     if (sendBye && this.currentRecipient) {
       this.sendSignal(this.currentRecipient, {
-        id: Math.random().toString(36).substring(7),
+        id: generateSecureRandomString(10),
         type: 'bye',
         from: this.myPub,
         payload: null,
