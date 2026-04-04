@@ -10,36 +10,44 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  useEffect(() => {
+  const onLoadedMetadata = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    // Some browsers return Infinity for duration of certain blobs
+    // until we seek to the end or start playing.
+    if (audio.duration === Infinity) {
+      audio.currentTime = 1e101;
+      audio.ontimeupdate = () => {
+        audio.ontimeupdate = null;
+        setDuration(audio.duration);
+        audio.currentTime = 0;
+      };
+    } else {
+      setDuration(audio.duration);
+    }
+  };
+
+  const onTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const togglePlay = async () => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const setAudioData = () => {
-      setDuration(audio.duration);
-    };
-
-    const setAudioTime = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    // Events
-    audio.addEventListener("loadeddata", setAudioData);
-    audio.addEventListener("timeupdate", setAudioTime);
-    audio.addEventListener("ended", () => setIsPlaying(false));
-
-    return () => {
-      audio.removeEventListener("loadeddata", setAudioData);
-      audio.removeEventListener("timeupdate", setAudioTime);
-    };
-  }, []);
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      audioRef.current?.pause();
-    } else {
-      audioRef.current?.play();
+    try {
+      if (isPlaying) {
+        audio.pause();
+      } else {
+        await audio.play();
+      }
+      setIsPlaying(!isPlaying);
+    } catch (err) {
+      console.error("[AudioPlayer] Playback error:", err);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,7 +59,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   };
 
   const formatTime = (time: number) => {
-    if (isNaN(time)) return "0:00";
+    if (isNaN(time) || time === Infinity) return "0:00";
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
@@ -59,7 +67,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
 
   return (
     <div className="flex flex-col gap-2 w-full max-w-[240px] bg-black/20 backdrop-blur-md rounded-2xl p-3 border border-white/10 shadow-xl group transition-all hover:bg-black/30">
-      <audio ref={audioRef} src={src} hidden />
+      <audio
+        ref={audioRef}
+        src={src}
+        onLoadedMetadata={onLoadedMetadata}
+        onTimeUpdate={onTimeUpdate}
+        onEnded={() => setIsPlaying(false)}
+        hidden
+      />
       
       <div className="flex items-center gap-3">
         {/* Play/Pause Button */}

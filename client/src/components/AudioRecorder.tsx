@@ -22,22 +22,30 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
     e.preventDefault();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      
+      // Determine supported mime type
+      const mimeType = ['audio/webm', 'audio/ogg', 'audio/mp4'].find(type => 
+        MediaRecorder.isTypeSupported(type)
+      ) || 'audio/webm';
+      
+      console.log(`[AudioRecorder] Using mimeType: ${mimeType}`);
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      mediaRecorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) chunksRef.current.push(ev.data);
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const finalBlob = new Blob(chunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64String = reader.result as string;
           onRecordingComplete(base64String);
         };
-        reader.readAsDataURL(blob);
+        reader.readAsDataURL(finalBlob);
         stream.getTracks().forEach(track => track.stop());
       };
 
