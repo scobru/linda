@@ -545,10 +545,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     );
   };
 
-  const handleInitiateCall = async (video: boolean) => {
-    // Calls disabled for now
-    showNotification("Calls are currently disabled", "info");
-  };
 
   const handleFixSync = async () => {
     if (!recipient || !signalService || !userPub) return;
@@ -826,7 +822,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setShowGroupSettings={(id) =>
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
-                onInitiateCall={handleInitiateCall}
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
@@ -874,7 +869,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 setShowGroupSettings={(id) =>
                   id ? navigate(`/chat/${id}/settings`) : null
                 }
-                onInitiateCall={handleInitiateCall}
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
                 transferOffers={transferOffers}
@@ -977,7 +971,6 @@ const ChatWrapper: React.FC<{
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   handleRegenerateCertificate: () => void;
   setShowGroupSettings: (id: string | null) => void;
-  onInitiateCall: (video: boolean) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
