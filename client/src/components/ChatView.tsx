@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
 import { AudioRecorder } from "./AudioRecorder";
+import { AudioPlayer } from "./AudioPlayer";
 import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useSignalMessaging";
 import { SignalService } from "../SignalService";
@@ -40,7 +41,6 @@ interface ChatViewProps {
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   handleRegenerateCertificate: () => void;
   setShowGroupSettings: (id: string | null) => void;
-  onInitiateCall: (video: boolean) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
   transferOffers: Record<string, any>;
@@ -78,7 +78,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handleDeleteMessage,
   handleRegenerateCertificate,
   setShowGroupSettings,
-  onInitiateCall,
   transferProgress,
   transferBlobs,
   transferOffers,
@@ -376,7 +375,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         e.stopPropagation();
                         handleRegenerateCertificate();
                       }}
-                      className="btn btn-xs btn-error btn-outline rounded-full h-5 min-h-0 px-2 text-[8px]"
+                      title="Fix 'Certificate verification fail' by publishing a new SEA policy"
+                      className="btn btn-xs btn-error btn-outline rounded-full h-5 min-h-0 px-2 text-[8px] animate-pulse"
                     >
                       RIGENERA CERTIFICATO
                     </button>
@@ -417,50 +417,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </svg>
             </button>
           )}
-
-          <div className="flex gap-2 mr-2">
-            <button
-              className="btn btn-ghost btn-circle bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
-              title="Voice Call"
-              onClick={() => onInitiateCall(false)}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-5 h-5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"
-                />
-              </svg>
-            </button>
-            <button
-              className="btn btn-ghost btn-circle bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
-              title="Video Call"
-              onClick={() => onInitiateCall(true)}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-5 h-5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"
-                />
-              </svg>
-            </button>
-          </div>
-
           <div className="flex gap-2">
             {/* Removed Legacy HEAL Button */}
 
@@ -586,34 +542,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </span>
                 )}
 
-                {msg.type === "audio" ? (
-                  <div className="flex flex-col gap-2 min-w-[200px]">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center shadow-inner">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          className="w-5 h-5 text-current/80"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M19.952 1.251a.75.75 0 01.496.903l-3 10.5a.75.75 0 11-1.448-.414l2.833-9.916-11.75 2.136a.75.75 0 11-.267-1.477l12.5-2.273a.75.75 0 01.636.541zM3.75 7.5a.75.75 0 01.75.75v11.25c0 .414.336.75.75.75h10.5a.75.75 0 010 1.5H5.25A2.25 2.25 0 013 19.5V8.25a.75.75 0 01.75-.75z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
-                      <audio
-                        controls
-                        className="h-10 w-full opacity-80 mix-blend-multiply filter invert-[0.1] contrast-150"
-                      >
-                        <source src={msg.audio} type="audio/webm" />
-                      </audio>
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest opacity-40 ml-1">
-                      Audio Message
-                    </span>
-                  </div>
+                {msg.type === "audio" && msg.audio ? (
+                  <AudioPlayer src={msg.audio} />
                 ) : (msg.type === "file" || msg.type === "image") &&
                   msg.fileMetadata ? (
                   <FileBubble

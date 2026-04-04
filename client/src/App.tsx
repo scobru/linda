@@ -27,12 +27,9 @@ import { Layout } from "./components/Layout";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
-import { CallingService } from "./CallingService";
-import type { CallStatus } from "./CallingService";
-import { CallingOverlay } from "./components/CallingOverlay";
-import { FileTransferService } from "./FileTransferService";
 import { SignalService } from "./SignalService";
 import { WormholeService } from "./WormholeService";
+import { FileTransferService } from "./FileTransferService";
 
 // Extend window interface
 declare global {
@@ -53,12 +50,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
 
-  // ── Call State ──
-  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
-  const [callData, setCallData] = useState<any>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [isVideoCall, setIsVideoCall] = useState(false);
-  const callingServiceRef = useRef<CallingService | null>(null);
+  // ── Wormhole State ──
 
   // ── Wormhole State ──
   const wormholeServiceRef = useRef<WormholeService | null>(null);
@@ -97,37 +89,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   useEffect(() => {
     signalServiceRef.current = signalService;
   }, [signalService]);
-
-  // ── Persistent Service Instances ──
-  useMemo(() => {
-    if (!isLoggedIn || !userPub) return;
-    const service = new CallingService(userPub);
-    service.onStatusChange = (status: CallStatus, data?: any) => {
-      setCallStatus(status);
-      if (data) {
-        setCallData(data);
-        if (
-          status === "incoming" &&
-          data.signal &&
-          typeof data.signal.video !== "undefined"
-        ) {
-          setIsVideoCall(!!data.signal.video);
-        }
-      }
-      if (status === "idle") {
-        setRemoteStream(null);
-        setCallData(null);
-      }
-    };
-    service.onRemoteStream = (stream: MediaStream) => {
-      // Force a new reference to trigger React re-render in the Overlay
-      setRemoteStream(new MediaStream(stream));
-    };
-    service.onStats = (stats: any) => {
-      console.log(`[CallingService] Stats:`, stats);
-    };
-    callingServiceRef.current = service;
-  }, [isLoggedIn, userPub]);
 
   const fileTransferServiceInst = useMemo(() => {
     if (!isLoggedIn || !userPub) return null;
@@ -232,17 +193,24 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           if (!delivered && toPub !== userPub) {
             signalService.clearCertCache(toPub);
             const freshCert = await signalService.getInboxCertificate(toPub).catch(() => null);
-            if (freshCert) await doSend(freshCert, '[Retry]');
+            if (freshCert) {
+              const retryDelivered = await doSend(freshCert, '[Retry]');
+              if (!retryDelivered) {
+                // If even retry fails with certificate error, surface it to the UI
+                console.error(`[App] Persistent certificate failure for ${toPub.substring(0, 8)}. Raising UI error.`);
+                setContactErrors((prev) => ({ ...prev, [toPub]: true }));
+              }
+            } else {
+              console.error(`[App] Failed to fetch valid certificate for ${toPub.substring(0, 8)} after 1st attempt failure.`);
+              setContactErrors((prev) => ({ ...prev, [toPub]: true }));
+            }
           }
         } catch (e: any) {
           console.warn("[App] Failed to send secure P2P signal:", e.message);
         }
       };
 
-      fileTransferServiceInst.setSignalSender((toPub, signal) => sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"));
-      if (callingServiceRef.current) {
-        callingServiceRef.current.setSignalSender((toPub, signal) => sendUnifiedSignal(toPub, signal, " Linda:CALL_SIGNAL:"));
-      }
+      fileTransferServiceInst.setSignalSender((toPub: string, signal: any) => sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"));
     }
   }, [fileTransferServiceInst, signalService, db, userPub]);
 
@@ -293,28 +261,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             if (data.sender === userPub && isSameInstance) return;
             fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
           }
-        } else if (trimmed.startsWith(" Linda:CALL_SIGNAL:")) {
-          const signal = JSON.parse(trimmed.substring(" Linda:CALL_SIGNAL:".length));
-          if (signal && callingServiceRef.current) {
-            callingServiceRef.current.handleIncomingSignal(data.sender, signal);
-          }
         } else if (trimmed.startsWith("{")) {
           // Legacy support or fallback - handle signals without prefix
           try { 
             const signal = JSON.parse(trimmed); 
             if (signal) {
-              const type = signal.type || "";
-              // Video call signals use plain types: offer, answer, candidate, etc.
               // File transfer signals use prefixed types: file_offer, file_answer, etc.
-              const isCallSignal = ['offer', 'answer', 'candidate', 'ringing', 'reject', 'bye'].includes(type);
-              
-              if (isCallSignal && callingServiceRef.current) {
-                console.log(`[App] Routing prefix-less ${type} signal to CallingService`);
-                callingServiceRef.current.handleIncomingSignal(data.sender, signal);
-              } else {
-                // Default to file transfer for 'file_*' types or unknown signals
-                fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
-              }
+              fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
             }
           } catch (e) {}
         }
@@ -593,28 +546,26 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   };
 
   const handleInitiateCall = async (video: boolean) => {
-    if (!recipient || !callingServiceRef.current) return;
-    setIsVideoCall(video);
-
-    // Resolve recipient pubkey if it's a username
-    let pub = recipient;
-    if (recipient.length < 30 || recipient.startsWith("@")) {
-      pub =
-        (await signalService?.getPubKeyFromUsername(recipient)) || recipient;
-    }
-
-    callingServiceRef.current.initiateCall(pub, video);
+    // Calls disabled for now
+    showNotification("Calls are currently disabled", "info");
   };
 
   const handleFixSync = async () => {
     if (!recipient || !signalService || !userPub) return;
-    if (!window.confirm("Force-recreate secure session?")) return;
+    if (!window.confirm("Force-recreate secure session and regenerate your certificate?")) return;
     try {
+      // 1. Reset the Waku/Signal Session
       await signalService.resetSession(recipient);
-      // Re-publish our own bundle to fix potential outgoing sync issues
+      
+      // 2. Regenerate our own local certificate (fixes incoming writes from others)
+      await signalService.regenerateCertificate(true);
+
+      // 3. Re-publish our own bundle to fix potential discovery issues
       await signalService.republishBundle().catch(() => {});
+      
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));
-      showNotification("Sincronizzazione avviata.", "info");
+      showNotification("Sincronizzazione e rigenerazione completate.", "info");
+      
       const pub = await signalService.getPubKeyFromUsername(recipient);
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
       
@@ -994,23 +945,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           </div>
         </div>
       )}
-
-      <CallingOverlay
-        status={callStatus}
-        localStream={callingServiceRef.current?.getLocalStream() || null}
-        remoteStream={remoteStream}
-        recipientProfile={
-          callData?.from
-            ? contactProfiles[callData.from] || { nickname: callData.from }
-            : recipient
-              ? contactProfiles[recipient]
-              : null
-        }
-        onAccept={() => callingServiceRef.current?.acceptCall(callData?.signal)}
-        onReject={() => callingServiceRef.current?.rejectCall()}
-        onEnd={() => callingServiceRef.current?.endCall()}
-        video={isVideoCall}
-      />
     </div>
   );
 };
@@ -1079,8 +1013,8 @@ const App: React.FC = () => {
         // Initialize Gun and DataBase with the dynamic peer list
         const gunInstance = Gun({
           peers: relays,
-          localStorage: false,
-          radisk: false,
+          localStorage: true,
+          radisk: true,
           file: "radata",
           wire:true,
           webrtc:true

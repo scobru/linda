@@ -59,7 +59,7 @@ export class SignalService {
         let user = this.db.gun.user();
         let pair = (user as any)?._?.sea;
         if (!pair || !user.is) {
-          for (let i = 0; i < 20; i++) {
+          for (let i = 0; i < 15; i++) {
             await new Promise((r) => setTimeout(r, 200));
             user = this.db.gun.user();
             pair = (user as any)?._?.sea;
@@ -428,7 +428,7 @@ export class SignalService {
 
         if (isValid) {
           console.log(
-            "[SignalService] Valid SEA inbox certificate (v11) found for current session.",
+            "[SignalService] Valid SEA inbox certificate (v13) found for current session.",
           );
           return;
         }
@@ -446,7 +446,7 @@ export class SignalService {
         { "#": soul + "/" },
         { "#": { "*": soul + "/" } },
         { "#": { "*": soul + "/." } },
-        { "#": { "*": "*" } }, // broadened
+        { "#": { "*": "*" } }, // absolute wildcard fallback for relay compatibility
       ];
 
       const cert = await (Gun as any).SEA.certify(
@@ -494,7 +494,8 @@ export class SignalService {
         { "#": { "*": soul } },
         { "#": soul },
         { "#": soul + "/" },
-        { "#": { "*": "*" } },
+        { "#": { "*": soul + "/" } },
+        { "#": { "*": "*" } }, // absolute wildcard
       ],
       this.myPair,
       null,
@@ -574,7 +575,7 @@ export class SignalService {
         // Method 1: Specific certificate issued for ME — still needs policy validation
         if (myPub) {
           const specificCert = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 2000);
+            const timeout = setTimeout(() => resolve(null), 3000);
             this.db.gun
               .get(`~${pub}`)
               .get("certs")
@@ -596,7 +597,7 @@ export class SignalService {
 
         // Method 2: Public certificate v13 (latest) — validated
         const v13Cert = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 2500);
+          const timeout = setTimeout(() => resolve(null), 3500);
           this.db.gun
             .get(`~${pub}`)
             .get("inbox_cert_v13")
