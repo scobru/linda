@@ -350,8 +350,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   }, [recipient, groupService, userPub]);
 
   // ── Profile Logic ──
-  const [userAvatar, setUserAvatar] = useState<string | null>(null);
-  const [userNick, setUserNick] = useState<string>("");
+  const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
+  const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_user_nick") || "");
   const [contactProfiles, setContactProfiles] = useState<
     Record<
       string,
@@ -360,17 +360,33 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   >({});
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn) {
+      // Clear cache on logout
+      localStorage.removeItem("linda_user_avatar");
+      localStorage.removeItem("linda_user_nick");
+      localStorage.removeItem("linda_user_unique_username");
+      return;
+    }
     const pub = db.getUserPub();
     if (pub) {
       db.On(
         `~${pub}/profile/avatar`,
-        (data: any) => typeof data === "string" && setUserAvatar(data),
+        (data: any) => {
+          if (typeof data === "string") {
+            setUserAvatar(data);
+            localStorage.setItem("linda_user_avatar", data);
+          }
+        },
         "avatar_self",
       );
       db.On(
         `~${pub}/profile/nickname`,
-        (data: any) => typeof data === "string" && setUserNick(data),
+        (data: any) => {
+          if (typeof data === "string") {
+            setUserNick(data);
+            localStorage.setItem("linda_user_nick", data);
+          }
+        },
         "nick_self",
       );
       return () => {

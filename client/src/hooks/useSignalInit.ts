@@ -9,7 +9,7 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
   const [signalService, setSignalService] = useState<SignalService | null>(null);
   const [groupService, setGroupService] = useState<GroupService | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [userUniqueUsername, setUserUniqueUsername] = useState<string>('');
+  const [userUniqueUsername, setUserUniqueUsername] = useState<string>(localStorage.getItem("linda_user_unique_username") || "");
 
   useEffect(() => {
     const initSignalSession = async () => {
@@ -48,6 +48,7 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
             }
           }
           setUserUniqueUsername(uniqueName);
+          localStorage.setItem("linda_user_unique_username", uniqueName);
 
           const service = new SignalService(db);
           await service.initSession(username, uniqueName);
