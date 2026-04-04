@@ -38,6 +38,7 @@ interface ChatViewProps {
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
+  handleRegenerateCertificate: () => void;
   setShowGroupSettings: (id: string | null) => void;
   onInitiateCall: (video: boolean) => void;
   transferProgress: Record<string, number>;
@@ -75,6 +76,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handlePinMessage,
   handleReportMessage,
   handleDeleteMessage,
+  handleRegenerateCertificate,
   setShowGroupSettings,
   onInitiateCall,
   transferProgress,
@@ -366,7 +368,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <span
                   className={`status status-xs ${contactErrors[recipient] ? "status-error !bg-error" : "status-success opacity-50"}`}
                 ></span>
-                {contactErrors[recipient] ? "Session Error" : "Encrypted"}
+                {contactErrors[recipient] ? (
+                  <div className="flex items-center gap-2">
+                    <span>Session Error</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRegenerateCertificate();
+                      }}
+                      className="btn btn-xs btn-error btn-outline rounded-full h-5 min-h-0 px-2 text-[8px]"
+                    >
+                      RIGENERA CERTIFICATO
+                    </button>
+                  </div>
+                ) : (
+                  "Encrypted"
+                )}
               </div>
             )}
           </div>

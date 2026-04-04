@@ -619,7 +619,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
       
       const cert = await signalService.getInboxCertificate(pub);
-      db.gun.get(`signal_v13_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
+      db.gun.get(`signal_v3_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
         sender: userPub,
         type: ping.type,
         body: ping.body,
@@ -627,6 +627,17 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       } as any, undefined, { opt: { cert } } as any);
     } catch (err) {
       showNotification("Reset failed.", "error");
+    }
+  };
+
+  const handleRegenerateCertificate = async () => {
+    if (!signalService) return;
+    try {
+      await signalService.regenerateCertificate(true);
+      await signalService.republishBundle().catch(() => {});
+      showNotification("Certificato rigenerato con successo.", "info");
+    } catch (err) {
+      showNotification("Rigenerazione certificato fallita.", "error");
     }
   };
 
@@ -857,6 +868,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 handleSendMessage={handleSendMessage}
                 handleTyping={handleTyping}
                 handleFixSync={handleFixSync}
+                handleRegenerateCertificate={handleRegenerateCertificate}
                 handlePinMessage={handlePinMessage}
                 handleReportMessage={handleReportMessage}
                 handleDeleteMessage={handleDeleteMessage}
@@ -904,6 +916,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 handleSendMessage={handleSendMessage}
                 handleTyping={handleTyping}
                 handleFixSync={handleFixSync}
+                handleRegenerateCertificate={handleRegenerateCertificate}
                 handlePinMessage={handlePinMessage}
                 handleReportMessage={handleReportMessage}
                 handleDeleteMessage={handleDeleteMessage}
@@ -1028,6 +1041,7 @@ const ChatWrapper: React.FC<{
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
+  handleRegenerateCertificate: () => void;
   setShowGroupSettings: (id: string | null) => void;
   onInitiateCall: (video: boolean) => void;
   transferProgress: Record<string, number>;
@@ -1065,9 +1079,11 @@ const App: React.FC = () => {
         // Initialize Gun and DataBase with the dynamic peer list
         const gunInstance = Gun({
           peers: relays,
-          localStorage: true,
+          localStorage: false,
           radisk: false,
           file: "radata",
+          wire:true,
+          webrtc:true
         });
 
         window.gun = gunInstance;

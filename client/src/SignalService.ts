@@ -76,7 +76,7 @@ export class SignalService {
         this.myPair = pair;
 
         await this.publishBundle(username, uniqueUsername);
-        await this.initInboxCertificate(pair);
+        await this.regenerateCertificate();
 
         // Discovery metadata persistence is non-blocking to prevent slow relays from hanging initialization
         this.persistAlias(username, uniqueUsername).catch((e) => {
@@ -386,49 +386,56 @@ export class SignalService {
    * Initializes the user's SEA certificate for their secure signal_inbox
    * allowing anyone (or specific peers) to write signals to ~${pub}/signal_inbox
    */
-  private async initInboxCertificate(pair: any): Promise<void> {
+  public async regenerateCertificate(force: boolean = false): Promise<void> {
+    const pair = this.myPair || (this.db.gun.user() as any)?._?.sea;
+    if (!pair) {
+      console.warn("[SignalService] No user keys available for certificate regeneration.");
+      return;
+    }
     const user = this.db.gun.user();
     if (!user.is) return;
 
     try {
-      let currentCert = await new Promise<any>((resolve) => {
-        let timeout = setTimeout(() => resolve(null), 2500);
-        user.get("inbox_cert_v13").once((data: any) => {
-          clearTimeout(timeout);
-          resolve(data);
+      if (!force) {
+        let currentCert = await new Promise<any>((resolve) => {
+          let timeout = setTimeout(() => resolve(null), 2500);
+          user.get("inbox_cert_v13").once((data: any) => {
+            clearTimeout(timeout);
+            resolve(data);
+          });
         });
-      });
 
-      let isValid = false;
-      if (currentCert && typeof currentCert === "string") {
-        try {
-          const verified = await (Gun as any).SEA.verify(currentCert, pair.pub);
-          if (verified && verified.c) {
-            // Check if the policy mentions signal_inbox_v13
-            const policyStr = JSON.stringify(verified.c);
-            if (
-              policyStr.includes("signal_inbox_v13") ||
-              policyStr.includes('"*"')
-            ) {
-              isValid = true;
+        let isValid = false;
+        if (currentCert && typeof currentCert === "string") {
+          try {
+            const verified = await (Gun as any).SEA.verify(currentCert, pair.pub);
+            if (verified && verified.c) {
+              // Check if the policy mentions signal_inbox_v13
+              const policyStr = JSON.stringify(verified.c);
+              if (
+                policyStr.includes("signal_inbox_v13") ||
+                policyStr.includes('"*"')
+              ) {
+                isValid = true;
+              }
             }
+          } catch (e) {
+            console.warn(
+              "[SignalService] Existing certificate verification failed, will regenerate.",
+            );
           }
-        } catch (e) {
-          console.warn(
-            "[SignalService] Existing certificate verification failed, will regenerate.",
+        }
+
+        if (isValid) {
+          console.log(
+            "[SignalService] Valid SEA inbox certificate (v11) found for current session.",
           );
+          return;
         }
       }
 
-      if (isValid) {
-        console.log(
-          "[SignalService] Valid SEA inbox certificate (v11) found for current session.",
-        );
-        return;
-      }
-
       console.log(
-        "[SignalService] Generating fresh recursive SEA certificate (v13) for current session...",
+        `[SignalService] Generating fresh recursive SEA certificate (v13) for current session (force: ${force})...`,
       );
       // Policy: Allow anyone (public inbox) to write to this user's signal_inbox_v13 soul.
       // We include multiple soul variations (trailing slash, nested wildcard) for maximum relay compatibility.
