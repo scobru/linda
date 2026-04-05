@@ -299,10 +299,25 @@ export const useSignalMessaging = (
               });
 
               if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
-                new Notification(`New message in ${meta.name}`, {
+                const title = `New message in ${meta.name}`;
+                const options = {
                   body: plaintext.substring(0, 50),
-                  icon: meta.avatar || "/logo.svg"
-                });
+                  icon: meta.avatar || "/logo.svg",
+                  badge: "/logo.svg",
+                  tag: contactId, // unique tag for grouping
+                  renotify: true,
+                  data: `/chat/${contactId}`
+                };
+
+                if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+                   navigator.serviceWorker.ready.then(registration => {
+                     registration.showNotification(title, options);
+                   }).catch(() => {
+                      new Notification(title, options);
+                   });
+                } else if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+                   new Notification(title, options);
+                }
               }
             } catch (e) {
               console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
@@ -503,14 +518,24 @@ export const useSignalMessaging = (
                 typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
               ) {
                 const title = `New message from ${senderPubKey.slice(0, 8)}...`;
-                const notification = new Notification(title, {
+                const options = {
                   body: validPlaintext.length > 50 ? validPlaintext.substring(0, 50) + "..." : validPlaintext,
-                });
-                notification.onclick = () => {
-                  window.focus();
-                  setRecipient(senderPubKey);
-                  notification.close();
+                  icon: "/logo.svg",
+                  badge: "/logo.svg",
+                  tag: senderPubKey,
+                  renotify: true,
+                  data: `/chat/${senderPubKey}`
                 };
+
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.ready.then(registration => {
+                    registration.showNotification(title, options);
+                  }).catch(() => {
+                    new Notification(title, options);
+                  });
+                } else {
+                  new Notification(title, options);
+                }
               }
             }
 

@@ -47,6 +47,47 @@ declare global {
   }
 }
 
+// ── Unified Loading Component ──
+const LoadingScreen: React.FC<{ message: string; submessage?: string; type?: "infinity" | "spinner" }> = ({ message, submessage, type = "spinner" }) => (
+  <div className="min-h-dvh bg-base-100 flex flex-col items-center justify-center relative px-6 py-12 overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-tr from-primary/10 via-transparent to-secondary/10 opacity-30 pointer-events-none"></div>
+    <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse"></div>
+    <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-[120px] animate-pulse delay-700"></div>
+
+    <div className="z-10 flex flex-col items-center animate-slide-up">
+      <div className="loader-glow mb-12">
+        <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-3xl glass-panel flex items-center justify-center p-6 sm:p-8 transform hover:scale-105 transition-transform duration-500">
+          <img src="/logo.svg" alt="Linda Logo" className="w-full h-full object-contain drop-shadow-2xl" />
+        </div>
+      </div>
+
+      <div className="text-center space-y-6">
+        <h1 className="text-4xl sm:text-5xl font-black text-primary tracking-tightest drop-shadow-sm">
+          Linda
+        </h1>
+
+        <div className="flex flex-col items-center gap-6 px-10 py-8 glass-panel rounded-[2.5rem] border border-white/5 shadow-2xl min-w-[280px]">
+          {type === "infinity" ? (
+            <span className="loading loading-infinity loading-lg text-primary scale-150"></span>
+          ) : (
+            <span className="loading loading-spinner loading-lg text-primary scale-125"></span>
+          )}
+          <div className="space-y-1">
+            <p className="text-xs font-black uppercase tracking-[0.4em] text-primary/80">
+              {message}
+            </p>
+            {submessage && (
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-40">
+                {submessage}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, sdkInstance }) => {
   const { isLoggedIn, userPub, logout } = useShogun() as any;
   const sdk = sdkInstance; // Use the provided instance directly to avoid context delay
@@ -102,8 +143,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
           await new Promise(r => setTimeout(r, 500));
           activeSdk = sdk || window.shogun;
           if (activeSdk) {
-             console.log(`[Login] SDK became ready after ${ (i + 1) * 0.5 }s`);
-             break;
+            console.log(`[Login] SDK became ready after ${(i + 1) * 0.5}s`);
+            break;
           }
         }
       }
@@ -111,14 +152,14 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       if (!activeSdk) {
         throw new Error("SDK not ready. Please try again in a moment.");
       }
-      
+
       console.log(`[Login] ${context} context, processing data...`);
-      
+
       let payload = data.trim();
-      
+
       // Sanitization: Remove potential trailing slashes added by camera apps
       if (payload.endsWith("/")) payload = payload.slice(0, -1);
-      
+
       // 1. Extract payload from URL if present
       if (payload.includes("?session=") || payload.includes("?magic_login=")) {
         try {
@@ -133,10 +174,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
       // 2. Decode Base64 payload
       let jsonStr = "";
-      
+
       // FIX: Handle '+' chars being converted to ' ' by URL search params or copy-paste
       let cleanPayload = payload.trim().replace(/ /g, "+");
-      
+
       try {
         // Try UTF-8 safe decoding first (Modern & Linda Standard)
         jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
@@ -171,17 +212,32 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
       // 5. Validate and Login
       if (pair.pub && pair.priv) {
-        const finalUsername = usernameToUse || pair.username || pair.pub;
+        let finalUsername = usernameToUse || pair.username || pair.pub;
+        // Fix: Gun usernames must be 64 chars or less for alias indexing.
+        // Public keys used as fallbacks are 87 chars, which triggers an error.
+        if (finalUsername && finalUsername.length > 64) {
+          finalUsername = finalUsername.slice(0, 64);
+        }
+
         const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
-        
+
         console.log(`[Login] Attempting Gun auth for: ${displayName}`);
         showNotification("Authenticating...", "info");
-        await activeSdk.loginWithPair(finalUsername, pair);
-        
-        console.log(`[Login] loginWithPair call completed. Checking Gun auth state...`);
+
+        // Reset state before login to avoid conflicts with old sessions
+        if (typeof activeSdk.logout === "function") {
+          activeSdk.logout();
+        }
+
+        const result = await activeSdk.loginWithPair(finalUsername, pair);
+
+        console.log(`[Login] loginWithPair call completed. Result:`, result?.success);
+        if (!result?.success) {
+          console.error(`[Login] loginWithPair failed with error:`, result?.error);
+        }
         // Verify Gun state immediately
         const gun = activeSdk.gun || (window as any).gun;
-        
+
         // Wait up to 3 seconds for Gun to confirm auth
         let authenticated = false;
         for (let i = 0; i < 30; i++) {
@@ -194,7 +250,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         }
 
         if (!authenticated) {
-           console.warn(`[Login] Warning: Gun session not detected after 3s wait. loginWithPair might have succeeded but Gun state is not updated yet.`);
+          console.warn(`[Login] Warning: Gun session not detected after 3s wait. loginWithPair might have succeeded but Gun state is not updated yet.`);
         }
 
         showNotification(`Welcome back, ${displayName}!`, "info");
@@ -494,38 +550,40 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   useEffect(() => {
     const magic_login = searchParams.get("magic_login");
     const session = searchParams.get("session");
-    
-    // Final defensive check: Use prop sdkInstance, window.shogun OR context sdk
+
     const activeSdk = sdkInstance || (window as any).shogun || sdk;
 
-    console.log(`[MagicLink] Sync effect. hasMagic:${!!magic_login}, hasSession:${!!session}, isLoggedIn:${isLoggedIn}, attempted:${magicLoginAttempted.current}, sdkReady:${!!activeSdk}`);
-    
     if ((magic_login || session) && !isLoggedIn && !magicLoginAttempted.current && activeSdk) {
       magicLoginAttempted.current = true;
       setIsProcessingMagicLink(true);
       console.log("[MagicLink] CONDITION MET. Starting authentication...");
-      
+
       processUniversalLogin(magic_login || session!, "Magic Link").then((success) => {
         if (!success) {
           console.error("[MagicLink] Authentication failed");
           setIsProcessingMagicLink(false);
-          magicLoginAttempted.current = false; // Allow retry if it failed
+          magicLoginAttempted.current = false;
         } else {
-          console.log("[MagicLink] Authentication successful, waiting for isLoggedIn state to update...");
-          // We don't set isProcessingMagicLink(false) here. 
-          // We wait for the second effect to detect isLoggedIn === true.
+          console.log("[MagicLink] Authentication successful. Finalizing...");
+          // Proactive cleanup if context update is slow
+          setTimeout(() => {
+            setIsProcessingMagicLink(false);
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.delete("magic_login");
+            nextUrl.searchParams.delete("session");
+            window.history.replaceState({}, document.title, nextUrl.toString());
+          }, 1500);
         }
       });
     }
   }, [isLoggedIn, sdk, searchParams, processUniversalLogin]);
 
-  // 2. Complete Magic Link Login & Clean URL (only when isLoggedIn becomes true)
+  // 2. Complete Magic Link Login state sync
   useEffect(() => {
     if (isLoggedIn && isProcessingMagicLink) {
-      console.log("[MagicLink] Login confirmed! Cleaning up...");
+      console.log("[MagicLink] Login confirmed via context! Cleaning up...");
       setIsProcessingMagicLink(false);
-      
-      // Clean the URL
+
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.delete("magic_login");
       nextUrl.searchParams.delete("session");
@@ -856,33 +914,13 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
   // ── Loading screen ─────────────────────────────────────────────
   if (isLoading) {
-    return (
-      <div className="min-h-dvh bg-base-100 flex flex-col items-center justify-center relative px-6 py-12">
-        <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-secondary/5 opacity-50"></div>
-        <div className="hero-content text-center z-10 py-12">
-          <div className="max-w-md flex flex-col items-center">
-            <div className="avatar mb-10">
-              <div className="w-28 rounded-full ring ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl shadow-primary/20 bg-base-200/50 backdrop-blur-md p-6">
-                <img
-                  src="/logo.svg"
-                  alt="Linda Logo"
-                  className="animate-pulse"
-                />
-              </div>
-            </div>
-            <h1 className="text-5xl font-black text-primary mb-6 tracking-tighter">
-              Linda
-            </h1>
-            <div className="flex flex-col items-center gap-6 p-8 bg-base-200/40 backdrop-blur-xl rounded-[2rem] border border-base-content/5 shadow-2xl">
-              <span className="loading loading-spinner loading-lg text-primary"></span>
-              <p className="text-sm font-black uppercase tracking-[0.3em] opacity-40">
-                Initializing secure session
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingScreen message="Initializing session" submessage="Establishing secure handshake" />;
+  }
+
+  // ── Magic Link Progress Overlay ───────────────────────────────
+  // We show a full-screen loader for magic link if it's already detected
+  if (isProcessingMagicLink) {
+    return <LoadingScreen message="Authenticating Link" submessage="Verifying identity on decentralized web" />;
   }
 
   // ── Login screen ──────────────────────────────────────────────
@@ -929,18 +967,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 </div>
               </div>
 
-              {isProcessingMagicLink ? (
-                <div className="flex flex-col items-center gap-6 py-10 w-full bg-primary/5 rounded-[2rem] border border-primary/20 animate-pulse">
-                   <span className="loading loading-spinner loading-lg text-primary"></span>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">
-                      Authenticating Magic Link...
-                    </p>
-                </div>
-              ) : (
-                <div className="card-actions flex flex-col gap-3 w-full">
-                  <ShogunButton />
-                </div>
-              )}
+              {/* Note: the full page loader above takes precedence when isProcessingMagicLink is true */}
+              <div className="card-actions flex flex-col gap-3 w-full">
+                <ShogunButton />
+              </div>
 
               <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">
                 ECOSYSTEM
@@ -1241,7 +1271,6 @@ const App: React.FC = () => {
           peers: relays,
           localStorage: true,
           radisk: true,
-          file: "radata",
           wire: true,
           webrtc: true
         });
@@ -1256,6 +1285,7 @@ const App: React.FC = () => {
         const result = await (shogunConnector as any)({
           appName: "Shogun Linda",
           gunInstance: gunInstance as any,
+          storage: typeof window !== "undefined" ? window.localStorage : undefined,
           webauthn: { enabled: true },
           web3: { enabled: true },
           nostr: { enabled: true },
@@ -1308,35 +1338,7 @@ const App: React.FC = () => {
   }, []);
 
   if (!coreContext || !dbInstance) {
-    return (
-      <div className="hero min-h-dvh bg-base-100 flex items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
-        <div className="hero-content text-center z-10">
-          <div className="max-w-md flex flex-col items-center gap-10">
-            <div className="avatar">
-              <div className="w-28 rounded-full ring ring-primary ring-offset-base-100 ring-offset-4 shadow-3xl shadow-primary/20 bg-base-200/40 backdrop-blur-md p-6">
-                <img
-                  src="/logo.svg"
-                  alt="Linda Logo"
-                  className="animate-pulse"
-                />
-              </div>
-            </div>
-            <div className="space-y-6 p-10 bg-base-200/40 backdrop-blur-2xl rounded-[2.5rem] border border-base-content/10 shadow-2xl">
-              <h1 className="text-4xl font-black tracking-tighter text-primary">
-                Linda
-              </h1>
-              <div className="flex flex-col items-center gap-4 py-2">
-                <span className="loading loading-infinity loading-lg text-primary"></span>
-                <p className="text-xs font-black uppercase tracking-[0.4em] opacity-40">
-                  Bootstrapping SDK
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingScreen message="Bootstrapping SDK" submessage="Connecting to P2P decentralized relays" type="infinity" />;
   }
   console.log(`[App] Rendering with coreContext: ${!!coreContext}, dbInstance: ${!!dbInstance}, coreReady: ${!!coreContext?.core}`);
 
