@@ -6,6 +6,7 @@ import {
   Route,
   useNavigate,
   useLocation,
+  useSearchParams,
 } from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationPage } from "./pages/GroupCreationPage";
@@ -67,6 +68,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
   const processedSignalsRef = useRef<Set<string>>(new Set());
 
+  const [searchParams] = useSearchParams();
+  const magicLoginAttempted = useRef(false);
   const [notification, setNotification] = useState<{ msg: string; type: "info" | "error" } | null>(null);
   const [showLoginScanner, setShowLoginScanner] = useState(false);
   const navigate = useNavigate();
@@ -157,7 +160,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
         
         showNotification("Authenticating...", "info");
-        await activeSdk.loginWithPair(pair.username || "User", pair);
+        await activeSdk.loginWithPair(finalUsername, pair);
         showNotification(`Welcome back, ${displayName}!`, "info");
         return true;
       } else {
@@ -460,14 +463,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   }, [recipient, groupService, userPub]);
 
-  // ── Universal Link Entry (Login & Add Friend) ──
+  // Handle Magic Link Login
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const magic_login = url.searchParams.get("magic_login");
-    const session = url.searchParams.get("session");
-    const add = url.searchParams.get("add");
+    const magic_login = searchParams.get("magic_login");
+    const session = searchParams.get("session");
+    const add = searchParams.get("add");
 
-    if ((magic_login || session) && !isLoggedIn && sdk) {
+    if ((magic_login || session) && !isLoggedIn && !magicLoginAttempted.current && sdk) {
+      magicLoginAttempted.current = true;
       processUniversalLogin(magic_login || session!, "Magic Link").then((success) => {
         if (success) {
           // Clean the URL
@@ -492,7 +495,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       nextUrl.searchParams.delete("add");
       window.history.replaceState({}, document.title, nextUrl.toString());
     }
-  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, sdk, processUniversalLogin]);
+  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, sdk, processUniversalLogin, searchParams]);
 
   // ── Profile Logic ──
   const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
