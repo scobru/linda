@@ -436,14 +436,25 @@ export class GroupService {
       await (this.db.Put as any)(`signal_rooms/${groupId}/active_invites/${inviteId}`, { status: 'active' });
     }
 
-    return btoa(JSON.stringify(invite));
+    return btoa(unescape(encodeURIComponent(JSON.stringify(invite))));
   }
 
   /**
    * Join Group
    */
   async joinGroup(inviteB64: string): Promise<GroupInfo> {
-    const invite = JSON.parse(atob(inviteB64)) as GroupInvite;
+    let jsonStr = "";
+    try {
+      jsonStr = decodeURIComponent(escape(atob(inviteB64)));
+    } catch (e) {
+      try {
+        jsonStr = atob(inviteB64);
+      } catch (e2) {
+        throw new Error("Invalid invite format (not base64)");
+      }
+    }
+
+    const invite = JSON.parse(jsonStr) as GroupInvite;
     const myPub = this.db.getUserPub();
     if (!myPub) throw new Error("Not logged in");
 

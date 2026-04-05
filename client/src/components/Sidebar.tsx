@@ -59,7 +59,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const url = new URL(pubKey);
         const encoded = url.searchParams.get("magic_login") || url.searchParams.get("session");
         if (encoded) {
-          const jsonStr = window.atob(encoded);
+          let jsonStr = "";
+          try {
+            jsonStr = decodeURIComponent(escape(window.atob(encoded)));
+          } catch (e) {
+            try {
+              jsonStr = window.atob(encoded);
+            } catch (e2) {
+              jsonStr = encoded;
+            }
+          }
           const payload = JSON.parse(jsonStr);
           const pair = payload.type === "shogun-auth-pair" ? payload.pair : payload;
           if (pair.pub) pubKey = pair.pub;

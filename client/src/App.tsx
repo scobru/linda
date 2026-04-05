@@ -123,11 +123,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       let cleanPayload = payload.replace(/ /g, "+");
       
       try {
-        jsonStr = window.atob(cleanPayload);
+        // Try UTF-8 safe decoding first (Modern & Linda Standard)
+        jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
       } catch (e) {
-        // Fallback for UTF-8 safe encoding (Linda legacy)
         try {
-          jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
+          // Fallback to plain base64 (For older links or pure ASCII)
+          jsonStr = window.atob(cleanPayload);
         } catch (e2) {
           // If not base64, assume it might be a direct JSON string (pure QR pairs)
           jsonStr = payload;
@@ -135,7 +136,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
 
       // 3. Parse JSON
-      const parsed = JSON.parse(jsonStr);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (e) {
+        throw new Error(`Invalid QR data format (JSON parse error)`);
+      }
       let pair = parsed;
       let usernameToUse = "";
 
