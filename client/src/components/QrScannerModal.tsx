@@ -46,18 +46,16 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
       scannerRef.current = html5QrCode;
 
       const config = { 
-        fps: 20,
+        fps: 25,
         qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const qrboxSize = Math.floor(minEdge * 0.85);
+          const qrboxSize = Math.floor(minEdge * 0.8);
           return { width: qrboxSize, height: qrboxSize };
         },
         aspectRatio: 1.0,
         videoConstraints: {
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 },
-          facingMode: typeof deviceId === "string" ? undefined : deviceId.facingMode,
-          focusMode: "continuous"
+          aspectRatio: 1.0,
+          facingMode: typeof deviceId === "string" ? undefined : deviceId.facingMode
         }
       };
 
