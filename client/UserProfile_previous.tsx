@@ -90,6 +90,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     const pub = db.getUserPub();
     if (!pub) return;
     try {
+      // Nickname doesn't need to be unique, we just store the association
+      // so others can see it when they look up this user.
       await db.Put(`signal_global_nicknames/${nick}`, pub);
       await db.userPut("profile/nickname", nick);
       showNotification("Nickname updated", "info");
@@ -143,14 +145,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200 p-10 rounded-2xl border border-base-content/5 shadow-sm relative overflow-hidden group">
         <div className="relative z-10 shrink-0">
           <div className="avatar">
-            <div className="w-32 sm:w-40 rounded-full border-4 border-base-content/10 ring-2 ring-primary/20 bg-base-300 overflow-hidden">
+            <div className="w-32 sm:w-40 rounded-full border-4 border-base-content/10 ring-2 ring-primary/20 bg-base-300">
               {currentAvatar ? (
-                <img src={currentAvatar} alt="Avatar" className="object-cover w-full h-full" />
+                <img src={currentAvatar} alt="Avatar" className="object-cover" />
               ) : (
                 <img 
                   src={getDiceBearAvatar(username || currentNick)} 
                   alt="Avatar" 
-                  className="object-cover bg-base-300 w-full h-full" 
+                  className="object-cover bg-base-300" 
                 />
               )}
             </div>
@@ -168,10 +170,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <div className="badge badge-primary font-black tracking-widest text-[10px] h-7 px-4 rounded-full border-none">{currentUniqueUsername || "ID NOT SET"}</div>
         </div>
 
-        {/* Universal Contact QR (Level H) */}
         <div className="shrink-0 bg-white p-4 rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
            <QRCodeSVG 
-            value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
+            value={db.getUserPub() || ""} 
             size={120} 
             level="H"
             includeMargin={false}
@@ -192,7 +193,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onChange={(e) => setNick(e.target.value)}
                 placeholder="Ex. Linda"
               />
-              <button onClick={handleSaveNick} className="btn btn-primary h-12 w-12 rounded-2xl p-0 transition-transform active:scale-90">
+              <button onClick={handleSaveNick} className="btn btn-primary h-12 w-12 rounded-2xl p-0">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                   <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
                 </svg>
@@ -211,7 +212,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 onChange={(e) => setUniqueName(e.target.value)}
                 placeholder="@username"
               />
-              <button onClick={handleSaveUniqueUsername} className="btn btn-primary h-12 w-12 rounded-2xl p-0 transition-transform active:scale-90">
+              <button onClick={handleSaveUniqueUsername} className="btn btn-primary h-12 w-12 rounded-2xl p-0">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                   <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
                 </svg>
@@ -226,16 +227,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
             <div className="flex-1">
               <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40 mb-1">Security & Keys</h3>
-              <p className="text-xs opacity-40 font-bold">Instantly export your private backup JSON.</p>
+              <p className="text-xs opacity-40 font-bold">Management of your private encryption keys.</p>
             </div>
             <div className="flex gap-2">
               <button 
-                className={`btn btn-sm rounded-xl px-6 font-black text-xs ${showKeys ? "btn-neutral" : "btn-ghost bg-base-content/5 opacity-60 hover:opacity-100 transition-all"}`}
+                className={`btn btn-sm rounded-xl px-6 font-black text-xs ${showKeys ? "btn-neutral" : "btn-ghost bg-base-content/5 opacity-60 hover:opacity-100"}`}
                 onClick={() => setShowKeys(!showKeys)}
               >
                 {showKeys ? "Hide Keys" : "Reveal Keys"}
               </button>
-              <button className="btn btn-ghost bg-base-content/5 opacity-60 hover:opacity-100 btn-sm rounded-xl px-6 font-black text-xs transition-all" onClick={handleCopyKeys}>
+              <button className="btn btn-ghost bg-base-content/5 opacity-60 hover:opacity-100 btn-sm rounded-xl px-6 font-black text-xs" onClick={handleCopyKeys}>
                 {copyStatus || "Export JSON"}
               </button>
             </div>
@@ -251,81 +252,75 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
       </div>
 
-      {/* Magic Link Login Sync Section */}
-      <div className="card bg-primary/5 border border-primary/20 overflow-hidden rounded-[2.5rem] shadow-xl">
-        <div className="card-body p-8 sm:p-12 space-y-10">
-          <div className="flex flex-col lg:flex-row items-center gap-12">
-            <div className="flex-1 space-y-8 text-center lg:text-left">
-              <div className="space-y-4">
-                <h3 className="text-2xl font-black text-primary uppercase tracking-tight">Sync Account to Mobile</h3>
-                <p className="text-sm opacity-60 font-bold leading-relaxed max-w-lg mx-auto lg:mx-0">
-                  Scan this Magic Link from your phone's camera or a new device to instantly transfer your sessions and keys.
+      {/* Magic Link Login Sync */}
+      <div className="card bg-primary/5 border border-primary/20 overflow-hidden rounded-[2rem] shadow-xl">
+        <div className="card-body p-8 sm:p-10 flex flex-col lg:flex-row items-center gap-10">
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 p-6 bg-base-200/50 rounded-3xl border border-base-content/5">
+              <div className="shrink-0 bg-white p-4 rounded-2xl shadow-xl border-4 border-primary/20">
+                <QRCodeSVG 
+                  value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
+                  size={140} 
+                  level="H"
+                  fgColor="#1b1b1f"
+                  bgColor="#ffffff"
+                />
+              </div>
+              <div className="flex-1 space-y-3">
+                <h4 className="text-sm font-black uppercase tracking-widest text-primary">Your Contact QR</h4>
+                <p className="text-[10px] font-bold opacity-50 leading-relaxed uppercase">
+                  Show this to a friend to let them add you instantly. Works with any phone camera!
                 </p>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-4 p-6 bg-base-200/50 rounded-3xl border border-base-content/5 max-w-xl">
-                <div className="shrink-0 bg-white p-3 rounded-2xl shadow-xl border-2 border-primary/10">
-                   <QRCodeSVG 
-                    value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
-                    size={100} 
-                    level="H"
-                    fgColor="#1b1b1f"
-                    bgColor="#ffffff"
-                  />
-                </div>
-                <div className="flex-1 text-left space-y-2">
-                   <h4 className="text-xs font-black uppercase tracking-widest text-primary">Your Contact QR</h4>
-                   <p className="text-[10px] font-bold opacity-40 leading-relaxed uppercase">Use this to share your profile URL with friends without exposing private keys.</p>
-                   <button 
-                    className="btn btn-primary btn-xs rounded-lg px-6 font-black"
-                    onClick={() => {
-                      const pub = (db.getCurrentUser()?.user as any)?._?.sea?.pub;
-                      if (!pub) return;
-                      navigator.clipboard.writeText(`${window.location.origin}/?add=${pub}`);
-                      showNotification("Contact link copied!", "info");
-                    }}
-                  >
-                    Copy Link
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 bg-error/10 rounded-2xl border border-error/20 flex gap-4 items-start text-left max-w-xl">
-                <span className="text-xl">⚠️</span>
-                <div className="text-[10px] font-bold text-error uppercase tracking-wider leading-relaxed">
-                  <span className="font-black">Security Warning:</span> The main QR on the right contains your private keys. NEVER show it on a public screen or share it with anyone.
-                </div>
-              </div>
-
-              <div className="flex flex-wrap justify-center lg:justify-start gap-4">
-                 <button 
-                  className="btn btn-primary rounded-2xl px-10 h-14 font-black shadow-xl shadow-primary/20 transition-transform active:scale-95"
+                <button 
+                  className="btn btn-primary btn-xs rounded-lg px-4 font-black"
                   onClick={() => {
-                    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
-                    if (!pair) return;
-                    const sessionData = { ...pair, username };
-                    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
-                    const link = `${window.location.origin}/?session=${encoded}`;
-                    navigator.clipboard.writeText(link);
-                    showNotification("Magic Link copied!", "info");
+                    const pub = (db.getCurrentUser()?.user as any)?._?.sea?.pub;
+                    if (!pub) return;
+                    navigator.clipboard.writeText(`${window.location.origin}/?add=${pub}`);
+                    showNotification("Contact link copied!", "info");
                   }}
                 >
-                  Copy Magic Link
+                  Copy Contact Link
                 </button>
               </div>
             </div>
-
-            <div className="shrink-0 bg-white p-8 rounded-[3rem] shadow-3xl border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
-               <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
-               <QRCodeSVG 
-                value={`${window.location.origin}/?session=${btoa(unescape(encodeURIComponent(JSON.stringify({ ...((db.getCurrentUser()?.user as any)?._?.sea || {}), username }))))}`} 
-                size={220} 
-                level="H"
-                includeMargin={false}
-                fgColor="#1b1b1f"
-                bgColor="#ffffff"
-              />
+            
+            <div className="p-4 bg-error/10 rounded-2xl border border-error/20 flex gap-4 items-start text-left">
+              <span className="text-xl">ÔÜá´©Å</span>
+              <div className="text-[10px] font-bold text-error uppercase tracking-wider leading-relaxed">
+                <span className="font-black">Security Warning:</span> This QR contains your private keys. Never share it, show it on a public screen, or send it to anyone.
+              </div>
             </div>
+
+            <div className="flex flex-wrap justify-center lg:justify-start gap-3">
+               <button 
+                className="btn btn-primary rounded-xl px-8 font-black shadow-lg shadow-primary/20"
+                onClick={() => {
+                  const pair = (db.getCurrentUser()?.user as any)?._?.sea;
+                  if (!pair) return;
+                  const sessionData = { ...pair, username };
+                  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
+                  const link = `${window.location.origin}/?session=${encoded}`;
+                  navigator.clipboard.writeText(link);
+                  showNotification("Magic Link copied!", "info");
+                }}
+              >
+                Copy Magic Link
+              </button>
+            </div>
+          </div>
+
+          <div className="shrink-0 bg-white p-6 rounded-[2.5rem] shadow-2xl border-8 border-primary/10 hover:scale-105 transition-transform duration-500 group relative">
+             <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
+             <QRCodeSVG 
+              value={`${window.location.origin}/?session=${btoa(unescape(encodeURIComponent(JSON.stringify({ ...((db.getCurrentUser()?.user as any)?._?.sea || {}), username }))))}`} 
+              size={220} 
+              level="H"
+              includeMargin={false}
+              fgColor="#1b1b1f"
+              bgColor="#ffffff"
+            />
           </div>
         </div>
       </div>
