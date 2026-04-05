@@ -1,20 +1,23 @@
-import React from "react";
-import { useNavigate, NavLink } from "react-router-dom";
-import { getDiceBearAvatar } from "../utils/avatar";
+import React, { useState, useEffect } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { getDiceBearAvatar } from "../lib/utils";
+import { SignalService } from "../SignalService";
+import { GroupService } from "../GroupService";
+import { QrScannerModal } from "./QrScannerModal";
 
 interface SidebarProps {
   userPub: string | null;
-  userNick: string;
   username: string;
+  userNick: string;
   userAvatar: string | null;
   contacts: string[];
-  recipient: string; // Keep for Layout logic if needed, but unused in Sidebar body
+  recipient: string;
   setRecipient: (id: string) => void;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   unreadCounts: Record<string, number>;
-  handleDeleteContact: (id: string, e: React.MouseEvent) => Promise<void>;
-  signalService: any;
-  groupService: any;
+  handleDeleteContact: (id: string, e: React.MouseEvent) => void;
+  signalService: SignalService | null;
+  groupService: GroupService | null;
   showNotification: (msg: string, type?: "info" | "error") => void;
   saveContact: (id: string) => void;
   requestNotifications: () => void;
@@ -22,10 +25,11 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   userPub,
-  userNick,
   username,
+  userNick,
   userAvatar,
   contacts,
+  recipient,
   setRecipient,
   contactProfiles,
   unreadCounts,
@@ -37,17 +41,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
   requestNotifications,
 }) => {
   const navigate = useNavigate();
+  const [showScanner, setShowScanner] = useState(false);
+
+  const handleQrScan = async (data: string) => {
+    setShowScanner(false);
+    if (!data) return;
+
+    try {
+      let pubKey = data.trim();
+      
+      // Handle Linda Universal Links (?add=)
+      if (pubKey.includes("?add=")) {
+        const urlSplit = pubKey.split("?add=");
+        const extracted = urlSplit[1]?.split("&")[0];
+        if (extracted) pubKey = extracted;
+      }
+
+      if (pubKey.length < 30 || pubKey.startsWith("@")) {
+        if (!signalService) return;
+        pubKey = await signalService.getPubKeyFromUsername(pubKey);
+      }
+
+      saveContact(pubKey);
+      setRecipient(pubKey);
+      navigate(`/chat/${pubKey}`);
+      showNotification(`Contact added via QR!`, "info");
+    } catch (err: any) {
+      showNotification("Invalid QR Code", "error");
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full bg-base-200/95 backdrop-blur-3xl border-r border-white/5 w-full transition-all overflow-hidden shadow-2xl font-narrow">
-      {/* User info Header - Telegram Style */}
-      <div className="px-6 flex items-center justify-between border-b border-white/5 bg-base-300/20 h-16 shrink-0">
+    <div className="flex flex-col h-full bg-base-100 border-r border-base-content/5 w-full transition-all overflow-hidden font-narrow">
+      {/* User info Header - Signal Style */}
+      <div className="px-6 flex items-center justify-between border-b border-base-content/5 bg-base-200 h-16 shrink-0">
         <div
           className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-all grow mr-4 group"
           onClick={() => navigate("/profile")}
         >
           <div className="avatar relative">
-            <div className="w-11 rounded-full ring-4 ring-primary/10 ring-offset-base-100 ring-offset-4 shadow-xl transition-transform group-hover:scale-105">
+            <div className="w-10 rounded-full border border-base-content/10 ring-1 ring-white/5 bg-base-300">
               {userAvatar ? (
                 <img src={userAvatar} alt="avatar" className="object-cover" />
               ) : (
@@ -68,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <button
           onClick={() => navigate("/settings")}
-          className="btn btn-ghost btn-circle shadow-xl bg-base-300/50 hover:bg-base-300 border border-white/5"
+          className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100 transition-opacity"
           title="Settings"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -76,14 +109,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </button>
-      </div>
-
-      <div className="px-6 py-4 flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 text-primary">Conversations</span>
         <button
-          className="btn btn-ghost btn-circle btn-sm bg-primary/10 text-primary hover:bg-primary hover:text-primary-content transition-all shadow-lg shadow-primary/10"
           onClick={() => navigate("/create-group")}
-          title="Create New Group"
+          className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100 transition-opacity"
+          title="Create Group"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -99,8 +128,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavLink
                 to={`/chat/${userPub}`}
                 className={({ isActive }) => 
-                  `flex items-center p-4 gap-4 rounded-2xl transition-all relative group h-16 ${
-                    isActive ? "bg-primary text-primary-content shadow-xl shadow-primary/20 border-white/10" : "hover:bg-white/5 border-transparent active:scale-[0.98]"
+                  `flex items-center p-3 px-6 gap-4 transition-all relative group ${
+                    isActive ? "bg-primary/10 text-primary border-r-2 border-primary" : "hover:bg-base-content/5 active:bg-base-content/10"
                   }`
                 }
                 onClick={() => {
@@ -111,23 +140,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {({ isActive }) => (
                   <>
                     <div className="avatar">
-                      <div className={`w-12 rounded-full border-2 shadow-xl ring-4 ring-offset-4 ring-offset-transparent transition-all ${isActive ? "border-white/30 ring-white/10" : "border-secondary/20 ring-secondary/5"}`}>
+                      <div className="w-10 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
                         <div className={`w-full h-full flex items-center justify-center ${isActive ? "bg-white/20" : "bg-secondary/10"}`}>
-                           <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${isActive ? "text-white" : "text-secondary"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                           <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${isActive ? "text-primary" : "text-secondary"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                            </svg>
                         </div>
                       </div>
                     </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center gap-2">
-                        <span className={`font-bold truncate tracking-tight text-sm ${isActive ? "text-white" : ""}`}>
-                          My Cloud
-                        </span>
-                        <div className={`text-[8px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md ${isActive ? "bg-white/20 text-white" : "bg-primary/10 text-primary"}`}>SYNC</div>
+                    <div className="flex-1 overflow-hidden">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-xs tracking-tight uppercase">My Cloud</span>
                       </div>
-                      <div className={`text-[9px] font-semibold uppercase tracking-[0.1em] mt-0.5 ${isActive ? "text-white/60" : "text-base-content/40"}`}>Personal Storage</div>
+                      <div className="text-[10px] opacity-40 font-bold truncate">Self-transfer & notes</div>
                     </div>
                   </>
                 )}
@@ -135,18 +160,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </li>
           )}
 
-          {contacts.length === 0 && !userPub && (
-            <div className="p-12 text-center opacity-20 text-xs italic font-medium">
-              No conversations yet
-            </div>
-          )}
           {contacts.filter(c => c !== userPub).map((c) => (
             <li key={c}>
               <NavLink
                 to={`/chat/${c}`}
                 className={({ isActive }) => 
-                  `flex items-center p-4 gap-4 rounded-2xl transition-all relative group h-16 ${
-                    isActive ? "bg-primary text-primary-content shadow-xl shadow-primary/20 border border-white/10" : "hover:bg-white/5 border-transparent active:scale-[0.98]"
+                  `flex items-center p-3 px-6 gap-4 transition-all relative group ${
+                    isActive ? "bg-primary text-white shadow-lg shadow-primary/20" : "hover:bg-base-content/5 active:bg-base-content/10"
                   }`
                 }
                 onClick={() => {
@@ -157,23 +177,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {({ isActive }) => (
                   <>
                     <div className="avatar">
-                      <div className={`w-12 rounded-full border-2 shadow-xl ring-4 ring-offset-4 ring-offset-transparent transition-all ${isActive ? "border-white/30 ring-white/10" : "border-white/5 ring-primary/5"}`}>
+                      <div className="w-10 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
                         {contactProfiles[c]?.avatar ? (
-                          <img src={contactProfiles[c].avatar} alt={c} className="object-cover" />
+                          <img src={contactProfiles[c].avatar} alt="avatar" className="object-cover" />
                         ) : (
-                          <img 
-                            src={getDiceBearAvatar(c, c.length === 36 && c.includes("-"))} 
-                            alt={c} 
-                            className={`object-cover ${isActive ? "bg-white/20" : "bg-neutral"}`} 
-                          />
+                          <img src={getDiceBearAvatar(contactProfiles[c]?.nickname || c)} alt="avatar" className="object-cover bg-primary/10" />
                         )}
                       </div>
                     </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center gap-2">
-                        <span className={`font-bold truncate tracking-tight text-sm ${isActive ? "text-white" : ""}`}>
-                          {contactProfiles[c]?.nickname ||
+                    <div className="flex-1 overflow-hidden">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold truncate text-sm tracking-tight">
+                          {contactProfiles[c]?.nickname || 
                             (c.length === 36 && c.includes("-") ? "Loading group..." :
                             c.length > 20 ? `${c.slice(0, 8)}...${c.slice(-4)}` : c)}
                         </span>
@@ -184,7 +199,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         )}
                       </div>
                       {c.length === 36 && c.includes("-") && (
-                         <div className={`text-[9px] font-semibold uppercase tracking-[0.1em] mt-0.5 ${isActive ? "text-white/60" : "text-primary/60"}`}>GROUP CHANNEL</div>
+                         <div className={`text-[9px] font-semibold uppercase tracking-[0.1em] mt-0.5 ${isActive ? "opacity-60" : "opacity-40"}`}>GROUP CHANNEL</div>
                       )}
                     </div>
 
@@ -209,8 +224,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </ul>
       </div>
 
-      <div className="p-4 bg-base-300/40 border-t border-white/5 shrink-0">
-        <label className="input input-sm h-12 w-full bg-base-100/40 border-white/5 flex items-center gap-3 focus-within:ring-4 focus-within:ring-primary/10 transition-all rounded-xl px-4 shadow-inner group">
+      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-base-200 border-t border-base-content/5 shrink-0 flex items-center gap-2">
+        <label className="input input-sm h-11 flex-1 bg-base-content/10 border-none flex items-center gap-3 focus-within:ring-1 focus-within:ring-primary/20 rounded-2xl px-4 transition-all group">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 opacity-30 group-focus-within:opacity-100 transition-opacity"><path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" /></svg>
           <input
             type="text"
@@ -272,6 +287,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
           />
         </label>
+
+        <button 
+          onClick={() => setShowScanner(true)}
+          className="btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-11 w-11 min-h-0 border-none transition-all active:scale-95 flex items-center justify-center p-0"
+          title="Scan QR"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 opacity-60">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+          </svg>
+        </button>
+
+        {showScanner && (
+          <QrScannerModal 
+            onScan={handleQrScan} 
+            onClose={() => setShowScanner(false)} 
+          />
+        )}
       </div>
     </div>
   );

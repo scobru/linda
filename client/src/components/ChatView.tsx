@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
 import { AudioRecorder } from "./AudioRecorder";
@@ -19,7 +18,6 @@ interface ChatViewProps {
     { avatar?: string; nickname?: string; uniqueUsername?: string }
   >;
   typingStatuses: Record<string, number>;
-  contactErrors: Record<string, boolean>;
   pinnedMessages: Record<string, Set<string>>;
   messages: Record<string, Message[]>;
   myRole: string | null;
@@ -43,7 +41,6 @@ interface ChatViewProps {
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
-  transferOffers: Record<string, any>;
   wormholeService: WormholeService | null;
   wormholeStatuses: Record<string, string>;
   handleClearChat: (id: string) => void;
@@ -51,6 +48,7 @@ interface ChatViewProps {
   isContactsLoading: boolean;
   acceptContact: (id: string) => Promise<void>;
   blockContact: (id: string) => Promise<void>;
+  showNotification: (msg: string, type?: "info" | "error") => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -60,7 +58,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   groupService,
   contactProfiles,
   typingStatuses,
-  contactErrors,
   pinnedMessages,
   messages,
   myRole,
@@ -80,7 +77,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   setShowGroupSettings,
   transferProgress,
   transferBlobs,
-  transferOffers,
   wormholeService,
   wormholeStatuses,
   handleClearChat,
@@ -88,12 +84,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isContactsLoading,
   acceptContact,
   blockContact,
+  showNotification,
 }) => {
-  const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [canSendMessage, setCanSendMessage] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
 
   const isTrusted = useMemo(() => {
@@ -113,31 +108,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
       }
     };
     checkPerms();
-
-    // Reactive mute subscription
-    if (groupService && recipient.length === 36 && recipient.includes("-")) {
-      const myPub = (groupService as any).db.getUserPub();
-      if (myPub) {
-        const unsubscribe = groupService.onMuteStatusChange(
-          recipient,
-          myPub,
-          (muted) => {
-            setIsMuted(muted);
-            // If we receive a mute update, we should also re-evaluate canSendMessage
-            // although isMuted is checked inside canPerform, canPerform is not reactive.
-            // So we manually override if we know we are muted.
-            if (muted) setCanSendMessage(false);
-            else {
-              // Re-check full permissions when unmuted
-              checkPerms();
-            }
-          },
-        );
-        return unsubscribe;
-      }
-    } else {
-      setIsMuted(false);
-    }
   }, [recipient, groupService, myRole]);
 
   // ── Prevent Tab Close During Transfer ──
@@ -166,6 +136,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   );
 
   // ── File Transfer Logic ──
+  // ── Upload State ──
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMeta, setUploadMeta] = useState<{ name: string; size: number } | null>(null);
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -186,6 +160,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       status: "offered",
     };
 
+    setIsUploading(true);
+    setUploadMeta({ name: file.name, size: file.size });
+
     try {
       // Initiate Wormhole transfer
       if (
@@ -201,54 +178,88 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }
       }
 
-      // Initiate Wormhole transfer
+      // Initiate Wormhole transfer with fallback logic
       if (wormholeService) {
-        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
-        const authToken = import.meta.env.VITE_AUTH_TOKEN || 'dummy';
+        const relays = [
+          import.meta.env.VITE_RELAY_URL,
+          'https://shogun-relay.scobrudot.dev',
+          'https://relay.peer.ooo'
+        ].filter(Boolean) as string[];
         
-        const code = await wormholeService.send({
-          file,
-          filename: file.name,
-          size: file.size,
-          type: file.type,
-          relayUrl,
-          authToken
-        });
-        
-        meta.wormholeCode = code;
-        meta.method = 'wormhole';
-        meta.status = 'offered';
-        handleSendMessage(undefined, undefined, meta);
+        const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
+        let code: string | undefined;
+        let lastError: any;
+
+        for (const relayUrl of relays) {
+          try {
+            console.log(`[ChatView] Attempting Wormhole send via: ${relayUrl}`);
+            code = await wormholeService.send({
+              file,
+              filename: file.name,
+              size: file.size,
+              type: file.type,
+              relayUrl,
+              authToken
+            });
+            if (code) {
+              meta.wormholeCode = code;
+              meta.method = 'wormhole';
+              meta.status = 'offered';
+              handleSendMessage(undefined, undefined, meta);
+              break; 
+            }
+          } catch (err: any) {
+            console.warn(`[ChatView] Failed to send via ${relayUrl}:`, err.message);
+            lastError = err;
+          }
+        }
+
+        if (!code) {
+          console.error("All Wormhole relays failed:", lastError);
+          // Fallback to error notification if all failed
+          throw new Error("Could not reach any file transfer relay. Please check your connection.");
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to initiate file transfer:", err);
+      showNotification(err.message || "Failed to initiate file transfer", "error");
     } finally {
+      setIsUploading(false);
+      setUploadMeta(null);
       // Reset input value so same file can be selected again
       if (e.target) e.target.value = "";
     }
   };
 
-  const transferOffersRef = useRef(transferOffers);
-  useEffect(() => {
-    transferOffersRef.current = transferOffers;
-  }, [transferOffers]);
-
   // Auto-accept images for Cloud Sync
   useEffect(() => {
     if (!wormholeService) return;
 
-    currentMessages.forEach((msg) => {
-      // Auto-accept if it's an image in Cloud/Self chat
-      const isCloudChat = recipient === userPub;
-      if (msg.type === "image" && isCloudChat && msg.fileMetadata?.wormholeCode) {
-        const code = msg.fileMetadata.wormholeCode;
-        if (wormholeStatuses[code]) return; // Already in progress or completed
+    const processMessages = async () => {
+      for (const msg of currentMessages) {
+        // Auto-accept if it's an image in Cloud/Self chat
+        const isCloudChat = recipient === userPub;
+        if (msg.type === "image" && isCloudChat && msg.fileMetadata?.wormholeCode) {
+          const code = msg.fileMetadata.wormholeCode;
+          if (wormholeStatuses[code]) continue; // Already in progress or completed
 
-        console.log(`[ChatView] Auto-accepting Cloud Sync image ${code}`);
-        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
-        wormholeService.receive(code, relayUrl);
+          console.log(`[ChatView] Auto-accepting Cloud Sync image ${code}`);
+          const relays = [
+            import.meta.env.VITE_RELAY_URL,
+            'https://shogun-relay.scobrudot.dev',
+            'https://relay.peer.ooo'
+          ].filter(Boolean) as string[];
+          
+          for (const relayUrl of relays) {
+             try {
+               await wormholeService.receive(code, relayUrl);
+               break;
+             } catch(e) {}
+          }
+        }
       }
-    });
+    };
+    processMessages();
   }, [currentMessages, wormholeStatuses, wormholeService, recipient, userPub]);
 
   useEffect(() => {
@@ -285,176 +296,99 @@ export const ChatView: React.FC<ChatViewProps> = ({
       key={recipient}
       className="flex flex-col h-full bg-base-100 overflow-hidden relative animate-chat-fadeIn font-narrow"
     >
-      {/* Header - Telegram Premium Style */}
-      <div className="navbar bg-base-100/60 backdrop-blur-2xl border-b border-white/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
+      {/* Upload Overlay */}
+      {isUploading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md animate-fadeIn">
+          <div className="bg-base-200/80 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-base-content/10 shadow-2full flex flex-col items-center gap-6 max-w-sm mx-4 text-center">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8 text-primary animate-pulse">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                 </svg>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-black tracking-tight text-primary">Uploading...</h3>
+              <p className="text-xs font-bold opacity-40 uppercase tracking-widest truncate max-w-[200px]">
+                {uploadMeta?.name}
+              </p>
+              <p className="text-[10px] opacity-30 font-medium">
+                {uploadMeta ? (uploadMeta.size / 1024 / 1024).toFixed(2) : 0} MB • Pre-flight sync...
+              </p>
+            </div>
+            <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+               <div className="bg-primary h-full w-1/3 animate-shimmer"></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header - Signal Minimalism Style */}
+      <div className="navbar bg-base-200 border-b border-base-content/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
-            className="btn btn-ghost btn-circle bg-base-200/50 border border-white/5"
-            onClick={() => {
-              setRecipient("");
-              navigate("/");
-            }}
-            aria-label="Back"
+            onClick={() => setRecipient("")}
+            className="btn btn-ghost btn-circle btn-sm"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={3}
-              stroke="currentColor"
-              className="w-5 h-5 text-primary"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 19.5L8.25 12l7.5-7.5"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
           </button>
         </div>
-
-        <div className="avatar">
-          <div className="w-12 rounded-full border-2 border-primary/20 ring-4 ring-primary/5 shadow-2xl">
-            {contactProfiles[recipient]?.avatar ? (
-              <img
-                src={contactProfiles[recipient].avatar}
-                alt={recipient}
-                className="object-cover"
-              />
-            ) : (
-              <img
-                src={getDiceBearAvatar(
-                  recipient,
-                  recipient.length === 36 && recipient.includes("-"),
-                )}
-                alt={recipient}
-                className="object-cover bg-neutral"
-              />
+        
+        <div className="flex-1 flex items-center gap-3 min-w-0">
+          <div className="relative">
+            <div className="w-10 h-10 rounded-full bg-base-300 border border-base-content/5 overflow-hidden ring-1 ring-white/5">
+              {contactProfiles[recipient]?.avatar ? (
+                <img src={contactProfiles[recipient].avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <img src={getDiceBearAvatar(recipient, recipient.includes("-"))} alt="" className="w-full h-full object-cover" />
+              )}
+            </div>
+            {typingStatuses[recipient] && (
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-base-200 animate-pulse" />
             )}
           </div>
-        </div>
-
-        <div className="flex-1 overflow-hidden ml-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold truncate tracking-tight">
-              {contactProfiles[recipient]?.nickname ||
-                (recipient.length === 36 && recipient.includes("-")
-                  ? "Loading group..."
-                  : recipient.length > 20
-                    ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}`
-                    : recipient)}
+          
+          <div className="flex flex-col min-w-0">
+            <h3 className="text-[15px] font-bold tracking-tight truncate leading-tight">
+              {contactProfiles[recipient]?.nickname || (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient)}
             </h3>
-            {recipient.length === 36 && recipient.includes("-") && (
-              <span className="badge badge-sm badge-primary font-black rounded-full tracking-wider px-3 border-2">
-                GROUP
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 mt-0.5">
-            {typingStatuses[recipient] &&
-            Date.now() - typingStatuses[recipient] <= 3000 ? (
-              <div className="flex gap-1.5 items-center">
-                <span className="loading loading-dots loading-xs text-primary scale-50"></span>
-                <span className="text-[9px] text-primary font-bold uppercase tracking-widest">
-                  Typing
-                </span>
-              </div>
-            ) : (
-              <div
-                className={`flex items-center gap-2 text-[9px] font-bold uppercase tracking-widest ${contactErrors[recipient] ? "text-error" : "opacity-30"}`}
-              >
-                <span
-                  className={`status status-xs ${contactErrors[recipient] ? "status-error !bg-error" : "status-success opacity-50"}`}
-                ></span>
-                {contactErrors[recipient] ? (
-                  <div className="flex items-center gap-2">
-                    <span>Session Error</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRegenerateCertificate();
-                      }}
-                      title="Fix 'Certificate verification fail' by publishing a new SEA policy"
-                      className="btn btn-xs btn-error btn-outline rounded-full h-5 min-h-0 px-2 text-[8px] animate-pulse"
-                    >
-                      RIGENERA CERTIFICATO
-                    </button>
-                  </div>
-                ) : (
-                  "Encrypted"
-                )}
-              </div>
-            )}
+            <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
+              {typingStatuses[recipient] ? "Sta scrivendo..." : "Crittografato"}
+            </span>
           </div>
         </div>
 
-        <div className="flex-none gap-3 flex items-center">
-          {recipient.length === 36 && recipient.includes("-") && (
+        <div className="flex-none flex items-center gap-1.5">
+          {recipient.length === 36 && (
             <button
-              onClick={() => setShowGroupSettings(recipient)}
-              className="btn btn-ghost btn-circle bg-base-300/30 hover:bg-base-300/60"
-              title="Group Settings"
+               onClick={() => setShowGroupSettings(recipient)}
+               className="btn btn-ghost btn-circle btn-sm"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-6 h-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
+               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 opacity-60">
+                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+               </svg>
             </button>
           )}
-          <div className="flex gap-2">
-            {/* Removed Legacy HEAL Button */}
-
-            <button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Sei sicuro di voler svuotare questa chat? Questa azione eliminerà i messaggi anche da GunDB.",
-                  )
-                ) {
-                  handleClearChat(recipient);
-                }
-              }}
-              className="btn btn-ghost btn-circle text-error/60 hover:text-error hover:bg-error/10"
-              title="Clear History"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-5 h-5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                />
-              </svg>
-            </button>
+          <div className="dropdown dropdown-end">
+             <button tabIndex={0} className="btn btn-ghost btn-circle btn-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 opacity-60">
+                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                </svg>
+             </button>
+             <ul tabIndex={0} className="dropdown-content mt-2 z-[50] menu p-2 shadow-2xl bg-base-300 border border-base-content/5 rounded-2xl w-56 font-bold">
+               <li><button onClick={() => handleClearChat(recipient)} className="text-error py-3">Elimina cronologia</button></li>
+               <li><button onClick={() => handleRegenerateCertificate()} className="py-3">Rigenera certificato</button></li>
+             </ul>
           </div>
         </div>
       </div>
 
       {/* Pinned Messages */}
       {pinnedMsgList.length > 0 && (
-        <div className="h-12 shrink-0 bg-base-200/50 backdrop-blur-md flex items-center px-6 gap-4 border-b border-white/5 cursor-pointer hover:bg-primary/5 transition-all">
+        <div className="h-12 shrink-0 bg-base-200/50 backdrop-blur-md flex items-center px-6 gap-4 border-b border-base-content/5 cursor-pointer hover:bg-primary/5 transition-all">
           <span className="text-primary animate-bounce text-lg">📌</span>
           <div className="flex-1 text-xs font-medium truncate opacity-70">
             {pinnedMsgList[pinnedMsgList.length - 1].text}
@@ -507,7 +441,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className={`chat ${isMe ? "chat-end" : "chat-start"} animate-slideUp`}
             >
               <div className="chat-image avatar">
-                <div className="w-10 sm:w-12 rounded-full border border-white/10 shadow-xl ring-2 ring-primary/5">
+                <div className="w-10 sm:w-12 rounded-full border border-base-content/10 shadow-xl ring-2 ring-primary/5">
                   {msgAvatar ? (
                     <img
                       src={msgAvatar}
@@ -534,10 +468,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
 
               <div
-                className={`chat-bubble shadow-lg border border-white/5 min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2 rounded-2xl ${isMe ? "bg-secondary text-white rounded-tr-sm" : "bg-accent text-white rounded-tl-sm"}`}
+                className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"}`}
               >
                 {isPinned && (
-                  <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-white/10">
+                  <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-base-content/10">
                     📌
                   </span>
                 )}
@@ -565,8 +499,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     onAccept={async () => {
                       const meta = msg.fileMetadata!;
                       if (meta.method === 'wormhole' && meta.wormholeCode && wormholeService) {
-                        const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
-                        await wormholeService.receive(meta.wormholeCode, relayUrl);
+                        const relays = [
+                          import.meta.env.VITE_RELAY_URL,
+                          'https://shogun-relay.scobrudot.dev',
+                          'https://relay.peer.ooo'
+                        ].filter(Boolean) as string[];
+                        
+                        let success = false;
+                        for (const relayUrl of relays) {
+                          try {
+                            console.log(`[ChatView] Attempting Wormhole receive via: ${relayUrl}`);
+                            await wormholeService.receive(meta.wormholeCode, relayUrl);
+                            success = true;
+                            break;
+                          } catch (err: any) {
+                            console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
+                          }
+                        }
+                        if (!success) {
+                          console.error("All Wormhole relays failed to receive.");
+                        }
                       }
                     }}
                   />
@@ -589,7 +541,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 {/* Bubble Actions on Hover */}
                 <div
-                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-white/10 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 scale-90 group-hover:scale-100 ${isMe ? "-left-24" : "-right-24"}`}
+                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 scale-90 group-hover:scale-100 ${isMe ? "-left-24" : "-right-24"}`}
                 >
                   {recipient.length === 36 && (
                     <>
@@ -652,20 +604,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8 bg-base-100/60 backdrop-blur-2xl border-t border-white/5 shrink-0 z-20">
+      {/* Input Area - Signal Minimalism Style */}
+      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-base-200 border-t border-base-content/5 shrink-0 z-20 flex items-center justify-center">
         {!isTrusted ? (
-          <div className="flex flex-col items-center gap-6 p-8 bg-base-300/40 rounded-[2rem] border border-white/5 shadow-inner animate-pulse">
+          <div className="flex flex-col items-center gap-6 p-8 bg-base-300 rounded-[2rem] border border-base-content/5 w-full max-w-5xl">
             <div className="text-center space-y-2">
-              <h4 className="text-lg font-black text-primary">
+              <h4 className="text-lg font-black text-primary uppercase tracking-tighter">
                 Unknown Contact
               </h4>
-              <p className="text-xs opacity-60 font-bold max-w-xs">
+              <p className="text-xs opacity-60 font-bold max-w-xs leading-relaxed">
                 Questa persona sta cercando di scriverti. Vuoi accettare la
-                conversazione e permettergli di scrivere nel tuo grafo?
+                conversazione?
               </p>
             </div>
-            <div className="flex gap-4 w-full max-w-sm">
+            <div className="flex gap-3 w-full max-w-sm">
               <button
                 onClick={async () => {
                   setIsAccepting(true);
@@ -676,44 +628,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }
                 }}
                 disabled={isAccepting}
-                className="btn btn-primary flex-1 rounded-full shadow-xl shadow-primary/20 h-14"
+                className="btn btn-primary flex-1 rounded-2xl shadow-lg h-12"
               >
-                {isAccepting ? (
-                  <span className="loading loading-spinner"></span>
-                ) : (
-                  "Accetta"
-                )}
+                {isAccepting ? <span className="loading loading-spinner"></span> : "Accetta"}
               </button>
               <button
                 onClick={() => blockContact(recipient)}
-                className="btn btn-error btn-outline flex-1 rounded-full h-14"
+                className="btn btn-ghost bg-white/5 flex-1 rounded-2xl h-12"
               >
                 Blocca
               </button>
             </div>
           </div>
         ) : !canSendMessage ? (
-          <div className="flex items-center justify-center p-5 bg-base-300/40 rounded-[2rem] border border-white/10 italic opacity-50 text-xs w-full font-bold shadow-inner transition-all animate-pulse">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2.5}
-              stroke="currentColor"
-              className="w-5 h-5 mr-3 text-error opacity-60"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-              />
-            </svg>
-            {isMuted
-              ? "Sei stato mutato in questo gruppo"
-              : "Solo gli amministratori possono inviare messaggi"}
+          <div className="flex items-center justify-center p-5 bg-base-300 rounded-2xl border border-base-content/5 italic opacity-40 text-xs w-full font-bold">
+            Solo gli amministratori possono inviare messaggi
           </div>
         ) : (
-          <div className="flex items-center gap-2 sm:gap-4 w-full px-2">
+          <div className="flex items-center gap-2 w-full max-w-5xl mx-auto">
             <input
               type="file"
               ref={fileInputRef}
@@ -723,34 +655,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={recipient.length === 36 && recipient.includes("-")}
-              className={`btn btn-ghost btn-circle bg-base-300/40 border border-white/5 hover:bg-primary/10 hover:text-primary active:scale-95 transition-all flex items-center justify-center h-12 w-12 sm:h-16 sm:w-16 min-h-0 ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
-              title={
-                recipient.length === 36 && recipient.includes("-")
-                  ? "P2P Transfers only available in 1:1"
-                  : "Reliable Attach File (Wormhole)"
-              }
+              className={`btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-11 w-11 min-h-0 border-none ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-                className="w-6 h-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.5L8.25 18.75a1.5 1.5 0 11-2.122-2.122L17.25 5.25"
-                />
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 opacity-60">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </button>
 
-            <label className="input input-bordered grow focus-within:ring-4 focus-within:ring-primary/10 border-white/5 flex items-center gap-2 sm:gap-4 h-11 sm:h-12 bg-base-300/40 rounded-full transition-all px-4 sm:px-6 shadow-inner group">
+            <div className="flex-1 relative flex items-center">
               <input
                 type="text"
-                className="grow font-semibold text-[13px] bg-transparent border-0 focus:ring-0 placeholder:opacity-20"
-                placeholder="Type something ..."
+                className="input input-sm w-full h-11 bg-base-content/10 border-none focus:ring-1 focus:ring-primary/20 rounded-2xl px-4 font-bold text-[13px] placeholder:opacity-40"
+                placeholder="Aa"
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
@@ -763,15 +679,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }
                 }}
               />
-            </label>
+            </div>
+            
             <AudioRecorder
-              onRecordingComplete={(base64) =>
-                handleSendMessage(undefined, base64)
-              }
+              onRecordingComplete={(base64) => handleSendMessage(undefined, base64)}
               loading={!canSendMessage}
             />
+
             <button
-              className="btn btn-ghost btn-circle btn-sm h-11 w-11 text-primary transition-all active:scale-95 hover:bg-primary/10"
+              className={`btn btn-circle btn-sm h-11 w-11 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-20"}`}
               onClick={() => {
                 if (message.trim()) {
                   handleSendMessage(message);
@@ -780,12 +696,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               }}
               disabled={!message.trim()}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="w-5 h-5"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
               </svg>
             </button>

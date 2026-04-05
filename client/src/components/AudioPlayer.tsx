@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 interface AudioPlayerProps {
   src: string;
@@ -14,19 +14,61 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
     const audio = audioRef.current;
     if (!audio) return;
     
-    // Some browsers return Infinity for duration of certain blobs
+    // Some browsers return Infinity or 0 for duration of certain blobs
     // until we seek to the end or start playing.
-    if (audio.duration === Infinity) {
+    if (!isFinite(audio.duration) || audio.duration === 0) {
       audio.currentTime = 1e101;
       audio.ontimeupdate = () => {
         audio.ontimeupdate = null;
-        setDuration(audio.duration);
+        if (isFinite(audio.duration)) {
+          setDuration(audio.duration);
+        }
         audio.currentTime = 0;
       };
     } else {
       setDuration(audio.duration);
     }
   };
+
+  const onDurationChange = () => {
+    const audio = audioRef.current;
+    if (audio && isFinite(audio.duration) && audio.duration > 0) {
+      setDuration(audio.duration);
+    }
+  };
+
+  const onCanPlayThrough = () => {
+    const audio = audioRef.current;
+    if (audio && isFinite(audio.duration) && audio.duration > 0) {
+      setDuration(audio.duration);
+    }
+  };
+
+  // Polling fallback for duration
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const checkDuration = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+        return true;
+      }
+      return false;
+    };
+
+    if (!checkDuration()) {
+      const interval = setInterval(() => {
+        if (checkDuration()) clearInterval(interval);
+      }, 500);
+      
+      const timeout = setTimeout(() => clearInterval(interval), 5000);
+      return () => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [src]);
 
   const onTimeUpdate = () => {
     if (audioRef.current) {
@@ -71,6 +113,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
         ref={audioRef}
         src={src}
         onLoadedMetadata={onLoadedMetadata}
+        onDurationChange={onDurationChange}
+        onCanPlayThrough={onCanPlayThrough}
         onTimeUpdate={onTimeUpdate}
         onEnded={() => setIsPlaying(false)}
         hidden

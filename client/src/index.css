@@ -7,33 +7,68 @@
   prefersdark: true;
   color-scheme: dark;
 
-  /* Telegram-inspired Deep Palette */
-  --color-base-100: #0f1721;
-  --color-base-200: #17212b;
-  --color-base-300: #0e1621;
+  /* Signal-inspired Deep Charcoal Palette */
+  --color-base-100: #0e0e10;
+  --color-base-200: #1b1b1f;
+  --color-base-300: #121214;
   --color-base-content: #f5f5f5;
 
-  --color-primary: #24affc;
+  --color-primary: #33a7f0;
   --color-primary-content: #ffffff;
   
-  --color-secondary: #2b5278;
+  --color-secondary: #2c2c2e;
   --color-secondary-content: #ffffff;
   
-  --color-accent: #182533;
-  --color-accent-content: #f5f5f5;
+  --color-accent: #1d9bf0;
+  --color-accent-content: #ffffff;
   
-  --color-neutral: #17212b;
+  --color-neutral: #1b1b1f;
   --color-neutral-content: #f5f5f5;
   
-  --color-info: #3b82f6;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ff4b4b;
+  --color-info: #33a7f0;
+  --color-success: #1fb377;
+  --color-warning: #f1c40f;
+  --color-error: #ff453a;
 
-  --radius-selector: 1rem;
+  --radius-selector: 1.25rem;
   --radius-field: 1.5rem;
   --radius-box: 1.25rem;
-  --depth: 1;
+  --depth: 0.5;
+}
+
+@plugin "daisyui/theme" {
+  name: "linda-light";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+
+  /* Signal-inspired Clean Light Palette */
+  --color-base-100: #ffffff;
+  --color-base-200: #f6f6f6;
+  --color-base-300: #ededed;
+  --color-base-content: #1b1b1f;
+
+  --color-primary: #33a7f0;
+  --color-primary-content: #ffffff;
+  
+  --color-secondary: #e5e5ea;
+  --color-secondary-content: #1b1b1f;
+  
+  --color-accent: #1d9bf0;
+  --color-accent-content: #ffffff;
+  
+  --color-neutral: #f6f6f6;
+  --color-neutral-content: #1b1b1f;
+  
+  --color-info: #33a7f0;
+  --color-success: #1fb377;
+  --color-warning: #f1c40f;
+  --color-error: #ff453a;
+
+  --radius-selector: 1.25rem;
+  --radius-field: 1.5rem;
+  --radius-box: 1.25rem;
+  --depth: 0.2;
 }
 
 /* ── Global Styles ─────────────────────────────────────── */
@@ -42,15 +77,20 @@
   --accent-glow: rgba(36, 175, 252, 0.35);
 }
 
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  min-height: 100%;
+  width: 100%;
+}
+
+body {
   /* Inter Tight for that narrower, premium feel */
   font-family: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-base-100);
   color: var(--color-base-content);
-  min-height: 100vh;
   /* Subtle letter-spacing for a more 'technical' compressed look */
   letter-spacing: -0.01em;
 }

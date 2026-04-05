@@ -24,6 +24,8 @@
     "socket.io-client": "^4.8.3",
     "sodium-javascript": "^0.8.0",
     "sodium-universal": "^5.0.1",
+    "qrcode.react": "^4.2.0",
+    "html5-qrcode": "^2.3.8",
     "vercel": "^50.28.0",
     "vite-plugin-node-polyfills": "^0.25.0",
     "webrtc-adapter": "^9.0.4"

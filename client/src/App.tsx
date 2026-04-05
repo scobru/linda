@@ -29,6 +29,7 @@ import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
 import { SignalService } from "./SignalService";
 import { WormholeService } from "./WormholeService";
+import { QrScannerModal } from "./components/QrScannerModal";
 import { FileTransferService } from "./FileTransferService";
 
 // Extend window interface
@@ -62,23 +63,89 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     Record<string, number>
   >({});
   const [transferBlobs, setTransferBlobs] = useState<Record<string, Blob>>({});
-  const [transferOffers] = useState<Record<string, any>>({});
   const processedSignalsRef = useRef<Set<string>>(new Set());
 
-  const [notification, setNotification] = useState<{
-    msg: string;
-    type: "info" | "error";
-  } | null>(null);
+  const [notification, setNotification] = useState<{ msg: string; type: "info" | "error" } | null>(null);
+  const [showLoginScanner, setShowLoginScanner] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const showNotification = useCallback(
-    (msg: string, type: "info" | "error" = "info") => {
-      setNotification({ msg, type });
-      setTimeout(() => setNotification(null), 3000);
-    },
-    [],
-  );
+  const showNotification = useCallback((msg: string, type: "info" | "error" = "info") => {
+    setNotification({ msg, type });
+    setTimeout(() => setNotification(null), 3000);
+  }, []);
+
+  // ── Universal Link Entry (Login & Add Friend) ──
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const session = url.searchParams.get("session");
+    const add = url.searchParams.get("add");
+
+    // 1. Handle Magic Link Login
+    if (session && db) {
+      try {
+        showNotification("Processing Magic Link...", "info");
+        const decoded = decodeURIComponent(escape(window.atob(session)));
+        const pair = JSON.parse(decoded);
+        if (pair.pub && pair.priv) {
+          const username = pair.username || pair.pub;
+          db.loginWithPair(username, pair).then(() => {
+            showNotification("Logged in via Magic Link!", "info");
+            // Clean the URL
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.delete("session");
+            window.history.replaceState({}, document.title, nextUrl.toString());
+          });
+        }
+      } catch (err) {
+        console.error("Failed to restore session from Magic Link", err);
+      }
+    }
+
+    // 2. Handle Add Friend Link
+    if (add && isLoggedIn && db) {
+      if (add !== userPub) {
+        saveContact(add);
+        setRecipient(add);
+        navigate(`/chat/${add}`);
+        showNotification("Contact added via link!", "info");
+      }
+      // Clean the URL
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("add");
+      window.history.replaceState({}, document.title, nextUrl.toString());
+    }
+  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification]);
+
+  const handleLoginQrScan = async (data: string) => {
+    setShowLoginScanner(false);
+    if (!data) return;
+
+    try {
+      console.log("Scanned Data:", data);
+      showNotification("Processing scan...", "info");
+      
+      // Data might be a pure JSON string or a Magic Link URL
+      let jsonStr = data.trim();
+      if (jsonStr.includes("?session=")) {
+        const urlSplit = jsonStr.split("?session=");
+        const session = urlSplit[1]?.split("&")[0];
+        if (session) jsonStr = decodeURIComponent(escape(window.atob(session)));
+      }
+
+      const pair = JSON.parse(jsonStr);
+      if (pair.pub && pair.priv) {
+        const username = pair.username || pair.pub;
+        await db.loginWithPair(username, pair);
+        showNotification("Logged in via QR Scan!", "info");
+      } else {
+        throw new Error("Invalid key pair structure");
+      }
+    } catch (err: any) {
+      console.error("Scan Error:", err);
+      showNotification(`Invalid QR: ${err.message || "Unknown error"}`, "error");
+    }
+  };
 
   // ── Hooks ──
   const { signalService, groupService, isLoading, userUniqueUsername } =
@@ -126,9 +193,22 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     wormholeServiceRef.current = service;
     
     // Auto-cleanup stale transfers on initialization (older than 1h)
-    const relayUrl = import.meta.env.VITE_RELAY_URL || 'https://shogun-relay.scobrudot.dev';
-    const authToken = import.meta.env.VITE_AUTH_TOKEN || 'dummy';
-    service.cleanupStaleTransfers(relayUrl, authToken, 3600000).catch(console.warn);
+    const relays = [
+      import.meta.env.VITE_RELAY_URL,
+      'https://shogun-relay.scobrudot.dev',
+      'https://relay.peer.ooo'
+    ].filter(Boolean) as string[];
+    const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
+
+    (async () => {
+      for (const relayUrl of relays) {
+        try {
+          await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
+          console.log(`[App] Wormhole cleanup success via: ${relayUrl}`);
+          break;
+        } catch (e) {}
+      }
+    })();
 
     return service;
   }, [isLoggedIn, db.gun]);
@@ -197,12 +277,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               const retryDelivered = await doSend(freshCert, '[Retry]');
               if (!retryDelivered) {
                 // If even retry fails with certificate error, surface it to the UI
-                console.error(`[App] Persistent certificate failure for ${toPub.substring(0, 8)}. Raising UI error.`);
-                setContactErrors((prev) => ({ ...prev, [toPub]: true }));
+                console.error(`[App] Persistent certificate failure for ${toPub.substring(0, 8)}.`);
               }
             } else {
               console.error(`[App] Failed to fetch valid certificate for ${toPub.substring(0, 8)} after 1st attempt failure.`);
-              setContactErrors((prev) => ({ ...prev, [toPub]: true }));
             }
           }
         } catch (e: any) {
@@ -304,8 +382,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     contacts,
     setContacts,
     typingStatuses,
-    contactErrors,
-    setContactErrors,
     pinnedMessages,
     unreadCounts,
     handleTyping,
@@ -550,11 +626,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       if (userPub) saveMessages(userPub, next);
       return next;
     });
-    setContactErrors((prev) => {
-      const next = { ...prev };
-      delete next[contactKey];
-      return next;
-    });
     showNotification(
       isGroup ? "Group removed" : "User blocked and chat deleted",
       "info",
@@ -575,7 +646,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       // 3. Re-publish our own bundle to fix potential discovery issues
       await signalService.republishBundle().catch(() => {});
       
-      setContactErrors((prev) => ({ ...prev, [recipient]: false }));
       showNotification("Sincronizzazione e rigenerazione completate.", "info");
       
       const pub = await signalService.getPubKeyFromUsername(recipient);
@@ -652,9 +722,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Loading screen ─────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="hero min-h-dvh bg-base-100 flex items-center justify-center relative overflow-hidden">
+      <div className="min-h-dvh bg-base-100 flex flex-col items-center justify-center relative px-6 py-12">
         <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-secondary/5 opacity-50"></div>
-        <div className="hero-content text-center z-10">
+        <div className="hero-content text-center z-10 py-12">
           <div className="max-w-md flex flex-col items-center">
             <div className="avatar mb-10">
               <div className="w-28 rounded-full ring ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl shadow-primary/20 bg-base-200/50 backdrop-blur-md p-6">
@@ -668,7 +738,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             <h1 className="text-5xl font-black text-primary mb-6 tracking-tighter">
               Linda
             </h1>
-            <div className="flex flex-col items-center gap-6 p-8 bg-base-200/40 backdrop-blur-xl rounded-[2rem] border border-white/5 shadow-2xl">
+            <div className="flex flex-col items-center gap-6 p-8 bg-base-200/40 backdrop-blur-xl rounded-[2rem] border border-base-content/5 shadow-2xl">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm font-black uppercase tracking-[0.3em] opacity-40">
                 Initializing secure session
@@ -683,9 +753,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Login screen ──────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
-      <div className="hero min-h-dvh bg-base-100 relative">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03]"></div>
-        <div className="hero-content flex-col lg:flex-row-reverse gap-12 lg:gap-24 z-10 px-6">
+      <div className="min-h-dvh w-full bg-base-100 relative flex flex-col">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03] pointer-events-none"></div>
+        
+        <div className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-24 z-10 px-6 py-12 lg:py-20 max-w-7xl mx-auto w-full">
           <div className="text-center lg:text-left max-w-lg">
             <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-primary mb-8 tracking-tightest">
               Linda
@@ -698,13 +769,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               </span>
             </p>
             <div className="grid grid-cols-2 gap-4 mt-8">
-              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
+              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-base-content/5 shadow-xl">
                 <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-primary">
                   Privacy
                 </div>
                 <div className="text-xl font-bold">End-to-End</div>
               </div>
-              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-xl">
+              <div className="p-6 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-base-content/5 shadow-xl">
                 <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 text-secondary">
                   Storage
                 </div>
@@ -713,7 +784,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             </div>
           </div>
 
-          <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-white/10 rounded-[2.5rem]">
+          <div className="card shrink-0 w-full max-w-sm shadow-3xl bg-base-200/40 backdrop-blur-2xl border border-base-content/10 rounded-[2.5rem]">
             <div className="card-body p-10 pb-16 gap-10">
               <div className="flex justify-center">
                 <div className="avatar">
@@ -723,9 +794,25 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 </div>
               </div>
 
-              <div className="card-actions justify-center">
+              <div className="card-actions flex flex-col gap-3 w-full">
                 <ShogunButton />
+                <button 
+                  onClick={() => setShowLoginScanner(true)}
+                  className="btn btn-ghost bg-base-content/5 border border-base-content/5 rounded-2xl h-12 w-full font-black text-xs uppercase tracking-widest hover:bg-base-content/10 transition-all flex gap-3"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 opacity-60">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+                  </svg>
+                  Scan to Login
+                </button>
               </div>
+
+              {showLoginScanner && (
+                <QrScannerModal 
+                  onScan={handleLoginQrScan} 
+                  onClose={() => setShowLoginScanner(false)} 
+                />
+              )}
 
               <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">
                 ECOSYSTEM
@@ -758,7 +845,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           </div>
         </div>
 
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[10px] font-black tracking-widest opacity-20 uppercase">
+        <div className="w-full py-8 text-center text-[10px] font-black tracking-widest opacity-20 uppercase z-10 mt-auto">
           Crafted by Scobru &copy; 2026
         </div>
 
@@ -818,7 +905,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
-                contactErrors={contactErrors}
                 pinnedMessages={pinnedMessages}
                 messages={messages}
                 myRole={myRole}
@@ -840,7 +926,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 }
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
-                transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
                 trustedContacts={trustedContacts}
                 isContactsLoading={isContactsLoading}
@@ -848,6 +933,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 blockContact={blockContact}
                 wormholeService={wormholeServiceInst}
                 wormholeStatuses={wormholeStatuses}
+                showNotification={showNotification}
               />
             }
           />
@@ -865,7 +951,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
-                contactErrors={contactErrors}
                 pinnedMessages={pinnedMessages}
                 messages={messages}
                 myRole={myRole}
@@ -887,7 +972,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 }
                 transferProgress={transferProgress}
                 transferBlobs={transferBlobs}
-                transferOffers={transferOffers}
                 handleClearChat={handleClearChat}
                 trustedContacts={trustedContacts}
                 isContactsLoading={isContactsLoading}
@@ -895,6 +979,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 blockContact={blockContact}
                 wormholeService={wormholeServiceInst}
                 wormholeStatuses={wormholeStatuses}
+                showNotification={showNotification}
               />
             }
           />
@@ -949,7 +1034,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       {notification && (
         <div className="toast toast-top toast-end z-[100]">
           <div
-            className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-white/5`}
+            className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-base-content/5`}
           >
             <span>{notification.msg}</span>
           </div>
@@ -969,7 +1054,6 @@ const ChatWrapper: React.FC<{
     { avatar?: string; nickname?: string; uniqueUsername?: string }
   >;
   typingStatuses: Record<string, number>;
-  contactErrors: Record<string, boolean>;
   pinnedMessages: Record<string, Set<string>>;
   messages: Record<string, any[]>;
   myRole: string | null;
@@ -989,7 +1073,6 @@ const ChatWrapper: React.FC<{
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
-  transferOffers: Record<string, any>;
   handleClearChat: (id: string) => void;
   trustedContacts: Set<string>;
   isContactsLoading: boolean;
@@ -997,6 +1080,7 @@ const ChatWrapper: React.FC<{
   blockContact: (id: string) => Promise<void>;
   wormholeService: WormholeService | null;
   wormholeStatuses: Record<string, string>;
+  showNotification: (msg: string, type?: "info" | "error") => void;
 }> = (props) => {
   return <ChatView {...props} />;
 };
@@ -1004,6 +1088,12 @@ const ChatWrapper: React.FC<{
 const App: React.FC = () => {
   const [coreContext, setCoreContext] = useState<any>(null);
   const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
+
+  // ── Theme Initialization ──
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("linda-theme") || "linda";
+    document.documentElement.dataset.theme = savedTheme;
+  }, []);
 
   const relays = [
     "https://gun.defucc.me/gun",
@@ -1113,7 +1203,7 @@ const App: React.FC = () => {
                 />
               </div>
             </div>
-            <div className="space-y-6 p-10 bg-base-200/40 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-2xl">
+            <div className="space-y-6 p-10 bg-base-200/40 backdrop-blur-2xl rounded-[2.5rem] border border-base-content/10 shadow-2xl">
               <h1 className="text-4xl font-black tracking-tighter text-primary">
                 Linda
               </h1>

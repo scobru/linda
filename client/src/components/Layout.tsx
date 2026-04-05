@@ -28,12 +28,10 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
           <div className="flex-1 lg:block hidden h-full">
             <Outlet />
           </div>
-          <div className="flex-1 lg:hidden h-full overflow-hidden">
+          <div className="flex-1 lg:hidden h-full overflow-hidden flex flex-col">
             {/* On mobile, if we are at root, show sidebar. Otherwise show Outlet (ChatView, Profile, Settings) */}
             {isRoot ? (
-              <div className="h-full overflow-y-auto">
-                <Sidebar {...sidebarProps} />
-              </div>
+              <Sidebar {...sidebarProps} />
             ) : (
               <Outlet />
             )}
