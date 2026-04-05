@@ -172,7 +172,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         <div className="shrink-0 bg-white p-4 rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
            <QRCodeSVG 
             value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
-            size={120} 
+            size={200} 
             level="H"
             includeMargin={false}
             fgColor="#1b1b1f"

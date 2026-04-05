@@ -48,7 +48,7 @@ declare global {
 }
 
 const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
-  const { isLoggedIn, userPub, logout, sdk } = useShogun();
+  const { isLoggedIn, userPub, logout, sdk } = useShogun() as any;
   const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub ? (db.getCurrentUser()?.user as any)?.username : "";
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
