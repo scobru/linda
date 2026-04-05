@@ -312,7 +312,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                     exportedAt: Date.now()
                   };
                   const encoded = btoa(JSON.stringify(sessionData));
-                  const link = `${window.location.origin}/?magic_login=${encoded}`;
+                  const link = `${window.location.origin}/?magic_login=${encodeURIComponent(encoded)}`;
                     navigator.clipboard.writeText(link);
                     showNotification("Magic Link copied!", "info");
                   }}
@@ -325,13 +325,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <div className="shrink-0 bg-white p-4 sm:p-8 rounded-[2rem] sm:rounded-[3rem] shadow-3xl border-8 sm:border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
                <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
                <QRCodeSVG 
-                value={`${window.location.origin}/?magic_login=${btoa(JSON.stringify({ 
+                value={`${window.location.origin}/?magic_login=${encodeURIComponent(btoa(JSON.stringify({ 
                 type: "shogun-auth-pair",
                 version: "1.0",
                 pair: (db.getCurrentUser()?.user as any)?._?.sea || {},
                 username: username,
                 exportedAt: Date.now()
-              }))}`} 
+              })))}`} 
                 size={180} 
                 level="H"
                 className="sm:w-[220px] sm:h-[220px]"

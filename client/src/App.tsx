@@ -79,34 +79,101 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
 
 
-  const handleLoginQrScan = async (data: string) => {
-    setShowLoginScanner(false);
+  const processUniversalLogin = useCallback(async (data: string, context: string = "Login") => {
     if (!data) return;
-
     try {
-      console.log("Scanned Data:", data);
-      showNotification("Processing scan...", "info");
-
-      // Data might be a pure JSON string or a Magic Link URL
-      let jsonStr = data.trim();
-      if (jsonStr.includes("?session=")) {
-        const urlSplit = jsonStr.split("?session=");
-        const session = urlSplit[1]?.split("&")[0];
-        if (session) jsonStr = decodeURIComponent(escape(window.atob(session)));
+      // 0. Ensure SDK is ready (Retry loop for slow bootstrap on mobile)
+      let activeSdk = sdk || window.shogun;
+      if (!activeSdk) {
+        console.log(`[Login] SDK not detected in context, waiting for initialization...`);
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          activeSdk = sdk || window.shogun;
+          if (activeSdk) {
+             console.log(`[Login] SDK became ready after ${ (i + 1) * 0.5 }s`);
+             break;
+          }
+        }
       }
 
-      const pair = JSON.parse(jsonStr);
+      if (!activeSdk) {
+        throw new Error("SDK not ready. Please try again in a moment.");
+      }
+      
+      console.log(`[Login] ${context} context, processing data...`);
+      
+      let payload = data.trim();
+      
+      // 1. Extract payload from URL if present
+      if (payload.includes("?session=") || payload.includes("?magic_login=")) {
+        try {
+          const url = new URL(payload);
+          payload = url.searchParams.get("session") || url.searchParams.get("magic_login") || payload;
+        } catch (e) {
+          // Fallback if URL parsing fails but strings are present
+          if (payload.includes("?session=")) payload = payload.split("?session=")[1].split("&")[0];
+          else if (payload.includes("?magic_login=")) payload = payload.split("?magic_login=")[1].split("&")[0];
+        }
+      }
+
+      // 2. Decode Base64 payload
+      let jsonStr = "";
+      
+      // FIX: Handle '+' chars being converted to ' ' by URL search params
+      let cleanPayload = payload.replace(/ /g, "+");
+      
+      try {
+        jsonStr = window.atob(cleanPayload);
+      } catch (e) {
+        // Fallback for UTF-8 safe encoding (Linda legacy)
+        try {
+          jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
+        } catch (e2) {
+          // If not base64, assume it might be a direct JSON string (pure QR pairs)
+          jsonStr = payload;
+        }
+      }
+
+      // 3. Parse JSON
+      const parsed = JSON.parse(jsonStr);
+      let pair = parsed;
+      let usernameToUse = "";
+
+      // 4. Handle Shogun Standard Wrapper
+      if (parsed.type === "shogun-auth-pair" && parsed.pair) {
+        pair = parsed.pair;
+        usernameToUse = parsed.username || "";
+      }
+
+      // 5. Validate and Login
       if (pair.pub && pair.priv) {
-        const username = pair.username || pair.pub;
-        await db.loginWithPair(username, pair);
-        showNotification("Logged in via QR Scan!", "info");
+        const finalUsername = usernameToUse || pair.username || pair.pub;
+        const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
+        
+        showNotification("Authenticating...", "info");
+        await activeSdk.loginWithPair(pair.username || "User", pair);
+        showNotification(`Welcome back, ${displayName}!`, "info");
+        return true;
       } else {
         throw new Error("Invalid key pair structure");
       }
     } catch (err: any) {
-      console.error("Scan Error:", err);
-      showNotification(`Invalid QR: ${err.message || "Unknown error"}`, "error");
+      console.error(`[Login] ${context} error:`, err);
+      showNotification(`Login failed: ${err.message || "Invalid or expired link"}`, "error");
+      return false;
     }
+  }, [sdk, showNotification]);
+
+  const handleLoginQrScan = async (data: string) => {
+    // Optimization: Pre-check SDK before closing scanner to avoid flicker if it fails instantly
+    const ready = sdk || window.shogun;
+    if (!ready) {
+      // Even if not ready, we proceed to processUniversalLogin which has its own retry loop, 
+      // but we add a small delay here to ensure UI transitions are smoother.
+      console.log("[Login] Scanner scannned but SDK not yet ready, handing off to processUniversalLogin...");
+    }
+    setShowLoginScanner(false);
+    await processUniversalLogin(data, "QR Scan");
   };
 
   // ── Hooks ──
@@ -394,52 +461,16 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     const session = url.searchParams.get("session");
     const add = url.searchParams.get("add");
 
-    const handleMagicLogin = async (data: string) => {
-      try {
-        showNotification("Authenticating via Magic Link...", "info");
-        
-        let jsonStr = "";
-        try {
-          // Attempt standard Base64 first
-          jsonStr = window.atob(data);
-        } catch (e) {
-          // Fallback to UTF-8 safe Base64 (Linda legacy)
-          jsonStr = decodeURIComponent(escape(window.atob(data)));
-        }
-
-        const payload = JSON.parse(jsonStr);
-        let pair = payload;
-        let usernameToUse = "";
-
-        // Handle Shogun Standard Wrapper
-        if (payload.type === "shogun-auth-pair" && payload.pair) {
-          pair = payload.pair;
-          usernameToUse = payload.username || "";
-        }
-
-        if (pair.pub && pair.priv) {
-          const finalUsername = usernameToUse || pair.username || pair.pub;
-          const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
-          
-          await sdk.loginWithPair(pair.username || "User", pair);
-          showNotification(`Welcome back, ${displayName}!`, "info");
-          
+    if ((magic_login || session) && !isLoggedIn && sdk) {
+      processUniversalLogin(magic_login || session!, "Magic Link").then((success) => {
+        if (success) {
           // Clean the URL
           const nextUrl = new URL(window.location.href);
           nextUrl.searchParams.delete("magic_login");
           nextUrl.searchParams.delete("session");
           window.history.replaceState({}, document.title, nextUrl.toString());
         }
-      } catch (err) {
-        console.error("Magic Link Login failed:", err);
-        showNotification("Magic Link is invalid or expired", "error");
-      }
-    };
-
-    if (magic_login && db && !isLoggedIn) {
-      handleMagicLogin(magic_login);
-    } else if (session && db && !isLoggedIn) {
-      handleMagicLogin(session);
+      });
     }
 
     // 2. Handle Add Friend Link
@@ -455,7 +486,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       nextUrl.searchParams.delete("add");
       window.history.replaceState({}, document.title, nextUrl.toString());
     }
-  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification]);
+  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, sdk, processUniversalLogin]);
 
   // ── Profile Logic ──
   const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
@@ -1172,6 +1203,7 @@ const App: React.FC = () => {
         if (mounted) {
           setDbInstance(result.core.db);
           setCoreContext(result);
+          window.shogun = result.core;
 
           // Add debug methods to window for testing
           if (import.meta.env.DEV && typeof window !== "undefined") {

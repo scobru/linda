@@ -12,15 +12,22 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
   const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [currentCameraIdx, setCurrentCameraIdx] = useState(0);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isStartingRef = useRef(false);
 
   // 1. Fetch available cameras on mount
   useEffect(() => {
     Html5Qrcode.getCameras()
       .then((devices) => {
         if (devices && devices.length > 0) {
-          setCameras(devices.map(d => ({ id: d.id, label: d.label })));
+          const mapped = devices.map(d => ({ id: d.id, label: d.label }));
+          setCameras(mapped);
+          
           // Try to find a back camera by default
-          const backIdx = devices.findIndex(d => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("environment"));
+          const backIdx = mapped.findIndex(d => 
+            d.label.toLowerCase().includes("back") || 
+            d.label.toLowerCase().includes("environment") ||
+            d.label.toLowerCase().includes("rear")
+          );
           if (backIdx !== -1) setCurrentCameraIdx(backIdx);
         }
       })
@@ -28,10 +35,14 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
   }, []);
 
   const startScanner = useCallback(async (deviceId: string | { facingMode: string }) => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+
     try {
       setError(null);
       setIsInitializing(true);
       
+      // Proper cleanup with a small delay for hardware/OS release
       if (scannerRef.current) {
         try { 
           if (scannerRef.current.isScanning) {
@@ -40,22 +51,25 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
         } catch(e) {
           console.error("Failed to stop previous scanner", e);
         }
+        await new Promise(r => setTimeout(r, 400));
       }
 
       const html5QrCode = new Html5Qrcode("qr-reader");
       scannerRef.current = html5QrCode;
 
       const config = { 
-        fps: 25,
+        fps: 20, // Slightly lower FPS is more reliable on low-end mobile
         qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const qrboxSize = Math.floor(minEdge * 0.8);
+          const qrboxSize = Math.floor(minEdge * 0.82);
           return { width: qrboxSize, height: qrboxSize };
         },
         aspectRatio: 1.0,
-        videoConstraints: {
-          aspectRatio: 1.0,
-          facingMode: typeof deviceId === "string" ? undefined : deviceId.facingMode
+        // Using videoConstraints: false allows the library to handle optimal defaults 
+        // if userMedia error occurs, or we can use more flexible ones
+        videoConstraints: typeof deviceId === "string" ? undefined : {
+          facingMode: deviceId.facingMode,
+          // Remove strict aspectRatio: 1.0 in constraints as it can cause NotReadableError
         }
       };
 
@@ -75,13 +89,24 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
       console.error("Scanner Start Error:", err);
       if (err?.includes?.("Permission") || err?.name === "NotAllowedError") {
         setError("Camera permission denied.");
+      } else if (err?.name === "NotReadableError") {
+        setError("Camera locked or in use. Ensure no other apps are using it.");
       } else {
         setError(`Could not start camera: ${err.message || err}`);
       }
     } finally {
       setIsInitializing(false);
+      isStartingRef.current = false;
     }
   }, [onScan]);
+
+  const handleRetry = useCallback(() => {
+    if (cameras.length > 0) {
+      startScanner(cameras[currentCameraIdx].id);
+    } else {
+      startScanner({ facingMode: "environment" });
+    }
+  }, [cameras, currentCameraIdx, startScanner]);
 
   useEffect(() => {
     if (cameras.length > 0) {
@@ -143,7 +168,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose 
                     </div>
                     <p className="text-sm font-bold text-error mb-8 leading-relaxed px-4">{error}</p>
                     <button 
-                      onClick={() => window.location.reload()}
+                      onClick={handleRetry}
                       className="btn btn-error btn-outline rounded-2xl px-10 font-black uppercase text-xs tracking-widest"
                     >
                       Reset
