@@ -48,7 +48,7 @@ declare global {
 }
 
 const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
-  const { isLoggedIn, userPub, logout } = useShogun();
+  const { isLoggedIn, userPub, logout, sdk } = useShogun();
   const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub ? (db.getCurrentUser()?.user as any)?.username : "";
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -419,8 +419,10 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
         if (pair.pub && pair.priv) {
           const finalUsername = usernameToUse || pair.username || pair.pub;
-          await db.loginWithPair(finalUsername, pair);
-          showNotification(`Welcome back, ${finalUsername}!`, "info");
+          const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
+          
+          await sdk.loginWithPair(pair.username || "User", pair);
+          showNotification(`Welcome back, ${displayName}!`, "info");
           
           // Clean the URL
           const nextUrl = new URL(window.location.href);
