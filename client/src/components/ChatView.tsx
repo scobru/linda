@@ -339,7 +339,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         
         <div className="flex-1 flex items-center gap-3 min-w-0">
           <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-base-300 border border-base-content/5 overflow-hidden ring-1 ring-white/5">
+            <div className="w-12 h-12 rounded-full bg-base-300 border border-base-content/5 overflow-hidden ring-1 ring-white/5">
               {contactProfiles[recipient]?.avatar ? (
                 <img src={contactProfiles[recipient].avatar} alt="" className="w-full h-full object-cover" />
               ) : (
@@ -441,7 +441,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className={`chat ${isMe ? "chat-end" : "chat-start"} animate-slideUp`}
             >
               <div className="chat-image avatar">
-                <div className="w-10 sm:w-12 rounded-full border border-base-content/10 shadow-xl ring-2 ring-primary/5">
+                <div className="w-12 rounded-full border border-base-content/10 shadow-xl ring-2 ring-primary/5">
                   {msgAvatar ? (
                     <img
                       src={msgAvatar}
@@ -523,7 +523,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }}
                   />
                 ) : (
-                  <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
+                  <div className="py-0.5 leading-relaxed font-semibold text-[14px] break-all">
                     {msg.text}
                     {msg.text?.includes("Impossibile decriptare") && (
                       <button

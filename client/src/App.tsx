@@ -31,7 +31,6 @@ import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
 import { SignalService } from "./SignalService";
 import { WormholeService } from "./WormholeService";
-import { QrScannerModal } from "./components/QrScannerModal";
 import { FileTransferService } from "./FileTransferService";
 
 // Extend window interface
@@ -72,9 +71,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   const magicLoginAttempted = useRef(false);
   const [isProcessingMagicLink, setIsProcessingMagicLink] = useState(false);
   const [notification, setNotification] = useState<{ msg: string; type: "info" | "error" } | null>(null);
-  const [showLoginScanner, setShowLoginScanner] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Initial state logging for troubleshooting
+  useEffect(() => {
+    console.log(`[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, URL: ${window.location.href.substring(0, 50)}...`);
+  }, []);
 
   const showNotification = useCallback((msg: string, type: "info" | "error" = "info") => {
     setNotification({ msg, type });
@@ -192,17 +195,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   }, [sdk, showNotification]);
 
-  const handleLoginQrScan = async (data: string) => {
-    // Optimization: Pre-check SDK before closing scanner to avoid flicker if it fails instantly
-    const ready = sdk || window.shogun;
-    if (!ready) {
-      // Even if not ready, we proceed to processUniversalLogin which has its own retry loop, 
-      // but we add a small delay here to ensure UI transitions are smoother.
-      console.log("[Login] Scanner scannned but SDK not yet ready, handing off to processUniversalLogin...");
-    }
-    setShowLoginScanner(false);
-    await processUniversalLogin(data, "QR Scan");
-  };
+
 
   // ── Hooks ──
   const { signalService, groupService, isLoading, userUniqueUsername } =
@@ -898,21 +891,14 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               {isProcessingMagicLink ? (
                 <div className="flex flex-col items-center gap-6 py-10 w-full bg-primary/5 rounded-[2rem] border border-primary/20 animate-pulse">
                    <span className="loading loading-spinner loading-lg text-primary"></span>
-                   <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">
-                     Authenticating Magic Link...
-                   </p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">
+                      Authenticating Magic Link...
+                    </p>
                 </div>
               ) : (
                 <div className="card-actions flex flex-col gap-3 w-full">
                   <ShogunButton />
                 </div>
-              )}
-
-              {showLoginScanner && (
-                <QrScannerModal
-                  onScan={handleLoginQrScan}
-                  onClose={() => setShowLoginScanner(false)}
-                />
               )}
 
               <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">
@@ -1226,7 +1212,7 @@ const App: React.FC = () => {
         // @ts-ignore - DataBase handles IGunInstance correctly internally
         const db = new DataBase(gunInstance);
 
-        const result = await shogunConnector({
+        const result = await (shogunConnector as any)({
           appName: "Shogun Linda",
           gunInstance: gunInstance as any,
           webauthn: { enabled: true },
@@ -1236,6 +1222,11 @@ const App: React.FC = () => {
           showMetamask: true,
           showNostr: true,
           showSeedLogin: true,
+          deterministicAuth: {
+            enabled: true,
+            skipValidation: false,
+            debug: true,
+          },
         });
 
         if (mounted) {

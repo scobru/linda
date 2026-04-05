@@ -99,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => navigate("/profile")}
         >
           <div className="avatar relative">
-            <div className="w-10 rounded-full border border-base-content/10 ring-1 ring-white/5 bg-base-300">
+            <div className="w-12 rounded-full border border-base-content/10 ring-1 ring-white/5 bg-base-300">
               {userAvatar ? (
                 <img src={userAvatar} alt="avatar" className="object-cover" />
               ) : (
@@ -159,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {({ isActive }) => (
                   <>
                     <div className="avatar">
-                      <div className="w-10 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
+                      <div className="w-12 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
                         <div className={`w-full h-full flex items-center justify-center ${isActive ? "bg-white/20" : "bg-secondary/10"}`}>
                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${isActive ? "text-primary" : "text-secondary"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
@@ -196,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {({ isActive }) => (
                   <>
                     <div className="avatar">
-                      <div className="w-10 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
+                      <div className="w-12 rounded-full border border-base-content/5 bg-base-300 overflow-hidden">
                         {contactProfiles[c]?.avatar ? (
                           <img src={contactProfiles[c].avatar} alt="avatar" className="object-cover" />
                         ) : (
