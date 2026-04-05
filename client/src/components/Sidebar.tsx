@@ -48,13 +48,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
     try {
       let pubKey = data.trim();
       
-      // Handle Linda Universal Links (?add=)
+      // 1. Handle Universal Links (?add=)
       if (pubKey.includes("?add=")) {
         const urlSplit = pubKey.split("?add=");
         const extracted = urlSplit[1]?.split("&")[0];
         if (extracted) pubKey = extracted;
       }
+      // 2. Handle Magic Links (if scanned by mistake, extract pub from pair)
+      else if (pubKey.includes("?magic_login=") || pubKey.includes("?session=")) {
+        const url = new URL(pubKey);
+        const encoded = url.searchParams.get("magic_login") || url.searchParams.get("session");
+        if (encoded) {
+          const jsonStr = window.atob(encoded);
+          const payload = JSON.parse(jsonStr);
+          const pair = payload.type === "shogun-auth-pair" ? payload.pair : payload;
+          if (pair.pub) pubKey = pair.pub;
+        }
+      }
 
+      // 3. Resolve username if needed
       if (pubKey.length < 30 || pubKey.startsWith("@")) {
         if (!signalService) return;
         pubKey = await signalService.getPubKeyFromUsername(pubKey);

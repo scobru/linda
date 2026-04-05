@@ -303,9 +303,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   onClick={() => {
                     const pair = (db.getCurrentUser()?.user as any)?._?.sea;
                     if (!pair) return;
-                    const sessionData = { ...pair, username };
-                    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
-                    const link = `${window.location.origin}/?session=${encoded}`;
+                  const sessionData = { 
+                    type: "shogun-auth-pair",
+                    version: "1.0",
+                    pair: pair,
+                    username: username,
+                    exportedAt: Date.now()
+                  };
+                  const encoded = btoa(JSON.stringify(sessionData));
+                  const link = `${window.location.origin}/?magic_login=${encoded}`;
                     navigator.clipboard.writeText(link);
                     showNotification("Magic Link copied!", "info");
                   }}
@@ -318,7 +324,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <div className="shrink-0 bg-white p-8 rounded-[3rem] shadow-3xl border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
                <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
                <QRCodeSVG 
-                value={`${window.location.origin}/?session=${btoa(unescape(encodeURIComponent(JSON.stringify({ ...((db.getCurrentUser()?.user as any)?._?.sea || {}), username }))))}`} 
+                value={`${window.location.origin}/?magic_login=${btoa(JSON.stringify({ 
+                type: "shogun-auth-pair",
+                version: "1.0",
+                pair: (db.getCurrentUser()?.user as any)?._?.sea || {},
+                username: username,
+                exportedAt: Date.now()
+              }))}`} 
                 size={220} 
                 level="H"
                 includeMargin={false}

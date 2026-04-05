@@ -390,28 +390,54 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Universal Link Entry (Login & Add Friend) ──
   useEffect(() => {
     const url = new URL(window.location.href);
+    const magic_login = url.searchParams.get("magic_login");
     const session = url.searchParams.get("session");
     const add = url.searchParams.get("add");
 
-    // 1. Handle Magic Link Login
-    if (session && db) {
+    const handleMagicLogin = async (data: string) => {
       try {
-        showNotification("Processing Magic Link...", "info");
-        const decoded = decodeURIComponent(escape(window.atob(session)));
-        const pair = JSON.parse(decoded);
+        showNotification("Authenticating via Magic Link...", "info");
+        
+        let jsonStr = "";
+        try {
+          // Attempt standard Base64 first
+          jsonStr = window.atob(data);
+        } catch (e) {
+          // Fallback to UTF-8 safe Base64 (Linda legacy)
+          jsonStr = decodeURIComponent(escape(window.atob(data)));
+        }
+
+        const payload = JSON.parse(jsonStr);
+        let pair = payload;
+        let usernameToUse = "";
+
+        // Handle Shogun Standard Wrapper
+        if (payload.type === "shogun-auth-pair" && payload.pair) {
+          pair = payload.pair;
+          usernameToUse = payload.username || "";
+        }
+
         if (pair.pub && pair.priv) {
-          const username = pair.username || pair.pub;
-          db.loginWithPair(username, pair).then(() => {
-            showNotification("Logged in via Magic Link!", "info");
-            // Clean the URL
-            const nextUrl = new URL(window.location.href);
-            nextUrl.searchParams.delete("session");
-            window.history.replaceState({}, document.title, nextUrl.toString());
-          });
+          const finalUsername = usernameToUse || pair.username || pair.pub;
+          await db.loginWithPair(finalUsername, pair);
+          showNotification(`Welcome back, ${finalUsername}!`, "info");
+          
+          // Clean the URL
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.delete("magic_login");
+          nextUrl.searchParams.delete("session");
+          window.history.replaceState({}, document.title, nextUrl.toString());
         }
       } catch (err) {
-        console.error("Failed to restore session from Magic Link", err);
+        console.error("Magic Link Login failed:", err);
+        showNotification("Magic Link is invalid or expired", "error");
       }
+    };
+
+    if (magic_login && db && !isLoggedIn) {
+      handleMagicLogin(magic_login);
+    } else if (session && db && !isLoggedIn) {
+      handleMagicLogin(session);
     }
 
     // 2. Handle Add Friend Link
