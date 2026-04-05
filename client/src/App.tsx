@@ -47,8 +47,9 @@ declare global {
   }
 }
 
-const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
-  const { isLoggedIn, userPub, logout, sdk } = useShogun() as any;
+const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, sdkInstance }) => {
+  const { isLoggedIn, userPub, logout } = useShogun() as any;
+  const sdk = sdkInstance; // Use the provided instance directly to avoid context delay
   const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub ? (db.getCurrentUser()?.user as any)?.username : "";
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -76,8 +77,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
   // Initial state logging for troubleshooting
   useEffect(() => {
-    console.log(`[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, URL: ${window.location.href.substring(0, 50)}...`);
+    console.log(`[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, sdkReady: ${!!sdk}, URL: ${window.location.href}`);
   }, []);
+
+  useEffect(() => {
+    console.log(`[AppContent] State change - isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}`);
+  }, [isLoggedIn, userPub]);
 
   const showNotification = useCallback((msg: string, type: "info" | "error" = "info") => {
     setNotification({ msg, type });
@@ -176,10 +181,20 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
         console.log(`[Login] loginWithPair call completed. Checking Gun auth state...`);
         // Verify Gun state immediately
         const gun = activeSdk.gun || (window as any).gun;
-        if (gun && gun.user().is) {
-           console.log(`[Login] Gun verified authentication for: ${gun.user().is.pub.substring(0, 8)}`);
-        } else {
-           console.warn(`[Login] Warning: Gun session not immediately detected after loginWithPair.`);
+        
+        // Wait up to 3 seconds for Gun to confirm auth
+        let authenticated = false;
+        for (let i = 0; i < 30; i++) {
+          if (gun && gun.user().is) {
+            console.log(`[Login] Gun verified authentication for: ${gun.user().is?.pub.substring(0, 8)} after ${i * 100}ms`);
+            authenticated = true;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        }
+
+        if (!authenticated) {
+           console.warn(`[Login] Warning: Gun session not detected after 3s wait. loginWithPair might have succeeded but Gun state is not updated yet.`);
         }
 
         showNotification(`Welcome back, ${displayName}!`, "info");
@@ -475,36 +490,62 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     }
   }, [recipient, groupService, userPub]);
 
-  // Handle Magic Link Login
+  // 1. Start Magic Link Login
   useEffect(() => {
     const magic_login = searchParams.get("magic_login");
     const session = searchParams.get("session");
-    const add = searchParams.get("add");
+    
+    // Final defensive check: Use prop sdkInstance, window.shogun OR context sdk
+    const activeSdk = sdkInstance || (window as any).shogun || sdk;
 
-    if ((magic_login || session) && !isLoggedIn && !magicLoginAttempted.current && sdk) {
+    console.log(`[MagicLink] Sync effect. hasMagic:${!!magic_login}, hasSession:${!!session}, isLoggedIn:${isLoggedIn}, attempted:${magicLoginAttempted.current}, sdkReady:${!!activeSdk}`);
+    
+    if ((magic_login || session) && !isLoggedIn && !magicLoginAttempted.current && activeSdk) {
       magicLoginAttempted.current = true;
       setIsProcessingMagicLink(true);
+      console.log("[MagicLink] CONDITION MET. Starting authentication...");
+      
       processUniversalLogin(magic_login || session!, "Magic Link").then((success) => {
-        setIsProcessingMagicLink(false);
-        if (success) {
-          // Clean the URL
-          const nextUrl = new URL(window.location.href);
-          nextUrl.searchParams.delete("magic_login");
-          nextUrl.searchParams.delete("session");
-          window.history.replaceState({}, document.title, nextUrl.toString());
+        if (!success) {
+          console.error("[MagicLink] Authentication failed");
+          setIsProcessingMagicLink(false);
+          magicLoginAttempted.current = false; // Allow retry if it failed
+        } else {
+          console.log("[MagicLink] Authentication successful, waiting for isLoggedIn state to update...");
+          // We don't set isProcessingMagicLink(false) here. 
+          // We wait for the second effect to detect isLoggedIn === true.
         }
       });
     }
+  }, [isLoggedIn, sdk, searchParams, processUniversalLogin]);
 
-    // 2. Handle Auto-Restore Session if NOT processing magic login
+  // 2. Complete Magic Link Login & Clean URL (only when isLoggedIn becomes true)
+  useEffect(() => {
+    if (isLoggedIn && isProcessingMagicLink) {
+      console.log("[MagicLink] Login confirmed! Cleaning up...");
+      setIsProcessingMagicLink(false);
+      
+      // Clean the URL
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("magic_login");
+      nextUrl.searchParams.delete("session");
+      window.history.replaceState({}, document.title, nextUrl.toString());
+    }
+  }, [isLoggedIn, isProcessingMagicLink]);
+
+  // 3. Handle Auto-Restore Session if NOT processing magic login
+  useEffect(() => {
     if (!isLoggedIn && !magicLoginAttempted.current && !isProcessingMagicLink && sdk && !sessionStorage.getItem("restored_tried")) {
       sessionStorage.setItem("restored_tried", "true");
       if (typeof sdk.db?.restoreSession === "function") {
         sdk.db.restoreSession().catch((e: any) => console.error("Restore failed:", e));
       }
     }
+  }, [isLoggedIn, sdk, isProcessingMagicLink]);
 
-    // 2. Handle Add Friend Link
+  // 4. Handle Add Friend Link
+  useEffect(() => {
+    const add = searchParams.get("add");
     if (add && isLoggedIn && db) {
       if (add !== userPub) {
         saveContact(add);
@@ -517,7 +558,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       nextUrl.searchParams.delete("add");
       window.history.replaceState({}, document.title, nextUrl.toString());
     }
-  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, sdk, processUniversalLogin, searchParams]);
+  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, searchParams]);
 
   // ── Profile Logic ──
   const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
@@ -1297,6 +1338,7 @@ const App: React.FC = () => {
       </div>
     );
   }
+  console.log(`[App] Rendering with coreContext: ${!!coreContext}, dbInstance: ${!!dbInstance}, coreReady: ${!!coreContext?.core}`);
 
   return (
     <BrowserRouter>
@@ -1313,7 +1355,7 @@ const App: React.FC = () => {
           console.error("Auth error", err);
         }}
       >
-        <AppContent db={dbInstance} />
+        <AppContent db={dbInstance} sdkInstance={coreContext.core} />
       </ShogunButtonProvider>
     </BrowserRouter>
   );

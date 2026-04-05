@@ -7,10 +7,10 @@
   prefersdark: true;
   color-scheme: dark;
 
-  /* Signal-inspired Deep Charcoal Palette */
-  --color-base-100: #0e0e10;
-  --color-base-200: #1b1b1f;
-  --color-base-300: #121214;
+  /* Signal-inspired Deep Charcoal Palette - OLED Black */
+  --color-base-100: #000000;
+  --color-base-200: #121214;
+  --color-base-300: #1b1b1f;
   --color-base-content: #f5f5f5;
 
   --color-primary: #33a7f0;
@@ -130,4 +130,40 @@ body {
 
 .animate-chat-fadeIn {
   animation: chat-fadeIn 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* ── Premium Loading & Glassmorphism ──────────────────────── */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.loader-glow {
+  position: relative;
+}
+
+.loader-glow::after {
+  content: '';
+  position: absolute;
+  inset: -20px;
+  background: radial-gradient(circle, var(--color-primary) 0%, transparent 70%);
+  opacity: 0.15;
+  filter: blur(20px);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.1; transform: scale(0.8); }
+  50% { opacity: 0.25; transform: scale(1.1); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.6s cubic-bezier(0.2, 0, 0, 1) forwards;
 }

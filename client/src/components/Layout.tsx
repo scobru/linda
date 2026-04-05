@@ -17,7 +17,7 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
   }, [location.pathname]);
 
   return (
-    <div className="drawer lg:drawer-open h-full border-t border-white/5">
+    <div className="drawer lg:drawer-open h-full">
       <input id="my-drawer" type="checkbox" className="drawer-toggle" />
       <div className="drawer-content flex flex-col bg-base-100 h-full overflow-hidden">
         {/* Mobile Header: Shown only on root path when no recipient is selected */}
