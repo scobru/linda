@@ -164,16 +164,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
 
         <div className="text-center sm:text-left z-10 flex-1 min-w-0">
-          <h2 className="text-2xl font-black mb-2 truncate tracking-tight">{currentNick || username}</h2>
-          <div className="badge badge-primary font-black tracking-widest text-[10px] h-7 px-4 rounded-full border-none">{currentUniqueUsername || "ID NOT SET"}</div>
+          <h2 className="text-xl sm:text-2xl font-black mb-2 truncate tracking-tight">{currentNick || username}</h2>
+          <div className="badge badge-primary font-black tracking-widest text-[9px] h-6 sm:h-7 px-3 sm:px-4 rounded-full border-none">{currentUniqueUsername || "ID NOT SET"}</div>
         </div>
 
         {/* Universal Contact QR (Level H) */}
-        <div className="shrink-0 bg-white p-4 rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
+        <div className="shrink-0 bg-white p-3 sm:p-4 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
            <QRCodeSVG 
             value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
-            size={200} 
+            size={160} 
             level="H"
+            className="sm:w-[200px] sm:h-[200px]"
             includeMargin={false}
             fgColor="#1b1b1f"
             bgColor="#ffffff"
@@ -252,13 +253,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       </div>
 
       {/* Magic Link Login Sync Section */}
-      <div className="card bg-primary/5 border border-primary/20 overflow-hidden rounded-[2.5rem] shadow-xl">
-        <div className="card-body p-8 sm:p-12 space-y-10">
-          <div className="flex flex-col lg:flex-row items-center gap-12">
-            <div className="flex-1 space-y-8 text-center lg:text-left">
-              <div className="space-y-4">
-                <h3 className="text-2xl font-black text-primary uppercase tracking-tight">Sync Account to Mobile</h3>
-                <p className="text-sm opacity-60 font-bold leading-relaxed max-w-lg mx-auto lg:mx-0">
+      <div className="card bg-primary/5 border border-primary/20 overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] shadow-xl">
+        <div className="card-body p-6 sm:p-12 space-y-8 sm:space-y-10">
+          <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
+            <div className="flex-1 space-y-6 sm:space-y-8 text-center lg:text-left">
+              <div className="space-y-3 sm:space-y-4">
+                <h3 className="text-xl sm:text-2xl font-black text-primary uppercase tracking-tight">Sync Account to Mobile</h3>
+                <p className="text-xs sm:text-sm opacity-60 font-bold leading-relaxed max-w-lg mx-auto lg:mx-0">
                   Scan this Magic Link from your phone's camera or a new device to instantly transfer your sessions and keys.
                 </p>
               </div>
@@ -321,7 +322,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </div>
             </div>
 
-            <div className="shrink-0 bg-white p-8 rounded-[3rem] shadow-3xl border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
+            <div className="shrink-0 bg-white p-4 sm:p-8 rounded-[2rem] sm:rounded-[3rem] shadow-3xl border-8 sm:border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
                <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
                <QRCodeSVG 
                 value={`${window.location.origin}/?magic_login=${btoa(JSON.stringify({ 
@@ -331,8 +332,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 username: username,
                 exportedAt: Date.now()
               }))}`} 
-                size={220} 
+                size={180} 
                 level="H"
+                className="sm:w-[220px] sm:h-[220px]"
                 includeMargin={false}
                 fgColor="#1b1b1f"
                 bgColor="#ffffff"
