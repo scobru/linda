@@ -256,19 +256,19 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   );
 
   return (
-    <div className="p-4 sm:p-8 lg:p-12 max-w-4xl mx-auto space-y-8 sm:space-y-12 animate-fadeIn overflow-y-auto h-full">
-      <header className="flex items-center gap-6 mb-12 relative z-10">
+    <div className="p-6 sm:p-12 lg:p-16 max-w-5xl mx-auto space-y-10 animate-fadeIn h-full overflow-y-auto">
+      <div className="flex items-center gap-6 relative z-10">
         <button 
-          className="btn btn-ghost btn-circle btn-sm shadow-xl bg-base-200/80 backdrop-blur-md border border-white/10 active:scale-95 transition-all flex items-center justify-center p-0" 
+          className="btn btn-ghost btn-circle bg-base-200 border border-base-content/5 active:scale-90 transition-all flex items-center justify-center p-0" 
           onClick={() => navigate("/")}
           aria-label="Go back"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 opacity-60">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <h1 className="text-3xl sm:text-4xl font-black text-primary tracking-tight">Group Management</h1>
-      </header>
+        <h1 className="text-3xl font-black tracking-tight">Group Management</h1>
+      </div>
 
       {!myRole ? (
         <div className="card bg-base-200/40 backdrop-blur-xl p-12 text-center border border-white/10 shadow-2xl rounded-[3rem]">
@@ -283,8 +283,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       ) : (
         <div className="flex flex-col gap-8 sm:gap-12">
           {/* Group Overview Card */}
-          <div className="flex flex-col sm:flex-row items-center gap-6 sm:gap-10 bg-base-200/40 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/10 shadow-2xl relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+          <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200 p-10 rounded-2xl border border-base-content/5 shadow-sm relative overflow-hidden group">
             <div className="relative z-10 shrink-0">
               <div className="avatar">
                 <div className="w-28 sm:w-36 rounded-[2rem] ring-4 ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl">
@@ -315,7 +314,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
           </div>
 
           {/* Navigation Tabs */}
-          <div className="tabs tabs-boxed w-full max-w-2xl mx-auto p-1 bg-base-300/40 backdrop-blur-xl border border-white/10 rounded-2xl">
+          <div className="tabs tabs-boxed w-full max-w-2xl mx-auto p-1 bg-base-300 border border-base-content/5 rounded-2xl">
             <button className={`tab grow gap-2 transition-all rounded-xl font-bold ${activeTab === 'members' ? 'tab-active bg-primary text-primary-content' : 'opacity-60'}`} onClick={() => setActiveTab('members')}>Members</button>
             <button className={`tab grow gap-2 transition-all rounded-xl font-bold ${activeTab === 'settings' ? 'tab-active bg-primary text-primary-content' : 'opacity-60'}`} onClick={() => setActiveTab('settings')}>Settings</button>
             <button className={`tab grow gap-2 transition-all rounded-xl font-bold ${activeTab === 'invites' ? 'tab-active bg-primary text-primary-content' : 'opacity-60'}`} onClick={() => setActiveTab('invites')}>Invites</button>
@@ -331,7 +330,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
             {activeTab === 'members' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {members.map(m => (
-                  <div key={m.pub} className="flex items-center justify-between p-4 bg-base-200/40 backdrop-blur-xl rounded-2xl border border-white/10 group hover:border-primary/20 transition-all shadow-lg">
+                  <div key={m.pub} className="flex items-center justify-between p-4 bg-base-200 rounded-2xl border border-base-content/5 group hover:border-primary/20 transition-all shadow-sm">
                     <div className="flex items-center gap-4">
                       <div className="avatar">
                         <div className="bg-primary/20 text-primary rounded-xl w-12 overflow-hidden border border-white/5">
@@ -381,7 +380,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
             {activeTab === 'settings' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {['moderator', 'administrator'].includes(myRole) ? (
-                  <div className="card bg-base-200/40 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden md:col-span-2">
+                  <div className="card bg-base-200 border border-base-content/5 overflow-hidden md:col-span-2 rounded-2xl">
                     <div className="card-body p-8 sm:p-10 gap-8">
                       <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 text-primary">General Info</h3>
                       <div className="grid grid-cols-1 gap-6">
@@ -398,7 +397,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="card bg-base-200/40 backdrop-blur-xl p-10 border border-white/10 md:col-span-2 shadow-2xl rounded-[2.5rem]">
+                  <div className="card bg-base-200 p-10 border border-base-content/5 md:col-span-2 shadow-sm rounded-2xl">
                      <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4 text-primary">Group Description</h4>
                      <p className="text-lg opacity-80 leading-relaxed font-medium">{groupInfo?.description || 'No description provided.'}</p>
                   </div>
@@ -439,7 +438,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                 </div>
 
                 {myRole === 'administrator' && (
-                  <div className="card bg-base-200/40 backdrop-blur-xl border border-white/10 shadow-2xl md:col-span-2 rounded-[2.5rem]">
+                  <div className="card bg-base-200 border border-base-content/5 shadow-sm md:col-span-2 rounded-2xl">
                     <div className="card-body p-8 sm:p-10">
                       <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-8 text-primary">Public Discovery</h4>
                       <div className="space-y-6">
@@ -481,7 +480,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
             )}
 
             {activeTab === 'invites' && (
-              <div className="card bg-base-200/40 backdrop-blur-xl border border-white/10 shadow-3xl rounded-[3rem] overflow-hidden">
+              <div className="card bg-base-200 border border-base-content/5 shadow-sm rounded-2xl overflow-hidden">
                 <div className="card-body p-10 sm:p-12 text-center items-center">
                   <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mb-8 border border-primary/20 shadow-inner">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">

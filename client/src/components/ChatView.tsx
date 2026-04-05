@@ -436,10 +436,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
           return (
-            <div
-              key={`${msg.id || "msg"}-${i}`}
-              className={`chat ${isMe ? "chat-end" : "chat-start"} animate-slideUp`}
-            >
+            <div key={msg.id || i} className={`chat ${isMe ? "chat-end" : "chat-start"} group/chat relative mb-4`}>
               <div className="chat-image avatar">
                 <div className="w-12 rounded-full border border-base-content/10 shadow-xl ring-2 ring-primary/5">
                   {msgAvatar ? (

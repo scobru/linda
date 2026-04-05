@@ -25,19 +25,20 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
         {/* We only show a global Layout navbar if we are on a route that doesn't provide its own back button or header, but currently all pages (Chat, Profile, Settings) provide their own. */}
         
         <main className="flex-1 overflow-hidden relative flex flex-col">
-          <div className="flex-1 lg:block hidden h-full">
+          {isRoot ? (
+            <div className="h-full">
+              <div className="lg:hidden h-full">
+                <Sidebar {...sidebarProps} />
+              </div>
+              <div className="hidden lg:flex h-full">
+                <Outlet />
+              </div>
+            </div>
+          ) : (
             <Outlet />
-          </div>
-          <div className="flex-1 lg:hidden h-full overflow-hidden flex flex-col">
-            {/* On mobile, if we are at root, show sidebar. Otherwise show Outlet (ChatView, Profile, Settings) */}
-            {isRoot ? (
-              <Sidebar {...sidebarProps} />
-            ) : (
-              <Outlet />
-            )}
-          </div>
+          )}
         </main>
-      </div> 
+      </div>
       <div className="drawer-side z-30">
         <label htmlFor="my-drawer" aria-label="close sidebar" className="drawer-overlay"></label>
         <div className="h-full w-[85vw] max-w-[320px] lg:max-w-none lg:w-96 transition-all">

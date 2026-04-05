@@ -31,7 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setRecipient,
   contactProfiles,
   unreadCounts,
-  handleDeleteContact: _handleDeleteContact,
+  handleDeleteContact,
   signalService,
   groupService,
   showNotification,
@@ -260,52 +260,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </li>
           )}
 
-          {contacts.filter(c => c !== userPub).map((c) => (
-            <li key={c}>
-              <NavLink
-                to={`/chat/${c}`}
-                className={({ isActive }) => 
-                  `flex items-center p-4 px-5 gap-4 transition-all relative border-none hover:bg-base-content/5 ${
-                    isActive ? "bg-base-content/10" : "bg-transparent"
-                  }`
-                }
-                onClick={() => {
-                  setRecipient(c);
-                  requestNotifications();
-                }}
-              >
-                <div className="avatar">
-                  <div className="w-14 h-14 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm">
-                    {contactProfiles[c]?.avatar ? (
-                      <img src={contactProfiles[c].avatar} alt="avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <img src={getDiceBearAvatar(contactProfiles[c]?.nickname || c)} alt="avatar" className="w-full h-full object-cover bg-primary/10" />
-                    )}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-[15px] tracking-tight truncate">
-                      {contactProfiles[c]?.nickname || 
-                        (c.length === 36 && c.includes("-") ? "Loading group..." :
-                        c.length > 20 ? `${c.slice(0, 8)}...${c.slice(-4)}` : c)}
-                    </span>
-                    <span className="text-[10px] opacity-30 font-bold">Oggi</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <div className="text-[13px] opacity-40 font-medium truncate flex-1 leading-snug">
-                      {c.length === 36 && c.includes("-") ? "Messaggio di gruppo" : "Messaggio crittografato"}
+          {contacts.map((id) => {
+            const profile = contactProfiles[id] || {};
+            const unreadCount = unreadCounts[id] || 0;
+            const isGroup = id.length === 36 && id.includes("-");
+
+            return (
+              <li key={id} className="group relative">
+                <NavLink
+                  to={`/chat/${id}`}
+                  className={({ isActive }) =>
+                    `flex items-center p-4 px-5 gap-4 transition-all relative border-none hover:bg-base-content/5 ${
+                      isActive ? "bg-base-content/10" : "bg-transparent"
+                    }`
+                  }
+                  onClick={() => {
+                    setRecipient(id);
+                    requestNotifications();
+                  }}
+                >
+                  <div className="avatar relative">
+                    <div className="w-14 h-14 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm">
+                      <img
+                        src={profile.avatar || getDiceBearAvatar(id, isGroup)}
+                        alt="avatar"
+                        className="object-cover w-full h-full"
+                      />
                     </div>
-                    {unreadCounts[c] > 0 && (
-                      <span className="badge badge-primary badge-xs rounded-full min-w-[1.2rem] h-[1.2rem] font-black text-[9px] shadow-lg shadow-primary/20">
-                        {unreadCounts[c]}
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 badge badge-primary badge-sm font-black border-2 border-base-100 px-1.5 animate-bounce">
+                        {unreadCount}
                       </span>
                     )}
                   </div>
-                </div>
-              </NavLink>
-            </li>
-          ))}
+
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[15px] tracking-tight truncate">
+                        {profile.nickname ||
+                          (id.length > 20
+                            ? `${id.slice(0, 8)}...${id.slice(-4)}`
+                            : id)}
+                      </span>
+                    </div>
+                    <div className="text-[13px] opacity-40 font-medium truncate mt-0.5">
+                      {isGroup ? "Group Chat" : "Private Chat"}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => handleDeleteContact(id, e)}
+                    className="btn btn-ghost btn-circle btn-xs opacity-0 group-hover:opacity-100 transition-all hover:bg-error/20 hover:text-error"
+                  >
+                    ✕
+                  </button>
+                </NavLink>
+              </li>
+            );
+          })}
         </ul>
       </div>
 

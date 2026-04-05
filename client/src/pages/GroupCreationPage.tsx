@@ -82,21 +82,21 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-8 lg:p-12 max-w-4xl mx-auto space-y-8 sm:space-y-12 animate-fadeIn overflow-y-auto h-full">
-      <div className="flex items-center gap-4 sm:gap-6 relative z-10">
+    <div className="p-6 sm:p-12 lg:p-16 max-w-5xl mx-auto space-y-10 animate-fadeIn h-full overflow-y-auto">
+      <div className="flex items-center gap-6 relative z-10">
         <button 
-          className="btn btn-ghost btn-circle btn-sm shadow-xl bg-base-200/80 backdrop-blur-md border border-base-content/10 active:scale-95 transition-all flex items-center justify-center p-0" 
+          className="btn btn-ghost btn-circle bg-base-200 border border-base-content/5 active:scale-90 transition-all flex items-center justify-center p-0" 
           onClick={() => navigate("/")}
           aria-label="Go back"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 opacity-60">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <h1 className="text-3xl sm:text-4xl font-black text-primary tracking-tight">New Conversation</h1>
+        <h1 className="text-3xl font-black tracking-tight">New Conversation</h1>
       </div>
 
-      <div className="card bg-base-200/40 backdrop-blur-xl shadow-2xl border border-base-content/10 overflow-hidden group transition-all rounded-[2rem] sm:rounded-[2.5rem]">
+      <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
         <div className="p-6 sm:p-8 border-b border-base-content/5 flex items-center justify-center bg-base-300/40">
           <div className="tabs tabs-boxed bg-base-300/50 p-1 rounded-full gap-1">
             <button
