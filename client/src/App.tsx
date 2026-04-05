@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
 import {
   BrowserRouter,
   Routes,
@@ -47,7 +48,8 @@ declare global {
 }
 
 const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
-  const { isLoggedIn, userPub, logout, username } = useShogun();
+  const { isLoggedIn, userPub, logout } = useShogun();
+  const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub ? (db.getCurrentUser()?.user as any)?.username : "";
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
 
@@ -75,47 +77,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     setTimeout(() => setNotification(null), 3000);
   }, []);
 
-  // ── Universal Link Entry (Login & Add Friend) ──
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const session = url.searchParams.get("session");
-    const add = url.searchParams.get("add");
 
-    // 1. Handle Magic Link Login
-    if (session && db) {
-      try {
-        showNotification("Processing Magic Link...", "info");
-        const decoded = decodeURIComponent(escape(window.atob(session)));
-        const pair = JSON.parse(decoded);
-        if (pair.pub && pair.priv) {
-          const username = pair.username || pair.pub;
-          db.loginWithPair(username, pair).then(() => {
-            showNotification("Logged in via Magic Link!", "info");
-            // Clean the URL
-            const nextUrl = new URL(window.location.href);
-            nextUrl.searchParams.delete("session");
-            window.history.replaceState({}, document.title, nextUrl.toString());
-          });
-        }
-      } catch (err) {
-        console.error("Failed to restore session from Magic Link", err);
-      }
-    }
-
-    // 2. Handle Add Friend Link
-    if (add && isLoggedIn && db) {
-      if (add !== userPub) {
-        saveContact(add);
-        setRecipient(add);
-        navigate(`/chat/${add}`);
-        showNotification("Contact added via link!", "info");
-      }
-      // Clean the URL
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.delete("add");
-      window.history.replaceState({}, document.title, nextUrl.toString());
-    }
-  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification]);
 
   const handleLoginQrScan = async (data: string) => {
     setShowLoginScanner(false);
@@ -124,7 +86,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     try {
       console.log("Scanned Data:", data);
       showNotification("Processing scan...", "info");
-      
+
       // Data might be a pure JSON string or a Magic Link URL
       let jsonStr = data.trim();
       if (jsonStr.includes("?session=")) {
@@ -191,7 +153,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       }
     };
     wormholeServiceRef.current = service;
-    
+
     // Auto-cleanup stale transfers on initialization (older than 1h)
     const relays = [
       import.meta.env.VITE_RELAY_URL,
@@ -206,7 +168,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
           console.log(`[App] Wormhole cleanup success via: ${relayUrl}`);
           break;
-        } catch (e) {}
+        } catch (e) { }
       }
     })();
 
@@ -218,7 +180,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (fileTransferServiceInst && signalService) {
       const sendUnifiedSignal = async (toPub: string, signal: any, prefix: string) => {
         try {
-          db.gun.get(`~${toPub}`).once(() => {});
+          db.gun.get(`~${toPub}`).once(() => { });
           let cert;
           for (let i = 0; i < 3; i++) {
             try {
@@ -231,8 +193,8 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           }
           const payload = prefix + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
-          const signalKey = `${userPub!.substring(0,8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          
+          const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
           // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
           const targetInbox = db.gun.user(toPub).get(`signal_inbox_v13`);
 
@@ -241,7 +203,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               const putOptions = (toPub === userPub) ? {} : { opt: { cert: sendCert } };
               const timeout = setTimeout(() => {
                 console.warn(`[App] ${retryLabel} signal ${signal.type} put timeout (15s) for ${toPub.substring(0, 8)}`);
-                resolve(true); 
+                resolve(true);
               }, 15000);
 
               targetInbox.get(signalKey).put(
@@ -295,7 +257,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── Signaling Listener ──
   useEffect(() => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst) return;
-    
+
     const inboxSoul = `~${userPub}/signal_inbox_v13`;
     console.log(`[App] Starting securely authorized signaling listener on ${inboxSoul}`);
 
@@ -304,7 +266,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       if (!data.sender || !data.body || data.type === undefined) return;
 
       processedSignalsRef.current.add(gunKey);
-      
+
       try {
         let currentService = signalServiceRef.current;
         if (!currentService) {
@@ -325,11 +287,11 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
         const plaintext = await currentService.decryptMessage(data.sender, { type: data.type, body: data.body });
         if (!plaintext || typeof plaintext !== 'string') return;
-        
+
         const trimmed = plaintext.trim();
         if (trimmed === "PING_HEAL") {
-           currentService.republishBundle().catch(() => {});
-           return;
+          currentService.republishBundle().catch(() => { });
+          return;
         }
 
         if (trimmed.startsWith(" Linda:SIGNAL:")) {
@@ -341,13 +303,13 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           }
         } else if (trimmed.startsWith("{")) {
           // Legacy support or fallback - handle signals without prefix
-          try { 
-            const signal = JSON.parse(trimmed); 
+          try {
+            const signal = JSON.parse(trimmed);
             if (signal) {
               // File transfer signals use prefixed types: file_offer, file_answer, etc.
               fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // Cleanup signal node from GunDB after processing
@@ -366,7 +328,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   // ── GunDB Sync Kick (Mobile Reliability) ──
   useEffect(() => {
     if (!isLoggedIn || !userPub) return;
-    
+
     // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
     const kickInterval = setInterval(() => {
       console.log("[App] Sync Kick: Poking GunDB inbox...");
@@ -424,6 +386,48 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
       setMyRole(null);
     }
   }, [recipient, groupService, userPub]);
+
+  // ── Universal Link Entry (Login & Add Friend) ──
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const session = url.searchParams.get("session");
+    const add = url.searchParams.get("add");
+
+    // 1. Handle Magic Link Login
+    if (session && db) {
+      try {
+        showNotification("Processing Magic Link...", "info");
+        const decoded = decodeURIComponent(escape(window.atob(session)));
+        const pair = JSON.parse(decoded);
+        if (pair.pub && pair.priv) {
+          const username = pair.username || pair.pub;
+          db.loginWithPair(username, pair).then(() => {
+            showNotification("Logged in via Magic Link!", "info");
+            // Clean the URL
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.delete("session");
+            window.history.replaceState({}, document.title, nextUrl.toString());
+          });
+        }
+      } catch (err) {
+        console.error("Failed to restore session from Magic Link", err);
+      }
+    }
+
+    // 2. Handle Add Friend Link
+    if (add && isLoggedIn && db) {
+      if (add !== userPub) {
+        saveContact(add);
+        setRecipient(add);
+        navigate(`/chat/${add}`);
+        showNotification("Contact added via link!", "info");
+      }
+      // Clean the URL
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("add");
+      window.history.replaceState({}, document.title, nextUrl.toString());
+    }
+  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification]);
 
   // ── Profile Logic ──
   const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
@@ -545,7 +549,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
             );
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     });
   }, [contacts, signalService, db]);
 
@@ -589,12 +593,12 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const isGroup = contactKey.length === 36 && contactKey.includes("-");
-    const confirmMsg = isGroup 
-      ? "Vuoi davvero lasciare questo gruppo ed eliminare la cronologia?" 
+    const confirmMsg = isGroup
+      ? "Vuoi davvero lasciare questo gruppo ed eliminare la cronologia?"
       : "Vuoi eliminare questa conversazione e BLOCCARE l'utente sul tuo grafo? Non potrà più scriverti finché non lo riaggiungerai.";
-      
+
     if (!window.confirm(confirmMsg)) return;
 
     if (isGroup) {
@@ -639,18 +643,18 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     try {
       // 1. Reset the Waku/Signal Session
       await signalService.resetSession(recipient);
-      
+
       // 2. Regenerate our own local certificate (fixes incoming writes from others)
       await signalService.regenerateCertificate(true);
 
       // 3. Re-publish our own bundle to fix potential discovery issues
-      await signalService.republishBundle().catch(() => {});
-      
+      await signalService.republishBundle().catch(() => { });
+
       showNotification("Sincronizzazione e rigenerazione completate.", "info");
-      
+
       const pub = await signalService.getPubKeyFromUsername(recipient);
       const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
-      
+
       const cert = await signalService.getInboxCertificate(pub);
       db.gun.get(`signal_v3_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
         sender: userPub,
@@ -667,7 +671,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     if (!signalService) return;
     try {
       await signalService.regenerateCertificate(true);
-      await signalService.republishBundle().catch(() => {});
+      await signalService.republishBundle().catch(() => { });
       showNotification("Certificato rigenerato con successo.", "info");
     } catch (err) {
       showNotification("Rigenerazione certificato fallita.", "error");
@@ -755,7 +759,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
     return (
       <div className="min-h-dvh w-full bg-base-100 relative flex flex-col">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--color-primary),_transparent_25%)] opacity-[0.03] pointer-events-none"></div>
-        
+
         <div className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-24 z-10 px-6 py-12 lg:py-20 max-w-7xl mx-auto w-full">
           <div className="text-center lg:text-left max-w-lg">
             <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-primary mb-8 tracking-tightest">
@@ -796,7 +800,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
 
               <div className="card-actions flex flex-col gap-3 w-full">
                 <ShogunButton />
-                <button 
+                <button
                   onClick={() => setShowLoginScanner(true)}
                   className="btn btn-ghost bg-base-content/5 border border-base-content/5 rounded-2xl h-12 w-full font-black text-xs uppercase tracking-widest hover:bg-base-content/10 transition-all flex gap-3"
                 >
@@ -808,9 +812,9 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
               </div>
 
               {showLoginScanner && (
-                <QrScannerModal 
-                  onScan={handleLoginQrScan} 
-                  onClose={() => setShowLoginScanner(false)} 
+                <QrScannerModal
+                  onScan={handleLoginQrScan}
+                  onClose={() => setShowLoginScanner(false)}
                 />
               )}
 
@@ -874,7 +878,6 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
                 username: username || "",
                 userAvatar,
                 contacts,
-                recipient,
                 setRecipient: (id: string) => {
                   setRecipient(id);
                   if (id) navigate(`/chat/${id}`);
@@ -1115,8 +1118,8 @@ const App: React.FC = () => {
           localStorage: true,
           radisk: true,
           file: "radata",
-          wire:true,
-          webrtc:true
+          wire: true,
+          webrtc: true
         });
 
         window.gun = gunInstance;

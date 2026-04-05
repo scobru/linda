@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState } from "react";
 import { DataBase } from "shogun-core";
+import { useShogun } from "shogun-button-react";
 import { getDiceBearAvatar } from "../utils/avatar";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -8,235 +8,143 @@ interface UserProfileProps {
   db: DataBase;
   username: string;
   currentNick: string;
-  currentUniqueUsername: string;
-  currentAvatar: string | null;
-  handleLogout: () => void;
+  currentUniqueUsername?: string | null;
+  currentAvatar?: string | null;
+  handleLogout: () => Promise<void>;
   showNotification: (msg: string, type?: "info" | "error") => void;
 }
 
-export const UserProfile: React.FC<UserProfileProps> = ({
-  db,
-  username,
-  currentNick,
-  currentUniqueUsername,
+export const UserProfile: React.FC<UserProfileProps> = ({ 
+  db, 
+  username, 
+  currentNick, 
   currentAvatar,
-  handleLogout,
-  showNotification,
+  handleLogout, 
+  showNotification 
 }) => {
-  const navigate = useNavigate();
-  const [nick, setNick] = useState(currentNick);
-  const [uniqueName, setUniqueName] = useState(currentUniqueUsername);
-  const [keys, setKeys] = useState("");
+  const { userPub } = useShogun();
   const [showKeys, setShowKeys] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(currentAvatar || localStorage.getItem("linda_user_avatar"));
+  const [userNickname, setUserNickname] = useState<string>(currentNick || localStorage.getItem("linda_user_nick") || "");
 
-  useEffect(() => {
-    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
-    if (pair) {
-      setKeys(JSON.stringify(pair, null, 2));
-    }
-  }, [db]);
+  const keys = JSON.stringify((db.getCurrentUser()?.user as any)?._?.sea || {}, null, 2);
 
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const MAX_WIDTH = 200;
-        const MAX_HEIGHT = 200;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-        db.userPut("profile/avatar", dataUrl)
-          .then(() => showNotification("Avatar updated!", "info"))
-          .catch(() => showNotification("Failed to save avatar", "error"));
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+  const handleExport = () => {
+    navigator.clipboard.writeText(keys);
+    setCopyStatus("Copied!");
+    showNotification("Credentials copied to clipboard", "info");
+    setTimeout(() => setCopyStatus(null), 2000);
   };
 
-  const handleCopyKeys = () => {
-    if (!keys) return;
-    navigator.clipboard.writeText(keys).then(() => {
-      setCopyStatus("Copied!");
-      setTimeout(() => setCopyStatus(""), 2000);
-    });
-  };
-
-  const handleSaveNick = async () => {
-    if (!nick || nick === currentNick) return;
-    const pub = db.getUserPub();
-    if (!pub) return;
+  const updateAvatar = async (url: string) => {
     try {
-      // Nickname doesn't need to be unique, we just store the association
-      // so others can see it when they look up this user.
-      await db.Put(`signal_global_nicknames/${nick}`, pub);
-      await db.userPut("profile/nickname", nick);
+      await db.Put("profile/avatar", url);
+      setUserAvatar(url);
+      showNotification("Avatar updated", "info");
+    } catch (err) {
+      showNotification("Failed to update avatar", "error");
+    }
+  };
+
+  const updateNickname = async (name: string) => {
+    try {
+      await db.Put("profile/nickname", name);
+      setUserNickname(name);
       showNotification("Nickname updated", "info");
-    } catch (e) {
-      showNotification("Failed to save nickname", "error");
-    }
-  };
-
-  const handleSaveUniqueUsername = async () => {
-    if (!uniqueName || uniqueName === currentUniqueUsername) return;
-    const pub = db.getUserPub();
-    if (!pub) return;
-    let normalized = uniqueName.trim();
-    if (!normalized.startsWith("@")) normalized = `@${normalized}`;
-    if (!/^@[a-zA-Z0-9]+$/.test(normalized)) {
-      showNotification("Username must be @name1234 format", "error");
-      return;
-    }
-    try {
-      let takenPub: any = undefined;
-      try {
-        takenPub = await db.Get(`signal_unique_usernames/${normalized}`);
-      } catch (e) {}
-      if (takenPub && takenPub !== pub) {
-        showNotification("Unique username already taken", "error");
-      } else {
-        await db.Put(`signal_unique_usernames/${normalized}`, pub);
-        await db.userPut("profile/uniqueUsername", normalized);
-        showNotification("Unique username updated", "info");
-      }
-    } catch (e) {
-      showNotification("Failed to save unique username", "error");
+    } catch (err) {
+      showNotification("Failed to update nickname", "error");
     }
   };
 
   return (
-    <div className="p-6 sm:p-12 lg:p-16 max-w-5xl mx-auto space-y-10 animate-fadeIn h-full overflow-y-auto">
-      <div className="flex items-center gap-6 relative z-10">
-        <button 
-          className="btn btn-ghost btn-circle bg-base-200 border border-base-content/5 active:scale-90 transition-all flex items-center justify-center p-0" 
-          onClick={() => navigate("/")}
-          aria-label="Go back"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 opacity-60">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-        <h1 className="text-3xl font-black tracking-tight">Public Profile</h1>
-      </div>
-
-      <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200 p-10 rounded-2xl border border-base-content/5 shadow-sm relative overflow-hidden group">
-        <div className="relative z-10 shrink-0">
-          <div className="avatar">
-            <div className="w-32 sm:w-40 rounded-full border-4 border-base-content/10 ring-2 ring-primary/20 bg-base-300">
-              {currentAvatar ? (
-                <img src={currentAvatar} alt="Avatar" className="object-cover" />
-              ) : (
-                <img 
-                  src={getDiceBearAvatar(username || currentNick)} 
-                  alt="Avatar" 
-                  className="object-cover bg-base-300" 
-                />
-              )}
+    <div className="max-w-4xl mx-auto p-4 sm:p-8 space-y-8 animate-fadeIn pb-24">
+      <header className="flex flex-col sm:flex-row items-center gap-8 mb-12">
+        <div className="relative group">
+          <div className="w-32 h-32 rounded-[2.5rem] overflow-hidden border-4 border-primary/20 shadow-2xl relative">
+            {userAvatar ? (
+              <img src={userAvatar} alt="avatar" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                <img src={getDiceBearAvatar(userNickname || username)} alt="avatar" className="w-24 h-24" />
+              </div>
+            )}
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+               <label className="cursor-pointer text-white text-[10px] font-black uppercase tracking-widest text-center px-4">
+                  Cambia
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => updateAvatar(reader.result as string);
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+               </label>
             </div>
           </div>
-          <label className="btn btn-primary btn-circle absolute bottom-2 right-2 border-4 border-base-200 hover:scale-110 active:scale-90 transition-all cursor-pointer">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            <input type="file" accept="image/*" onChange={handleAvatarSelect} className="hidden" />
-          </label>
+          <div className="absolute -bottom-2 -right-2 bg-primary text-white p-2 rounded-2xl shadow-lg">
+             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+               <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+             </svg>
+          </div>
         </div>
-
-        <div className="text-center sm:text-left z-10 flex-1 min-w-0">
-          <h2 className="text-2xl font-black mb-2 truncate tracking-tight">{currentNick || username}</h2>
-          <div className="badge badge-primary font-black tracking-widest text-[10px] h-7 px-4 rounded-full border-none">{currentUniqueUsername || "ID NOT SET"}</div>
-        </div>
-
-        <div className="shrink-0 bg-white p-4 rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
-           <QRCodeSVG 
-            value={db.getUserPub() || ""} 
-            size={120} 
-            level="H"
-            includeMargin={false}
-            fgColor="#1b1b1f"
-            bgColor="#ffffff"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-          <div className="card-body p-8 gap-4">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Display Name</h3>
-            <div className="flex gap-2 w-full">
-              <input
-                className="input input-bordered grow focus:ring-1 focus:ring-primary h-12 bg-base-content/5 border-base-content/5 rounded-2xl px-5 font-bold"
-                value={nick}
-                onChange={(e) => setNick(e.target.value)}
-                placeholder="Ex. Linda"
-              />
-              <button onClick={handleSaveNick} className="btn btn-primary h-12 w-12 rounded-2xl p-0">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+        
+        <div className="flex-1 text-center sm:text-left space-y-4">
+          <div className="space-y-1">
+            <input 
+              type="text" 
+              value={userNickname} 
+              onChange={(e) => updateNickname(e.target.value)}
+              placeholder="Inserisci Nickname"
+              className="text-4xl font-black bg-transparent border-none focus:ring-0 p-0 placeholder:opacity-20 text-base-content"
+            />
+            <div className="flex items-center justify-center sm:justify-start gap-2">
+              <span className="text-xs font-black uppercase tracking-widest opacity-40">@{username}</span>
+              <div className="badge badge-primary badge-sm font-black rounded-lg">PRO</div>
+            </div>
+          </div>
+          
+          <div className="p-4 bg-primary/5 rounded-3xl border border-primary/10 inline-flex items-center gap-4">
+             <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Public Key</span>
+                <span className="text-xs font-bold font-mono opacity-80">{userPub?.substring(0, 16)}...</span>
+             </div>
+             <button 
+                className="btn btn-ghost btn-circle btn-sm hover:bg-primary/20"
+                onClick={() => {
+                  navigator.clipboard.writeText(userPub || "");
+                  showNotification("Pubkey copied!", "info");
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 7.5V6.108c0-1.135.845-2.098 1.976-2.192.373-.03.748-.057 1.123-.08M15.75 18H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08M15.75 18.75v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5A3.375 3.375 0 006.375 7.5H5.25m11.903 12.316a48.408 48.408 0 00-1.213-1.213m-2.222 2.222a48.403 48.403 0 01-1.213-1.213m-2.222-2.222a48.408 48.408 0 00-1.213-1.213m-2.222 2.222a48.403 48.403 0 01-1.213-1.213" />
                 </svg>
-              </button>
-            </div>
+             </button>
           </div>
         </div>
+      </header>
 
-        <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-          <div className="card-body p-8 gap-4">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Unique Handle</h3>
-            <div className="flex gap-2 w-full">
-              <input
-                className="input input-bordered grow focus:ring-1 focus:ring-primary h-12 bg-base-content/5 border-base-content/5 rounded-2xl px-5 font-bold"
-                value={uniqueName}
-                onChange={(e) => setUniqueName(e.target.value)}
-                placeholder="@username"
-              />
-              <button onClick={handleSaveUniqueUsername} className="btn btn-primary h-12 w-12 rounded-2xl p-0">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-        <div className="card-body p-8 gap-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-            <div className="flex-1">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40 mb-1">Security & Keys</h3>
-              <p className="text-xs opacity-40 font-bold">Management of your private encryption keys.</p>
-            </div>
+      <div className="card bg-base-200/50 backdrop-blur-xl border border-base-content/5 overflow-hidden rounded-[2.5rem] shadow-xl">
+        <div className="card-body p-8 sm:p-12 space-y-8">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-black text-primary uppercase tracking-tight">Security & Credentials</h3>
             <div className="flex gap-2">
               <button 
-                className={`btn btn-sm rounded-xl px-6 font-black text-xs ${showKeys ? "btn-neutral" : "btn-ghost bg-base-content/5 opacity-60 hover:opacity-100"}`}
+                className={`btn btn-sm rounded-xl px-6 font-black transition-all ${showKeys ? "btn-primary shadow-lg shadow-primary/20" : "btn-ghost bg-base-content/5 opacity-50"}`}
                 onClick={() => setShowKeys(!showKeys)}
               >
-                {showKeys ? "Hide Keys" : "Reveal Keys"}
+                {showKeys ? "Hide Keys" : "Show Private Keys"}
               </button>
-              <button className="btn btn-ghost bg-base-content/5 opacity-60 hover:opacity-100 btn-sm rounded-xl px-6 font-black text-xs" onClick={handleCopyKeys}>
+              <button 
+                className="btn btn-sm btn-ghost bg-base-content/5 rounded-xl px-6 font-black opacity-50"
+                onClick={handleExport}
+              >
                 {copyStatus || "Export JSON"}
               </button>
             </div>
@@ -252,49 +160,60 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
       </div>
 
-      {/* Magic Link Login Sync */}
+      {/* Universal Links Section */}
       <div className="card bg-primary/5 border border-primary/20 overflow-hidden rounded-[2rem] shadow-xl">
-        <div className="card-body p-8 sm:p-10 flex flex-col lg:flex-row items-center gap-10">
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 p-6 bg-base-200/50 rounded-3xl border border-base-content/5">
-              <div className="shrink-0 bg-white p-4 rounded-2xl shadow-xl border-4 border-primary/20">
-                <QRCodeSVG 
-                  value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
-                  size={140} 
-                  level="H"
-                  fgColor="#1b1b1f"
-                  bgColor="#ffffff"
-                />
-              </div>
-              <div className="flex-1 space-y-3">
-                <h4 className="text-sm font-black uppercase tracking-widest text-primary">Your Contact QR</h4>
-                <p className="text-[10px] font-bold opacity-50 leading-relaxed uppercase">
-                  Show this to a friend to let them add you instantly. Works with any phone camera!
+        <div className="card-body p-8 sm:p-10 space-y-10">
+          {/* Add Friend QR */}
+          <div className="flex flex-col lg:flex-row items-center gap-10">
+            <div className="flex-1 space-y-6 text-center lg:text-left">
+              <div>
+                <h3 className="text-xl font-black text-primary uppercase tracking-tight mb-2">Universal Add Contact</h3>
+                <p className="text-sm opacity-60 font-bold leading-relaxed">
+                  Show this QR to a friend. Works directly with your **system camera app** (iOS/Android) or from within Linda.
                 </p>
-                <button 
-                  className="btn btn-primary btn-xs rounded-lg px-4 font-black"
-                  onClick={() => {
-                    const pub = (db.getCurrentUser()?.user as any)?._?.sea?.pub;
-                    if (!pub) return;
-                    navigator.clipboard.writeText(`${window.location.origin}/?add=${pub}`);
-                    showNotification("Contact link copied!", "info");
-                  }}
-                >
-                  Copy Contact Link
-                </button>
               </div>
+              <button 
+                className="btn btn-primary rounded-xl px-8 font-black shadow-lg shadow-primary/20"
+                onClick={() => {
+                  const pub = (db.getCurrentUser()?.user as any)?._?.sea?.pub;
+                  if (!pub) return;
+                  const link = `${window.location.origin}/?add=${pub}`;
+                  navigator.clipboard.writeText(link);
+                  showNotification("Contact link copied!", "info");
+                }}
+              >
+                Copy Contact Link
+              </button>
             </div>
-            
-            <div className="p-4 bg-error/10 rounded-2xl border border-error/20 flex gap-4 items-start text-left">
-              <span className="text-xl">⚠️</span>
-              <div className="text-[10px] font-bold text-error uppercase tracking-wider leading-relaxed">
-                <span className="font-black">Security Warning:</span> This QR contains your private keys. Never share it, show it on a public screen, or send it to anyone.
-              </div>
+            <div className="shrink-0 bg-white p-6 rounded-[2.5rem] shadow-2xl border-8 border-primary/10 hover:scale-105 transition-transform duration-500">
+               <QRCodeSVG 
+                value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
+                size={180} 
+                level="H"
+                fgColor="#1b1b1f"
+                bgColor="#ffffff"
+              />
             </div>
+          </div>
 
-            <div className="flex flex-wrap justify-center lg:justify-start gap-3">
-               <button 
+          <div className="divider opacity-10"></div>
+
+          {/* Magic Link Login */}
+          <div className="flex flex-col lg:flex-row items-center gap-10">
+            <div className="flex-1 space-y-6 text-center lg:text-left">
+              <div>
+                <h3 className="text-xl font-black text-primary uppercase tracking-tight mb-2">Transfer Session to Mobile</h3>
+                <p className="text-sm opacity-60 font-bold leading-relaxed">
+                  Scan to instantly sync your account to another device. Contains your **Private Keys**.
+                </p>
+              </div>
+              <div className="p-4 bg-error/10 rounded-2xl border border-error/20 flex gap-4 items-start text-left">
+                <span className="text-xl">⚠️</span>
+                <div className="text-[10px] font-bold text-error uppercase tracking-wider leading-relaxed">
+                  <span className="font-black">Security Warning:</span> This QR contains your private keys. Never share it or show it on a public screen.
+                </div>
+              </div>
+              <button 
                 className="btn btn-primary rounded-xl px-8 font-black shadow-lg shadow-primary/20"
                 onClick={() => {
                   const pair = (db.getCurrentUser()?.user as any)?._?.sea;
@@ -309,18 +228,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 Copy Magic Link
               </button>
             </div>
-          </div>
-
-          <div className="shrink-0 bg-white p-6 rounded-[2.5rem] shadow-2xl border-8 border-primary/10 hover:scale-105 transition-transform duration-500 group relative">
-             <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
-             <QRCodeSVG 
-              value={`${window.location.origin}/?session=${btoa(unescape(encodeURIComponent(JSON.stringify({ ...((db.getCurrentUser()?.user as any)?._?.sea || {}), username }))))}`} 
-              size={220} 
-              level="H"
-              includeMargin={false}
-              fgColor="#1b1b1f"
-              bgColor="#ffffff"
-            />
+            <div className="shrink-0 bg-white p-6 rounded-[2.5rem] shadow-2xl border-8 border-primary/10 hover:scale-105 transition-transform duration-500 group relative">
+               <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
+               <QRCodeSVG 
+                value={`${window.location.origin}/?session=${btoa(unescape(encodeURIComponent(JSON.stringify({ ...((db.getCurrentUser()?.user as any)?._?.sea || {}), username }))))}`} 
+                size={200} 
+                level="H"
+                includeMargin={false}
+                fgColor="#1b1b1f"
+                bgColor="#ffffff"
+              />
+            </div>
           </div>
         </div>
       </div>

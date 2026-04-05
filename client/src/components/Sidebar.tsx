@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { getDiceBearAvatar } from "../lib/utils";
+import { getDiceBearAvatar } from "../utils/avatar";
 import { SignalService } from "../SignalService";
 import { GroupService } from "../GroupService";
 import { QrScannerModal } from "./QrScannerModal";
@@ -11,7 +11,6 @@ interface SidebarProps {
   userNick: string;
   userAvatar: string | null;
   contacts: string[];
-  recipient: string;
   setRecipient: (id: string) => void;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   unreadCounts: Record<string, number>;
@@ -29,7 +28,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userNick,
   userAvatar,
   contacts,
-  recipient,
   setRecipient,
   contactProfiles,
   unreadCounts,
