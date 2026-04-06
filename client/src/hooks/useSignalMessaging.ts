@@ -53,6 +53,8 @@ export const useSignalMessaging = (
   const recipientRef = useRef(recipient);
   const groupSubscriptionsRef = useRef<Set<string>>(new Set());
   const messageQueueRef = useRef<Record<string, Promise<void>>>({});
+  const unreadCountsCache = useRef<Record<string, number>>({});
+  const lastMessagesRef = useRef<Record<string, Message[]>>({});
 
   useEffect(() => {
     recipientRef.current = recipient;
@@ -891,8 +893,14 @@ export const useSignalMessaging = (
   const unreadCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of contacts) {
-      counts[c] = (messages[c] || []).filter((m) => m.sender === c && m.status !== "read").length;
+      if (messages[c] === lastMessagesRef.current[c] && unreadCountsCache.current[c] !== undefined) {
+        counts[c] = unreadCountsCache.current[c];
+      } else {
+        counts[c] = (messages[c] || []).filter((m) => m.sender === c && m.status !== "read").length;
+      }
     }
+    lastMessagesRef.current = messages;
+    unreadCountsCache.current = counts;
     return counts;
   }, [messages, contacts]);
 
