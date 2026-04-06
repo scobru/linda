@@ -498,7 +498,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   }, [isLoggedIn, userPub, db]);
 
   const {
-    messages,
     setMessages,
     contacts,
     setContacts,
@@ -509,6 +508,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     handleSendMessage: baseSendMessage,
     handleFixSync: _unused,
     handleClearChat,
+    handleDeleteMessage: baseDeleteMessage,
+    currentMessages,
     saveContact,
     removeContact,
     saveMessages,
@@ -869,9 +870,15 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
   // Helper functions for ChatView
   const handleDeleteMessage = async (msgId: string, senderPub?: string) => {
-    if (!recipient || !groupService) return;
+    if (!recipient) return;
+    const isGroup = recipient.length === 36 && recipient.includes("-");
+
     try {
-      await groupService.deleteMessage(recipient, msgId, senderPub || "");
+      if (isGroup && groupService) {
+        await groupService.deleteMessage(recipient, msgId, senderPub || "");
+      } else {
+        await baseDeleteMessage(msgId, senderPub);
+      }
       showNotification("Message deleted", "info");
     } catch (e: any) {
       showNotification(e.message || "Failed to delete message", "error");
@@ -1063,7 +1070,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
                 pinnedMessages={pinnedMessages}
-                messages={messages}
+                currentMessages={currentMessages}
                 myRole={myRole}
                 userPub={userPub || ""}
                 userAvatar={userAvatar}
@@ -1109,7 +1116,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
                 pinnedMessages={pinnedMessages}
-                messages={messages}
+                currentMessages={currentMessages}
                 myRole={myRole}
                 userPub={userPub || ""}
                 userAvatar={userAvatar}
@@ -1212,7 +1219,7 @@ const ChatWrapper: React.FC<{
   >;
   typingStatuses: Record<string, number>;
   pinnedMessages: Record<string, Set<string>>;
-  messages: Record<string, any[]>;
+  currentMessages: any[];
   myRole: string | null;
   userPub: string;
   userAvatar: string | null;
@@ -1269,7 +1276,7 @@ const App: React.FC = () => {
         // Initialize Gun and DataBase with the dynamic peer list
         const gunInstance = Gun({
           peers: relays,
-          localStorage: true,
+          localStorage: false,
           radisk: true,
           wire: true,
           webrtc: true

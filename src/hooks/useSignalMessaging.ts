@@ -60,9 +60,26 @@ export const useSignalMessaging = (
     recipientRef.current = recipient;
   }, [recipient]);
 
-  const saveMessages = useCallback((user: string, msgs: Record<string, Message[]>) => {
-    localStorage.setItem(`chat_messages_${user}`, JSON.stringify(msgs));
-  }, []);
+  const saveMessages = useCallback(
+    (user: string, msgs: Record<string, Message[]>) => {
+      localStorage.setItem(`chat_messages_${user}`, JSON.stringify(msgs));
+    },
+    [],
+  );
+
+  const saveDeletedMessages = useCallback(
+    (user: string, deleted: Record<string, Set<string>>) => {
+      const serializable: Record<string, string[]> = {};
+      for (const contact in deleted) {
+        serializable[contact] = Array.from(deleted[contact]);
+      }
+      localStorage.setItem(
+        `deleted_messages_${user}`,
+        JSON.stringify(serializable),
+      );
+    },
+    [],
+  );
 
   const loadSavedMessages = useCallback((user: string) => {
     try {
@@ -80,6 +97,22 @@ export const useSignalMessaging = (
       }
     } catch (e) {
       console.error("Failed to load saved messages", e);
+    }
+  }, []);
+
+  const loadSavedDeletedMessages = useCallback((user: string) => {
+    try {
+      const raw = localStorage.getItem(`deleted_messages_${user}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const next: Record<string, Set<string>> = {};
+        for (const contact in parsed) {
+          next[contact] = new Set(parsed[contact]);
+        }
+        setDeletedMessages(next);
+      }
+    } catch (e) {
+      console.warn("Failed to load saved deleted messages", e);
     }
   }, []);
 
@@ -116,6 +149,7 @@ export const useSignalMessaging = (
   useEffect(() => {
     if (!userPub) return;
     loadSavedMessages(userPub);
+    loadSavedDeletedMessages(userPub);
     loadProcessedKeys(userPub);
 
     db.gun
@@ -329,10 +363,12 @@ export const useSignalMessaging = (
 
         db.gun.get(`signal_rooms/${contactId}/deleted_messages`).map().on((data: any, msgId: string) => {
           if (data) {
-            setDeletedMessages(prev => {
+            setDeletedMessages((prev) => {
               const groupDeletions = new Set(prev[contactId] || []);
               groupDeletions.add(msgId);
-              return { ...prev, [contactId]: groupDeletions };
+              const next = { ...prev, [contactId]: groupDeletions };
+              if (userPub) saveDeletedMessages(userPub, next);
+              return next;
             });
           }
         });
@@ -477,6 +513,23 @@ export const useSignalMessaging = (
             if (userPub) saveProcessedKey(userPub, gunKey);
             setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
             resetsRef.current.delete(senderPubKey);
+
+            if (validPlaintext.startsWith(" Linda:DELETE:")) {
+              const delMsgId = validPlaintext.substring(
+                " Linda:DELETE:".length,
+              );
+              console.log(
+                `[Signal] Received DELETE request for message ${delMsgId} from ${senderPubKey.slice(0, 8)}`,
+              );
+              setDeletedMessages((prev) => {
+                const contactDeletions = new Set(prev[senderPubKey] || []);
+                contactDeletions.add(delMsgId);
+                const next = { ...prev, [senderPubKey]: contactDeletions };
+                if (userPub) saveDeletedMessages(userPub, next);
+                return next;
+              });
+              return;
+            }
 
             if (validPlaintext === "PING_HEAL") {
               console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session and re-publishing bundle...`);
@@ -826,9 +879,9 @@ export const useSignalMessaging = (
       // Rollback optimistic update on failure (optional, or mark as error)
       setMessages((prev) => {
         const currentMsgs = prev[recipient] || [];
-        const next = { 
-          ...prev, 
-          [recipient]: currentMsgs.filter(m => m.id !== msgId) 
+        const next = {
+          ...prev,
+          [recipient]: currentMsgs.filter((m) => m.id !== msgId),
         };
         saveMessages(userPub, next);
         return next;
@@ -836,6 +889,69 @@ export const useSignalMessaging = (
       throw err;
     }
   }, [recipient, signalService, userPub, groupService, db, saveMessages]);
+
+  const handleDeleteMessage = useCallback(
+    async (messageId: string, senderPub?: string) => {
+      if (!userPub || !recipient) return;
+
+      const isGroup = recipient.length === 36 && recipient.includes("-");
+
+      try {
+        if (isGroup) {
+          if (!groupService) return;
+          console.log(`[Signal] Deleting group message ${messageId}...`);
+          await groupService.deleteMessage(
+            recipient,
+            messageId,
+            senderPub || "",
+          );
+        } else {
+          // Private chat deletion protocol
+          console.log(`[Signal] Deleting private message ${messageId}...`);
+
+          // 1. Mark as deleted locally
+          setDeletedMessages((prev) => {
+            const contactDeletions = new Set(prev[recipient] || []);
+            contactDeletions.add(messageId);
+            const next = { ...prev, [recipient]: contactDeletions };
+            saveDeletedMessages(userPub, next);
+            return next;
+          });
+
+          // 2. Notify the peer (Delete for everyone)
+          if (signalService) {
+            const cipher = await signalService.encryptMessage(
+              recipient,
+              ` Linda:DELETE:${messageId}`,
+            );
+            const pub =
+              recipient.length < 30
+                ? await signalService.getPubKeyFromUsername(recipient)
+                : recipient;
+
+            db.gun.get(`signal_v3_inbox_${pub}`).set({
+              sender: userPub,
+              type: cipher.type,
+              body: cipher.body,
+              timestamp: new Date().toISOString(),
+              msgType: "text", // Protocol message
+            } as any);
+          }
+        }
+      } catch (err: any) {
+        console.error("Delete failed:", err);
+        throw err;
+      }
+    },
+    [
+      userPub,
+      recipient,
+      groupService,
+      signalService,
+      db,
+      saveDeletedMessages,
+    ],
+  );
 
   const handleClearChat = useCallback(async (contactId: string) => {
     if (!userPub || !db.gun) return;
@@ -925,8 +1041,9 @@ export const useSignalMessaging = (
     handleSendMessage,
     handleFixSync,
     handleClearChat,
+    handleDeleteMessage,
     saveContact,
     removeContact,
-    saveMessages
+    saveMessages,
   };
 };

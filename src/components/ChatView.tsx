@@ -19,7 +19,7 @@ interface ChatViewProps {
   >;
   typingStatuses: Record<string, number>;
   pinnedMessages: Record<string, Set<string>>;
-  messages: Record<string, Message[]>;
+  currentMessages: Message[];
   myRole: string | null;
   userPub: string;
   userAvatar: string | null;
@@ -59,7 +59,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   contactProfiles,
   typingStatuses,
   pinnedMessages,
-  messages,
   myRole,
   userPub,
   userAvatar,
@@ -85,6 +84,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   acceptContact,
   blockContact,
   showNotification,
+  currentMessages,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,10 +126,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [wormholeStatuses]);
 
-  const currentMessages = useMemo(
-    () => messages[recipient] || [],
-    [messages, recipient],
-  );
   const pinnedMsgList = useMemo(
     () => currentMessages.filter((m) => pinnedMessages[recipient]?.has(m.id)),
     [currentMessages, pinnedMessages, recipient],
@@ -540,42 +536,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <div
                   className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 scale-90 group-hover:scale-100 ${isMe ? "-left-24" : "-right-24"}`}
                 >
-                  {recipient.length === 36 && (
-                    <>
-                      {["moderator", "administrator"].includes(
-                        myRole || "",
-                      ) && (
-                        <button
-                          onClick={() => handlePinMessage(msg.id, !isPinned)}
-                          className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                          title={isPinned ? "Unpin" : "Pin"}
-                        >
-                          📌
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleReportMessage(msg.id)}
-                        className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
-                        title="Report"
-                      >
-                        🚩
-                      </button>
-                      {(isMe ||
-                        ["moderator", "administrator"].includes(
+                    {recipient.length === 36 && recipient.includes("-") && (
+                      <>
+                        {["moderator", "administrator"].includes(
                           myRole || "",
-                        )) && (
+                        ) && (
+                          <button
+                            onClick={() => handlePinMessage(msg.id, !isPinned)}
+                            className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
+                            title={isPinned ? "Unpin" : "Pin"}
+                          >
+                            📌
+                          </button>
+                        )}
                         <button
-                          onClick={() =>
-                            handleDeleteMessage(msg.id, msg.senderPub)
-                          }
-                          className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
-                          title="Delete"
+                          onClick={() => handleReportMessage(msg.id)}
+                          className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
+                          title="Report"
                         >
-                          🗑️
+                          🚩
                         </button>
-                      )}
-                    </>
-                  )}
+                      </>
+                    )}
+
+                    {(isMe ||
+                      ["moderator", "administrator"].includes(myRole || "")) && (
+                      <button
+                        onClick={() =>
+                          handleDeleteMessage(msg.id, msg.senderPub)
+                        }
+                        className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    )}
                 </div>
               </div>
 
