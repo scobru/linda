@@ -28,6 +28,7 @@ import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
 import { CallingService } from "./CallingService";
 import type { CallStatus } from "./CallingService";
+import { generateSecureRandomString } from "./utils/crypto.ts";
 import { CallingOverlay } from "./components/CallingOverlay";
 import { FileTransferService } from "./FileTransferService";
 import type { TransferStatus } from "./FileTransferService";
@@ -215,7 +216,7 @@ const AppContent: React.FC<{ db: DataBase }> = ({ db }) => {
           const payload = " Linda:SIGNAL:" + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
           
-          const signalKey = `sig_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const signalKey = `sig_${Date.now()}_${generateSecureRandomString(7)}`;
           
           console.log(`[App] Sending secure signal ${signal.type} to ${toPub.substring(0, 8)} via cert-authorized signal_inbox`);
           

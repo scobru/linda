@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
+import { generateSecureRandomString } from "../utils/crypto.ts";
 import { AudioRecorder } from "./AudioRecorder";
 import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useSignalMessaging";
@@ -164,7 +165,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       size: file.size,
       mimeType: file.type,
       hash: "tbd",
-      id: Math.random().toString(36).substring(7),
+      id: generateSecureRandomString(7),
       status: "offered",
     };
 

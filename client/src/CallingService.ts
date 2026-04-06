@@ -1,4 +1,5 @@
 import type { IGunInstance } from 'gun';
+import { generateSecureRandomString } from './utils/crypto.ts';
 
 export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -125,7 +126,7 @@ export class CallingService {
   }
 
   private async sendSignal(toPub: string, signal: CallSignal) {
-    const signalId = Math.random().toString(36).substring(7);
+    const signalId = generateSecureRandomString(7);
     const signalToPut = {
       ...signal,
       payload: typeof signal.payload === 'object' ? JSON.stringify(signal.payload) : signal.payload,

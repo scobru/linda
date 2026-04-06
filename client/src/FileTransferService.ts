@@ -1,4 +1,5 @@
 import type { IGunInstance } from 'gun';
+import { generateUUID } from './utils/crypto.ts';
 
 export type TransferStatus = 'idle' | 'offering' | 'incoming' | 'transferring' | 'completed' | 'failed' | 'offered';
 
@@ -37,7 +38,7 @@ export class FileTransferService {
 
   constructor(_gun: IGunInstance, myPub: string) {
     this.myPub = myPub;
-    this.clientId = Math.random().toString(36).substring(7);
+    this.clientId = generateUUID();
     console.log(`[FileTransfer] Instance initialized with clientId: ${this.clientId}`);
   }
 

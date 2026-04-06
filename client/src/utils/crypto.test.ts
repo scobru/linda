@@ -1,7 +1,7 @@
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert';
 import crypto from 'node:crypto';
-import { generateSecureRandomInt, generateSecureRandomString } from './crypto.ts';
+import { generateSecureRandomInt, generateSecureRandomString, generateUUID } from './crypto.ts';
 
 describe('Crypto Utils', () => {
   before(() => {
@@ -55,6 +55,27 @@ describe('Crypto Utils', () => {
     test('should default to length 10', () => {
       const result = generateSecureRandomString();
       assert.strictEqual(result.length, 10);
+    });
+  });
+
+  describe('generateUUID', () => {
+    test('should return a string in UUID format', () => {
+      const result = generateUUID();
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      assert.ok(uuidRegex.test(result), `Result ${result} should match UUID v4 format`);
+    });
+
+    test('should use fallback if randomUUID is not available', () => {
+      const originalRandomUUID = (global as any).window.crypto.randomUUID;
+      delete (global as any).window.crypto.randomUUID;
+
+      try {
+        const result = generateUUID();
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        assert.ok(uuidRegex.test(result), `Fallback result ${result} should match UUID v4 format`);
+      } finally {
+        (global as any).window.crypto.randomUUID = originalRandomUUID;
+      }
     });
   });
 });

@@ -31,3 +31,22 @@ export function generateSecureRandomString(length: number = 10): string {
   }
   return result;
 }
+
+/**
+ * Generates a cryptographically secure UUID v4.
+ * Uses Web Crypto API's randomUUID if available, falls back to secure random values.
+ */
+export function generateUUID(): string {
+  if (typeof window !== "undefined" && window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
+    return (crypto as any).randomUUID();
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = generateSecureRandomInt(16);
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
