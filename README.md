@@ -48,8 +48,7 @@ yarn vercel --prod
 
 ## 📅 Roadmap / Future Features
 -   [ ] **P2P Audio/Video Calling**: (Infrastructure under `CallingService.ts` is in progress but not yet implemented in the UI).
--   [ ] **Wormhole Transfers**: Enhanced multi-peer file distribution.
--   [ ] **Message Search**: Local-first indexing for history search.
+
 
 ## 📄 License
 This project is part of the Shogun Ecosystem.
