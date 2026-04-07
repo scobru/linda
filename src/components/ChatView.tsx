@@ -91,6 +91,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [canSendMessage, setCanSendMessage] = useState(true);
   const [isAccepting, setIsAccepting] = useState(false);
 
+  // ── Search & Tagging States ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Compute all unique tags in current chat
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    currentMessages.forEach(msg => {
+      msg.tags?.forEach(tag => tags.add(tag));
+    });
+    return Array.from(tags).sort();
+  }, [currentMessages]);
+
+  // Filtering Logic
+  const filteredMessages = useMemo(() => {
+    return currentMessages.filter(msg => {
+      const matchesSearch = !searchQuery || 
+        msg.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        msg.fileMetadata?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesTags = activeTags.size === 0 || 
+        (msg.tags && msg.tags.some(tag => activeTags.has(tag)));
+      
+      return matchesSearch && matchesTags;
+    });
+  }, [currentMessages, searchQuery, activeTags]);
+
+  const toggleTag = (tag: string) => {
+    setActiveTags(prev => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  };
+
   const isTrusted = useMemo(() => {
     if (isContactsLoading) return true;
     if (!recipient) return true;
@@ -358,6 +395,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
 
         <div className="flex-none flex items-center gap-1.5">
+          <button 
+            onClick={() => {
+              setIsSearchOpen(!isSearchOpen);
+              if (isSearchOpen) setSearchQuery("");
+            }}
+            className={`btn btn-ghost btn-circle btn-sm ${isSearchOpen ? 'text-primary' : 'opacity-60'}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+          </button>
+
           {recipient.length === 36 && (
             <button
                onClick={() => setShowGroupSettings(recipient)}
@@ -382,6 +431,54 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </div>
 
+      {/* Search Input Area */}
+      {isSearchOpen && (
+        <div className="px-6 py-3 bg-base-200/80 backdrop-blur-md border-b border-base-content/5 sticky top-16 z-[9]">
+          <div className="relative group">
+            <input 
+              type="text" 
+              placeholder="Cerca nei messaggi o file..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input input-sm w-full bg-base-300/50 border-base-content/10 focus:border-primary/50 focus:outline-none pl-10 rounded-xl font-medium"
+              autoFocus
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 opacity-30 group-focus-within:opacity-100 group-focus-within:text-primary transition-all">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="btn btn-ghost btn-circle btn-xs absolute right-2 top-1/2 -translate-y-1/2">
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tag Filter Bar */}
+      {allTags.length > 0 && (
+        <div className="px-6 py-2.5 bg-base-100 border-b border-base-content/5 overflow-x-auto flex items-center gap-2 scrollbar-hide sticky top-[calc(4rem+1px)] z-[8]">
+          <div className="text-[10px] font-black uppercase tracking-widest opacity-30 mr-2 flex-none">Filtra per:</div>
+          {allTags.map(tag => (
+            <button
+              key={tag}
+              onClick={() => toggleTag(tag)}
+              className={`btn btn-xs rounded-full px-3 font-bold border-none transition-all ${activeTags.has(tag) ? 'bg-primary text-primary-content hover:bg-primary/80 scale-105 shadow-lg shadow-primary/20' : 'bg-base-300/50 hover:bg-base-300 opacity-60 hover:opacity-100'}`}
+            >
+              #{tag}
+            </button>
+          ))}
+          {activeTags.size > 0 && (
+            <button 
+              onClick={() => setActiveTags(new Set())}
+              className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline ml-2 flex-none"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Pinned Messages */}
       {pinnedMsgList.length > 0 && (
         <div className="h-12 shrink-0 bg-base-200/50 backdrop-blur-md flex items-center px-6 gap-4 border-b border-base-content/5 cursor-pointer hover:bg-primary/5 transition-all">
@@ -399,7 +496,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
-        {currentMessages.length === 0 && (
+        {filteredMessages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -412,16 +509,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.625-12.125a.75.75 0 0 1 .75.75V4.5a.75.75 0 0 1-1.5 0V1.375a.75.75 0 0 1 .75-.75ZM13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm7 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-14 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
               />
             </svg>
-            <span className="text-xl font-bold tracking-tight">
-              No messages here yet...
+            <span className="text-xl font-bold tracking-tight text-center">
+              {searchQuery || activeTags.size > 0 
+                ? "Nessun messaggio trovato per i criteri selezionati" 
+                : "Inizia una conversazione sicura..."}
             </span>
           </div>
         )}
 
-        {currentMessages.map((msg, i) => {
+        {filteredMessages.map((msg, i) => {
           const isMe = msg.sender === "Me";
           const msgAvatar = isMe
             ? userAvatar
@@ -516,8 +615,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }}
                   />
                 ) : (
-                  <div className="py-0.5 leading-relaxed font-semibold text-[14px] break-all">
-                    {msg.text}
+                  <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
+                    <div className="break-all whitespace-pre-wrap">{msg.text}</div>
+                    
+                    {msg.tags && msg.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2 mb-1">
+                        {msg.tags.map(tag => (
+                          <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {msg.text?.includes("Impossibile decriptare") && (
                       <button
                         onClick={(e) => {
@@ -655,19 +765,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </button>
 
             <div className="flex-1 relative flex items-center">
-              <input
-                type="text"
-                className="input input-sm w-full h-11 bg-base-content/10 border-none focus:ring-1 focus:ring-primary/20 rounded-2xl px-4 font-bold text-[13px] placeholder:opacity-40"
+              <textarea
+                className="textarea textarea-sm w-full min-h-[44px] max-h-48 py-3 bg-base-content/10 border-none focus:ring-1 focus:ring-primary/20 rounded-2xl px-4 font-bold text-[13px] placeholder:opacity-40 resize-none leading-tight"
                 placeholder="Aa"
+                rows={1}
                 value={message}
                 onChange={(e) => {
                   setMessage(e.target.value);
                   handleTyping();
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && message.trim()) {
-                    handleSendMessage(message);
-                    setMessage("");
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    if (message.trim()) {
+                      e.preventDefault();
+                      handleSendMessage(message);
+                      setMessage("");
+                    } else {
+                      e.preventDefault();
+                    }
                   }
                 }}
               />

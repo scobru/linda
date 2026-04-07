@@ -23,6 +23,7 @@ export interface Message {
   text?: string;
   audio?: string; // Base64
   fileMetadata?: FileMetadata;
+  tags?: string[]; // Added for note-taking and filtering
   type: "text" | "audio" | "call_signal" | "file" | "image";
   timestamp: Date;
   status: "sending" | "sent" | "delivered" | "read";
@@ -632,6 +633,16 @@ export const useSignalMessaging = (
                 } catch (e) {}
               }
 
+              // Extract hashtags for easy filtering even if sender didn't include them
+              const incomingTags: string[] = [];
+              if (appType === "text" || !appType) {
+                const hashtagRegex = /#(\w+)/g;
+                let match;
+                while ((match = hashtagRegex.exec(validPlaintext)) !== null) {
+                  incomingTags.push(match[1].toLowerCase());
+                }
+              }
+
               const updated = {
                 ...prev,
                 [senderPubKey]: [
@@ -643,6 +654,7 @@ export const useSignalMessaging = (
                     text: (appType === 'audio' || isFile) ? undefined : validPlaintext,
                     audio: appType === 'audio' ? validPlaintext : undefined,
                     fileMetadata: fileMeta,
+                    tags: incomingTags.length > 0 ? incomingTags : undefined,
                     type: appType,
                     timestamp: new Date(data.timestamp || Date.now()),
                     status: "delivered" as const,
@@ -787,6 +799,16 @@ export const useSignalMessaging = (
       type = fileMetadata.mimeType.startsWith('image/') ? 'image' : 'file';
     }
 
+    // Extract hashtags if it's a text message
+    const tags: string[] = [];
+    if (type === 'text' && message) {
+      const hashtagRegex = /#(\w+)/g;
+      let match;
+      while ((match = hashtagRegex.exec(message)) !== null) {
+        tags.push(match[1].toLowerCase());
+      }
+    }
+
     // 1. Optimistic Update: Add message immediately with "sending" status
     setMessages((prev) => {
       const currentMsgs = prev[recipient] || [];
@@ -803,6 +825,7 @@ export const useSignalMessaging = (
             text: type === 'text' ? message : undefined, 
             audio: type === 'audio' ? audio : undefined,
             fileMetadata: (type === 'file' || type === 'image') ? fileMetadata : undefined,
+            tags: tags.length > 0 ? tags : undefined,
             type: type,
             timestamp, 
             status: "sending" as const 
@@ -909,6 +932,16 @@ export const useSignalMessaging = (
           // Private chat deletion protocol
           console.log(`[Signal] Deleting private message ${messageId}...`);
 
+          // 0. Physical deletion from GunDB if we have the gunKey
+          // We look for the message in our current state to find its Gun node key
+          const msgs = messages[recipient] || [];
+          const msgToDelete = msgs.find(m => m.id === messageId);
+          if (msgToDelete?.gunKey && db.gun) {
+            const path = `signal_v3_inbox_${userPub}`;
+            console.log(`[Signal] Nullifying GunDB node at ${path}/${msgToDelete.gunKey}`);
+            db.gun.get(path).get(msgToDelete.gunKey).put(null as any);
+          }
+
           // 1. Mark as deleted locally
           setDeletedMessages((prev) => {
             const contactDeletions = new Set(prev[recipient] || []);
@@ -950,6 +983,7 @@ export const useSignalMessaging = (
       signalService,
       db,
       saveDeletedMessages,
+      messages,
     ],
   );
 
