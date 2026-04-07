@@ -26,10 +26,10 @@ import { UserProfile } from "./pages/UserProfile";
 import { Settings } from "./pages/Settings";
 import { ChatView } from "./components/ChatView";
 import { Layout } from "./components/Layout";
-import { useSignalInit } from "./hooks/useSignalInit";
-import { useSignalMessaging } from "./hooks/useSignalMessaging";
+import { useCommunicationInit } from "./hooks/useCommunicationInit";
+import { useMessaging } from "./hooks/useMessaging";
 import { GroupService, type Role } from "./GroupService";
-import { SignalService } from "./SignalService";
+import { CommunicationService } from "./CommunicationService";
 import { WormholeService } from "./WormholeService";
 import { FileTransferService } from "./FileTransferService";
 
@@ -269,14 +269,14 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
 
   // ── Hooks ──
-  const { signalService, groupService, isLoading, userUniqueUsername } =
-    useSignalInit(db, showNotification);
+  const { communicationService, groupService, isLoading, userUniqueUsername } =
+    useCommunicationInit(db, showNotification);
 
   // Sync ref for async listeners
-  const signalServiceRef = useRef<SignalService | null>(null);
+  const communicationServiceRef = useRef<CommunicationService | null>(null);
   useEffect(() => {
-    signalServiceRef.current = signalService;
-  }, [signalService]);
+    communicationServiceRef.current = communicationService;
+  }, [communicationService]);
 
   const fileTransferServiceInst = useMemo(() => {
     if (!isLoggedIn || !userPub) return null;
@@ -334,16 +334,16 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     return service;
   }, [isLoggedIn, db.gun]);
 
-  // Update signal sender whenever signalService becomes available
+  // Update signal sender whenever communicationService becomes available
   useEffect(() => {
-    if (fileTransferServiceInst && signalService) {
+    if (fileTransferServiceInst && communicationService) {
       const sendUnifiedSignal = async (toPub: string, signal: any, prefix: string) => {
         try {
           db.gun.get(`~${toPub}`).once(() => { });
           let cert;
           for (let i = 0; i < 3; i++) {
             try {
-              cert = await signalService.getInboxCertificate(toPub);
+              cert = await communicationService.getInboxCertificate(toPub);
               if (cert) break;
             } catch (e) {
               if (i === 2) throw e;
@@ -351,7 +351,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
             }
           }
           const payload = prefix + JSON.stringify(signal);
-          const cipher = await signalService.encryptMessage(toPub, payload);
+          const cipher = await communicationService.encryptMessage(toPub, payload);
           const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
           // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
@@ -392,8 +392,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
           const delivered = await doSend(cert ?? null, '[1st]');
           if (!delivered && toPub !== userPub) {
-            signalService.clearCertCache(toPub);
-            const freshCert = await signalService.getInboxCertificate(toPub).catch(() => null);
+            communicationService.clearCertCache(toPub);
+            const freshCert = await communicationService.getInboxCertificate(toPub).catch(() => null);
             if (freshCert) {
               const retryDelivered = await doSend(freshCert, '[Retry]');
               if (!retryDelivered) {
@@ -411,7 +411,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
       fileTransferServiceInst.setSignalSender((toPub: string, signal: any) => sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"));
     }
-  }, [fileTransferServiceInst, signalService, db, userPub]);
+  }, [fileTransferServiceInst, communicationService, db, userPub]);
 
   // ── Signaling Listener ──
   useEffect(() => {
@@ -427,12 +427,12 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       processedSignalsRef.current.add(gunKey);
 
       try {
-        let currentService = signalServiceRef.current;
+        let currentService = communicationServiceRef.current;
         if (!currentService) {
           for (let i = 0; i < 10; i++) {
             await new Promise(r => setTimeout(r, 500));
-            if (signalServiceRef.current) {
-              currentService = signalServiceRef.current;
+            if (communicationServiceRef.current) {
+              currentService = communicationServiceRef.current;
               break;
             }
           }
@@ -441,7 +441,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
         await Promise.race([
           currentService.waitReady(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SignalService timeout')), 5000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('CommunicationService timeout')), 5000))
         ]);
 
         const plaintext = await currentService.decryptMessage(data.sender, { type: data.type, body: data.body });
@@ -491,7 +491,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
     const kickInterval = setInterval(() => {
       console.log("[App] Sync Kick: Poking GunDB inbox...");
-      db.gun.user(userPub).get('signal_inbox_v13').get('_poke').put(Date.now());
+      db.gun.user(userPub).get('signal_inbox_v13').get('_poke').put(Date.now().toString());
     }, 45000);
 
     return () => clearInterval(kickInterval);
@@ -517,10 +517,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     isContactsLoading,
     acceptContact,
     blockContact,
-  } = useSignalMessaging(
+  } = useMessaging(
     db,
     userPub || null,
-    signalService,
+    communicationService,
     groupService,
     recipient,
     setRecipient
@@ -541,7 +541,15 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       recipient.length === 36 &&
       recipient.includes("-")
     ) {
+      // Initial fetch
       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
+      
+      // Subscribe to changes
+      const unsub = groupService.onMemberRoleChange(recipient, userPub || "", (role) => {
+        setMyRole(role);
+      });
+      
+      return unsub;
     } else {
       setMyRole(null);
     }
@@ -667,7 +675,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   }, [isLoggedIn, db]);
 
   useEffect(() => {
-    if (!signalService || contacts.length === 0) return;
+    if (!communicationService || contacts.length === 0) return;
     contacts.forEach(async (contactId) => {
       try {
         const isGroup = contactId.length === 36 && contactId.includes("-");
@@ -691,7 +699,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         } else {
           let cPub = contactId;
           if (contactId.length < 43 || contactId.startsWith("@")) {
-            cPub = await signalService.getPubKeyFromUsername(contactId);
+            cPub = await communicationService.getPubKeyFromUsername(contactId);
           }
           if (cPub) {
             // Priority 1: User's profile graph (most accurate if synced)
@@ -741,7 +749,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         }
       } catch (e) { }
     });
-  }, [contacts, signalService, db]);
+  }, [contacts, communicationService, db]);
 
   const requestNotifications = () => {
     if (
@@ -828,24 +836,24 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
 
   const handleFixSync = async () => {
-    if (!recipient || !signalService || !userPub) return;
+    if (!recipient || !communicationService || !userPub) return;
     if (!window.confirm("Force-recreate secure session and regenerate your certificate?")) return;
     try {
       // 1. Reset the Waku/Signal Session
-      await signalService.resetSession(recipient);
+      await communicationService.resetSession(recipient);
 
       // 2. Regenerate our own local certificate (fixes incoming writes from others)
-      await signalService.regenerateCertificate(true);
+      await communicationService.regenerateCertificate(true);
 
       // 3. Re-publish our own bundle to fix potential discovery issues
-      await signalService.republishBundle().catch(() => { });
+      await communicationService.republishBundle().catch(() => { });
 
       showNotification("Sincronizzazione e rigenerazione completate.", "info");
 
-      const pub = await signalService.getPubKeyFromUsername(recipient);
-      const ping = await signalService.encryptMessage(recipient, "PING_HEAL");
+      const pub = await communicationService.getPubKeyFromUsername(recipient);
+      const ping = await communicationService.encryptMessage(recipient, "PING_HEAL");
 
-      const cert = await signalService.getInboxCertificate(pub);
+      const cert = await communicationService.getInboxCertificate(pub);
       db.gun.get(`signal_v3_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
         sender: userPub,
         type: ping.type,
@@ -858,10 +866,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   };
 
   const handleRegenerateCertificate = async () => {
-    if (!signalService) return;
+    if (!communicationService) return;
     try {
-      await signalService.regenerateCertificate(true);
-      await signalService.republishBundle().catch(() => { });
+      await communicationService.regenerateCertificate(true);
+      await communicationService.republishBundle().catch(() => { });
       showNotification("Certificato rigenerato con successo.", "info");
     } catch (err) {
       showNotification("Rigenerazione certificato fallita.", "error");
@@ -899,7 +907,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   };
 
   const handleReportMessage = async (msgId: string) => {
-    if (!recipient || !groupService || !signalService) return;
+    if (!recipient || !groupService || !communicationService) return;
     const isGroup = recipient.length === 36 && recipient.includes("-");
 
     const reason = window.prompt("Reason for reporting:");
@@ -1047,7 +1055,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 contactProfiles,
                 unreadCounts,
                 handleDeleteContact,
-                signalService,
+                communicationService,
                 groupService,
                 showNotification,
                 saveContact,
@@ -1065,7 +1073,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                   setRecipient(id);
                   if (id) navigate(`/chat/${id}`);
                 }}
-                signalService={signalService}
+                communicationService={communicationService}
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
@@ -1111,7 +1119,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                   if (id) navigate(`/chat/${id}`);
                   else navigate("/");
                 }}
-                signalService={signalService}
+                communicationService={communicationService}
                 groupService={groupService}
                 contactProfiles={contactProfiles}
                 typingStatuses={typingStatuses}
@@ -1211,7 +1219,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 const ChatWrapper: React.FC<{
   recipient: string;
   setRecipient: (id: string) => void;
-  signalService: SignalService | null;
+  communicationService: CommunicationService | null;
   groupService: GroupService | null;
   contactProfiles: Record<
     string,

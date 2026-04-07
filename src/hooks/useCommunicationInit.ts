@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useShogun } from 'shogun-button-react';
 import { DataBase } from 'shogun-core';
-import { SignalService } from '../SignalService';
+import { CommunicationService } from '../CommunicationService';
 import { GroupService } from '../GroupService';
 
-export const useSignalInit = (db: DataBase, showNotification: (msg: string, type?: 'info' | 'error') => void) => {
+export const useCommunicationInit = (db: DataBase, showNotification: (msg: string, type?: 'info' | 'error') => void) => {
   const { isLoggedIn, username } = useShogun();
-  const [signalService, setSignalService] = useState<SignalService | null>(null);
+  const [communicationService, setCommunicationService] = useState<CommunicationService | null>(null);
   const [groupService, setGroupService] = useState<GroupService | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userUniqueUsername, setUserUniqueUsername] = useState<string>(localStorage.getItem("linda_user_unique_username") || "");
 
   useEffect(() => {
-    const initSignalSession = async () => {
+    const initCommunicationSession = async () => {
       if (isLoggedIn && username) {
         setIsLoading(true);
         try {
@@ -20,19 +20,19 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
           let uniqueName: string | undefined;
           
           // Wait for sync: Retry fetch multiple times over 10s before giving up
-          console.log(`[useSignalInit] Fetching uniqueUsername for ${username}...`);
+          console.log(`[useCommunicationInit] Fetching uniqueUsername for ${username}...`);
           for (let i = 0; i < 15; i++) {
             try {
               uniqueName = (await db.userGet('profile/uniqueUsername')) as string;
               if (uniqueName && typeof uniqueName === 'string') break;
             } catch (e: any) {
-              if (e && e.err !== 'notfound') console.warn("[useSignalInit] Fetch error:", e);
+              if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Fetch error:", e);
             }
             await new Promise(r => setTimeout(r, 750));
           }
 
           if (!uniqueName) {
-            console.log(`[useSignalInit] Handle not found for ${username}, generating random fallback...`);
+            console.log(`[useCommunicationInit] Handle not found for ${username}, generating random fallback...`);
             // Generate a default one: @name + 4 random digits
             const digits = Math.floor(1000 + Math.random() * 9000);
             uniqueName = `@${username}${digits}`;
@@ -50,27 +50,27 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
           setUserUniqueUsername(uniqueName);
           localStorage.setItem("linda_user_unique_username", uniqueName);
 
-          const service = new SignalService(db);
+          const service = new CommunicationService(db);
           await service.initSession(username, uniqueName);
-          setSignalService(service);
+          setCommunicationService(service);
           
           const gService = new GroupService(db);
           setGroupService(gService);
           showNotification(`Welcome, ${username}! Secure session ready.`);
         } catch (e) {
-          console.error('[useSignalInit] Signal session initialization failed:', e);
-          showNotification('Failed to initialize Signal keys', 'error');
+          console.error('[useCommunicationInit] Communication session initialization failed:', e);
+          showNotification('Failed to initialize communication keys', 'error');
         } finally {
           setIsLoading(false);
         }
       } else {
         setIsLoading(false);
-        setSignalService(null);
+        setCommunicationService(null);
         setGroupService(null);
       }
     };
-    initSignalSession();
+    initCommunicationSession();
   }, [isLoggedIn, username, db, showNotification]);
 
-  return { signalService, groupService, isLoading, userUniqueUsername };
+  return { communicationService, groupService, isLoading, userUniqueUsername };
 };

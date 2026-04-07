@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { getDiceBearAvatar } from "../utils/avatar";
-import { SignalService } from "../SignalService";
+import { CommunicationService } from "../CommunicationService";
 import { GroupService } from "../GroupService";
 import { QrScannerModal } from "./QrScannerModal";
 
@@ -15,7 +15,7 @@ interface SidebarProps {
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
   unreadCounts: Record<string, number>;
   handleDeleteContact: (id: string, e: React.MouseEvent) => void;
-  signalService: SignalService | null;
+  communicationService: CommunicationService | null;
   groupService: GroupService | null;
   showNotification: (msg: string, type?: "info" | "error") => void;
   saveContact: (id: string) => void;
@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   contactProfiles,
   unreadCounts,
   handleDeleteContact,
-  signalService,
+  communicationService,
   groupService,
   showNotification,
   saveContact,
@@ -79,8 +79,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       // 3. Resolve username if needed
       if (pubKey.length < 30 || pubKey.startsWith("@")) {
-        if (!signalService) return;
-        pubKey = await signalService.getPubKeyFromUsername(pubKey);
+        if (!communicationService) return;
+        pubKey = await communicationService.getPubKeyFromUsername(pubKey);
       }
 
       saveContact(pubKey);
@@ -94,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleSearchSubmit = async (e: any) => {
     if (e.key === "Enter" && searchQuery.trim()) {
-      if (!signalService || !groupService) {
+      if (!communicationService || !groupService) {
         showNotification("Services not ready", "error");
         return;
       }
@@ -129,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         // 3. Resolve as a pubkey/username for 1:1 chat
         let pubKey = name;
         if (name.length < 30 || name.startsWith("@")) {
-          pubKey = await signalService.getPubKeyFromUsername(name);
+          pubKey = await communicationService.getPubKeyFromUsername(name);
         }
 
         saveContact(pubKey);

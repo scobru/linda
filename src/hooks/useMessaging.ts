@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { DataBase } from "shogun-core";
-import { SignalService } from "../SignalService";
+import { CommunicationService } from "../CommunicationService";
 import { GroupService, type GroupInfo } from "../GroupService";
 import { generateSecureRandomString } from "../utils/crypto";
 
@@ -29,10 +29,10 @@ export interface Message {
   status: "sending" | "sent" | "delivered" | "read";
 }
 
-export const useSignalMessaging = (
+export const useMessaging = (
   db: DataBase,
   userPub: string | null,
-  signalService: SignalService | null,
+  communicationService: CommunicationService | null,
   groupService: GroupService | null,
   recipient: string,
   setRecipient: (id: string) => void
@@ -201,28 +201,28 @@ export const useSignalMessaging = (
   }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
 
   const acceptContact = useCallback(async (contactId: string) => {
-    if (!userPub || !db.gun || !signalService) return;
-    console.log(`[Signal] Accepting contact: ${contactId.slice(0, 8)}`);
+    if (!userPub || !db.gun || !communicationService) return;
+    console.log(`[Messaging] Accepting contact: ${contactId.slice(0, 8)}`);
     
     // 1. Issue certificate for this user (LoneWolf protocol)
-    await signalService.issueCertificate(contactId);
+    await communicationService.issueCertificate(contactId);
     
     // 2. Add to trusted contacts in GunDB
     db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
-  }, [userPub, db, signalService]);
+  }, [userPub, db, communicationService]);
 
   const blockContact = useCallback(async (contactId: string) => {
-    if (!userPub || !db.gun || !signalService) return;
-    console.log(`[Signal] Blocking contact: ${contactId.slice(0, 8)}`);
+    if (!userPub || !db.gun || !communicationService) return;
+    console.log(`[Messaging] Blocking contact: ${contactId.slice(0, 8)}`);
     
     // 1. Revoke certificate
-    await signalService.revokeCertificate(contactId);
+    await communicationService.revokeCertificate(contactId);
     
     // 2. Mark as blocked in contacts list
     db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(false as any);
     
     setRecipient("");
-  }, [userPub, db, signalService, setRecipient]);
+  }, [userPub, db, communicationService, setRecipient]);
 
 
   // ── Typing Listeners ──
@@ -391,7 +391,7 @@ export const useSignalMessaging = (
 
   // ── Signal 1:1 Messaging (Inbox) ──
   useEffect(() => {
-    if (!signalService || !userPub) return;
+    if (!communicationService || !userPub) return;
     const sessionStartTime = Date.now();
     const pendingResets = new Set<string>();
 
@@ -457,7 +457,7 @@ export const useSignalMessaging = (
         try {
           if (processedRef.current.has(gunKey)) return;
           
-          await signalService.waitReady();
+          await communicationService.waitReady();
 
           const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
           const isFreshMessage = msgTime > sessionStartTime - 30000;
@@ -465,7 +465,7 @@ export const useSignalMessaging = (
           
           if (senderPubKey.length < 30) {
             try {
-              senderPubKey = await signalService.getPubKeyFromUsername(data.sender);
+              senderPubKey = await communicationService.getPubKeyFromUsername(data.sender);
             } catch (err) {
               console.warn("[Signal] Could not resolve sender pubkey:", data.sender);
             }
@@ -473,7 +473,7 @@ export const useSignalMessaging = (
 
           try {
             console.log(`[Signal] Decrypting message ${gunKey} from ${senderPubKey.slice(0, 8)}...`);
-            const plaintextValue = await signalService.decryptMessage(senderPubKey, {
+            const plaintextValue = await communicationService.decryptMessage(senderPubKey, {
               type: data.type,
               body: data.body,
             });
@@ -534,8 +534,8 @@ export const useSignalMessaging = (
 
             if (validPlaintext === "PING_HEAL") {
               console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session and re-publishing bundle...`);
-              await signalService.resetSession(senderPubKey);
-              await signalService.republishBundle().catch(() => {});
+              await communicationService.resetSession(senderPubKey);
+              await communicationService.republishBundle().catch(() => {});
               return;
             }
 
@@ -597,7 +597,7 @@ export const useSignalMessaging = (
 
             // Send receipt
             try {
-              const receiptCipher = await signalService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
+              const receiptCipher = await communicationService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
               db.gun.get(`signal_v3_inbox_${senderPubKey}`).set({
                 sender: userPub,
                 type: receiptCipher.type,
@@ -680,12 +680,12 @@ export const useSignalMessaging = (
               console.log(`[Signal] Decryption failed for ${senderPubKey}. Attempting SILENT HEAL (refreshing keys)...`);
               
               try {
-                await signalService.resetSession(senderPubKey);
-                const freshEpub = await signalService.getEpubFromPub(senderPubKey);
+                await communicationService.resetSession(senderPubKey);
+                const freshEpub = await communicationService.getEpubFromPub(senderPubKey);
                 
                 if (freshEpub) {
                   console.log(`[Signal] Fresh keys found for ${senderPubKey.slice(0, 8)}. Retrying decryption...`);
-                  const retryPlaintext = await signalService.decryptMessage(senderPubKey, {
+                  const retryPlaintext = await communicationService.decryptMessage(senderPubKey, {
                     type: data.type,
                     body: data.body,
                   });
@@ -766,11 +766,11 @@ export const useSignalMessaging = (
         }
       });
     });
-  }, [userPub, signalService, db, saveMessages, saveProcessedKey, setRecipient]);
+  }, [userPub, communicationService, db, saveMessages, saveProcessedKey, setRecipient]);
 
   // ── Actions ──
   const handleTyping = useCallback(async () => {
-    if (!recipient || !userPub || !signalService) return;
+    if (!recipient || !userPub || !communicationService) return;
     const now = Date.now();
     if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
@@ -778,18 +778,18 @@ export const useSignalMessaging = (
         const isGroup = recipient.length === 36 && recipient.includes("-");
         let path = `signal_v2_typing_${recipient}`;
         if (!isGroup) {
-          const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
+          const pub = recipient.length < 30 ? await communicationService.getPubKeyFromUsername(recipient) : recipient;
           path = `signal_v2_typing_${pub}`;
         }
         db.gun.get(path).get(userPub).put({ typing: true, ts: now.toString(), s: generateSecureRandomString(4) } as any);
       } catch (e) {}
     }
-  }, [recipient, userPub, signalService, db]);
+  }, [recipient, userPub, communicationService, db]);
 
   const handleSendMessage = useCallback(async (message?: string, audio?: string, fileMetadata?: FileMetadata) => {
-    if (!recipient || (!message && !audio && !fileMetadata) || !signalService || !userPub || !groupService) return;
+    if (!recipient || (!message && !audio && !fileMetadata) || !communicationService || !userPub || !groupService) return;
     
-    await signalService.waitReady();
+    await communicationService.waitReady();
     const msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
     const timestamp = new Date();
     
@@ -857,16 +857,16 @@ export const useSignalMessaging = (
         // 1:1 direct message
 
         try {
-          ciphertext = await signalService.encryptMessage(recipient, payload || "");
+          ciphertext = await communicationService.encryptMessage(recipient, payload || "");
         } catch (err) {
           // If encryption fails, try to reset the session (clear cache) and retry once
-          await signalService.resetSession(recipient);
-          ciphertext = await signalService.encryptMessage(recipient, payload || "");
+          await communicationService.resetSession(recipient);
+          ciphertext = await communicationService.encryptMessage(recipient, payload || "");
         }
 
         // For My Cloud (self-chat), we still write to GunDB to sync across devices.
         // The inbox listener handles duplicate prevention on the sending device.
-        const pub = recipient.length < 30 ? await signalService.getPubKeyFromUsername(recipient) : recipient;
+        const pub = recipient.length < 30 ? await communicationService.getPubKeyFromUsername(recipient) : recipient;
         await db.Set(`signal_v3_inbox_${pub}`, { 
           msgId, 
           sender: userPub, 
@@ -911,7 +911,7 @@ export const useSignalMessaging = (
       });
       throw err;
     }
-  }, [recipient, signalService, userPub, groupService, db, saveMessages]);
+  }, [recipient, communicationService, userPub, groupService, db, saveMessages]);
 
   const handleDeleteMessage = useCallback(
     async (messageId: string, senderPub?: string) => {
@@ -952,14 +952,14 @@ export const useSignalMessaging = (
           });
 
           // 2. Notify the peer (Delete for everyone)
-          if (signalService) {
-            const cipher = await signalService.encryptMessage(
+          if (communicationService) {
+            const cipher = await communicationService.encryptMessage(
               recipient,
               ` Linda:DELETE:${messageId}`,
             );
             const pub =
               recipient.length < 30
-                ? await signalService.getPubKeyFromUsername(recipient)
+                ? await communicationService.getPubKeyFromUsername(recipient)
                 : recipient;
 
             db.gun.get(`signal_v3_inbox_${pub}`).set({
@@ -980,7 +980,7 @@ export const useSignalMessaging = (
       userPub,
       recipient,
       groupService,
-      signalService,
+      communicationService,
       db,
       saveDeletedMessages,
       messages,
@@ -1013,14 +1013,14 @@ export const useSignalMessaging = (
   }, [userPub, db, messages, saveMessages]);
 
   const handleFixSync = useCallback(async (contactId: string) => {
-    if (!signalService || !userPub) return;
+    if (!communicationService || !userPub) return;
     console.log(`[Signal] Manual Fix Sync for ${contactId}...`);
     try {
-      await signalService.resetSession(contactId);
-      await signalService.republishBundle().catch(() => {});
+      await communicationService.resetSession(contactId);
+      await communicationService.republishBundle().catch(() => {});
       
-      const ping = await signalService.encryptMessage(contactId, "PING_HEAL");
-      const pub = contactId.length < 30 ? await signalService.getPubKeyFromUsername(contactId) : contactId;
+      const ping = await communicationService.encryptMessage(contactId, "PING_HEAL");
+      const pub = contactId.length < 30 ? await communicationService.getPubKeyFromUsername(contactId) : contactId;
       await db.Set(`signal_v3_inbox_${pub}`, { 
         sender: userPub, 
         type: ping.type, 
@@ -1032,7 +1032,7 @@ export const useSignalMessaging = (
     } catch (e) {
       console.error("[Signal] Fix Sync failed:", e);
     }
-  }, [signalService, userPub, db]);
+  }, [communicationService, userPub, db]);
 
   const currentMessages = useMemo(() => {
     const msgs = messages[recipient] || [];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { FileMetadata } from '../hooks/useSignalMessaging';
+import type { FileMetadata } from '../hooks/useMessaging';
 
 interface FileBubbleProps {
   metadata: FileMetadata;

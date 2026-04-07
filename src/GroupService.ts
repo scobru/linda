@@ -112,6 +112,27 @@ export class GroupService {
   }
 
   /**
+   * Listening to member role changes
+   */
+  onMemberRoleChange(groupId: string, memberPub: string, callback: (role: Role | null) => void): () => void {
+    const path = `signal_rooms/${groupId}/members/${memberPub}/role`;
+    const evId = `role_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
+
+    (this.db.On as any)(path, (data: any) => {
+      if (data) {
+        callback(data as Role);
+      } else {
+        // Fallback to meta check if member node is null
+        this.getMemberRole(groupId, memberPub).then(callback);
+      }
+    }, evId);
+
+    return () => {
+      (this.db.Off as any)(evId);
+    };
+  }
+
+  /**
    * Listening to mute status
    */
   onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
@@ -171,6 +192,13 @@ export class GroupService {
         if (meta && meta.adminPub === myPub) {
           return true; // Admins can perform everything
         }
+
+        // If it's a normal group (not broadcast), default to peer for basic actions
+        // This handles sync delay after joining a public group
+        if (meta && meta.type !== "broadcast") {
+          const peerPerms = ["send_message", "start_call", "delete_own_message", "invite_peer", "report"];
+          if (peerPerms.includes(action)) return true;
+        }
       } catch (e) { }
       return false;
     }
@@ -184,7 +212,7 @@ export class GroupService {
       administrator: [
         "send_message", "start_call", "delete_own_message", "invite_peer", "report",
         "update_meta", "pin_message", "delete_any_message", "mute_peer", "toggle_features", "invite_moderator", "action_reports", "kick_user",
-        "promote_moderator", "invite_admin"
+        "promote_moderator", "invite_admin", "promote_admin_manual"
       ]
     };
 
@@ -279,24 +307,28 @@ export class GroupService {
 
       const members: GroupMember[] = [];
       if (membersNode) {
-        Object.entries(membersNode)
-          .filter(([pub, data]) => pub !== "_" && pub !== ">" && data !== null)
-          .forEach(([pub, data]) => {
-            if (data && typeof data === "object") {
-              members.push({
+        const pubs = Object.keys(membersNode).filter(pub => pub !== "_" && pub !== ">" && membersNode[pub] !== null);
+        
+        // Fetch each member's role specifically to ensure we have the latest data
+        const memberData = await Promise.all(pubs.map(async (pub) => {
+          try {
+            const data = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${pub}`);
+            if (data) {
+              return {
                 pub,
                 role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
                 joinedAt: data.joinedAt || Date.now(),
-              });
-            } else {
-              // Handle pointers or corrupted data
-              members.push({
-                pub,
-                role: (meta && meta.adminPub === pub ? "administrator" : "peer"),
-                joinedAt: Date.now(),
-              });
+              };
             }
-          });
+          } catch (e) { }
+          return {
+            pub,
+            role: (meta && meta.adminPub === pub ? "administrator" : "peer") as Role,
+            joinedAt: Date.now(),
+          };
+        }));
+
+        members.push(...memberData);
       }
 
       // Ensure the creator/admin is always in the list even if members node sync is delayed

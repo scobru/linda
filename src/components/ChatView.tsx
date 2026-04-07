@@ -4,14 +4,14 @@ import { GroupService } from "../GroupService";
 import { AudioRecorder } from "./AudioRecorder";
 import { AudioPlayer } from "./AudioPlayer";
 import { FileBubble } from "./FileBubble";
-import type { Message, FileMetadata } from "../hooks/useSignalMessaging";
-import { SignalService } from "../SignalService";
+import type { Message, FileMetadata } from "../hooks/useMessaging";
+import { CommunicationService } from "../CommunicationService";
 import { WormholeService } from "../WormholeService";
 
 interface ChatViewProps {
   recipient: string;
   setRecipient: (id: string) => void;
-  signalService: SignalService | null;
+  communicationService: CommunicationService | null;
   groupService: GroupService | null;
   contactProfiles: Record<
     string,
@@ -51,10 +51,34 @@ interface ChatViewProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
 }
 
+const renderTextWithLinks = (text?: string, isMe?: boolean) => {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+|magnet:\?[^\s]+)/gi;
+  const parts = text.split(urlRegex);
+
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`hover:brightness-125 transition-all text-[14px] font-black underline ${isMe ? 'text-primary-content' : 'text-primary drop-shadow-md'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+};
+
 export const ChatView: React.FC<ChatViewProps> = ({
   recipient,
   setRecipient,
-  signalService,
+  communicationService,
   groupService,
   contactProfiles,
   typingStatuses,
@@ -199,7 +223,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     try {
       // Initiate Wormhole transfer
       if (
-        signalService &&
+        communicationService &&
         (recipient.startsWith("@") || recipient.length < 30)
       ) {
         try {
@@ -616,7 +640,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   />
                 ) : (
                   <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
-                    <div className="break-all whitespace-pre-wrap">{msg.text}</div>
+                    <div className="break-all whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
                     
                     {msg.tags && msg.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2 mb-1">

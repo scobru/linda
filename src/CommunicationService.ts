@@ -3,7 +3,7 @@ import Gun from "gun/gun";
 import "gun/sea";
 
 /**
- * SignalService
+ * CommunicationService
  *
  * Bridges shogun-core DataBase with SEA-based encryption.
  * Replaces the complex libsignal-protocol with native GunDB SEA.encrypt/decrypt.
@@ -11,7 +11,7 @@ import "gun/sea";
  * Uses 'epub' (exchange public key) to derive a shared secret (SEA.secret)
  * for secure 1:1 messaging.
  */
-export class SignalService {
+export class CommunicationService {
   private db: DataBase;
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
@@ -53,7 +53,7 @@ export class SignalService {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      console.log("[SignalService] Initializing SEA session...");
+      console.log("[CommunicationService] Initializing SEA session...");
       try {
         // Wait for pair to be available and user to be logged in
         let user = this.db.gun.user();
@@ -69,7 +69,7 @@ export class SignalService {
 
         if (!user.is) {
           console.warn(
-            "[SignalService] User not logged in after waiting. Bundle publish might fail.",
+            "[CommunicationService] User not logged in after waiting. Bundle publish might fail.",
           );
         }
 
@@ -81,16 +81,16 @@ export class SignalService {
         // Discovery metadata persistence is non-blocking to prevent slow relays from hanging initialization
         this.persistAlias(username, uniqueUsername).catch((e) => {
           console.warn(
-            "[SignalService] Background alias persistence failed (session still active):",
+            "[CommunicationService] Background alias persistence failed (session still active):",
             e,
           );
         });
       } catch (e) {
-        console.warn("[SignalService] Initialization steps failed:", e);
+        console.warn("[CommunicationService] Initialization steps failed:", e);
       }
       this.isInitialized = true;
       this.initPromise = null;
-      console.log("[SignalService] SEA Initialization complete.");
+      console.log("[CommunicationService] SEA Initialization complete.");
     })();
     return this.initPromise;
   }
@@ -105,7 +105,7 @@ export class SignalService {
     const pair = (this.db.gun.user() as any)?._?.sea;
     if (!pair || !pair.epub) {
       console.warn(
-        "[SignalService] User keys not available yet, deferring bundle publish.",
+        "[CommunicationService] User keys not available yet, deferring bundle publish.",
       );
       return;
     }
@@ -116,7 +116,7 @@ export class SignalService {
       const user = this.db.gun.user();
       if (!user.is) {
         console.warn(
-          "[SignalService] Gun user is not logged in. Cannot verify identity for bundle publish.",
+          "[CommunicationService] Gun user is not logged in. Cannot verify identity for bundle publish.",
         );
         return;
       }
@@ -131,7 +131,7 @@ export class SignalService {
           if (ack.err) {
             if (ack.err === "Unverified data.") {
               console.error(
-                "[SignalService] Critical: Unverified data error while publishing epub. Attempting staged recovery...",
+                "[CommunicationService] Critical: Unverified data error while publishing epub. Attempting staged recovery...",
               );
               resolve(); // Proceed to secondary fields to see if they stick
             } else {
@@ -145,7 +145,7 @@ export class SignalService {
 
       await epubPromise.catch((e) =>
         console.warn(
-          "[SignalService] Primary EPUB write failed (non-critical if secondary succeeds):",
+          "[CommunicationService] Primary EPUB write failed (non-critical if secondary succeeds):",
           e.message,
         ),
       );
@@ -156,7 +156,7 @@ export class SignalService {
 
       if (user.is) {
         console.log(
-          "[SignalService] Publishing secondary signal_bundle_v7 metadata...",
+          "[CommunicationService] Publishing secondary signal_bundle_v7 metadata...",
         );
         user.get("signal_bundle_v7").get("epub").put(pair.epub);
         user.get("signal_bundle_v7").get("username").put(username);
@@ -171,11 +171,11 @@ export class SignalService {
       }
 
       console.log(
-        "[SignalService] Published SEA bundle properties successfully.",
+        "[CommunicationService] Published SEA bundle properties successfully.",
       );
     } catch (e: any) {
       console.error(
-        "[SignalService] GunDB error during bundle publish:",
+        "[CommunicationService] GunDB error during bundle publish:",
         e.message || e,
       );
     }
@@ -239,7 +239,7 @@ export class SignalService {
       }
     } catch (e) {
       console.warn(
-        "[SignalService] Failed to persist alias to GunDB (possibly slow relay or timeout):",
+        "[CommunicationService] Failed to persist alias to GunDB (possibly slow relay or timeout):",
         e,
       );
     }
@@ -257,7 +257,7 @@ export class SignalService {
     const cached = this.pubkeyCache.get(username);
     if (cached) return cached;
 
-    console.log(`[SignalService] Resolving pubkey for: ${username}`);
+    console.log(`[CommunicationService] Resolving pubkey for: ${username}`);
     for (let i = 0; i < 6; i++) {
       try {
         if (username.startsWith("@")) {
@@ -302,7 +302,7 @@ export class SignalService {
     if (cached) return cached;
 
     console.log(
-      `[SignalService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`,
+      `[CommunicationService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`,
     );
 
     // Attempt multiple paths and methods to find the epub
@@ -323,7 +323,7 @@ export class SignalService {
         });
         if (gunEpub) {
           console.log(
-            `[SignalService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`,
           );
           this.epubCache.set(pub, gunEpub);
           return gunEpub;
@@ -347,7 +347,7 @@ export class SignalService {
           bundle.epub.length > 20
         ) {
           console.log(
-            `[SignalService] Found epub via bundle for: ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found epub via bundle for: ${pub.slice(0, 8)}`,
           );
           this.epubCache.set(pub, bundle.epub);
           return bundle.epub;
@@ -361,14 +361,14 @@ export class SignalService {
           rootData.epub.length > 20
         ) {
           console.log(
-            `[SignalService] Found epub via root node for: ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found epub via root node for: ${pub.slice(0, 8)}`,
           );
           this.epubCache.set(pub, rootData.epub);
           return rootData.epub;
         }
       } catch (e: any) {
         console.warn(
-          `[SignalService] Epub fetch attempt ${i + 1} for ${pub.slice(0, 8)} failed:`,
+          `[CommunicationService] Epub fetch attempt ${i + 1} for ${pub.slice(0, 8)} failed:`,
           e?.message || e || "Unknown error",
         );
       }
@@ -389,7 +389,7 @@ export class SignalService {
   public async regenerateCertificate(force: boolean = false): Promise<void> {
     const pair = this.myPair || (this.db.gun.user() as any)?._?.sea;
     if (!pair) {
-      console.warn("[SignalService] No user keys available for certificate regeneration.");
+      console.warn("[CommunicationService] No user keys available for certificate regeneration.");
       return;
     }
     const user = this.db.gun.user();
@@ -421,21 +421,21 @@ export class SignalService {
             }
           } catch (e) {
             console.warn(
-              "[SignalService] Existing certificate verification failed, will regenerate.",
+              "[CommunicationService] Existing certificate verification failed, will regenerate.",
             );
           }
         }
 
         if (isValid) {
           console.log(
-            "[SignalService] Valid SEA inbox certificate (v13) found for current session.",
+            "[CommunicationService] Valid SEA inbox certificate (v13) found for current session.",
           );
           return;
         }
       }
 
       console.log(
-        `[SignalService] Generating fresh recursive SEA certificate (v13) for current session (force: ${force})...`,
+        `[CommunicationService] Generating fresh recursive SEA certificate (v13) for current session (force: ${force})...`,
       );
       // Policy: Allow anyone (public inbox) to write to this user's signal_inbox_v13 soul.
       // We include multiple soul variations (trailing slash, nested wildcard) for maximum relay compatibility.
@@ -461,18 +461,18 @@ export class SignalService {
       user.get("inbox_cert_v13").put(cert, (ack: any) => {
         if (ack?.err) {
           console.warn(
-            "[SignalService] Failed to publish primary inbox certificate (v13):",
+            "[CommunicationService] Failed to publish primary inbox certificate (v13):",
             ack.err,
           );
         } else {
           console.log(
-            "[SignalService] Published fresh recursive inbox certificates (v13).",
+            "[CommunicationService] Published fresh recursive inbox certificates (v13).",
           );
         }
       });
     } catch (e) {
       console.error(
-        "[SignalService] Error during inbox certificate generation:",
+        "[CommunicationService] Error during inbox certificate generation:",
         e,
       );
     }
@@ -484,7 +484,7 @@ export class SignalService {
   public async issueCertificate(peerPub: string): Promise<string> {
     if (!this.myPair) throw new Error("Not logged in");
     console.log(
-      `[SignalService] Issuing specific recursive certificate for: ${peerPub.slice(0, 8)}...`,
+      `[CommunicationService] Issuing specific recursive certificate for: ${peerPub.slice(0, 8)}...`,
     );
 
     const soul = `~${this.myPair.pub}/signal_inbox_v13`;
@@ -513,7 +513,7 @@ export class SignalService {
     const user = this.db.gun.user();
     if (!user.is) return;
     console.log(
-      `[SignalService] Revoking certificate for: ${peerPub.slice(0, 8)}`,
+      `[CommunicationService] Revoking certificate for: ${peerPub.slice(0, 8)}`,
     );
     user
       .get("certs")
@@ -532,7 +532,7 @@ export class SignalService {
 
     const myPub = this.db.getUserPub();
     console.log(
-      `[SignalService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`,
+      `[CommunicationService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`,
     );
 
     // Helper: validate that a cert's policy actually covers signal_inbox_v12
@@ -544,7 +544,7 @@ export class SignalService {
         const verified = await (Gun as any).SEA.verify(cert, pub);
         if (!verified || !verified.c) {
           console.warn(
-            `[SignalService] ${label} cert for ${pub.slice(0, 8)} failed SEA.verify`,
+            `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed SEA.verify`,
           );
           return false;
         }
@@ -558,12 +558,12 @@ export class SignalService {
         }
         // Wildcard-only policies ("*") are now accepted above if they match the string.
         console.warn(
-          `[SignalService] ${label} cert for ${pub.slice(0, 8)} has incompatible policy: ${policyStr.substring(0, 80)}`,
+          `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} has incompatible policy: ${policyStr.substring(0, 80)}`,
         );
         return false;
       } catch (e) {
         console.warn(
-          `[SignalService] ${label} cert validation error for ${pub.slice(0, 8)}:`,
+          `[CommunicationService] ${label} cert validation error for ${pub.slice(0, 8)}:`,
           e,
         );
         return false;
@@ -588,7 +588,7 @@ export class SignalService {
           });
           if (specificCert && (await validateCert(specificCert, "specific"))) {
             console.log(
-              `[SignalService] Found valid specific certificate for ${pub.slice(0, 8)}`,
+              `[CommunicationService] Found valid specific certificate for ${pub.slice(0, 8)}`,
             );
             this.inboxCertCache.set(pub, specificCert);
             return specificCert;
@@ -609,7 +609,7 @@ export class SignalService {
         });
         if (v13Cert && (await validateCert(v13Cert, "v13"))) {
           console.log(
-            `[SignalService] Found valid v13 certificate for ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found valid v13 certificate for ${pub.slice(0, 8)}`,
           );
           this.inboxCertCache.set(pub, v13Cert);
           return v13Cert;
@@ -630,7 +630,7 @@ export class SignalService {
         });
         if (bundleCert && (await validateCert(bundleCert, "bundle_v8"))) {
           console.log(
-            `[SignalService] Found valid bundle v8 certificate for ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found valid bundle v8 certificate for ${pub.slice(0, 8)}`,
           );
           this.inboxCertCache.set(pub, bundleCert);
           return bundleCert;
@@ -654,7 +654,7 @@ export class SignalService {
    */
   public clearCertCache(pub: string): void {
     this.inboxCertCache.delete(pub);
-    console.log(`[SignalService] Cleared cert cache for ${pub.slice(0, 8)}`);
+    console.log(`[CommunicationService] Cleared cert cache for ${pub.slice(0, 8)}`);
   }
 
   /**
@@ -687,7 +687,7 @@ export class SignalService {
 
           if (message.startsWith("{")) {
             console.log(
-              `[SignalService] Encrypting metadata payload (length: ${message.length})`,
+              `[CommunicationService] Encrypting metadata payload (length: ${message.length})`,
             );
           }
 
@@ -716,7 +716,7 @@ export class SignalService {
       const senderEpub = await this.getEpubFromPub(pubKey);
       if (!senderEpub) {
         console.warn(
-          `[SignalService] No epub found for ${pubKey.slice(0, 8)}. Cannot decrypt.`,
+          `[CommunicationService] No epub found for ${pubKey.slice(0, 8)}. Cannot decrypt.`,
         );
         return undefined;
       }
@@ -726,7 +726,7 @@ export class SignalService {
 
       if (typeof ciphertext.body !== "string") {
         console.warn(
-          `[SignalService] Body of message from ${pubKey.slice(0, 8)} is not a string (${typeof ciphertext.body}). Skipping decryption.`,
+          `[CommunicationService] Body of message from ${pubKey.slice(0, 8)} is not a string (${typeof ciphertext.body}). Skipping decryption.`,
         );
         return undefined;
       }
@@ -746,13 +746,13 @@ export class SignalService {
 
       if (!secret) {
         console.warn(
-          `[SignalService] Could not derive secret for ${pubKey.slice(0, 8)}`,
+          `[CommunicationService] Could not derive secret for ${pubKey.slice(0, 8)}`,
         );
         return undefined;
       }
 
       console.log(
-        `[SignalService] Derived secret for ${pubKey.slice(0, 8)}. Calling SEA.decrypt... (cipher length: ${ciphertext.body.length})`,
+        `[CommunicationService] Derived secret for ${pubKey.slice(0, 8)}. Calling SEA.decrypt... (cipher length: ${ciphertext.body.length})`,
       );
       let decrypted;
       try {
@@ -763,11 +763,11 @@ export class SignalService {
           ),
         ]);
         console.log(
-          `[SignalService] SEA.decrypt resolved. decryped value type: ${typeof decrypted}`,
+          `[CommunicationService] SEA.decrypt resolved. decryped value type: ${typeof decrypted}`,
         );
       } catch (decryptErr: any) {
         console.error(
-          `[SignalService] SEA.decrypt threw or timed out:`,
+          `[CommunicationService] SEA.decrypt threw or timed out:`,
           decryptErr.message,
         );
         decrypted = undefined;
@@ -776,14 +776,14 @@ export class SignalService {
       // If decryption fails, try a one-time "silent heal" by refreshing the epub
       if (decrypted === undefined || decrypted === null) {
         console.log(
-          `[SignalService] Decryption failed for ${pubKey.slice(0, 8)}. Attempting one-time EPUB refresh...`,
+          `[CommunicationService] Decryption failed for ${pubKey.slice(0, 8)}. Attempting one-time EPUB refresh...`,
         );
 
         // Anti-flap guard: if we already refreshed this sender in the last 10s, don't loop
         const lastRefresh = (this as any)._lastRefreshMap?.[pubKey] || 0;
         if (Date.now() - lastRefresh < 10000) {
           console.warn(
-            `[SignalService] Skipping redundant EPUB refresh for ${pubKey.slice(0, 8)} (anti-flap).`,
+            `[CommunicationService] Skipping redundant EPUB refresh for ${pubKey.slice(0, 8)} (anti-flap).`,
           );
           return undefined;
         }
@@ -812,12 +812,12 @@ export class SignalService {
 
           if (decrypted) {
             console.log(
-              `[SignalService] Silent heal SUCCESS for ${pubKey.slice(0, 8)}`,
+              `[CommunicationService] Silent heal SUCCESS for ${pubKey.slice(0, 8)}`,
             );
           }
         } catch (e: any) {
           console.warn(
-            `[SignalService] One-time refresh failed for ${pubKey.slice(0, 8)}:`,
+            `[CommunicationService] One-time refresh failed for ${pubKey.slice(0, 8)}:`,
             e.message,
           );
         }
@@ -825,7 +825,7 @@ export class SignalService {
 
       if (decrypted === undefined || decrypted === null) {
         console.warn(
-          `[SignalService] SEA Decryption yielded ${decrypted === null ? "NULL" : "UNDEFINED"} for sender: ${pubKey.slice(0, 8)} after retry.`,
+          `[CommunicationService] SEA Decryption yielded ${decrypted === null ? "NULL" : "UNDEFINED"} for sender: ${pubKey.slice(0, 8)} after retry.`,
         );
         return undefined;
       }
@@ -838,7 +838,7 @@ export class SignalService {
             ? JSON.stringify(decrypted)
             : String(decrypted);
         console.log(
-          `[SignalService] Decrypted non-string payload (${typeof decrypted}). Serialized to:`,
+          `[CommunicationService] Decrypted non-string payload (${typeof decrypted}). Serialized to:`,
           stringified.substring(0, 50),
         );
         return stringified;
@@ -847,7 +847,7 @@ export class SignalService {
       return decrypted;
     } catch (err: any) {
       console.error(
-        `[SignalService] Error during decryption for ${senderUsernameOrPub}:`,
+        `[CommunicationService] Error during decryption for ${senderUsernameOrPub}:`,
         err.message,
       );
       return undefined;
@@ -861,7 +861,7 @@ export class SignalService {
     const username = localStorage.getItem("signal_alias") || "Anonymous";
     const uniqueUsername =
       localStorage.getItem("signal_unique_username") || undefined;
-    console.log("[SignalService] Action: Force republishing bundle...");
+    console.log("[CommunicationService] Action: Force republishing bundle...");
     await this.publishBundle(username, uniqueUsername);
   }
 
@@ -870,7 +870,7 @@ export class SignalService {
    */
   async resetSession(contactUsernameOrPub: string): Promise<void> {
     console.log(
-      `[SignalService] Reset requested for ${contactUsernameOrPub} (SEA mode is stateless).`,
+      `[CommunicationService] Reset requested for ${contactUsernameOrPub} (SEA mode is stateless).`,
     );
     // Clear cache to force fresh epub fetch
     const oldEpub = this.epubCache.get(contactUsernameOrPub);
