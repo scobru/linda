@@ -1,73 +1,55 @@
-# React + TypeScript + Vite
+# 🛡️ Shogun Linda (Signal)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Linda** is a high-performance, decentralized, end-to-end encrypted messaging platform. It leverages **GunDB** for P2P data synchronization and **WebRTC** for direct, high-speed file transfers.
 
-Currently, two official plugins are available:
+## 🚀 Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+-   **P2P Messaging**: Instant messaging with GunDB SEA (Security, Encryption, and Authorization). No central database; your data lives with you and your peers.
+-   **Encrypted Group Chats**: Secure group management with decentralized certificates.
+-   **P2P File Transfers**: Send images and files of any size directly to peers using WebRTC Data Channels.
+-   **Cross-Device Sync**: The `Sync Kick` mechanism ensures your inbox stays active even on mobile background states.
+-   **Self-Custody**: Your identity is your public key. No phone number or email required.
 
-## React Compiler
+## 🏗️ Architecture
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Core Services
+-   **`CommunicationService`**: The backbone of the application. Handles GunDB signaling, user authentication, and inbox certificate management (recently refactored from `SignalService`).
+-   **`FileTransferService`**: Manages the lifecycle of WebRTC connections for secure file exchange.
+-   **`GroupService`**: Handles decentralized group creation and membership.
 
-## Expanding the ESLint configuration
+### Technological Stack
+-   **Frontend**: React + TypeScript + Vite.
+-   **Database**: [GunDB](https://gun.eco/) (Decentralized/P2P).
+-   **Encryption**: Gun SEA (AES, RSA, SHA).
+-   **Communication**: WebRTC for P2P data streams.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠️ Development
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Prerequisites
+-   Node.js (v18+)
+-   NPM or Yarn
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Local Setup
+1.  Clone the repository.
+2.  Install dependencies:
+    ```bash
+    yarn install
+    ```
+3.  Start the development server:
+    ```bash
+    yarn dev
+    ```
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Deployment
+Shogun Linda is optimized for deployment on **Vercel**:
+```bash
+yarn vercel --prod
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 📅 Roadmap / Future Features
+-   [ ] **P2P Audio/Video Calling**: (Infrastructure under `CallingService.ts` is in progress but not yet implemented in the UI).
+-   [ ] **Wormhole Transfers**: Enhanced multi-peer file distribution.
+-   [ ] **Message Search**: Local-first indexing for history search.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 📄 License
+This project is part of the Shogun Ecosystem.
