@@ -665,7 +665,13 @@ export const useMessaging = (
               return updated;
             });
 
-            setContacts((prev) => (prev.includes(senderPubKey) ? prev : [...prev, senderPubKey]));
+            setContacts((prev) => {
+              if (!prev.includes(senderPubKey)) {
+                saveContact(senderPubKey);
+                return [...prev, senderPubKey];
+              }
+              return prev;
+            });
 
           } catch (e: any) {
             // Decryption failed.
@@ -835,7 +841,13 @@ export const useMessaging = (
       saveMessages(userPub, next);
       return next;
     });
-    setContacts((prev) => (prev.includes(recipient) ? prev : [...prev, recipient]));
+    setContacts((prev) => {
+      if (!prev.includes(recipient)) {
+        saveContact(recipient);
+        return [...prev, recipient];
+      }
+      return prev;
+    });
 
     try {
       const isGroup = recipient.length === 36 && recipient.includes("-");

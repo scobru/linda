@@ -674,9 +674,14 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     }
   }, [isLoggedIn, db]);
 
+  const subscribedProfilesRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!communicationService || contacts.length === 0) return;
     contacts.forEach(async (contactId) => {
+      if (subscribedProfilesRef.current.has(contactId)) return;
+      subscribedProfilesRef.current.add(contactId);
+      
       try {
         const isGroup = contactId.length === 36 && contactId.includes("-");
         if (isGroup) {
