@@ -7,6 +7,7 @@ import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useMessaging";
 import { CommunicationService } from "../CommunicationService";
 import { WormholeService } from "../WormholeService";
+import { shortenLink } from "../utils/ui";
 
 interface ChatViewProps {
   recipient: string;
@@ -67,7 +68,7 @@ const renderTextWithLinks = (text?: string, isMe?: boolean) => {
           className={`hover:brightness-125 transition-all text-[14px] font-black underline ${isMe ? 'text-primary-content' : 'text-primary drop-shadow-md'}`}
           onClick={(e) => e.stopPropagation()}
         >
-          {part}
+          {shortenLink(part)}
         </a>
       );
     }
