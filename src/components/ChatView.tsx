@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
-import { getDiceBearAvatar } from "../utils/avatar";
 import { GroupService } from "../GroupService";
 import { AudioRecorder } from "./AudioRecorder";
 import { AudioPlayer } from "./AudioPlayer";
@@ -8,9 +7,12 @@ import type { Message, FileMetadata } from "../hooks/useMessaging";
 import { CommunicationService } from "../CommunicationService";
 import { WormholeService } from "../WormholeService";
 import { shortenLink } from "../utils/ui";
+import { UserAvatar } from "./UserAvatar";
+import { DataBase } from "shogun-core";
 
 interface ChatViewProps {
   recipient: string;
+  db: DataBase;
   setRecipient: (id: string) => void;
   communicationService: CommunicationService | null;
   groupService: GroupService | null;
@@ -23,7 +25,6 @@ interface ChatViewProps {
   currentMessages: Message[];
   myRole: string | null;
   userPub: string;
-  userAvatar: string | null;
   userNick: string;
   username: string;
   message: string;
@@ -78,6 +79,7 @@ const renderTextWithLinks = (text?: string, isMe?: boolean) => {
 
 export const ChatView: React.FC<ChatViewProps> = ({
   recipient,
+  db,
   setRecipient,
   communicationService,
   groupService,
@@ -86,7 +88,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   pinnedMessages,
   myRole,
   userPub,
-  userAvatar,
   userNick,
   username,
   message,
@@ -397,13 +398,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
         
         <div className="flex-1 flex items-center gap-3 min-w-0">
           <div className="relative">
-            <div className="w-12 h-12 rounded-full bg-base-300 border border-base-content/5 overflow-hidden ring-1 ring-white/5">
-              {contactProfiles[recipient]?.avatar ? (
-                <img src={contactProfiles[recipient].avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <img src={getDiceBearAvatar(recipient, recipient.includes("-"))} alt="" className="w-full h-full object-cover" />
-              )}
-            </div>
+            <UserAvatar 
+              pub={recipient} 
+              db={db} 
+              isGroup={recipient.includes("-")} 
+              className="w-12 h-12" 
+            />
             {typingStatuses[recipient] && (
               <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-base-200 animate-pulse" />
             )}
@@ -547,9 +547,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         {filteredMessages.map((msg, i) => {
           const isMe = msg.sender === "Me";
-          const msgAvatar = isMe
-            ? userAvatar
-            : contactProfiles[msg.sender]?.avatar;
           const msgNick = isMe
             ? userNick || username || "?"
             : contactProfiles[msg.sender]?.nickname || msg.sender;
@@ -558,26 +555,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
           return (
             <div key={msg.id || i} className={`chat ${isMe ? "chat-end" : "chat-start"} group/chat relative mb-4`}>
               <div className="chat-image avatar">
-                <div className="w-12 rounded-full border border-base-content/10 shadow-xl ring-2 ring-primary/5">
-                  {msgAvatar ? (
-                    <img
-                      src={msgAvatar}
-                      alt="avatar"
-                      className="object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={getDiceBearAvatar(
-                        isMe ? username || userNick : msg.sender,
-                        !isMe &&
-                          msg.sender.length === 36 &&
-                          msg.sender.includes("-"),
-                      )}
-                      alt="avatar"
-                      className="object-cover bg-neutral"
-                    />
-                  )}
-                </div>
+                <UserAvatar 
+                  pub={msg.sender === "Me" ? userPub : msg.sender} 
+                  db={db} 
+                  isGroup={!isMe && msg.sender.length === 36 && msg.sender.includes("-")} 
+                  className="w-12 h-12" 
+                />
               </div>
 
               <div className="chat-header opacity-40 text-[9px] font-bold uppercase tracking-widest mb-1 mx-2">
@@ -667,9 +650,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 )}
 
-                {/* Bubble Actions on Hover */}
+                {/* Bubble Actions */}
                 <div
-                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 scale-90 group-hover:scale-100 ${isMe ? "-left-24" : "-right-24"}`}
+                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 z-10 scale-100 sm:scale-90 sm:group-hover:scale-100 ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
                 >
                     {recipient.length === 36 && recipient.includes("-") && (
                       <>

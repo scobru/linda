@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { GroupService } from "../GroupService";
 import type { GroupMember, GroupInfo, Role } from "../GroupService";
 import { DataBase } from "shogun-core";
-import { getDiceBearAvatar } from "../utils/avatar";
+import { UserAvatar } from "../components/UserAvatar";
 
 interface GroupSettingsPageProps {
   groupService: GroupService;
@@ -285,19 +285,12 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
           {/* Group Overview Card */}
           <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200 p-10 rounded-2xl border border-base-content/5 shadow-sm relative overflow-hidden group">
             <div className="relative z-10 shrink-0">
-              <div className="avatar">
-                <div className="w-28 sm:w-36 rounded-[2rem] ring-4 ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl">
-                  {groupInfo?.avatar ? (
-                    <img src={groupInfo.avatar} alt="Avatar" className="object-cover" />
-                  ) : (
-                    <img 
-                      src={getDiceBearAvatar(groupId || "", true)} 
-                      alt="Avatar" 
-                      className="object-cover bg-primary/10" 
-                    />
-                  )}
-                </div>
-              </div>
+              <UserAvatar 
+                pub={groupId || ""} 
+                db={db} 
+                isGroup={true} 
+                className="w-28 sm:w-36 rounded-[2rem] ring-4 ring-primary/20 ring-offset-base-100 ring-offset-4 shadow-2xl" 
+              />
               {['moderator', 'administrator'].includes(myRole) && (
                 <label className="btn btn-primary btn-circle btn-sm absolute bottom-1 right-1 shadow-2xl border-2 border-base-200 cursor-pointer">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -332,15 +325,11 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                 {members.map(m => (
                   <div key={m.pub} className="flex items-center justify-between p-4 bg-base-200 rounded-2xl border border-base-content/5 group hover:border-primary/20 transition-all shadow-sm">
                     <div className="flex items-center gap-4">
-                      <div className="avatar">
-                        <div className="bg-primary/20 text-primary rounded-xl w-12 overflow-hidden border border-white/5">
-                          <img 
-                             src={getDiceBearAvatar(m.pub)} 
-                             alt={m.pub} 
-                             className="object-cover" 
-                          />
-                        </div>
-                      </div>
+                      <UserAvatar 
+                        pub={m.pub} 
+                        db={db} 
+                        className="w-12 h-12" 
+                      />
                       <div className="min-w-0">
                         <div className="text-sm font-bold flex items-center gap-2">
                           <span className="truncate">{m.pub.slice(0, 12)}...</span>

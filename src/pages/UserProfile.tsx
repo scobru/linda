@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataBase } from "shogun-core";
-import { getDiceBearAvatar } from "../utils/avatar";
+import { UserAvatar } from "../components/UserAvatar";
 import { QRCodeSVG } from "qrcode.react";
 
 interface UserProfileProps {
@@ -9,7 +9,6 @@ interface UserProfileProps {
   username: string;
   currentNick: string;
   currentUniqueUsername: string;
-  currentAvatar: string | null;
   handleLogout: () => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
 }
@@ -19,7 +18,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   username,
   currentNick,
   currentUniqueUsername,
-  currentAvatar,
   handleLogout,
   showNotification,
 }) => {
@@ -142,19 +140,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
       <div className="flex flex-col sm:flex-row items-center gap-8 sm:gap-14 bg-base-200 p-10 rounded-2xl border border-base-content/5 shadow-sm relative overflow-hidden group">
         <div className="relative z-10 shrink-0">
-          <div className="avatar">
-            <div className="w-32 sm:w-40 rounded-full border-4 border-base-content/10 ring-2 ring-primary/20 bg-base-300 overflow-hidden">
-              {currentAvatar ? (
-                <img src={currentAvatar} alt="Avatar" className="object-cover w-full h-full" />
-              ) : (
-                <img 
-                  src={getDiceBearAvatar(username || currentNick)} 
-                  alt="Avatar" 
-                  className="object-cover bg-base-300 w-full h-full" 
-                />
-              )}
-            </div>
-          </div>
+          <UserAvatar 
+            pub={db.getUserPub() || ""} 
+            db={db} 
+            className="w-32 sm:w-40 rounded-full border-4 border-base-content/10 ring-2 ring-primary/20 bg-base-300 overflow-hidden" 
+          />
           <label className="btn btn-primary btn-circle absolute bottom-2 right-2 border-4 border-base-200 hover:scale-110 active:scale-90 transition-all cursor-pointer">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />

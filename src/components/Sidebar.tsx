@@ -1,15 +1,14 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { getDiceBearAvatar } from "../utils/avatar";
+import { UserAvatar } from "./UserAvatar";
 import { CommunicationService } from "../CommunicationService";
 import { GroupService } from "../GroupService";
 import { QrScannerModal } from "./QrScannerModal";
+import { DataBase } from "shogun-core";
 
 interface SidebarProps {
   userPub: string | null;
-  username: string;
-  userNick: string;
-  userAvatar: string | null;
+  db: DataBase;
   contacts: string[];
   setRecipient: (id: string) => void;
   contactProfiles: Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>;
@@ -24,9 +23,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   userPub,
-  username,
-  userNick,
-  userAvatar,
+  db,
   contacts,
   setRecipient,
   contactProfiles,
@@ -155,17 +152,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="avatar cursor-pointer hover:opacity-80 transition-all pointer-events-auto"
             onClick={() => navigate("/profile")}
           >
-            <div className="w-10 rounded-full border border-base-content/10 bg-base-300 shadow-md">
-              {userAvatar ? (
-                <img src={userAvatar} alt="avatar" className="object-cover" />
-              ) : (
-                <img 
-                  src={getDiceBearAvatar(username || userNick)} 
-                  alt="avatar" 
-                  className="object-cover bg-primary/10" 
-                />
-              )}
-            </div>
+            <UserAvatar 
+              pub={userPub || ""} 
+              db={db} 
+              className="w-10 h-10" 
+            />
           </div>
           {!showSearch && (
             <h1 className="text-2xl font-black tracking-tight text-base-content animate-fadeIn">
@@ -280,13 +271,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                 >
                   <div className="avatar relative">
-                    <div className="w-14 h-14 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm">
-                      <img
-                        src={profile.avatar || getDiceBearAvatar(id, isGroup)}
-                        alt="avatar"
-                        className="object-cover w-full h-full"
-                      />
-                    </div>
+                    <UserAvatar 
+                      pub={id} 
+                      db={db} 
+                      isGroup={isGroup} 
+                      className="w-14 h-14" 
+                    />
                     {unreadCount > 0 && (
                       <span className="absolute -top-1 -right-1 badge badge-primary badge-sm font-black border-2 border-base-100 px-1.5 animate-bounce">
                         {unreadCount}

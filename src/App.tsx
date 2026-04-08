@@ -628,7 +628,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, searchParams]);
 
   // ── Profile Logic ──
-  const [userAvatar, setUserAvatar] = useState<string | null>(localStorage.getItem("linda_user_avatar"));
   const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_user_nick") || "");
   const [contactProfiles, setContactProfiles] = useState<
     Record<
@@ -640,23 +639,12 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   useEffect(() => {
     if (!isLoggedIn) {
       // Clear cache on logout
-      localStorage.removeItem("linda_user_avatar");
       localStorage.removeItem("linda_user_nick");
       localStorage.removeItem("linda_user_unique_username");
       return;
     }
     const pub = db.getUserPub();
     if (pub) {
-      db.On(
-        `~${pub}/profile/avatar`,
-        (data: any) => {
-          if (typeof data === "string") {
-            setUserAvatar(data);
-            localStorage.setItem("linda_user_avatar", data);
-          }
-        },
-        "avatar_self",
-      );
       db.On(
         `~${pub}/profile/nickname`,
         (data: any) => {
@@ -668,7 +656,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         "nick_self",
       );
       return () => {
-        db.Off("avatar_self");
         db.Off("nick_self");
       };
     }
@@ -1047,10 +1034,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
           element={
             <Layout
               sidebarProps={{
+                db,
                 userPub,
                 userNick,
                 username: username || "",
-                userAvatar,
                 contacts,
                 setRecipient: (id: string) => {
                   setRecipient(id);
@@ -1074,6 +1061,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
             element={
               <ChatView
                 recipient=""
+                db={db}
                 setRecipient={(id) => {
                   setRecipient(id);
                   if (id) navigate(`/chat/${id}`);
@@ -1086,7 +1074,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 currentMessages={currentMessages}
                 myRole={myRole}
                 userPub={userPub || ""}
-                userAvatar={userAvatar}
                 userNick={userNick}
                 username={username || ""}
                 message={message}
@@ -1119,6 +1106,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
             element={
               <ChatWrapper
                 recipient={recipient}
+                db={db}
                 setRecipient={(id) => {
                   setRecipient(id);
                   if (id) navigate(`/chat/${id}`);
@@ -1132,7 +1120,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 currentMessages={currentMessages}
                 myRole={myRole}
                 userPub={userPub || ""}
-                userAvatar={userAvatar}
                 userNick={userNick}
                 username={username || ""}
                 message={message}
@@ -1168,7 +1155,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 username={username || ""}
                 currentNick={userNick || username || ""}
                 currentUniqueUsername={userUniqueUsername}
-                currentAvatar={userAvatar}
                 handleLogout={handleLogout}
                 showNotification={showNotification}
               />
@@ -1223,6 +1209,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
 const ChatWrapper: React.FC<{
   recipient: string;
+  db: DataBase;
   setRecipient: (id: string) => void;
   communicationService: CommunicationService | null;
   groupService: GroupService | null;
@@ -1235,7 +1222,6 @@ const ChatWrapper: React.FC<{
   currentMessages: any[];
   myRole: string | null;
   userPub: string;
-  userAvatar: string | null;
   userNick: string;
   username: string;
   message: string;
