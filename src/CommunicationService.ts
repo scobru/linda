@@ -1,6 +1,7 @@
 import { DataBase } from "shogun-core";
 import Gun from "gun/gun";
 import "gun/sea";
+import { generateSecureRandomInt } from "./utils/crypto.ts";
 
 /**
  * CommunicationService
@@ -374,7 +375,7 @@ export class CommunicationService {
       }
 
       // Jittered exponential-ish backoff
-      const backoff = Math.min(5000, 1000 * (i + 1) + Math.random() * 500);
+      const backoff = Math.min(5000, 1000 * (i + 1) + generateSecureRandomInt(500));
       await new Promise((r) => setTimeout(r, backoff));
     }
     throw new Error(
@@ -639,7 +640,7 @@ export class CommunicationService {
         // Skip v9/v8/root — they never have signal_inbox_v12 policies and will always fail validation
       } catch (e) {}
 
-      const backoff = Math.min(3000, 500 * (i + 1) + Math.random() * 500);
+      const backoff = Math.min(3000, 500 * (i + 1) + generateSecureRandomInt(500));
       await new Promise((r) => setTimeout(r, backoff));
     }
 

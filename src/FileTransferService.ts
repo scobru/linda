@@ -1,4 +1,5 @@
 import type { IGunInstance } from 'gun';
+import { generateSecureRandomString } from './utils/crypto.ts';
 
 export type TransferStatus = 'idle' | 'offering' | 'incoming' | 'signaling' | 'transferring' | 'completed' | 'failed' | 'offered';
 
@@ -66,7 +67,7 @@ export class FileTransferService {
 
   constructor(_gun: IGunInstance, myPub: string) {
     this.myPub = myPub;
-    this.clientId = Math.random().toString(36).substring(7);
+    this.clientId = generateSecureRandomString(7);
     console.log(`[FileTransfer] Instance initialized with clientId: ${this.clientId}`);
   }
 

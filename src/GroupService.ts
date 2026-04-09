@@ -1,4 +1,5 @@
 import { DataBase } from "shogun-core";
+import { generateSecureRandomString, generateUUID } from "./utils/crypto.ts";
 
 export type Role = "peer" | "moderator" | "administrator";
 
@@ -40,20 +41,11 @@ export class GroupService {
     this.db = db;
   }
 
-  private generateUUID(): string {
-    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === 'x' ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
-  }
-
   /**
    * Create a new encrypted group
    */
   async createGroup(name: string, description: string, type: 'group' | 'broadcast' = 'group'): Promise<GroupInfo> {
-    const groupId = this.generateUUID();
+    const groupId = generateUUID();
     const groupSecret = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
     const myPub = this.db.getUserPub();
 
@@ -116,7 +108,7 @@ export class GroupService {
    */
   onMemberRoleChange(groupId: string, memberPub: string, callback: (role: Role | null) => void): () => void {
     const path = `signal_rooms/${groupId}/members/${memberPub}/role`;
-    const evId = `role_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
+    const evId = `role_${groupId}_${memberPub}_${generateSecureRandomString(7)}`;
 
     (this.db.On as any)(path, (data: any) => {
       if (data) {
@@ -137,7 +129,7 @@ export class GroupService {
    */
   onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
     const path = `signal_rooms/${groupId}/mutes/${memberPub}`;
-    const evId = `mute_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
+    const evId = `mute_${groupId}_${memberPub}_${generateSecureRandomString(7)}`;
 
     (this.db.On as any)(path, (data: any) => {
       callback(!!data);
@@ -404,7 +396,7 @@ export class GroupService {
    */
   async reportContent(groupId: string, contentId: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
-    const reportId = this.generateUUID();
+    const reportId = generateUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
       type: "content",
       contentId,
@@ -417,7 +409,7 @@ export class GroupService {
 
   async reportUser(groupId: string, targetPub: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
-    const reportId = crypto.randomUUID();
+    const reportId = generateUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
       type: "user",
       targetPub,
@@ -454,7 +446,7 @@ export class GroupService {
     const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
     if (!meta) throw new Error("Group not found");
 
-    const inviteId = this.generateUUID();
+    const inviteId = generateUUID();
     const invite: GroupInvite = {
       g: groupId,
       s: meta.secret,

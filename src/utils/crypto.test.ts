@@ -1,7 +1,7 @@
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert';
 import crypto from 'node:crypto';
-import { generateSecureRandomInt, generateSecureRandomString } from './crypto.ts';
+import { generateSecureRandomInt, generateSecureRandomString, generateUUID } from './crypto.ts';
 
 describe('Crypto Utils', () => {
   before(() => {
@@ -55,6 +55,25 @@ describe('Crypto Utils', () => {
     test('should default to length 10', () => {
       const result = generateSecureRandomString();
       assert.strictEqual(result.length, 10);
+    });
+  });
+
+  describe('generateUUID', () => {
+    test('should return a valid UUID v4 format', () => {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      for (let i = 0; i < 100; i++) {
+        const result = generateUUID();
+        assert.ok(uuidRegex.test(result), `Result ${result} should match UUID v4 format`);
+      }
+    });
+
+    test('should generate unique values', () => {
+      const seen = new Set();
+      for (let i = 0; i < 100; i++) {
+        const result = generateUUID();
+        assert.ok(!seen.has(result), 'Duplicate UUID generated');
+        seen.add(result);
+      }
     });
   });
 });

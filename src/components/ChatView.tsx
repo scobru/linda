@@ -7,6 +7,7 @@ import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useMessaging";
 import { CommunicationService } from "../CommunicationService";
 import { WormholeService } from "../WormholeService";
+import { generateSecureRandomString } from "../utils/crypto.ts";
 
 interface ChatViewProps {
   recipient: string;
@@ -213,7 +214,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       size: file.size,
       mimeType: file.type,
       hash: "tbd",
-      id: Math.random().toString(36).substring(7),
+      id: generateSecureRandomString(7),
       status: "offered",
     };
 
