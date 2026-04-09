@@ -332,7 +332,8 @@ export class GroupService {
       }
 
       // Ensure the creator/admin is always in the list even if members node sync is delayed
-      if (meta && meta.adminPub && !members.find((m) => m.pub === (meta as any).adminPub)) {
+      const memberPubs = new Set(members.map((m) => m.pub));
+      if (meta && meta.adminPub && !memberPubs.has((meta as any).adminPub)) {
         members.push({
           pub: meta.adminPub,
           role: "administrator",
