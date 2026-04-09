@@ -48,6 +48,7 @@ export const useMessaging = (
   const [pinnedMessages, setPinnedMessages] = useState<Record<string, Set<string>>>({});
   
   const processedRef = useRef<Set<string>>(new Set());
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const resetsRef = useRef<Set<string>>(new Set());
   const blockedContactsRef = useRef<Set<string>>(new Set());
   const lastTypingSentRef = useRef<number>(0);
@@ -88,10 +89,12 @@ export const useMessaging = (
       if (raw) {
         const parsed = JSON.parse(raw);
         for (const contact in parsed) {
-          parsed[contact] = parsed[contact].map((m: any) => ({
+          parsed[contact] = parsed[contact].map((m: any) => {
+            seenMessageIdsRef.current.add(m.id);
+            return {
             ...m,
             timestamp: new Date(m.timestamp),
-          }));
+          }});
         }
         setMessages(parsed);
         setContacts(Object.keys(parsed));
@@ -299,16 +302,35 @@ export const useMessaging = (
 
               setMessages((prev) => {
                 const groupMsgs = prev[contactId] || [];
-                const isDuplicate = groupMsgs.some(
-                  (m) =>
-                    m.id === remoteMsgId ||
-                    (m.sender === (isMe ? "Me" : data.sender) &&
-                      m.text === plaintext &&
-                      Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-                );
+                const expectedSender = isMe ? "Me" : data.sender;
+                const dataTimestampTime = new Date(data.timestamp || Date.now()).getTime();
+
+                let isDuplicate = false;
+                let duplicateIdMatch = false;
+
+                if (seenMessageIdsRef.current.has(remoteMsgId)) {
+                  isDuplicate = true;
+                  duplicateIdMatch = true;
+                } else {
+                  for (let i = groupMsgs.length - 1; i >= 0; i--) {
+                    const m = groupMsgs[i];
+                    if (m.id === remoteMsgId) {
+                      isDuplicate = true;
+                      duplicateIdMatch = true;
+                      break;
+                    }
+                    const timeDiff = dataTimestampTime - m.timestamp.getTime();
+
+                    if (Math.abs(timeDiff) < 10000 && m.sender === expectedSender && m.text === plaintext) {
+                      isDuplicate = true;
+                      break;
+                    }
+                  }
+                }
+
                 if (isDuplicate) {
                   // Update status of existing message if found by ID
-                  if (groupMsgs.some(m => m.id === remoteMsgId)) {
+                  if (duplicateIdMatch) {
                     const updatedGroupMsgs = groupMsgs.map(m => m.id === remoteMsgId ? { ...m, status: "delivered" as const } : m);
                     return { ...prev, [contactId]: updatedGroupMsgs };
                   }
@@ -334,6 +356,8 @@ export const useMessaging = (
                 if (userPub) saveMessages(userPub, updated);
                 return updated;
               });
+
+              seenMessageIdsRef.current.add(remoteMsgId);
 
               if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
                 const title = `New message in ${meta.name}`;
@@ -608,16 +632,32 @@ export const useMessaging = (
 
             setMessages((prev) => {
               const userMsgs = prev[senderPubKey] || [];
-              const isDuplicate = userMsgs.some(
-                (m) =>
-                  m.id === msgId ||
-                  (m.sender === senderPubKey &&
-                    (m.text === validPlaintext || m.audio === validPlaintext) &&
-                    Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-              );
+              const dataTimestampTime = new Date(data.timestamp || Date.now()).getTime();
+              let isDuplicate = false;
+              let duplicateIdMatch = false;
+
+              if (seenMessageIdsRef.current.has(msgId)) {
+                isDuplicate = true;
+                duplicateIdMatch = true;
+              } else {
+                for (let i = userMsgs.length - 1; i >= 0; i--) {
+                  const m = userMsgs[i];
+                  if (m.id === msgId) {
+                    isDuplicate = true;
+                    duplicateIdMatch = true;
+                    break;
+                  }
+                  const timeDiff = dataTimestampTime - m.timestamp.getTime();
+
+                  if (Math.abs(timeDiff) < 10000 && m.sender === senderPubKey && (m.text === validPlaintext || m.audio === validPlaintext)) {
+                    isDuplicate = true;
+                    break;
+                  }
+                }
+              }
 
               if (isDuplicate) {
-                if (userMsgs.some(m => m.id === msgId)) {
+                if (duplicateIdMatch) {
                   const updatedUserMsgs = userMsgs.map(m => m.id === msgId ? { ...m, status: "delivered" as const } : m);
                   return { ...prev, [senderPubKey]: updatedUserMsgs };
                 }
@@ -816,9 +856,14 @@ export const useMessaging = (
     }
 
     // 1. Optimistic Update: Add message immediately with "sending" status
+    // To avoid mutating a ref during render, we check inside but only add outside if needed
+    let wasDuplicate = false;
     setMessages((prev) => {
       const currentMsgs = prev[recipient] || [];
-      if (currentMsgs.some(m => m.id === msgId)) return prev;
+      if (seenMessageIdsRef.current.has(msgId) || currentMsgs.some(m => m.id === msgId)) {
+        wasDuplicate = true;
+        return prev;
+      }
       
       const next = { 
         ...prev, 
@@ -841,6 +886,11 @@ export const useMessaging = (
       saveMessages(userPub, next);
       return next;
     });
+
+    if (!wasDuplicate) {
+      seenMessageIdsRef.current.add(msgId);
+    }
+
     setContacts((prev) => {
       if (!prev.includes(recipient)) {
         saveContact(recipient);
@@ -1014,6 +1064,7 @@ export const useMessaging = (
     });
 
     // 2. Clear from local state and Storage
+    msgs.forEach(m => seenMessageIdsRef.current.delete(m.id));
     setMessages(prev => {
       const next = { ...prev };
       delete next[contactId];
