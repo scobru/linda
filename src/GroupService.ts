@@ -302,33 +302,53 @@ export class GroupService {
 
   async getMembers(groupId: string): Promise<GroupMember[]> {
     try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
+      // Fetch meta and members node in parallel
+      const metaPromise = (this.db.Get as any)(`signal_rooms/${groupId}/meta`);
+      const membersNodePromise = (this.db.Get as any)(`signal_rooms/${groupId}/members`);
+
+      const [meta, membersNode] = await Promise.all([metaPromise, membersNodePromise]) as [GroupInfo, Record<string, any>];
 
       const members: GroupMember[] = [];
       if (membersNode) {
         const pubs = Object.keys(membersNode).filter(pub => pub !== "_" && pub !== ">" && membersNode[pub] !== null);
+        const missingPubs: string[] = [];
         
-        // Fetch each member's role specifically to ensure we have the latest data
-        const memberData = await Promise.all(pubs.map(async (pub) => {
-          try {
-            const data = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${pub}`);
-            if (data) {
-              return {
-                pub,
-                role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
-                joinedAt: data.joinedAt || Date.now(),
-              };
-            }
-          } catch (e) { }
-          return {
-            pub,
-            role: (meta && meta.adminPub === pub ? "administrator" : "peer") as Role,
-            joinedAt: Date.now(),
-          };
-        }));
+        // Check if member data is already fully resolved in the members node
+        for (const pub of pubs) {
+          const data = membersNode[pub];
+          if (data && typeof data === 'object' && !('#' in data && Object.keys(data).length === 1)) {
+            members.push({
+              pub,
+              role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
+              joinedAt: data.joinedAt || Date.now(),
+            });
+          } else {
+            // Data is only a GunDB reference or missing, queue for specific fetching
+            missingPubs.push(pub);
+          }
+        }
 
-        members.push(...memberData);
+        // Fetch only the members whose data was not resolved
+        if (missingPubs.length > 0) {
+          const missingMemberData = await Promise.all(missingPubs.map(async (pub) => {
+            try {
+              const data = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${pub}`);
+              if (data) {
+                return {
+                  pub,
+                  role: data.role || (meta && meta.adminPub === pub ? "administrator" : "peer"),
+                  joinedAt: data.joinedAt || Date.now(),
+                };
+              }
+            } catch (e) { }
+            return {
+              pub,
+              role: (meta && meta.adminPub === pub ? "administrator" : "peer") as Role,
+              joinedAt: Date.now(),
+            };
+          }));
+          members.push(...missingMemberData);
+        }
       }
 
       // Ensure the creator/admin is always in the list even if members node sync is delayed
