@@ -59,12 +59,35 @@ export class CommunicationService {
         let user = this.db.gun.user();
         let pair = (user as any)?._?.sea;
         if (!pair || !user.is) {
-          for (let i = 0; i < 15; i++) {
-            await new Promise((r) => setTimeout(r, 200));
-            user = this.db.gun.user();
-            pair = (user as any)?._?.sea;
-            if (pair && user.is) break;
-          }
+          await new Promise<void>((resolve) => {
+            let timeoutId: ReturnType<typeof setTimeout>;
+            let checkInterval: ReturnType<typeof setInterval>;
+
+            const checkAndResolve = () => {
+              user = this.db.gun.user();
+              pair = (user as any)?._?.sea;
+              if (pair && user.is) {
+                clearTimeout(timeoutId);
+                clearInterval(checkInterval);
+                resolve();
+              }
+            };
+
+            // Listen for the auth event for immediate resolution
+            (this.db.gun as any).once("auth", checkAndResolve);
+
+            // Fast polling fallback in case auth already triggered or event gets dropped
+            checkInterval = setInterval(checkAndResolve, 50);
+
+            // Give up after 3 seconds (same as original 15 * 200ms)
+            timeoutId = setTimeout(() => {
+              clearInterval(checkInterval);
+              resolve();
+            }, 3000);
+          });
+
+          user = this.db.gun.user();
+          pair = (user as any)?._?.sea;
         }
 
         if (!user.is) {
