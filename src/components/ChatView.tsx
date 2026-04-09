@@ -66,7 +66,7 @@ const renderTextWithLinks = (text?: string, isMe?: boolean) => {
           href={part}
           target="_blank"
           rel="noopener noreferrer"
-          className={`hover:brightness-125 transition-all text-[14px] font-black underline ${isMe ? 'text-primary-content' : 'text-primary drop-shadow-md'}`}
+          className={`hover:brightness-125 transition-all text-[14px] font-black underline ${isMe ? 'text-primary-content' : 'text-primary drop-shadow-md brightness-125'}`}
           onClick={(e) => e.stopPropagation()}
         >
           {shortenLink(part)}
@@ -629,7 +629,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {msg.tags && msg.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2 mb-1">
                         {msg.tags.map(tag => (
-                          <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>
+                          <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary brightness-125'}`}>
                             #{tag}
                           </span>
                         ))}
