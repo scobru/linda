@@ -29,6 +29,7 @@ import { Layout } from "./components/Layout";
 import { useSignalInit } from "./hooks/useSignalInit";
 import { useSignalMessaging } from "./hooks/useSignalMessaging";
 import { GroupService, type Role } from "./GroupService";
+import { generateSecureRandomString } from "./utils/crypto";
 import { SignalService } from "./SignalService";
 import { WormholeService } from "./WormholeService";
 import { FileTransferService } from "./FileTransferService";
@@ -352,7 +353,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
           }
           const payload = prefix + JSON.stringify(signal);
           const cipher = await signalService.encryptMessage(toPub, payload);
-          const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${generateSecureRandomString(7)}`;
 
           // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
           const targetInbox = db.gun.user(toPub).get(`signal_inbox_v13`);

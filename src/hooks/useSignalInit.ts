@@ -3,6 +3,7 @@ import { useShogun } from 'shogun-button-react';
 import { DataBase } from 'shogun-core';
 import { SignalService } from '../SignalService';
 import { GroupService } from '../GroupService';
+import { generateSecureRandomInt } from '../utils/crypto';
 
 export const useSignalInit = (db: DataBase, showNotification: (msg: string, type?: 'info' | 'error') => void) => {
   const { isLoggedIn, username } = useShogun();
@@ -34,7 +35,7 @@ export const useSignalInit = (db: DataBase, showNotification: (msg: string, type
           if (!uniqueName) {
             console.log(`[useSignalInit] Handle not found for ${username}, generating random fallback...`);
             // Generate a default one: @name + 4 random digits
-            const digits = Math.floor(1000 + Math.random() * 9000);
+            const digits = generateSecureRandomInt(9000) + 1000;
             uniqueName = `@${username}${digits}`;
             
             // Try to save it

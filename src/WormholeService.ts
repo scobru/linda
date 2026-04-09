@@ -1,4 +1,5 @@
 import type { IGunInstance } from 'gun';
+import { generateSecureRandomInt } from './utils/crypto';
 
 // Shared config
 const ENCRYPTION_CONFIG = {
@@ -138,10 +139,10 @@ function generateCode(): string {
   const nouns = [
     'cat', 'dog', 'bird', 'fish', 'tree', 'star', 'moon', 'rock', 'wave', 'fire',
   ];
-  const numbers = Math.floor(Math.random() * 100);
+  const numbers = generateSecureRandomInt(100);
 
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const adj = adjectives[generateSecureRandomInt(adjectives.length)];
+  const noun = nouns[generateSecureRandomInt(nouns.length)];
 
   return `${numbers}-${adj}-${noun}`;
 }
