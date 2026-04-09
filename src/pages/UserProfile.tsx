@@ -87,6 +87,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     if (!nick || nick === currentNick) return;
     const pub = db.getUserPub();
     if (!pub) return;
+    if (nick.length > 64) {
+      showNotification("Nickname must be 64 characters or less", "error");
+      return;
+    }
     try {
       await db.Put(`signal_global_nicknames/${nick}`, pub);
       await db.userPut("profile/nickname", nick);
@@ -101,6 +105,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     const pub = db.getUserPub();
     if (!pub) return;
     let normalized = uniqueName.trim();
+    if (normalized.length > 64) {
+      showNotification("Username must be 64 characters or less", "error");
+      return;
+    }
     if (!normalized.startsWith("@")) normalized = `@${normalized}`;
     if (!/^@[a-zA-Z0-9]+$/.test(normalized)) {
       showNotification("Username must be @name1234 format", "error");

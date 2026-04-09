@@ -217,6 +217,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         // Public keys used as fallbacks are 87 chars, which triggers an error.
         if (finalUsername && finalUsername.length > 64) {
           finalUsername = finalUsername.slice(0, 64);
+          pair.username = finalUsername;
         }
 
         const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
