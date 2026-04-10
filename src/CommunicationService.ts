@@ -389,7 +389,9 @@ export class CommunicationService {
   public async regenerateCertificate(force: boolean = false): Promise<void> {
     const pair = this.myPair || (this.db.gun.user() as any)?._?.sea;
     if (!pair) {
-      console.warn("[CommunicationService] No user keys available for certificate regeneration.");
+      console.warn(
+        "[CommunicationService] No user keys available for certificate regeneration.",
+      );
       return;
     }
     const user = this.db.gun.user();
@@ -408,7 +410,10 @@ export class CommunicationService {
         let isValid = false;
         if (currentCert && typeof currentCert === "string") {
           try {
-            const verified = await (Gun as any).SEA.verify(currentCert, pair.pub);
+            const verified = await (Gun as any).SEA.verify(
+              currentCert,
+              pair.pub,
+            );
             if (verified && verified.c) {
               // Check if the policy mentions signal_inbox_v13
               const policyStr = JSON.stringify(verified.c);
@@ -654,7 +659,9 @@ export class CommunicationService {
    */
   public clearCertCache(pub: string): void {
     this.inboxCertCache.delete(pub);
-    console.log(`[CommunicationService] Cleared cert cache for ${pub.slice(0, 8)}`);
+    console.log(
+      `[CommunicationService] Cleared cert cache for ${pub.slice(0, 8)}`,
+    );
   }
 
   /**

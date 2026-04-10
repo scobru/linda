@@ -121,6 +121,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   // Compute all unique tags in current chat
   const allTags = useMemo(() => {
@@ -325,6 +326,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentMessages]);
 
+  const handleContainerClick = (e: React.MouseEvent) => {
+    // If we click exactly on the container or message list (not on a bubble)
+    if (e.target === e.currentTarget) {
+      setSelectedMessageId(null);
+    }
+  };
+
+  const handleMessageClick = (e: React.MouseEvent, id: string) => {
+    // Determine if it was a selection click or an action click
+    // We check if the click was on the bubble itself
+    const target = e.target as HTMLElement;
+    if (target.closest('a') || target.closest('button')) return;
+
+    setSelectedMessageId(prev => (prev === id ? null : id));
+  };
+
+  const handleLongPress = (e: React.MouseEvent | React.TouchEvent, id: string) => {
+    // onContextMenu handles long press on most mobile browsers
+    if (e.type === 'contextmenu') {
+       e.preventDefault();
+    }
+    setSelectedMessageId(id);
+  };
+
   if (!recipient) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-base-100 text-center p-8 gap-6 animate-fadeIn font-narrow">
@@ -520,7 +545,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+      <div 
+        className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide"
+        onClick={handleContainerClick}
+      >
         {filteredMessages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
             <svg
@@ -568,7 +596,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
 
               <div
-                className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"}`}
+                className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? 'ring-2 ring-primary/40 brightness-110' : ''}`}
+                onClick={(e) => handleMessageClick(e, msg.id)}
+                onContextMenu={(e) => handleLongPress(e, msg.id)}
               >
                 {isPinned && (
                   <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-base-content/10">
@@ -652,7 +682,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 {/* Bubble Actions */}
                 <div
-                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 z-10 scale-100 sm:scale-90 sm:group-hover:scale-100 ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
+                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto'} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
                 >
                     {recipient.length === 36 && recipient.includes("-") && (
                       <>
