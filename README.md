@@ -23,6 +23,24 @@
 -   **Encryption**: Gun SEA (AES, RSA, SHA).
 -   **Communication**: WebRTC for P2P data streams.
 
+## 🔒 Security & Encryption
+
+Shogun Linda implements a multi-layered security model to ensure privacy without a central authority.
+
+### 1:1 End-to-End Encryption (E2E)
+Managed by the `CommunicationService`, it uses **Gun SEA** for robust P2P identity and security:
+-   **Key Exchange**: Uses Diffie-Hellman (DH) derivation. Each user has an `epub` (Exchange Public Key).
+-   **Shared Secrets**: A unique shared secret is computed between two peers using `SEA.secret(peer_epub, my_pair)`.
+-   **Cipher**: Messages are encrypted/decrypted using `SEA.encrypt` and `SEA.decrypt` with the derived secret.
+-   **Public Inboxes**: Secure "write-only" inboxes are managed via recursive SEA certificates (`inbox_cert`), allowing peers to signal you without having global write permissions to your node.
+
+### Group Encryption
+Managed by the `GroupService`, using a **Symmetric Key Sharing** model:
+-   **Group Secret**: A random 32-byte symmetric key is generated upon group creation.
+-   **Key Distribution**: The secret is bundled inside the Base64 invite link. Joining the group grants access to the key.
+-   **Cipher**: messages are encrypted using **AES-GCM** with the group's symmetric key. This ensures high performance for large groups while maintaining "Group E2E" privacy (only members can decrypt).
+-   **Permissions**: decentralized Role-Based Access Control (RBAC) manages who can kick, mute, or pin messages.
+
 ## 🛠️ Development
 
 ### Prerequisites
