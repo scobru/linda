@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 
 import {
   BrowserRouter,
@@ -10,12 +16,55 @@ import {
 } from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationPage } from "./pages/GroupCreationPage";
-import Gun from "gun";
-import type { IGunInstance } from "gun";
-import "gun/sea";
-import "gun/lib/yson";
-import "gun/lib/webrtc";
-import { DataBase, ShogunCore } from "shogun-core";
+import { DataBase, ShogunCore, Zen } from "shogun-core";
+
+// --- Zen User Compatibility Shim ---
+// This shims the legacy GunDB .user() method onto the Zen instance,
+// which is required by ShogunCore's DataBase class.
+const setupZenUserShim = (GunConstructor: any) => {
+  if (!GunConstructor || GunConstructor.prototype.user) return;
+
+  GunConstructor.prototype.user = function (pub?: string) {
+    const zen = this;
+    if (pub) {
+      return zen.get("~" + pub);
+    }
+
+    if (!zen._user) {
+      const userNode = zen.get("~");
+      userNode.is = null;
+      userNode._ = {};
+
+      userNode.auth = function (pair: any, cb?: (ack: any) => void) {
+        userNode.is = { pub: pair.pub, alias: pair.alias || "user" };
+        userNode._ = { sea: pair };
+        if (cb) {
+          setTimeout(() => cb({ err: undefined, ok: 1, pub: pair.pub }), 0);
+        }
+        return userNode;
+      };
+
+      userNode.recall = function (opt?: { sessionStorage: boolean }) {
+        // ShogunCore calls this. Its internal logic handles the actual recall,
+        // but it expects the user object to exist.
+        return userNode;
+      };
+
+      userNode.leave = function () {
+        userNode.is = null;
+        userNode._ = {};
+        return userNode;
+      };
+
+      zen._user = userNode;
+    }
+    return zen._user;
+  };
+};
+
+// Apply the shim immediately
+setupZenUserShim(Zen);
+import type { IZenInstance as IGunInstance } from "shogun-core";
 import {
   shogunConnector,
   ShogunButtonProvider,
@@ -48,7 +97,11 @@ declare global {
 }
 
 // ── Unified Loading Component ──
-const LoadingScreen: React.FC<{ message: string; submessage?: string; type?: "infinity" | "spinner" }> = ({ message, submessage, type = "spinner" }) => (
+const LoadingScreen: React.FC<{
+  message: string;
+  submessage?: string;
+  type?: "infinity" | "spinner";
+}> = ({ message, submessage, type = "spinner" }) => (
   <div className="min-h-dvh bg-base-100 flex flex-col items-center justify-center relative px-6 py-12 overflow-hidden">
     <div className="absolute inset-0 bg-gradient-to-tr from-primary/10 via-transparent to-secondary/10 opacity-30 pointer-events-none"></div>
     <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse"></div>
@@ -57,7 +110,11 @@ const LoadingScreen: React.FC<{ message: string; submessage?: string; type?: "in
     <div className="z-10 flex flex-col items-center animate-slide-up">
       <div className="loader-glow mb-12">
         <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-3xl glass-panel flex items-center justify-center p-6 sm:p-8 transform hover:scale-105 transition-transform duration-500">
-          <img src="/logo.svg" alt="Linda Logo" className="w-full h-full object-contain drop-shadow-2xl" />
+          <img
+            src="/logo.svg"
+            alt="Linda Logo"
+            className="w-full h-full object-contain drop-shadow-2xl"
+          />
         </div>
       </div>
 
@@ -88,10 +145,15 @@ const LoadingScreen: React.FC<{ message: string; submessage?: string; type?: "in
   </div>
 );
 
-const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, sdkInstance }) => {
+const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
+  db,
+  sdkInstance,
+}) => {
   const { isLoggedIn, userPub, logout } = useShogun() as any;
   const sdk = sdkInstance; // Use the provided instance directly to avoid context delay
-  const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub ? (db.getCurrentUser()?.user as any)?.username : "";
+  const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub
+    ? (db.getCurrentUser()?.user as any)?.username
+    : "";
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
 
@@ -99,7 +161,9 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
   // ── Wormhole State ──
   const wormholeServiceRef = useRef<WormholeService | null>(null);
-  const [wormholeStatuses, setWormholeStatuses] = useState<Record<string, string>>({});
+  const [wormholeStatuses, setWormholeStatuses] = useState<
+    Record<string, string>
+  >({});
 
   // ── File Transfer State ──
   const fileTransferServiceRef = useRef<FileTransferService | null>(null);
@@ -112,161 +176,206 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   const [searchParams] = useSearchParams();
   const magicLoginAttempted = useRef(false);
   const [isProcessingMagicLink, setIsProcessingMagicLink] = useState(false);
-  const [notification, setNotification] = useState<{ msg: string; type: "info" | "error" } | null>(null);
+  const [notification, setNotification] = useState<{
+    msg: string;
+    type: "info" | "error";
+  } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   // Initial state logging for troubleshooting
   useEffect(() => {
-    console.log(`[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, sdkReady: ${!!sdk}, URL: ${window.location.href}`);
+    console.log(
+      `[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, sdkReady: ${!!sdk}, URL: ${window.location.href}`,
+    );
   }, []);
 
   useEffect(() => {
-    console.log(`[AppContent] State change - isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}`);
+    console.log(
+      `[AppContent] State change - isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}`,
+    );
   }, [isLoggedIn, userPub]);
 
-  const showNotification = useCallback((msg: string, type: "info" | "error" = "info") => {
-    setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 3000);
-  }, []);
+  const showNotification = useCallback(
+    (msg: string, type: "info" | "error" = "info") => {
+      setNotification({ msg, type });
+      setTimeout(() => setNotification(null), 3000);
+    },
+    [],
+  );
 
-
-
-  const processUniversalLogin = useCallback(async (data: string, context: string = "Login") => {
-    if (!data) return;
-    try {
-      // 0. Ensure SDK is ready (Retry loop for slow bootstrap on mobile)
-      let activeSdk = sdk || window.shogun;
-      if (!activeSdk) {
-        console.log(`[Login] SDK not detected in context, waiting for initialization...`);
-        for (let i = 0; i < 10; i++) {
-          await new Promise(r => setTimeout(r, 500));
-          activeSdk = sdk || window.shogun;
-          if (activeSdk) {
-            console.log(`[Login] SDK became ready after ${(i + 1) * 0.5}s`);
-            break;
+  const processUniversalLogin = useCallback(
+    async (data: string, context: string = "Login") => {
+      if (!data) return;
+      try {
+        // 0. Ensure SDK is ready (Retry loop for slow bootstrap on mobile)
+        let activeSdk = sdk || window.shogun;
+        if (!activeSdk) {
+          console.log(
+            `[Login] SDK not detected in context, waiting for initialization...`,
+          );
+          for (let i = 0; i < 10; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            activeSdk = sdk || window.shogun;
+            if (activeSdk) {
+              console.log(`[Login] SDK became ready after ${(i + 1) * 0.5}s`);
+              break;
+            }
           }
         }
-      }
 
-      if (!activeSdk) {
-        throw new Error("SDK not ready. Please try again in a moment.");
-      }
+        if (!activeSdk) {
+          throw new Error("SDK not ready. Please try again in a moment.");
+        }
 
-      console.log(`[Login] ${context} context, processing data...`);
+        console.log(`[Login] ${context} context, processing data...`);
 
-      let payload = data.trim();
+        let payload = data.trim();
 
-      // Sanitization: Remove potential trailing slashes added by camera apps
-      if (payload.endsWith("/")) payload = payload.slice(0, -1);
+        // Sanitization: Remove potential trailing slashes added by camera apps
+        if (payload.endsWith("/")) payload = payload.slice(0, -1);
 
-      // 1. Extract payload from URL if present
-      if (payload.includes("?session=") || payload.includes("?magic_login=")) {
+        // 1. Extract payload from URL if present
+        if (
+          payload.includes("?session=") ||
+          payload.includes("?magic_login=")
+        ) {
+          try {
+            const url = new URL(
+              payload.startsWith("http")
+                ? payload
+                : `https://dummy.com/${payload}`,
+            );
+            payload =
+              url.searchParams.get("session") ||
+              url.searchParams.get("magic_login") ||
+              payload;
+          } catch (e) {
+            // Fallback if URL parsing fails but strings are present
+            if (payload.includes("?session="))
+              payload = payload.split("?session=")[1].split("&")[0];
+            else if (payload.includes("?magic_login="))
+              payload = payload.split("?magic_login=")[1].split("&")[0];
+          }
+        }
+
+        // 2. Decode Base64 payload
+        let jsonStr = "";
+
+        // FIX: Handle '+' chars being converted to ' ' by URL search params or copy-paste
+        let cleanPayload = payload.trim().replace(/ /g, "+");
+
         try {
-          const url = new URL(payload.startsWith("http") ? payload : `https://dummy.com/${payload}`);
-          payload = url.searchParams.get("session") || url.searchParams.get("magic_login") || payload;
+          // Try UTF-8 safe decoding first (Modern & Linda Standard)
+          jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
         } catch (e) {
-          // Fallback if URL parsing fails but strings are present
-          if (payload.includes("?session=")) payload = payload.split("?session=")[1].split("&")[0];
-          else if (payload.includes("?magic_login=")) payload = payload.split("?magic_login=")[1].split("&")[0];
-        }
-      }
-
-      // 2. Decode Base64 payload
-      let jsonStr = "";
-
-      // FIX: Handle '+' chars being converted to ' ' by URL search params or copy-paste
-      let cleanPayload = payload.trim().replace(/ /g, "+");
-
-      try {
-        // Try UTF-8 safe decoding first (Modern & Linda Standard)
-        jsonStr = decodeURIComponent(escape(window.atob(cleanPayload)));
-      } catch (e) {
-        try {
-          // Fallback to plain base64 (For older links or pure ASCII)
-          jsonStr = window.atob(cleanPayload);
-        } catch (e2) {
-          // If not base64, assume it might be a direct JSON string (pure QR pairs)
-          jsonStr = payload;
-        }
-      }
-
-      // 3. Parse JSON
-      let parsed;
-      try {
-        console.log(`[Login] Decoding successful, parsing JSON... (length: ${jsonStr.length})`);
-        parsed = JSON.parse(jsonStr);
-      } catch (e) {
-        console.error(`[Login] JSON Parse Error. First 20 chars: ${jsonStr.substring(0, 20)}`);
-        throw new Error(`Invalid data format (JSON parse error)`);
-      }
-      let pair = parsed;
-      let usernameToUse = "";
-
-      // 4. Handle Shogun Standard Wrapper
-      if (parsed.type === "shogun-auth-pair" && parsed.pair) {
-        console.log(`[Login] Standard Shogun wrapper detected for user: ${parsed.username}`);
-        pair = parsed.pair;
-        usernameToUse = parsed.username || "";
-      }
-
-      // 5. Validate and Login
-      if (pair.pub && pair.priv) {
-        let finalUsername = usernameToUse || pair.username || pair.pub;
-        // Fix: Gun usernames must be 64 chars or less for alias indexing.
-        // Public keys used as fallbacks are 87 chars, which triggers an error.
-        if (finalUsername && finalUsername.length > 64) {
-          finalUsername = finalUsername.slice(0, 64);
-        }
-
-        const displayName = finalUsername.length > 20 ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}` : finalUsername;
-
-        console.log(`[Login] Attempting Gun auth for: ${displayName}`);
-        showNotification("Authenticating...", "info");
-
-        // Reset state before login to avoid conflicts with old sessions
-        if (typeof activeSdk.logout === "function") {
-          activeSdk.logout();
-        }
-
-        const result = await activeSdk.loginWithPair(finalUsername, pair);
-
-        console.log(`[Login] loginWithPair call completed. Result:`, result?.success);
-        if (!result?.success) {
-          console.error(`[Login] loginWithPair failed with error:`, result?.error);
-        }
-        // Verify Gun state immediately
-        const gun = activeSdk.gun || (window as any).gun;
-
-        // Wait up to 3 seconds for Gun to confirm auth
-        let authenticated = false;
-        for (let i = 0; i < 30; i++) {
-          if (gun && gun.user().is) {
-            console.log(`[Login] Gun verified authentication for: ${gun.user().is?.pub.substring(0, 8)} after ${i * 100}ms`);
-            authenticated = true;
-            break;
+          try {
+            // Fallback to plain base64 (For older links or pure ASCII)
+            jsonStr = window.atob(cleanPayload);
+          } catch (e2) {
+            // If not base64, assume it might be a direct JSON string (pure QR pairs)
+            jsonStr = payload;
           }
-          await new Promise(r => setTimeout(r, 100));
         }
 
-        if (!authenticated) {
-          console.warn(`[Login] Warning: Gun session not detected after 3s wait. loginWithPair might have succeeded but Gun state is not updated yet.`);
+        // 3. Parse JSON
+        let parsed;
+        try {
+          console.log(
+            `[Login] Decoding successful, parsing JSON... (length: ${jsonStr.length})`,
+          );
+          parsed = JSON.parse(jsonStr);
+        } catch (e) {
+          console.error(
+            `[Login] JSON Parse Error. First 20 chars: ${jsonStr.substring(0, 20)}`,
+          );
+          throw new Error(`Invalid data format (JSON parse error)`);
+        }
+        let pair = parsed;
+        let usernameToUse = "";
+
+        // 4. Handle Shogun Standard Wrapper
+        if (parsed.type === "shogun-auth-pair" && parsed.pair) {
+          console.log(
+            `[Login] Standard Shogun wrapper detected for user: ${parsed.username}`,
+          );
+          pair = parsed.pair;
+          usernameToUse = parsed.username || "";
         }
 
-        showNotification(`Welcome back, ${displayName}!`, "info");
-        return true;
-      } else {
-        console.error(`[Login] Invalid pair structure:`, Object.keys(pair));
-        throw new Error("Invalid key pair structure");
+        // 5. Validate and Login
+        if (pair.pub && pair.priv) {
+          let finalUsername = usernameToUse || pair.username || pair.pub;
+          // Fix: Gun usernames must be 64 chars or less for alias indexing.
+          // Public keys used as fallbacks are 87 chars, which triggers an error.
+          if (finalUsername && finalUsername.length > 64) {
+            finalUsername = finalUsername.slice(0, 64);
+          }
+
+          const displayName =
+            finalUsername.length > 20
+              ? `${finalUsername.slice(0, 8)}...${finalUsername.slice(-4)}`
+              : finalUsername;
+
+          console.log(`[Login] Attempting Gun auth for: ${displayName}`);
+          showNotification("Authenticating...", "info");
+
+          // Reset state before login to avoid conflicts with old sessions
+          if (typeof activeSdk.logout === "function") {
+            activeSdk.logout();
+          }
+
+          const result = await activeSdk.loginWithPair(finalUsername, pair);
+
+          console.log(
+            `[Login] loginWithPair call completed. Result:`,
+            result?.success,
+          );
+          if (!result?.success) {
+            console.error(
+              `[Login] loginWithPair failed with error:`,
+              result?.error,
+            );
+          }
+          // Verify Gun state immediately
+          const gun = activeSdk.gun || (window as any).gun;
+
+          // Wait up to 3 seconds for Gun to confirm auth
+          let authenticated = false;
+          for (let i = 0; i < 30; i++) {
+            if (gun && gun.user().is) {
+              console.log(
+                `[Login] Gun verified authentication for: ${gun.user().is?.pub.substring(0, 8)} after ${i * 100}ms`,
+              );
+              authenticated = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 100));
+          }
+
+          if (!authenticated) {
+            console.warn(
+              `[Login] Warning: Gun session not detected after 3s wait. loginWithPair might have succeeded but Gun state is not updated yet.`,
+            );
+          }
+
+          showNotification(`Welcome back, ${displayName}!`, "info");
+          return true;
+        } else {
+          console.error(`[Login] Invalid pair structure:`, Object.keys(pair));
+          throw new Error("Invalid key pair structure");
+        }
+      } catch (err: any) {
+        console.error(`[Login] ${context} error:`, err);
+        showNotification(
+          `Login failed: ${err.message || "Invalid or expired link"}`,
+          "error",
+        );
+        return false;
       }
-    } catch (err: any) {
-      console.error(`[Login] ${context} error:`, err);
-      showNotification(`Login failed: ${err.message || "Invalid or expired link"}`, "error");
-      return false;
-    }
-  }, [sdk, showNotification]);
-
-
+    },
+    [sdk, showNotification],
+  );
 
   // ── Hooks ──
   const { communicationService, groupService, isLoading, userUniqueUsername } =
@@ -314,10 +423,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     wormholeServiceRef.current = service;
 
     // Auto-cleanup stale transfers on initialization (older than 1h)
-    const relays = [
-      'http://localhost:8765'
-    ] as string[];
-    const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
+    const relays = ["http://localhost:8765"] as string[];
+    const authToken = import.meta.env.VITE_AUTH_TOKEN || "shogun2025";
 
     (async () => {
       for (const relayUrl of relays) {
@@ -325,7 +432,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
           await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
           console.log(`[App] Wormhole cleanup success via: ${relayUrl}`);
           break;
-        } catch (e) { }
+        } catch (e) {}
       }
     })();
 
@@ -335,9 +442,13 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
   // Update signal sender whenever communicationService becomes available
   useEffect(() => {
     if (fileTransferServiceInst && communicationService) {
-      const sendUnifiedSignal = async (toPub: string, signal: any, prefix: string) => {
+      const sendUnifiedSignal = async (
+        toPub: string,
+        signal: any,
+        prefix: string,
+      ) => {
         try {
-          db.gun.get(`~${toPub}`).once(() => { });
+          db.gun.get(`~${toPub}`).once(() => {});
           let cert;
           for (let i = 0; i < 3; i++) {
             try {
@@ -345,21 +456,30 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
               if (cert) break;
             } catch (e) {
               if (i === 2) throw e;
-              await new Promise(r => setTimeout(r, 1000));
+              await new Promise((r) => setTimeout(r, 1000));
             }
           }
           const payload = prefix + JSON.stringify(signal);
-          const cipher = await communicationService.encryptMessage(toPub, payload);
+          const cipher = await communicationService.encryptMessage(
+            toPub,
+            payload,
+          );
           const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
           // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
           const targetInbox = db.gun.user(toPub).get(`signal_inbox_v13`);
 
-          const doSend = (sendCert: string | null, retryLabel: string): Promise<boolean> => {
+          const doSend = (
+            sendCert: string | null,
+            retryLabel: string,
+          ): Promise<boolean> => {
             return new Promise((resolve) => {
-              const putOptions = (toPub === userPub) ? {} : { opt: { cert: sendCert } };
+              const putOptions =
+                toPub === userPub ? {} : { opt: { cert: sendCert } };
               const timeout = setTimeout(() => {
-                console.warn(`[App] ${retryLabel} signal ${signal.type} put timeout (15s) for ${toPub.substring(0, 8)}`);
+                console.warn(
+                  `[App] ${retryLabel} signal ${signal.type} put timeout (15s) for ${toPub.substring(0, 8)}`,
+                );
                 resolve(true);
               }, 15000);
 
@@ -372,34 +492,42 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
                 } as any,
                 (ack: any) => {
                   clearTimeout(timeout);
-                  if (ack.err && typeof ack.err === 'string') {
-                    if (ack.err.includes('Certificate')) {
+                  if (ack.err && typeof ack.err === "string") {
+                    if (ack.err.includes("Certificate")) {
                       resolve(false);
                     } else {
                       resolve(true);
                     }
                   } else {
-                    console.log(`[App] ${retryLabel} signal delivered to ${toPub.substring(0, 8)}`);
+                    console.log(
+                      `[App] ${retryLabel} signal delivered to ${toPub.substring(0, 8)}`,
+                    );
                     resolve(true);
                   }
                 },
-                putOptions as any
+                putOptions as any,
               );
             });
           };
 
-          const delivered = await doSend(cert ?? null, '[1st]');
+          const delivered = await doSend(cert ?? null, "[1st]");
           if (!delivered && toPub !== userPub) {
             communicationService.clearCertCache(toPub);
-            const freshCert = await communicationService.getInboxCertificate(toPub).catch(() => null);
+            const freshCert = await communicationService
+              .getInboxCertificate(toPub)
+              .catch(() => null);
             if (freshCert) {
-              const retryDelivered = await doSend(freshCert, '[Retry]');
+              const retryDelivered = await doSend(freshCert, "[Retry]");
               if (!retryDelivered) {
                 // If even retry fails with certificate error, surface it to the UI
-                console.error(`[App] Persistent certificate failure for ${toPub.substring(0, 8)}.`);
+                console.error(
+                  `[App] Persistent certificate failure for ${toPub.substring(0, 8)}.`,
+                );
               }
             } else {
-              console.error(`[App] Failed to fetch valid certificate for ${toPub.substring(0, 8)} after 1st attempt failure.`);
+              console.error(
+                `[App] Failed to fetch valid certificate for ${toPub.substring(0, 8)} after 1st attempt failure.`,
+              );
             }
           }
         } catch (e: any) {
@@ -407,7 +535,9 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
         }
       };
 
-      fileTransferServiceInst.setSignalSender((toPub: string, signal: any) => sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"));
+      fileTransferServiceInst.setSignalSender((toPub: string, signal: any) =>
+        sendUnifiedSignal(toPub, signal, " Linda:SIGNAL:"),
+      );
     }
   }, [fileTransferServiceInst, communicationService, db, userPub]);
 
@@ -416,70 +546,100 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     if (!isLoggedIn || !userPub || !fileTransferServiceInst) return;
 
     const inboxSoul = `~${userPub}/signal_inbox_v13`;
-    console.log(`[App] Starting securely authorized signaling listener on ${inboxSoul}`);
+    console.log(
+      `[App] Starting securely authorized signaling listener on ${inboxSoul}`,
+    );
 
-    db.gun.get(inboxSoul).map().on(async (data: any, gunKey: string) => {
-      if (!data || typeof data !== 'object' || processedSignalsRef.current.has(gunKey)) return;
-      if (!data.sender || !data.body || data.type === undefined) return;
+    db.gun
+      .get(inboxSoul)
+      .map()
+      .on(async (data: any, gunKey: string) => {
+        if (
+          !data ||
+          typeof data !== "object" ||
+          processedSignalsRef.current.has(gunKey)
+        )
+          return;
+        if (!data.sender || !data.body || data.type === undefined) return;
 
-      processedSignalsRef.current.add(gunKey);
+        processedSignalsRef.current.add(gunKey);
 
-      try {
-        let currentService = communicationServiceRef.current;
-        if (!currentService) {
-          for (let i = 0; i < 10; i++) {
-            await new Promise(r => setTimeout(r, 500));
-            if (communicationServiceRef.current) {
-              currentService = communicationServiceRef.current;
-              break;
+        try {
+          let currentService = communicationServiceRef.current;
+          if (!currentService) {
+            for (let i = 0; i < 10; i++) {
+              await new Promise((r) => setTimeout(r, 500));
+              if (communicationServiceRef.current) {
+                currentService = communicationServiceRef.current;
+                break;
+              }
             }
           }
-        }
-        if (!currentService) return;
+          if (!currentService) return;
 
-        await Promise.race([
-          currentService.waitReady(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('CommunicationService timeout')), 5000))
-        ]);
+          await Promise.race([
+            currentService.waitReady(),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("CommunicationService timeout")),
+                5000,
+              ),
+            ),
+          ]);
 
-        const plaintext = await currentService.decryptMessage(data.sender, { type: data.type, body: data.body });
-        if (!plaintext || typeof plaintext !== 'string') return;
+          const plaintext = await currentService.decryptMessage(data.sender, {
+            type: data.type,
+            body: data.body,
+          });
+          if (!plaintext || typeof plaintext !== "string") return;
 
-        const trimmed = plaintext.trim();
-        if (trimmed === "PING_HEAL") {
-          currentService.republishBundle().catch(() => { });
-          return;
-        }
-
-        if (trimmed.startsWith(" Linda:SIGNAL:")) {
-          const signal = JSON.parse(trimmed.substring(" Linda:SIGNAL:".length));
-          if (signal) {
-            const isSameInstance = signal.clientId === fileTransferServiceInst.getClientId();
-            if (data.sender === userPub && isSameInstance) return;
-            fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
+          const trimmed = plaintext.trim();
+          if (trimmed === "PING_HEAL") {
+            currentService.republishBundle().catch(() => {});
+            return;
           }
-        } else if (trimmed.startsWith("{")) {
-          // Legacy support or fallback - handle signals without prefix
-          try {
-            const signal = JSON.parse(trimmed);
+
+          if (trimmed.startsWith(" Linda:SIGNAL:")) {
+            const signal = JSON.parse(
+              trimmed.substring(" Linda:SIGNAL:".length),
+            );
             if (signal) {
-              // File transfer signals use prefixed types: file_offer, file_answer, etc.
+              const isSameInstance =
+                signal.clientId === fileTransferServiceInst.getClientId();
+              if (data.sender === userPub && isSameInstance) return;
               fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
             }
-          } catch (e) { }
+          } else if (trimmed.startsWith("{")) {
+            // Legacy support or fallback - handle signals without prefix
+            try {
+              const signal = JSON.parse(trimmed);
+              if (signal) {
+                // File transfer signals use prefixed types: file_offer, file_answer, etc.
+                fileTransferServiceInst.handleIncomingSignal(
+                  data.sender,
+                  signal,
+                );
+              }
+            } catch (e) {}
+          }
+
+          // Cleanup signal node from GunDB after processing
+          // We use a longer timeout (60s) for file transfer signals to ensure reliability on slow mobile networks
+          const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:")
+            ? 60000
+            : 20000;
+          setTimeout(() => {
+            if (userPub)
+              db.gun
+                .user(userPub)
+                .get("signal_inbox_v13")
+                .get(gunKey)
+                .put(null as any);
+          }, cleanupDelay);
+        } catch (e) {
+          console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
         }
-
-        // Cleanup signal node from GunDB after processing
-        // We use a longer timeout (60s) for file transfer signals to ensure reliability on slow mobile networks
-        const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:") ? 60000 : 20000;
-        setTimeout(() => {
-          if (userPub) db.gun.user(userPub).get('signal_inbox_v13').get(gunKey).put(null as any);
-        }, cleanupDelay);
-      } catch (e) {
-        console.warn(`[App] Failed to process signal on ${gunKey}:`, e);
-      }
-    });
-
+      });
   }, [isLoggedIn, userPub, db, fileTransferServiceInst]);
 
   // ── GunDB Sync Kick (Mobile Reliability) ──
@@ -489,7 +649,11 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
     const kickInterval = setInterval(() => {
       console.log("[App] Sync Kick: Poking GunDB inbox...");
-      db.gun.user(userPub).get('signal_inbox_v13').get('_poke').put(Date.now().toString());
+      db.gun
+        .user(userPub)
+        .get("signal_inbox_v13")
+        .get("_poke")
+        .put(Date.now().toString());
     }, 45000);
 
     return () => clearInterval(kickInterval);
@@ -522,7 +686,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     groupService,
     recipient,
     setRecipient,
-    'http://localhost:8765'
+    "http://localhost:8765",
   );
 
   // ── Sync Route & Recipient ──
@@ -542,12 +706,16 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     ) {
       // Initial fetch
       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
-      
+
       // Subscribe to changes
-      const unsub = groupService.onMemberRoleChange(recipient, userPub || "", (role) => {
-        setMyRole(role);
-      });
-      
+      const unsub = groupService.onMemberRoleChange(
+        recipient,
+        userPub || "",
+        (role) => {
+          setMyRole(role);
+        },
+      );
+
       return unsub;
     } else {
       setMyRole(null);
@@ -561,28 +729,39 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
     const activeSdk = sdkInstance || (window as any).shogun || sdk;
 
-    if ((magic_login || session) && !isLoggedIn && !magicLoginAttempted.current && activeSdk) {
+    if (
+      (magic_login || session) &&
+      !isLoggedIn &&
+      !magicLoginAttempted.current &&
+      activeSdk
+    ) {
       magicLoginAttempted.current = true;
       setIsProcessingMagicLink(true);
       console.log("[MagicLink] CONDITION MET. Starting authentication...");
 
-      processUniversalLogin(magic_login || session!, "Magic Link").then((success) => {
-        if (!success) {
-          console.error("[MagicLink] Authentication failed");
-          setIsProcessingMagicLink(false);
-          magicLoginAttempted.current = false;
-        } else {
-          console.log("[MagicLink] Authentication successful. Finalizing...");
-          // Proactive cleanup if context update is slow
-          setTimeout(() => {
+      processUniversalLogin(magic_login || session!, "Magic Link").then(
+        (success) => {
+          if (!success) {
+            console.error("[MagicLink] Authentication failed");
             setIsProcessingMagicLink(false);
-            const nextUrl = new URL(window.location.href);
-            nextUrl.searchParams.delete("magic_login");
-            nextUrl.searchParams.delete("session");
-            window.history.replaceState({}, document.title, nextUrl.toString());
-          }, 1500);
-        }
-      });
+            magicLoginAttempted.current = false;
+          } else {
+            console.log("[MagicLink] Authentication successful. Finalizing...");
+            // Proactive cleanup if context update is slow
+            setTimeout(() => {
+              setIsProcessingMagicLink(false);
+              const nextUrl = new URL(window.location.href);
+              nextUrl.searchParams.delete("magic_login");
+              nextUrl.searchParams.delete("session");
+              window.history.replaceState(
+                {},
+                document.title,
+                nextUrl.toString(),
+              );
+            }, 1500);
+          }
+        },
+      );
     }
   }, [isLoggedIn, sdk, searchParams, processUniversalLogin]);
 
@@ -601,10 +780,18 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
   // 3. Handle Auto-Restore Session if NOT processing magic login
   useEffect(() => {
-    if (!isLoggedIn && !magicLoginAttempted.current && !isProcessingMagicLink && sdk && !sessionStorage.getItem("restored_tried")) {
+    if (
+      !isLoggedIn &&
+      !magicLoginAttempted.current &&
+      !isProcessingMagicLink &&
+      sdk &&
+      !sessionStorage.getItem("restored_tried")
+    ) {
       sessionStorage.setItem("restored_tried", "true");
       if (typeof sdk.db?.restoreSession === "function") {
-        sdk.db.restoreSession().catch((e: any) => console.error("Restore failed:", e));
+        sdk.db
+          .restoreSession()
+          .catch((e: any) => console.error("Restore failed:", e));
       }
     }
   }, [isLoggedIn, sdk, isProcessingMagicLink]);
@@ -624,10 +811,21 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       nextUrl.searchParams.delete("add");
       window.history.replaceState({}, document.title, nextUrl.toString());
     }
-  }, [db, isLoggedIn, userPub, saveContact, setRecipient, navigate, showNotification, searchParams]);
+  }, [
+    db,
+    isLoggedIn,
+    userPub,
+    saveContact,
+    setRecipient,
+    navigate,
+    showNotification,
+    searchParams,
+  ]);
 
   // ── Profile Logic ──
-  const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_user_nick") || "");
+  const [userNick, setUserNick] = useState<string>(
+    localStorage.getItem("linda_user_nick") || "",
+  );
   const [contactProfiles, setContactProfiles] = useState<
     Record<
       string,
@@ -667,7 +865,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     contacts.forEach(async (contactId) => {
       if (subscribedProfilesRef.current.has(contactId)) return;
       subscribedProfilesRef.current.add(contactId);
-      
+
       try {
         const isGroup = contactId.length === 36 && contactId.includes("-");
         if (isGroup) {
@@ -738,7 +936,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
             );
           }
         }
-      } catch (e) { }
+      } catch (e) {}
     });
   }, [contacts, communicationService, db]);
 
@@ -825,10 +1023,14 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     );
   };
 
-
   const handleFixSync = async () => {
     if (!recipient || !communicationService || !userPub) return;
-    if (!window.confirm("Force-recreate secure session and regenerate your certificate?")) return;
+    if (
+      !window.confirm(
+        "Force-recreate secure session and regenerate your certificate?",
+      )
+    )
+      return;
     try {
       // 1. Reset the Waku/Signal Session
       await communicationService.resetSession(recipient);
@@ -837,20 +1039,30 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       await communicationService.regenerateCertificate(true);
 
       // 3. Re-publish our own bundle to fix potential discovery issues
-      await communicationService.republishBundle().catch(() => { });
+      await communicationService.republishBundle().catch(() => {});
 
       showNotification("Sincronizzazione e rigenerazione completate.", "info");
 
       const pub = await communicationService.getPubKeyFromUsername(recipient);
-      const ping = await communicationService.encryptMessage(recipient, "PING_HEAL");
+      const ping = await communicationService.encryptMessage(
+        recipient,
+        "PING_HEAL",
+      );
 
       const cert = await communicationService.getInboxCertificate(pub);
-      db.gun.get(`signal_v3_inbox_${pub}`).get('ping_heal_' + Date.now()).put({
-        sender: userPub,
-        type: ping.type,
-        body: ping.body,
-        timestamp: new Date().toISOString(),
-      } as any, undefined, { opt: { cert } } as any);
+      db.gun
+        .get(`signal_v3_inbox_${pub}`)
+        .get("ping_heal_" + Date.now())
+        .put(
+          {
+            sender: userPub,
+            type: ping.type,
+            body: ping.body,
+            timestamp: new Date().toISOString(),
+          } as any,
+          undefined,
+          { opt: { cert } } as any,
+        );
     } catch (err) {
       showNotification("Reset failed.", "error");
     }
@@ -860,7 +1072,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     if (!communicationService) return;
     try {
       await communicationService.regenerateCertificate(true);
-      await communicationService.republishBundle().catch(() => { });
+      await communicationService.republishBundle().catch(() => {});
       showNotification("Certificato rigenerato con successo.", "info");
     } catch (err) {
       showNotification("Rigenerazione certificato fallita.", "error");
@@ -920,13 +1132,23 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
   // ── Loading screen ─────────────────────────────────────────────
   if (isLoading) {
-    return <LoadingScreen message="Initializing session" submessage="Establishing secure handshake" />;
+    return (
+      <LoadingScreen
+        message="Initializing session"
+        submessage="Establishing secure handshake"
+      />
+    );
   }
 
   // ── Magic Link Progress Overlay ───────────────────────────────
   // We show a full-screen loader for magic link if it's already detected
   if (isProcessingMagicLink) {
-    return <LoadingScreen message="Authenticating Link" submessage="Verifying identity on decentralized web" />;
+    return (
+      <LoadingScreen
+        message="Authenticating Link"
+        submessage="Verifying identity on decentralized web"
+      />
+    );
   }
 
   // ── Login screen ──────────────────────────────────────────────
@@ -1253,13 +1475,13 @@ let sdkInitPromise: Promise<any> | null = null;
 
 const initSdk = async (relays: string[]) => {
   console.log("[App] Initializing SDK singleton with relays:", relays);
-  
-  const gunInstance = Gun({
-    peers: relays,
+
+  const gunInstance = new Zen({
+    peers: ["http://localhost:8765/zen"],
     localStorage: false,
     radisk: true,
     wire: true,
-    webrtc: true
+    webrtc: true,
   });
 
   window.gun = gunInstance;
@@ -1267,7 +1489,7 @@ const initSdk = async (relays: string[]) => {
 
   const result = await (shogunConnector as any)({
     appName: "Shogun Linda",
-    gunInstance: gunInstance as any,
+    zenInstance: gunInstance as any,
     storage: typeof window !== "undefined" ? window.localStorage : undefined,
     webauthn: { enabled: true },
     web3: { enabled: true },
@@ -1302,7 +1524,7 @@ const App: React.FC = () => {
     document.documentElement.dataset.theme = savedTheme;
   }, []);
 
-  const relays = useMemo(() => ["http://localhost:8765/gun"], []);
+  const relays = useMemo(() => ["http://localhost:8765/zen"], []);
 
   // Initialize ShogunCore with hardcoded relays
   useEffect(() => {
@@ -1315,7 +1537,7 @@ const App: React.FC = () => {
     sdkInitPromise
       .then((result) => {
         if (!mounted) return;
-        
+
         console.log("[App] SDK initialized, updating state...");
         setDbInstance(result.core.db);
         setCoreContext(result);
@@ -1326,7 +1548,8 @@ const App: React.FC = () => {
             window.shogunDebug = {
               clearAllData: () => {
                 if (result.core.storage) result.core.storage.clearAll();
-                if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("gunSessionData");
+                if (typeof sessionStorage !== "undefined")
+                  sessionStorage.removeItem("gunSessionData");
               },
               sdk: result.core,
               gun: result.core.gun,
@@ -1345,9 +1568,17 @@ const App: React.FC = () => {
   }, [relays]);
 
   if (!coreContext || !dbInstance) {
-    return <LoadingScreen message="Bootstrapping SDK" submessage="Connecting to P2P decentralized relays" type="infinity" />;
+    return (
+      <LoadingScreen
+        message="Bootstrapping SDK"
+        submessage="Connecting to P2P decentralized relays"
+        type="infinity"
+      />
+    );
   }
-  console.log(`[App] Rendering with coreContext: ${!!coreContext}, dbInstance: ${!!dbInstance}, coreReady: ${!!coreContext?.core}`);
+  console.log(
+    `[App] Rendering with coreContext: ${!!coreContext}, dbInstance: ${!!dbInstance}, coreReady: ${!!coreContext?.core}`,
+  );
 
   return (
     <BrowserRouter>

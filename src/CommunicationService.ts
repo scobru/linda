@@ -1,6 +1,5 @@
-import { DataBase } from "shogun-core";
-import Gun from "gun/gun";
-import "gun/sea";
+import {  type IZenInstance } from "shogun-core";
+import { DataBase, ZEN as Gun, SEA } from "shogun-core";
 
 /**
  * CommunicationService
@@ -56,12 +55,12 @@ export class CommunicationService {
       console.log("[CommunicationService] Initializing SEA session...");
       try {
         // Wait for pair to be available and user to be logged in
-        let user = this.db.gun.user();
-        let pair = (user as any)?._?.sea;
+        let user = this.db.zen.user();
+        let pair = (user as IZenInstance)?._?.sea;
         if (!pair || !user.is) {
           for (let i = 0; i < 15; i++) {
             await new Promise((r) => setTimeout(r, 200));
-            user = this.db.gun.user();
+            user = this.db.zen.user();
             pair = (user as any)?._?.sea;
             if (pair && user.is) break;
           }
@@ -102,7 +101,7 @@ export class CommunicationService {
     username: string,
     uniqueUsername?: string,
   ): Promise<void> {
-    const pair = (this.db.gun.user() as any)?._?.sea;
+    const pair = (this.db.zen.user() as any)?._?.sea;
     if (!pair || !pair.epub) {
       console.warn(
         "[CommunicationService] User keys not available yet, deferring bundle publish.",
@@ -113,7 +112,7 @@ export class CommunicationService {
     try {
       // 1. Primary path: user node root 'epub'
       // This is the most important field for E2E encryption.
-      const user = this.db.gun.user();
+      const user = this.db.zen.user();
       if (!user.is) {
         console.warn(
           "[CommunicationService] Gun user is not logged in. Cannot verify identity for bundle publish.",
@@ -205,7 +204,7 @@ export class CommunicationService {
 
       await Promise.race([
         new Promise<void>((resolve) => {
-          this.db.gun
+          this.db.zen
             .get("signal_aliases")
             .get(pub)
             .put(aliasPayload, () => resolve());
@@ -224,7 +223,7 @@ export class CommunicationService {
           : `@${uniqueUsername}`;
         await Promise.race([
           new Promise<void>((resolve) => {
-            this.db.gun
+            this.db.zen
               .get("signal_unique_usernames")
               .get(normalized)
               .put(pub, () => resolve());
@@ -311,7 +310,7 @@ export class CommunicationService {
         // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
         const gunEpub = await new Promise<string | null>((resolve) => {
           const timeout = setTimeout(() => resolve(null), 2500);
-          this.db.gun
+          this.db.zen
             .get(`~${pub}`)
             .get("epub")
             .once((data: any) => {
@@ -332,7 +331,7 @@ export class CommunicationService {
         // Method B: Bundle node (V7 format)
         const bundle = await new Promise<any>((resolve) => {
           const timeout = setTimeout(() => resolve(null), 2500);
-          this.db.gun
+          this.db.zen
             .get(`~${pub}`)
             .get("signal_bundle_v7")
             .once((data: any) => {
@@ -387,14 +386,14 @@ export class CommunicationService {
    * allowing anyone (or specific peers) to write signals to ~${pub}/signal_inbox
    */
   public async regenerateCertificate(force: boolean = false): Promise<void> {
-    const pair = this.myPair || (this.db.gun.user() as any)?._?.sea;
+    const pair = this.myPair || (this.db.zen.user() as any)?._?.sea;
     if (!pair) {
       console.warn(
         "[CommunicationService] No user keys available for certificate regeneration.",
       );
       return;
     }
-    const user = this.db.gun.user();
+    const user = this.db.zen.user();
     if (!user.is) return;
 
     try {
@@ -410,7 +409,7 @@ export class CommunicationService {
         let isValid = false;
         if (currentCert && typeof currentCert === "string") {
           try {
-            const verified = await (Gun as any).SEA.verify(
+            const verified = await SEA.verify(
               currentCert,
               pair.pub,
             );
@@ -454,7 +453,7 @@ export class CommunicationService {
         { "#": { "*": "*" } }, // absolute wildcard fallback for relay compatibility
       ];
 
-      const cert = await (Gun as any).SEA.certify(
+      const cert = await SEA.certify(
         "*", // Allow anyone (public inbox)
         policyContent,
         pair,
@@ -493,7 +492,7 @@ export class CommunicationService {
     );
 
     const soul = `~${this.myPair.pub}/signal_inbox_v13`;
-    const cert = await (Gun as any).SEA.certify(
+    const cert = await SEA.certify(
       [peerPub],
       [
         { "#": { "*": soul } },
@@ -506,7 +505,7 @@ export class CommunicationService {
       null,
     );
 
-    const user = this.db.gun.user();
+    const user = this.db.zen.user();
     user.get("certs").get(peerPub).put(cert);
     return cert;
   }
@@ -515,7 +514,7 @@ export class CommunicationService {
    * Revokes a specific certificate for a peer.
    */
   public async revokeCertificate(peerPub: string): Promise<void> {
-    const user = this.db.gun.user();
+    const user = this.db.zen.user();
     if (!user.is) return;
     console.log(
       `[CommunicationService] Revoking certificate for: ${peerPub.slice(0, 8)}`,
@@ -546,7 +545,7 @@ export class CommunicationService {
       label: string,
     ): Promise<boolean> => {
       try {
-        const verified = await (Gun as any).SEA.verify(cert, pub);
+        const verified = await SEA.verify(cert, pub);
         if (!verified || !verified.c) {
           console.warn(
             `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed SEA.verify`,
@@ -581,7 +580,7 @@ export class CommunicationService {
         if (myPub) {
           const specificCert = await new Promise<string | null>((resolve) => {
             const timeout = setTimeout(() => resolve(null), 3000);
-            this.db.gun
+            this.db.zen
               .get(`~${pub}`)
               .get("certs")
               .get(myPub)
@@ -603,7 +602,7 @@ export class CommunicationService {
         // Method 2: Public certificate v13 (latest) — validated
         const v13Cert = await new Promise<string | null>((resolve) => {
           const timeout = setTimeout(() => resolve(null), 3500);
-          this.db.gun
+          this.db.zen
             .get(`~${pub}`)
             .get("inbox_cert_v13")
             .once((data: any) => {
@@ -623,7 +622,7 @@ export class CommunicationService {
         // Method 3: Public certificate in bundle v8 — validated
         const bundleCert = await new Promise<string | null>((resolve) => {
           const timeout = setTimeout(() => resolve(null), 2000);
-          this.db.gun
+          this.db.zen
             .get(`~${pub}`)
             .get("signal_bundle_v8")
             .get("inbox_cert")
@@ -681,12 +680,12 @@ export class CommunicationService {
           }
 
           const recipientEpub = await this.getEpubFromPub(pubKey);
-          const myPair = (this.db.gun.user() as any)?._?.sea;
+          const myPair = (this.db.zen.user() as any)?._?.sea;
           if (!myPair) throw new Error("User not logged in");
 
           let secret = this.secretCache.get(recipientEpub);
           if (!secret) {
-            secret = await this.db.sea.secret(recipientEpub, myPair);
+            secret = await SEA.secret(recipientEpub, myPair);
             if (secret) this.secretCache.set(recipientEpub, secret);
           }
 
@@ -698,7 +697,7 @@ export class CommunicationService {
             );
           }
 
-          const encrypted = await this.db.sea.encrypt(message, secret);
+          const encrypted = await SEA.encrypt(message, secret);
           resolve({ type: 0, body: encrypted });
         } catch (e) {
           reject(e);
@@ -728,7 +727,7 @@ export class CommunicationService {
         return undefined;
       }
 
-      const myPair = this.myPair || (this.db.gun.user() as any)?._?.sea;
+      const myPair = this.myPair || (this.db.zen.user() as any)?._?.sea;
       if (!myPair) throw new Error("User keys not available for decryption");
 
       if (typeof ciphertext.body !== "string") {
@@ -747,7 +746,7 @@ export class CommunicationService {
 
       let secret = this.secretCache.get(senderEpub);
       if (!secret) {
-        secret = await this.db.sea.secret(senderEpub, myPair);
+        secret = await SEA.secret(senderEpub, myPair);
         if (secret) this.secretCache.set(senderEpub, secret);
       }
 
@@ -764,7 +763,7 @@ export class CommunicationService {
       let decrypted;
       try {
         decrypted = await Promise.race([
-          this.db.sea.decrypt(ciphertext.body, secret),
+          SEA.decrypt(ciphertext.body, secret),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error("SEA.decrypt timeout")), 10000),
           ),
@@ -803,12 +802,12 @@ export class CommunicationService {
         this.secretCache.delete(senderEpub);
         try {
           const freshEpub = await this.getEpubFromPub(pubKey);
-          const freshSecret = await this.db.sea.secret(freshEpub, myPair);
+          const freshSecret = await SEA.secret(freshEpub, myPair);
           if (freshSecret) this.secretCache.set(freshEpub, freshSecret);
           else throw new Error("Fresh secret derivation failed");
 
           decrypted = await Promise.race([
-            this.db.sea.decrypt(ciphertext.body, freshSecret),
+            SEA.decrypt(ciphertext.body, freshSecret),
             new Promise((_, reject) =>
               setTimeout(
                 () => reject(new Error("SEA.decrypt fresh retry timeout")),

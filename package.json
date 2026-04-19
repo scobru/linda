@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "relay": "node simple-relay.js"
+    "relay": "node simple-relay.js",
+    "test": "vitest"
   },
   "dependencies": {
     "@hyperswarm/secret-stream": "^6.9.1",
@@ -24,6 +25,8 @@
     "react-router-dom": "^7.13.2",
     "shogun-button-react": "https://github.com/scobru/shogun-button-react",
     "shogun-core": "https://github.com/scobru/shogun-core",
+    "zen": "https://github.com/scobru/zen",
+    "styled-components": "^6.1.13",
     "socket.io-client": "^4.8.3",
     "sodium-javascript": "^0.8.0",
     "sodium-universal": "^5.0.1",
@@ -40,20 +43,20 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/socket.io-client": "^1.4.36",
-    "@vitejs/plugin-react": "^5.1.1",
-    "autoprefixer": "^10.4.27",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
     "daisyui": "^5.5.19",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "express": "^5.2.1",
     "globals": "^16.5.0",
-    "gun": "^0.2020.1241",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
     "vite": "^6.0.0",
+    "vitest": "^3.0.0",
     "ws": "^8.20.0"
   }
 }

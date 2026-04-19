@@ -1,4 +1,5 @@
-import type { IGunInstance } from 'gun';
+import { ZEN as Gun, SEA } from "shogun-core";
+import type { IZenInstance as IGunInstance } from "shogun-core";
 
 // Shared config
 const ENCRYPTION_CONFIG = {

@@ -1,5 +1,5 @@
 import express from 'express';
-import Gun from 'gun';
+import ZEN from 'zen';
 import * as umbral from '@nucypher/umbral-pre';
 
 const app = express();
@@ -17,26 +17,24 @@ app.use((req, res, next) => {
     next();
 });
 
-// 2. INITIALIZE SERVER & GUN WITH PERSISTENCE
+// 2. INITIALIZE SERVER & ZEN WITH PERSISTENCE
 const server = app.listen(port, () => {
-    console.log(`🚀 Semplice Relay avviato su http://localhost:${port}`);
+    console.log(`🚀 Semplice Relay Zen avviato su http://localhost:${port}`);
 });
 
-const gun = Gun({ 
-    web: server,
-    file: 'radata', // Persistence in a folder Vite already ignores
-    radisk: true
+const zen = new ZEN({ 
+    web: server
 });
-console.log('GunDB in ascolto con persistenza (radata)...');
+console.log('ZenDB in ascolto...');
 
 app.get('/', (req, res) => {
-    res.send('Il Relay è attivo! Connettiti tramite WebSocket a /gun');
+    res.send('Il Relay Zen è attivo! Connettiti tramite WebSocket a /zen');
 });
 
 /**
- * Helper to wait for data in GunDB (for sync latency)
+ * Helper to wait for data in ZenDB (for sync latency)
  */
-async function waitForGunData(pathNode, attempts = 5, delay = 1000) {
+async function waitForZenData(pathNode, attempts = 5, delay = 1000) {
     for (let i = 0; i < attempts; i++) {
         const data = await new Promise((resolve) => {
             pathNode.once((val) => resolve(val));
@@ -64,8 +62,8 @@ app.post('/api/v1/tpre/reencrypt', async (req, res) => {
   
     try {
       // Use the patient waiter for kfrags
-      const kfragNode = gun.get("signal_rooms").get(groupId).get("relay_kfrags").get(memberPub);
-      const kfragString = await waitForGunData(kfragNode);
+      const kfragNode = zen.get("signal_rooms").get(groupId).get("relay_kfrags").get(memberPub);
+      const kfragString = await waitForZenData(kfragNode);
       
       if (!kfragString) {
         console.warn(`[Relay] ❌ Kfrag NOT FOUND for member ${memberPub?.substring(0,8)} in group ${groupId?.substring(0,8)}`);

@@ -86,7 +86,7 @@ export class GroupService {
       const pair = (this.db.gun.user() as any)?._?.sea;
       const skString = ts.serializeSecretKey(groupSK);
       // In SEA, doing a simple encryption with own pair:
-      const encryptedSK = await this.db.sea.encrypt(skString, pair);
+      const encryptedSK = await SEA.encrypt(skString, pair);
       
       // Store the encrypted SK
       await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
@@ -727,10 +727,10 @@ export class GroupService {
             try {
               const encryptedSK = await this.waitForNode(`signal_rooms/${group.id}/admin_sk_encrypted`, attempt === 0 ? 1 : 2, 500);
               if (encryptedSK) {
-                  const pair = (this.db.gun.user() as any)?._?.sea;
+                  const pair = (this.db.gun.user() as IZenInstance)?._?.sea;
                   if (pair) {
                       console.log(`[GroupService] Attempting Admin SK recovery. Pair Pub matches Group Admin Pub: ${pair.pub === group.adminPub}`);
-                      const skString = await this.db.sea.decrypt(encryptedSK, pair);
+                      const skString = await SEA.decrypt(encryptedSK, pair);
                       if (skString) {
                           const groupSK = ts.deserializeSecretKey(skString);
                           const plaintextBuf = ts.decryptDirect(groupSK, capsule, ciphertext);
