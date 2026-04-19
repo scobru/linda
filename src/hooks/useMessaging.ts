@@ -35,7 +35,8 @@ export const useMessaging = (
   communicationService: CommunicationService | null,
   groupService: GroupService | null,
   recipient: string,
-  setRecipient: (id: string) => void
+  setRecipient: (id: string) => void,
+  relayUrl?: string
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
@@ -265,19 +266,38 @@ export const useMessaging = (
     };
   }, [userPub, db]);
 
-  // ── Group Messaging ──
+  // ── Unified Messaging Listener (Groups & TPRE P2P) ──
   useEffect(() => {
     if (!groupService || contacts.length === 0) return;
 
     contacts.forEach(async (contactId) => {
-      if (contactId.length !== 36 || !contactId.includes("-") || groupSubscriptionsRef.current.has(contactId)) return;
+      // contactId is either a UUID (Group) or a Pubkey (P2P)
+      if (groupSubscriptionsRef.current.has(contactId)) return;
+
       try {
-        const meta = await (db.Get as any)(`signal_rooms/${contactId}/meta`) as GroupInfo;
-        if (!meta || !meta.secret || (meta as any).err) return;
+        const isP2P = contactId.length >= 30 && !contactId.includes("-");
+        let roomId = contactId;
+        
+        if (isP2P) {
+            const calculatedId = groupService.getP2PGroupId(contactId);
+            if (!calculatedId) return;
+            roomId = calculatedId;
+        }
+
+        // We use roomId to find the metadata, but we'll store messages under contactId
+        const meta = await (db.Get as any)(`signal_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
+        if (!meta || (meta as any).err) return;
 
         groupSubscriptionsRef.current.add(contactId);
+        if (isP2P) groupSubscriptionsRef.current.add(roomId);
 
-        db.gun.get(`signal_rooms/${contactId}/messages`).map().on(async (data: any, gunKey: string) => {
+        // Retroactive TPRE Registration: Ensure our own Umbral PK is published for the Admin to see
+        if (meta.encryptionMode === 'tpre') {
+            groupService.ensureUmbralPK(roomId).catch(() => {});
+        }
+
+        // 1. Listen to Messages
+        db.gun.get(`signal_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           if (blockedContactsRef.current.has(data.sender)) {
             if (userPub) saveProcessedKey(userPub, gunKey);
@@ -285,84 +305,81 @@ export const useMessaging = (
           }
           if (processedRef.current.has(gunKey)) return;
 
-          if (!messageQueueRef.current[contactId]) {
-            messageQueueRef.current[contactId] = Promise.resolve();
-          }
+          try {
+            if (processedRef.current.has(gunKey)) return;
+            
+            // Pacing delay to allow GunDB sync to catch up on fragments
+            await new Promise(r => setTimeout(r, 600));
+            
+            const plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
+            if (userPub) saveProcessedKey(userPub, gunKey);
+            
+            const isMe = data.sender === userPub;
+            const remoteMsgId = data.msgId || gunKey;
 
-          messageQueueRef.current[contactId] = messageQueueRef.current[contactId].then(async () => {
-            try {
-              if (processedRef.current.has(gunKey)) return;
-              const plaintext = await groupService.decryptGroupMessage(meta.secret, data.body);
-              if (userPub) saveProcessedKey(userPub, gunKey);
-              const isMe = data.sender === userPub;
-              const remoteMsgId = data.msgId || gunKey;
-
-              setMessages((prev) => {
-                const groupMsgs = prev[contactId] || [];
-                const isDuplicate = groupMsgs.some(
-                  (m) =>
-                    m.id === remoteMsgId ||
-                    (m.sender === (isMe ? "Me" : data.sender) &&
-                      m.text === plaintext &&
-                      Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-                );
-                if (isDuplicate) {
-                  // Update status of existing message if found by ID
-                  if (groupMsgs.some(m => m.id === remoteMsgId)) {
-                    const updatedGroupMsgs = groupMsgs.map(m => m.id === remoteMsgId ? { ...m, status: "delivered" as const } : m);
-                    return { ...prev, [contactId]: updatedGroupMsgs };
-                  }
-                  return prev;
+            setMessages((prev) => {
+              const groupMsgs = prev[contactId] || [];
+              const isDuplicate = groupMsgs.some(
+                (m) =>
+                  m.id === remoteMsgId ||
+                  (m.sender === (isMe ? "Me" : data.sender) &&
+                    m.text === plaintext &&
+                    Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
+              );
+              if (isDuplicate) {
+                if (groupMsgs.some(m => m.id === remoteMsgId)) {
+                  const updatedGroupMsgs = groupMsgs.map(m => m.id === remoteMsgId ? { ...m, status: "delivered" as const } : m);
+                  return { ...prev, [contactId]: updatedGroupMsgs };
                 }
-
-                const updatedMessages = [
-                  ...groupMsgs,
-                  {
-                    id: remoteMsgId,
-                    gunKey: gunKey,
-                    sender: isMe ? "Me" : data.sender,
-                    senderPub: data.sender,
-                    text: data.type === 'audio' ? undefined : plaintext,
-                    audio: data.type === 'audio' ? plaintext : undefined,
-                    type: (data.type as any) || "text",
-                    timestamp: new Date(data.timestamp || Date.now()),
-                    status: "delivered" as const,
-                  },
-                ];
-
-                const updated = { ...prev, [contactId]: updatedMessages };
-                if (userPub) saveMessages(userPub, updated);
-                return updated;
-              });
-
-              if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
-                const title = `New message in ${meta.name}`;
-                const options = {
-                  body: plaintext.substring(0, 50),
-                  icon: meta.avatar || "/logo.svg",
-                  badge: "/logo.svg",
-                  tag: contactId, // unique tag for grouping
-                  renotify: true,
-                  data: `/chat/${contactId}`
-                };
-
-                if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-                   navigator.serviceWorker.ready.then(registration => {
-                     registration.showNotification(title, options);
-                   }).catch(() => {
-                      new Notification(title, options);
-                   });
-                } else if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-                   new Notification(title, options);
-                }
+                return prev;
               }
-            } catch (e) {
-              console.warn(`[Groups] Failed to decrypt message in ${contactId}:`, e);
+
+              const updatedMessages = [
+                ...groupMsgs,
+                {
+                  id: remoteMsgId,
+                  gunKey: gunKey,
+                  sender: isMe ? "Me" : data.sender,
+                  senderPub: data.sender,
+                  text: data.type === 'audio' ? undefined : plaintext,
+                  audio: data.type === 'audio' ? plaintext : undefined,
+                  type: (data.type as any) || "text",
+                  timestamp: new Date(data.timestamp || Date.now()),
+                  status: "delivered" as const,
+                },
+              ];
+
+              const updated = { ...prev, [contactId]: updatedMessages };
+              if (userPub) saveMessages(userPub, updated);
+              return updated;
+            });
+
+            if (!isMe && (recipientRef.current !== contactId || document.visibilityState !== "visible")) {
+              const title = isP2P ? `Message from ${data.sender.slice(0, 8)}` : `New message in ${meta.name}`;
+              const options = {
+                body: plaintext.substring(0, 50),
+                icon: meta.avatar || "/logo.svg",
+                badge: "/logo.svg",
+                tag: contactId,
+                renotify: true,
+                data: `/chat/${contactId}`
+              };
+
+              if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+                 navigator.serviceWorker.ready.then(registration => {
+                   registration.showNotification(title, options);
+                 });
+              } else if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+                 new Notification(title, options);
+              }
             }
-          });
+          } catch (e) {
+            console.warn(`[Groups] Failed to decrypt message in ${contactId} (${roomId}):`, e);
+          }
         });
 
-        db.gun.get(`signal_rooms/${contactId}/deleted_messages`).map().on((data: any, msgId: string) => {
+        // 2. Listen to Deletions
+        db.gun.get(`signal_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
           if (data) {
             setDeletedMessages((prev) => {
               const groupDeletions = new Set(prev[contactId] || []);
@@ -374,7 +391,8 @@ export const useMessaging = (
           }
         });
 
-        db.gun.get(`signal_rooms/${contactId}/pins`).map().on((ts: any, msgId: string) => {
+        // 3. Listen to Pins
+        db.gun.get(`signal_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
           setPinnedMessages(prev => {
             const groupPins = new Set(prev[contactId] || []);
             if (ts) groupPins.add(msgId);
@@ -387,7 +405,66 @@ export const useMessaging = (
         console.warn(`[Groups] Failed to start listener for ${contactId}:`, err);
       }
     });
-  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey]);
+  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey, relayUrl]);
+
+  // ── Admin TPRE Reactor ──
+  // Automatically grants access to new members when they join and publish their Umbral PK
+  const processedGrantsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!groupService || !userPub || contacts.length === 0) return;
+
+    contacts.forEach(async (contactId) => {
+      let roomId = contactId;
+      if (contactId.length >= 30 && !contactId.includes("-")) {
+          const calculatedId = groupService.getP2PGroupId(contactId);
+          if (!calculatedId) return;
+          roomId = calculatedId;
+      }
+
+      try {
+        const meta = await (db.Get as any)(`signal_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
+        if (!meta || meta.adminPub !== userPub || meta.encryptionMode !== 'tpre') return;
+
+        // Subscribe to member list
+        db.gun.get(`signal_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
+           if (!memberData || memberPub === "_" || memberPub === userPub) return;
+           
+           const grantKey = `${roomId}_${memberPub}`;
+           if (processedGrantsRef.current.has(grantKey)) return;
+
+           // Check if member published their Umbral PK
+           const umbralPK = memberData.umbral_pk;
+           if (umbralPK) {
+              // Check if we already granted access to the relay for this member
+              try {
+                const existingKFrag = await (db.Get as any)(`signal_rooms/${roomId}/relay_kfrags/${memberPub}`);
+                if (!existingKFrag) {
+                    console.log(`[AdminReactor] Found new member ${memberPub.substring(0,8)} in room ${roomId.substring(0,8)}. Granting TPRE access...`);
+                    await groupService.grantTPREAccess(roomId, memberPub, umbralPK);
+                    processedGrantsRef.current.add(grantKey);
+                } else {
+                    processedGrantsRef.current.add(grantKey);
+                }
+              } catch (err: any) {
+                if (err && err.err === 'notfound') {
+                    console.log(`[AdminReactor] No kfrag found for member ${memberPub.substring(0,8)} (notfound). Granting TPRE access...`);
+                    try {
+                        await groupService.grantTPREAccess(roomId, memberPub, umbralPK);
+                        processedGrantsRef.current.add(grantKey);
+                    } catch (grantErr) {
+                        console.error(`[AdminReactor] Failed to grant access after notfound:`, grantErr);
+                    }
+                } else {
+                    console.error(`[AdminReactor] Error checking access for ${memberPub}:`, err);
+                }
+              }
+           }
+        });
+      } catch (e) {
+      }
+    });
+  }, [contacts, groupService, userPub, db]);
 
   // ── Signal 1:1 Messaging (Inbox) ──
   useEffect(() => {
@@ -456,319 +533,35 @@ export const useMessaging = (
       messageQueueRef.current[senderPubKeyRaw] = messageQueueRef.current[senderPubKeyRaw].then(async () => {
         try {
           if (processedRef.current.has(gunKey)) return;
-          
           await communicationService.waitReady();
 
-          const msgTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
-          const isFreshMessage = msgTime > sessionStartTime - 30000;
-          let senderPubKey = senderPubKeyRaw;
-          
-          if (senderPubKey.length < 30) {
-            try {
-              senderPubKey = await communicationService.getPubKeyFromUsername(data.sender);
-            } catch (err) {
-              console.warn("[Signal] Could not resolve sender pubkey:", data.sender);
-            }
-          }
-
           try {
-            console.log(`[Signal] Decrypting message ${gunKey} from ${senderPubKey.slice(0, 8)}...`);
-            const plaintextValue = await communicationService.decryptMessage(senderPubKey, {
+            const plaintextValue = await communicationService.decryptMessage(senderPubKeyRaw, {
               type: data.type,
               body: data.body,
             });
             
-            // Type Safety: Ensure we have a string before proceeding with string methods
-            if (plaintextValue === "LEGACY_UNSUPPORTED") {
-               if (userPub) saveProcessedKey(userPub, gunKey);
-               setMessages((prev) => {
-                  const userMsgs = prev[senderPubKey] || [];
-                  const msgId = data.msgId || gunKey;
-                  if (userMsgs.some(m => m.id === msgId)) return prev;
-                  const next = {
-                    ...prev,
-                    [senderPubKey]: [
-                      ...userMsgs,
-                      {
-                        id: msgId,
-                        sender: senderPubKey,
-                        text: "📜 [Messaggio del vecchio sistema - non più supportato]",
-                        timestamp: messageTimestamp,
-                        status: "read" as const,
-                        type: "text",
-                      },
-                    ],
-                  };
-                  if (userPub) saveMessages(userPub, next);
-                  return next;
-               });
-               return;
-            }
-            if (!plaintextValue || typeof plaintextValue !== 'string') {
-               throw new Error(`Decryption result for ${gunKey} is not a valid string (${typeof plaintextValue}).`);
-            }
-
-            const validPlaintext = plaintextValue;
-
-            // Successfully decrypted! Mark as processed now.
             if (userPub) saveProcessedKey(userPub, gunKey);
-            setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
-            resetsRef.current.delete(senderPubKey);
 
-            if (validPlaintext.startsWith(" Linda:DELETE:")) {
-              const delMsgId = validPlaintext.substring(
-                " Linda:DELETE:".length,
-              );
-              console.log(
-                `[Signal] Received DELETE request for message ${delMsgId} from ${senderPubKey.slice(0, 8)}`,
-              );
-              setDeletedMessages((prev) => {
-                const contactDeletions = new Set(prev[senderPubKey] || []);
-                contactDeletions.add(delMsgId);
-                const next = { ...prev, [senderPubKey]: contactDeletions };
-                if (userPub) saveDeletedMessages(userPub, next);
-                return next;
-              });
-              return;
-            }
-
-            if (validPlaintext === "PING_HEAL") {
-              console.log(`[Signal] Received PING_HEAL from ${senderPubKey.slice(0, 8)}. Resetting session and re-publishing bundle...`);
-              await communicationService.resetSession(senderPubKey);
-              await communicationService.republishBundle().catch(() => {});
-              return;
-            }
-
-            if (validPlaintext.startsWith("RECEIPT_")) {
-              const parts = validPlaintext.split("_");
-              if (parts.length >= 3) {
-                const status = parts[1] as "delivered" | "read";
-                const msgId = parts.slice(2).join("_");
-
-                setMessages((prev) => {
-                  const userMsgs = prev[senderPubKey] || [];
-                  const updated = userMsgs.map((m) =>
-                    m.id === msgId && (m.status === "sent" || (m.status === "delivered" && status === "read"))
-                      ? { ...m, status }
-                      : m
-                  );
-                  const state = { ...prev, [senderPubKey]: updated };
-                  if (userPub) saveMessages(userPub, state);
-                  return state;
-                });
-              }
-              return;
-            }
-
-            const msgId = data.msgId || gunKey;
-
-            if (isFreshMessage) {
-              if (typeof window !== "undefined") {
-                try {
-                  new Audio("/notification.mp3").play().catch(() => {});
-                } catch (e) {}
-              }
-
-              if (
-                (recipientRef.current !== senderPubKey || document.visibilityState !== "visible") &&
-                typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
-              ) {
-                const title = `New message from ${senderPubKey.slice(0, 8)}...`;
-                const options = {
-                  body: validPlaintext.length > 50 ? validPlaintext.substring(0, 50) + "..." : validPlaintext,
-                  icon: "/logo.svg",
-                  badge: "/logo.svg",
-                  tag: senderPubKey,
-                  renotify: true,
-                  data: `/chat/${senderPubKey}`
-                };
-
-                if ('serviceWorker' in navigator) {
-                  navigator.serviceWorker.ready.then(registration => {
-                    registration.showNotification(title, options);
-                  }).catch(() => {
-                    new Notification(title, options);
-                  });
-                } else {
-                  new Notification(title, options);
-                }
-              }
-            }
-
-            // Send receipt
-            try {
-              const receiptCipher = await communicationService.encryptMessage(senderPubKey, `RECEIPT_delivered_${msgId}`);
-              db.gun.get(`signal_v3_inbox_${senderPubKey}`).set({
-                sender: userPub,
-                type: receiptCipher.type,
-                body: receiptCipher.body,
-                timestamp: new Date().toISOString(),
-              } as any);
-            } catch (e) {}
-
-            setMessages((prev) => {
-              const userMsgs = prev[senderPubKey] || [];
-              const isDuplicate = userMsgs.some(
-                (m) =>
-                  m.id === msgId ||
-                  (m.sender === senderPubKey &&
-                    (m.text === validPlaintext || m.audio === validPlaintext) &&
-                    Math.abs(m.timestamp.getTime() - new Date(data.timestamp || Date.now()).getTime()) < 10000)
-              );
-
-              if (isDuplicate) {
-                if (userMsgs.some(m => m.id === msgId)) {
-                  const updatedUserMsgs = userMsgs.map(m => m.id === msgId ? { ...m, status: "delivered" as const } : m);
-                  return { ...prev, [senderPubKey]: updatedUserMsgs };
+            if (plaintextValue && plaintextValue.startsWith("TPRE_POKE:")) {
+              const roomId = plaintextValue.split(":")[1];
+              console.log(`[Signal] Received TPRE_POKE for room ${roomId.slice(0, 8)}. Promoting sender to contacts.`);
+              setContacts((prev) => {
+                if (!prev.includes(senderPubKeyRaw)) {
+                  saveContact(senderPubKeyRaw);
+                  return [...prev, senderPubKeyRaw];
                 }
                 return prev;
-              }
-
-              const appType = (data.msgType as any) || "text";
-              const isFile = appType === 'file' || appType === 'image';
-              let fileMeta: FileMetadata | undefined;
-              if (isFile) {
-                try {
-                  fileMeta = JSON.parse(validPlaintext);
-                } catch (e) {}
-              }
-
-              // Extract hashtags for easy filtering even if sender didn't include them
-              const incomingTags: string[] = [];
-              if (appType === "text" || !appType) {
-                const hashtagRegex = /#(\w+)/g;
-                let match;
-                while ((match = hashtagRegex.exec(validPlaintext)) !== null) {
-                  incomingTags.push(match[1].toLowerCase());
-                }
-              }
-
-              const updated = {
-                ...prev,
-                [senderPubKey]: [
-                  ...userMsgs,
-                  {
-                    id: msgId,
-                    gunKey: gunKey,
-                    sender: senderPubKey,
-                    text: (appType === 'audio' || isFile) ? undefined : validPlaintext,
-                    audio: appType === 'audio' ? validPlaintext : undefined,
-                    fileMetadata: fileMeta,
-                    tags: incomingTags.length > 0 ? incomingTags : undefined,
-                    type: appType,
-                    timestamp: new Date(data.timestamp || Date.now()),
-                    status: "delivered" as const,
-                  },
-                ],
-              };
-              if (userPub) saveMessages(userPub, updated);
-              return updated;
-            });
-
-            setContacts((prev) => {
-              if (!prev.includes(senderPubKey)) {
-                saveContact(senderPubKey);
-                return [...prev, senderPubKey];
-              }
-              return prev;
-            });
-
-          } catch (e: any) {
-            // Decryption failed.
-            console.error(`[Signal] Decryption failed for ${senderPubKey} (Message: ${gunKey}):`, e.message);
-            
-            const hasResetRecently = resetsRef.current.has(senderPubKey);
-            const isFreshMessage = messageTimestamp.getTime() > sessionStartTime - 30000;
-
-            if (isFreshMessage && !hasResetRecently && !pendingResets.has(senderPubKey)) {
-              pendingResets.add(senderPubKey);
-              resetsRef.current.add(senderPubKey);
-              console.log(`[Signal] Decryption failed for ${senderPubKey}. Attempting SILENT HEAL (refreshing keys)...`);
-              
-              try {
-                await communicationService.resetSession(senderPubKey);
-                const freshEpub = await communicationService.getEpubFromPub(senderPubKey);
-                
-                if (freshEpub) {
-                  console.log(`[Signal] Fresh keys found for ${senderPubKey.slice(0, 8)}. Retrying decryption...`);
-                  const retryPlaintext = await communicationService.decryptMessage(senderPubKey, {
-                    type: data.type,
-                    body: data.body,
-                  });
-                  
-                  if (retryPlaintext && typeof retryPlaintext === 'string') {
-                     console.log(`[Signal] Decryption SUCCESS after Silent HEAL!`);
-                     if (userPub) saveProcessedKey(userPub, gunKey);
-                     setContactErrors((prev) => ({ ...prev, [senderPubKey]: false }));
-                     resetsRef.current.delete(senderPubKey);
-                     
-                     const appType = (data.msgType as any) || "text";
-                     const msgId = data.msgId || gunKey;
-                     const isFile = appType === 'file' || appType === 'image';
-                     let fileMeta: FileMetadata | undefined;
-                     if (isFile) {
-                       try { fileMeta = JSON.parse(retryPlaintext); } catch (e) {}
-                     }
-                     
-                     setMessages((prev) => {
-                       const userMsgs = prev[senderPubKey] || [];
-                       if (userMsgs.some(m => m.id === msgId)) return prev;
-                       const updated = {
-                         ...prev,
-                         [senderPubKey]: [
-                           ...userMsgs,
-                           {
-                             id: msgId,
-                             gunKey: gunKey,
-                             sender: senderPubKey,
-                             text: (appType === 'audio' || isFile) ? undefined : retryPlaintext,
-                             audio: appType === 'audio' ? retryPlaintext : undefined,
-                             fileMetadata: fileMeta,
-                             type: appType,
-                             timestamp: new Date(data.timestamp || Date.now()),
-                             status: "delivered" as const,
-                           },
-                         ],
-                       };
-                       if (userPub) saveMessages(userPub, updated);
-                       return updated;
-                     });
-                     return; 
-                  }
-                }
-              } catch (retryErr) {
-                console.warn(`[Signal] Silent HEAL failed for ${senderPubKey}:`, retryErr);
-              }
-            } else {
-              console.warn(`[Signal] Decryption failed AGAIN for ${senderPubKey}. Displaying placeholder message.`);
-              if (userPub) saveProcessedKey(userPub, gunKey);
-              setContactErrors((prev) => ({ ...prev, [senderPubKey]: true }));
-
-              setMessages((prev) => {
-                const userMsgs = prev[senderPubKey] || [];
-                const msgId = data.msgId || gunKey;
-                if (userMsgs.some(m => m.id === msgId)) return prev;
-
-                const next = {
-                  ...prev,
-                  [senderPubKey]: [
-                    ...userMsgs,
-                    {
-                      id: msgId,
-                      sender: senderPubKey,
-                      text: "⚠️ [Impossibile decriptare il messaggio. Problema di sincronizzazione.]",
-                      timestamp: new Date(data.timestamp || Date.now()),
-                      status: "delivered" as const,
-                    },
-                  ],
-                };
-                if (userPub) saveMessages(userPub, next);
-                return next;
               });
+            } else if (plaintextValue === "LEGACY_UNSUPPORTED") {
+                // Ignore legacy
+            } else {
+                console.log(`[Signal] Received legacy message from ${senderPubKeyRaw.slice(0, 8)}. Ignoring as per TPRE-only policy.`);
             }
+          } catch (e: any) {
           }
         } catch (e: any) {
-          console.error(`[Signal] Unexpected error in message queue for ${senderPubKeyRaw}:`, e.message);
+          console.error("[Signal] messageQueue error:", e);
         }
       });
     });
@@ -863,30 +656,46 @@ export const useMessaging = (
         const myRole = await groupService.getMemberRole(recipient, userPub);
         if (!myRole) throw new Error("Not a member");
         const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`);
-        ciphertext = await groupService.encryptGroupMessage(meta.secret, payload || "");
+        if (!meta) throw new Error("Group metadata not found");
+        ciphertext = await groupService.encryptGroupMessage(meta, payload || "");
         await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
       } else {
-        // 1:1 direct message
-
-        try {
-          ciphertext = await communicationService.encryptMessage(recipient, payload || "");
-        } catch (err) {
-          // If encryption fails, try to reset the session (clear cache) and retry once
-          await communicationService.resetSession(recipient);
-          ciphertext = await communicationService.encryptMessage(recipient, payload || "");
-        }
-
-        // For My Cloud (self-chat), we still write to GunDB to sync across devices.
-        // The inbox listener handles duplicate prevention on the sending device.
-        const pub = recipient.length < 30 ? await communicationService.getPubKeyFromUsername(recipient) : recipient;
-        await db.Set(`signal_v3_inbox_${pub}`, { 
-          msgId, 
-          sender: userPub, 
-          type: ciphertext.type, 
-          body: ciphertext.body, 
-          timestamp: timestamp.toISOString(), 
-          msgType: type 
+        // 1:1 direct message -> NOW TPRE
+        console.log(`[Signal] Using TPRE for 1:1 chat with ${recipient.slice(0, 8)}...`);
+        const p2pGroup = await groupService.getOrCreateP2PGroup(recipient);
+        ciphertext = await groupService.encryptGroupMessage(p2pGroup, payload || "");
+        
+        // Write to the TPRE room messages node
+        await db.Set(`signal_rooms/${p2pGroup.id}/messages`, { 
+            msgId, 
+            sender: userPub, 
+            body: ciphertext, 
+            timestamp: timestamp.toISOString(), 
+            type 
         } as any);
+
+        // Also ensure the recipient sees this message by writing a 'notification' to their inbox
+        // BUT wait, in the unified model, we just want the recipient to be a 'member' of the p2p room
+        // and listen to it. But how do they find the room?
+        // Method A: They also calculate the same deterministic ID.
+        // Method B: We send a 'room_invite' to their legacy inbox.
+        
+        // Let's go with Method A + a 'poke' to their inbox if they aren't listening.
+        // For now, deterministic ID + adding to contacts is enough if they have the contact.
+        
+        // POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the TPRE room
+        try {
+            const pokeCipher = await communicationService.encryptMessage(recipient, `TPRE_POKE:${p2pGroup.id}`);
+            await db.Set(`signal_v3_inbox_${recipient}`, {
+                sender: userPub,
+                type: pokeCipher.type,
+                body: pokeCipher.body,
+                timestamp: timestamp.toISOString(),
+                msgType: 'tpre_poke'
+            } as any);
+        } catch (e) {
+            console.warn("[Signal] Failed to send TPRE_POKE, recipient might take longer to sync.", e);
+        }
       }
 
       setContactErrors((prev) => ({ ...prev, [recipient]: false }));

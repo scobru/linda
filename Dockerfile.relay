@@ -1,0 +1,21 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Copia i file necessari per le dipendenze
+COPY package.json ./
+
+# Installa le dipendenze (incluse quelle di sviluppo per express e gun)
+RUN npm install --include=dev
+
+# Copia il codice del relay
+COPY simple-relay.js ./
+
+# Esponi la porta del relay
+EXPOSE 8765
+
+# Definisci il volume per la persistenza di GunDB
+VOLUME /app/radata
+
+# Avvia il relay
+CMD ["node", "simple-relay.js"]

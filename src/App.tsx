@@ -315,10 +315,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
 
     // Auto-cleanup stale transfers on initialization (older than 1h)
     const relays = [
-      import.meta.env.VITE_RELAY_URL,
-      'https://shogun-relay.scobrudot.dev',
-      'https://relay.peer.ooo'
-    ].filter(Boolean) as string[];
+      'http://localhost:8765'
+    ] as string[];
     const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
 
     (async () => {
@@ -523,7 +521,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     communicationService,
     groupService,
     recipient,
-    setRecipient
+    setRecipient,
+    'http://localhost:8765'
   );
 
   // ── Sync Route & Recipient ──
@@ -1248,6 +1247,51 @@ const ChatWrapper: React.FC<{
   return <ChatView {...props} />;
 };
 
+// ── SDK Singleton Initializer ──
+// We initialize outside the component to handle React.StrictMode double-mounting properly.
+let sdkInitPromise: Promise<any> | null = null;
+
+const initSdk = async (relays: string[]) => {
+  console.log("[App] Initializing SDK singleton with relays:", relays);
+  
+  const gunInstance = Gun({
+    peers: relays,
+    localStorage: false,
+    radisk: true,
+    wire: true,
+    webrtc: true
+  });
+
+  window.gun = gunInstance;
+  console.log("[App] Gun instance created:", gunInstance);
+
+  const result = await (shogunConnector as any)({
+    appName: "Shogun Linda",
+    gunInstance: gunInstance as any,
+    storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    webauthn: { enabled: true },
+    web3: { enabled: true },
+    nostr: { enabled: true },
+    showWebauthn: true,
+    showMetamask: true,
+    showNostr: true,
+    showSeedLogin: true,
+    deterministicAuth: {
+      enabled: true,
+      skipValidation: false,
+      debug: true,
+    },
+  });
+
+  // Global debug access
+  if (typeof window !== "undefined") {
+    window.shogun = result.core;
+    window.gun = result.core.gun;
+  }
+
+  return result;
+};
+
 const App: React.FC = () => {
   const [coreContext, setCoreContext] = useState<any>(null);
   const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
@@ -1258,90 +1302,47 @@ const App: React.FC = () => {
     document.documentElement.dataset.theme = savedTheme;
   }, []);
 
-  const relays = [
-    "https://gun.defucc.me/gun",
-    "https://gun.o8.is/gun",
-    "https://shogun-relay.scobrudot.dev/gun",
-    "https://relay.peer.ooo/gun",
-  ];
+  const relays = useMemo(() => ["http://localhost:8765/gun"], []);
 
   // Initialize ShogunCore with hardcoded relays
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
-      try {
-        console.log("Relays: ", relays);
-        // Initialize Gun and DataBase with the dynamic peer list
-        const gunInstance = Gun({
-          peers: relays,
-          localStorage: false,
-          radisk: true,
-          wire: true,
-          webrtc: true
-        });
+    if (!sdkInitPromise) {
+      sdkInitPromise = initSdk(relays);
+    }
 
-        window.gun = gunInstance;
+    sdkInitPromise
+      .then((result) => {
+        if (!mounted) return;
+        
+        console.log("[App] SDK initialized, updating state...");
+        setDbInstance(result.core.db);
+        setCoreContext(result);
 
-        console.log("Gun instance: ", gunInstance);
-
-        // @ts-ignore - DataBase handles IGunInstance correctly internally
-        const db = new DataBase(gunInstance);
-
-        const result = await (shogunConnector as any)({
-          appName: "Shogun Linda",
-          gunInstance: gunInstance as any,
-          storage: typeof window !== "undefined" ? window.localStorage : undefined,
-          webauthn: { enabled: true },
-          web3: { enabled: true },
-          nostr: { enabled: true },
-          showWebauthn: true,
-          showMetamask: true,
-          showNostr: true,
-          showSeedLogin: true,
-          deterministicAuth: {
-            enabled: true,
-            skipValidation: false,
-            debug: true,
-          },
-        });
-
-        if (mounted) {
-          setDbInstance(result.core.db);
-          setCoreContext(result);
-          window.shogun = result.core;
-
-          // Add debug methods to window for testing
-          if (import.meta.env.DEV && typeof window !== "undefined") {
-            setTimeout(() => {
-              window.shogunDebug = {
-                clearAllData: () => {
-                  if (result.core.storage) {
-                    result.core.storage.clearAll();
-                  }
-                  if (typeof sessionStorage !== "undefined") {
-                    sessionStorage.removeItem("gunSessionData");
-                  }
-                },
-                sdk: result.core,
-                gun: result.core.gun,
-                relays: relays,
-              };
-              window.gun = result.core.gun;
-              window.shogun = result.core;
-            }, 1000);
-          }
+        // Add debug methods to window for testing (only in DEV)
+        if (import.meta.env.DEV && typeof window !== "undefined") {
+          setTimeout(() => {
+            window.shogunDebug = {
+              clearAllData: () => {
+                if (result.core.storage) result.core.storage.clearAll();
+                if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("gunSessionData");
+              },
+              sdk: result.core,
+              gun: result.core.gun,
+              relays: relays,
+            };
+          }, 1000);
         }
-      } catch (err) {
-        console.error("Failed to init shogunConnector:", err);
-      }
-    };
-    init();
+      })
+      .catch((err) => {
+        console.error("[App] Failed to initialize Shogun SDK:", err);
+      });
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [relays]);
 
   if (!coreContext || !dbInstance) {
     return <LoadingScreen message="Bootstrapping SDK" submessage="Connecting to P2P decentralized relays" type="infinity" />;

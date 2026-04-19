@@ -27,3 +27,6 @@ dist-ssr
 
 .vercel
 .env*.local
+
+# GunDB data
+radata/

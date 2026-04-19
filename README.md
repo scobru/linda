@@ -13,33 +13,33 @@
 ## 🏗️ Architecture
 
 ### Core Services
--   **`CommunicationService`**: The backbone of the application. Handles GunDB signaling, user authentication, and inbox certificate management (recently refactored from `SignalService`).
+-   **`CommunicationService`**: Handles GunDB signaling, user authentication, and deterministic room discovery using SEA certificates.
+-   **`GroupService`**: The core encryption engine. Manages **TPRE (Threshold Proxy Re-Encryption)** for both group and 1:1 chats.
+-   **`ThresholdService`**: Wraps the NuCypher Umbral TPRE implementation for end-to-end post-quantum resistant security.
 -   **`FileTransferService`**: Manages the lifecycle of WebRTC connections for secure file exchange.
--   **`GroupService`**: Handles decentralized group creation and membership.
 
 ### Technological Stack
 -   **Frontend**: React + TypeScript + Vite.
 -   **Database**: [GunDB](https://gun.eco/) (Decentralized/P2P).
--   **Encryption**: Gun SEA (AES, RSA, SHA).
--   **Communication**: WebRTC for P2P data streams.
+-   **Encryption**: **NuCypher Umbral TPRE** (Main Payloads) + Gun SEA (Signaling & Identity).
+-   **Communication**: WebRTC for P2P streams + TPRE Relay for asynchronous re-encryption.
 
 ## 🔒 Security & Encryption
 
-Shogun Linda implements a multi-layered security model to ensure privacy without a central authority.
+Shogun Linda implements a unified security model based on **Proxy Re-Encryption (PRE)**, ensuring privacy even when one party is offline.
 
-### 1:1 End-to-End Encryption (E2E)
-Managed by the `CommunicationService`, it uses **Gun SEA** for robust P2P identity and security:
--   **Key Exchange**: Uses Diffie-Hellman (DH) derivation. Each user has an `epub` (Exchange Public Key).
--   **Shared Secrets**: A unique shared secret is computed between two peers using `SEA.secret(peer_epub, my_pair)`.
--   **Cipher**: Messages are encrypted/decrypted using `SEA.encrypt` and `SEA.decrypt` with the derived secret.
--   **Public Inboxes**: Secure "write-only" inboxes are managed via recursive SEA certificates (`inbox_cert`), allowing peers to signal you without having global write permissions to your node.
+### Unified TPRE Architecture (1:1 and Group)
+Unlike traditional systems that use different primitives for different chat types, Linda treats all conversations as TPRE groups:
+-   **Deterministic P2P Rooms**: 1:1 chats are treated as private groups between two members, using deterministic IDs (`p2p_...`).
+-   **Delegation & Re-encryption**: A user (Admin) delegates decryption rights to a peer by generating **kfrags** (keyshare fragments).
+-   **TPRE Relay**: The relay server acts as a "semi-trusted" proxy. It uses the kfrags to transform ciphertexts for specific recipients without ever being able to see the plaintext content.
+-   **Offline Sincronization**: TPRE allows the relay to helper-transform messages for a recipient even if the sender is offline, facilitating a robust asynchronous P2P experience.
 
-### Group Encryption
-Managed by the `GroupService`, using a **Symmetric Key Sharing** model:
--   **Group Secret**: A random 32-byte symmetric key is generated upon group creation.
--   **Key Distribution**: The secret is bundled inside the Base64 invite link. Joining the group grants access to the key.
--   **Cipher**: messages are encrypted using **AES-GCM** with the group's symmetric key. This ensures high performance for large groups while maintaining "Group E2E" privacy (only members can decrypt).
--   **Permissions**: decentralized Role-Based Access Control (RBAC) manages who can kick, mute, or pin messages.
+### Signaling & Discovery (Gun SEA)
+Gun SEA (Security, Encryption, and Authorization) is used as the foundational signaling layer:
+-   **Deterministic Discovery**: Peers find their shared TPRE rooms by calculating IDs based on their respective public keys.
+-   **TPRE POKE**: A small E2EE "poke" is sent via the legacy SEA inbox to notify a peer when a new TPRE group has been initialized for them.
+-   **Certificates**: SEA certificates (`inbox_cert`) manage write-permissions for the signaling nodes.
 
 ## 🛠️ Development
 
