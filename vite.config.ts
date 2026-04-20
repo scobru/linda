@@ -20,6 +20,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
   ],
+  assetsInclude: ['**/*.wasm'],
   server: {
     watch: {
       ignored: ['**/radata/**'],
@@ -33,7 +34,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    exclude: ['shogun-button-react', '@nucypher/umbral-pre'],
+    exclude: ['shogun-core', 'zen', 'shogun-button-react', '@nucypher/umbral-pre'],
     include: ['sodium-javascript', 'sodium-universal', 'buffer']
   }
 })

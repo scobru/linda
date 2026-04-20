@@ -1,5 +1,5 @@
-import {  type IZenInstance } from "shogun-core";
-import { DataBase, ZEN as Gun, SEA } from "shogun-core";
+import { DataBase } from "./zen/db";
+import * as zenCrypto from "./zen/crypto";
 
 /**
  * CommunicationService
@@ -55,24 +55,22 @@ export class CommunicationService {
       console.log("[CommunicationService] Initializing SEA session...");
       try {
         // Wait for pair to be available and user to be logged in
-        let user = this.db.zen.user();
-        let pair = (user as IZenInstance)?._?.sea;
-        if (!pair || !user.is) {
-          for (let i = 0; i < 15; i++) {
+        let pair = this.db.pair;
+        if (!pair) {
+          for (let i = 0; i < 30; i++) {
             await new Promise((r) => setTimeout(r, 200));
-            user = this.db.zen.user();
-            pair = (user as any)?._?.sea;
-            if (pair && user.is) break;
+            pair = this.db.pair;
+            if (pair) break;
           }
         }
 
-        if (!user.is) {
+        if (!pair) {
           console.warn(
-            "[CommunicationService] User not logged in after waiting. Bundle publish might fail.",
+            "[CommunicationService] User keys not available after waiting. SEA session may be degraded.",
           );
         }
 
-        this.myPair = pair;
+        this.myPair = pair || null;
 
         await this.publishBundle(username, uniqueUsername);
         await this.regenerateCertificate();
@@ -101,7 +99,7 @@ export class CommunicationService {
     username: string,
     uniqueUsername?: string,
   ): Promise<void> {
-    const pair = (this.db.zen.user() as any)?._?.sea;
+    const pair = this.myPair || this.db.pair;
     if (!pair || !pair.epub) {
       console.warn(
         "[CommunicationService] User keys not available yet, deferring bundle publish.",
@@ -112,61 +110,18 @@ export class CommunicationService {
     try {
       // 1. Primary path: user node root 'epub'
       // This is the most important field for E2E encryption.
-      const user = this.db.zen.user();
-      if (!user.is) {
-        console.warn(
-          "[CommunicationService] Gun user is not logged in. Cannot verify identity for bundle publish.",
-        );
-        return;
-      }
-
-      const epubPromise = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("Primary epub publish timeout")),
-          8000,
-        );
-        user.get("epub").put(pair.epub, (ack: any) => {
-          clearTimeout(timeout);
-          if (ack.err) {
-            if (ack.err === "Unverified data.") {
-              console.error(
-                "[CommunicationService] Critical: Unverified data error while publishing epub. Attempting staged recovery...",
-              );
-              resolve(); // Proceed to secondary fields to see if they stick
-            } else {
-              reject(new Error(ack.err));
-            }
-          } else {
-            resolve();
-          }
-        });
-      });
-
-      await epubPromise.catch((e) =>
-        console.warn(
-          "[CommunicationService] Primary EPUB write failed (non-critical if secondary succeeds):",
-          e.message,
-        ),
-      );
+      await this.db.userPut("epub", pair.epub);
 
       // 2. Secondary path: individual fields for maximum GunDB verification reliability
-      // We space these out to avoid overwhelming the Gun graph with simultaneous puts on the same root
       await new Promise((r) => setTimeout(r, 1000));
 
-      if (user.is) {
-        console.log(
-          "[CommunicationService] Publishing secondary signal_bundle_v7 metadata...",
-        );
-        user.get("signal_bundle_v7").get("epub").put(pair.epub);
-        user.get("signal_bundle_v7").get("username").put(username);
-        if (uniqueUsername)
-          user
-            .get("signal_bundle_v7")
-            .get("uniqueUsername")
-            .put(uniqueUsername);
-
-        // Individual fields are already published above.
-        // We remove the object-level put to avoid "Unverified data" conflicts on the same node.
+      console.log(
+        "[CommunicationService] Publishing secondary signal_bundle_v7 metadata...",
+      );
+      await this.db.userPut("signal_bundle_v7/epub", pair.epub);
+      await this.db.userPut("signal_bundle_v7/username", username);
+      if (uniqueUsername) {
+        await this.db.userPut("signal_bundle_v7/uniqueUsername", uniqueUsername);
       }
 
       console.log(
@@ -386,15 +341,15 @@ export class CommunicationService {
    * allowing anyone (or specific peers) to write signals to ~${pub}/signal_inbox
    */
   public async regenerateCertificate(force: boolean = false): Promise<void> {
-    const pair = this.myPair || (this.db.zen.user() as any)?._?.sea;
+    const pair = this.myPair || this.db.pair;
     if (!pair) {
       console.warn(
         "[CommunicationService] No user keys available for certificate regeneration.",
       );
       return;
     }
-    const user = this.db.zen.user();
-    if (!user.is) return;
+    const user = this.db.user;
+    if (!user || !user.is) return;
 
     try {
       if (!force) {
@@ -409,9 +364,10 @@ export class CommunicationService {
         let isValid = false;
         if (currentCert && typeof currentCert === "string") {
           try {
-            const verified = await SEA.verify(
+            const verified = await zenCrypto.verify(
               currentCert,
               pair.pub,
+              this.db.zen,
             );
             if (verified && verified.c) {
               // Check if the policy mentions signal_inbox_v13
@@ -453,11 +409,11 @@ export class CommunicationService {
         { "#": { "*": "*" } }, // absolute wildcard fallback for relay compatibility
       ];
 
-      const cert = await SEA.certify(
+      const cert = await zenCrypto.certify(
         "*", // Allow anyone (public inbox)
         policyContent,
         pair,
-        null,
+        this.db.zen,
       );
 
       // Publish in multiple locations for maximum discoverability
@@ -492,7 +448,7 @@ export class CommunicationService {
     );
 
     const soul = `~${this.myPair.pub}/signal_inbox_v13`;
-    const cert = await SEA.certify(
+    const cert = await zenCrypto.certify(
       [peerPub],
       [
         { "#": { "*": soul } },
@@ -502,11 +458,11 @@ export class CommunicationService {
         { "#": { "*": "*" } }, // absolute wildcard
       ],
       this.myPair,
-      null,
+      this.db.zen,
     );
 
-    const user = this.db.zen.user();
-    user.get("certs").get(peerPub).put(cert);
+    const user = this.db.user;
+    if (user) user.get("certs").get(peerPub).put(cert);
     return cert;
   }
 
@@ -514,8 +470,8 @@ export class CommunicationService {
    * Revokes a specific certificate for a peer.
    */
   public async revokeCertificate(peerPub: string): Promise<void> {
-    const user = this.db.zen.user();
-    if (!user.is) return;
+    const user = this.db.user;
+    if (!user || !user.is) return;
     console.log(
       `[CommunicationService] Revoking certificate for: ${peerPub.slice(0, 8)}`,
     );
@@ -545,7 +501,7 @@ export class CommunicationService {
       label: string,
     ): Promise<boolean> => {
       try {
-        const verified = await SEA.verify(cert, pub);
+        const verified = await zenCrypto.verify(cert, pub, this.db.zen);
         if (!verified || !verified.c) {
           console.warn(
             `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed SEA.verify`,
@@ -680,12 +636,12 @@ export class CommunicationService {
           }
 
           const recipientEpub = await this.getEpubFromPub(pubKey);
-          const myPair = (this.db.zen.user() as any)?._?.sea;
+          const myPair = (this.db.user as any)?._?.sea;
           if (!myPair) throw new Error("User not logged in");
 
           let secret = this.secretCache.get(recipientEpub);
           if (!secret) {
-            secret = await SEA.secret(recipientEpub, myPair);
+            secret = await zenCrypto.secret(recipientEpub, myPair, this.db.zen);
             if (secret) this.secretCache.set(recipientEpub, secret);
           }
 
@@ -697,7 +653,7 @@ export class CommunicationService {
             );
           }
 
-          const encrypted = await SEA.encrypt(message, secret);
+          const encrypted = await zenCrypto.encrypt(message, secret, this.db.zen);
           resolve({ type: 0, body: encrypted });
         } catch (e) {
           reject(e);
@@ -727,7 +683,7 @@ export class CommunicationService {
         return undefined;
       }
 
-      const myPair = this.myPair || (this.db.zen.user() as any)?._?.sea;
+      const myPair = this.myPair || (this.db.user as any)?._?.sea;
       if (!myPair) throw new Error("User keys not available for decryption");
 
       if (typeof ciphertext.body !== "string") {
@@ -746,7 +702,7 @@ export class CommunicationService {
 
       let secret = this.secretCache.get(senderEpub);
       if (!secret) {
-        secret = await SEA.secret(senderEpub, myPair);
+        secret = await zenCrypto.secret(senderEpub, myPair, this.db.zen);
         if (secret) this.secretCache.set(senderEpub, secret);
       }
 
@@ -763,7 +719,7 @@ export class CommunicationService {
       let decrypted;
       try {
         decrypted = await Promise.race([
-          SEA.decrypt(ciphertext.body, secret),
+          zenCrypto.decrypt(ciphertext.body, secret, this.db.zen),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error("SEA.decrypt timeout")), 10000),
           ),
@@ -802,12 +758,12 @@ export class CommunicationService {
         this.secretCache.delete(senderEpub);
         try {
           const freshEpub = await this.getEpubFromPub(pubKey);
-          const freshSecret = await SEA.secret(freshEpub, myPair);
+          const freshSecret = await zenCrypto.secret(freshEpub, myPair, this.db.zen);
           if (freshSecret) this.secretCache.set(freshEpub, freshSecret);
           else throw new Error("Fresh secret derivation failed");
 
           decrypted = await Promise.race([
-            SEA.decrypt(ciphertext.body, freshSecret),
+            zenCrypto.decrypt(ciphertext.body, freshSecret, this.db.zen),
             new Promise((_, reject) =>
               setTimeout(
                 () => reject(new Error("SEA.decrypt fresh retry timeout")),

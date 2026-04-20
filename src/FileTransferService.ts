@@ -1,5 +1,4 @@
-import { ZEN as Gun, SEA } from "shogun-core";
-import type { IZenInstance as IGunInstance } from "shogun-core";
+import { type IZenInstance } from "./zen/types";
 
 export type TransferStatus = 'idle' | 'offering' | 'incoming' | 'signaling' | 'transferring' | 'completed' | 'failed' | 'offered';
 
@@ -65,7 +64,7 @@ export class FileTransferService {
     }
   ];
 
-  constructor(_gun: IGunInstance, myPub: string) {
+  constructor(_zen: IZenInstance, myPub: string) {
     this.myPub = myPub;
     this.clientId = Math.random().toString(36).substring(7);
     console.log(`[FileTransfer] Instance initialized with clientId: ${this.clientId}`);

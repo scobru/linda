@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 import { UserAvatar } from "../components/UserAvatar";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -29,7 +29,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
-    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
+    const pair = ((db.user as any) as any)?._?.sea;
     if (pair) {
       setKeys(JSON.stringify(pair, null, 2));
     }
@@ -161,7 +161,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         {/* Universal Contact QR (Level H) */}
         <div className="shrink-0 bg-white p-3 sm:p-4 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl border-4 border-primary/20 animate-fadeIn hover:scale-105 transition-transform duration-500">
            <QRCodeSVG 
-            value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
+            value={`${window.location.origin}/?add=${((db.user as any) as any)?._?.sea?.pub || ""}`} 
             size={160} 
             level="H"
             className="sm:w-[200px] sm:h-[200px]"
@@ -257,7 +257,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="flex flex-col sm:flex-row gap-4 p-6 bg-base-200/50 rounded-3xl border border-base-content/5 max-w-xl">
                 <div className="shrink-0 bg-white p-3 rounded-2xl shadow-xl border-2 border-primary/10">
                    <QRCodeSVG 
-                    value={`${window.location.origin}/?add=${(db.getCurrentUser()?.user as any)?._?.sea?.pub || ""}`} 
+                    value={`${window.location.origin}/?add=${((db.user as any) as any)?._?.sea?.pub || ""}`} 
                     size={100} 
                     level="H"
                     fgColor="#1b1b1f"
@@ -270,7 +270,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                    <button 
                     className="btn btn-primary btn-xs rounded-lg px-6 font-black"
                     onClick={() => {
-                      const pub = (db.getCurrentUser()?.user as any)?._?.sea?.pub;
+                      const pub = ((db.user as any) as any)?._?.sea?.pub;
                       if (!pub) return;
                       navigator.clipboard.writeText(`${window.location.origin}/?add=${pub}`);
                       showNotification("Contact link copied!", "info");
@@ -292,7 +292,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                  <button 
                   className="btn btn-primary rounded-2xl px-10 h-14 font-black shadow-xl shadow-primary/20 transition-transform active:scale-95"
                   onClick={() => {
-                    const pair = (db.getCurrentUser()?.user as any)?._?.sea;
+                    const pair = ((db.user as any) as any)?._?.sea;
                     if (!pair) return;
                   const sessionData = { 
                     type: "shogun-auth-pair",
@@ -318,7 +318,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 value={`${window.location.origin}/?magic_login=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify({ 
                 type: "shogun-auth-pair",
                 version: "1.0",
-                pair: (db.getCurrentUser()?.user as any)?._?.sea || {},
+                pair: ((db.user as any) as any)?._?.sea || {},
                 username: username,
                 exportedAt: Date.now()
               })))))}`} 

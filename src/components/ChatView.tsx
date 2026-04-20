@@ -8,7 +8,7 @@ import { CommunicationService } from "../CommunicationService";
 import { WormholeService } from "../WormholeService";
 import { shortenLink } from "../utils/ui";
 import { UserAvatar } from "./UserAvatar";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 
 interface ChatViewProps {
   recipient: string;

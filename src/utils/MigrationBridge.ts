@@ -1,4 +1,5 @@
-import { GroupInfo, GroupService } from "../GroupService";
+import * as crypto from "../zen/crypto";
+import { type GroupInfo, GroupService } from "../GroupService";
 
 export class MigrationBridge {
   private groupService: GroupService;
@@ -38,9 +39,13 @@ export class MigrationBridge {
     const communityPK = ts.serializePublicKey(groupPK);
     
     // Encrypt the groupSK using admin's personal pair and store it
-    const pair = ((this.groupService as any).db.gun.user() as any)?._?.sea;
+    const pair = ((this.groupService as any).db.user as any)?._?.sea;
     const skString = ts.serializeSecretKey(groupSK);
-    const encryptedSK = await (this.groupService as any).db.sea.encrypt(skString, pair);
+    const encryptedSK = await crypto.encrypt(
+      skString,
+      pair,
+      (this.groupService as any).db.zen,
+    );
     await (this.groupService as any).db.Put(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
 
     // Initial Relay KFrag for admin

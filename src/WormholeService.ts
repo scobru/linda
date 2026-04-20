@@ -1,5 +1,4 @@
-import { ZEN as Gun, SEA } from "shogun-core";
-import type { IZenInstance as IGunInstance } from "shogun-core";
+import { type IZenInstance } from "./zen/types";
 
 // Shared config
 const ENCRYPTION_CONFIG = {
@@ -107,7 +106,7 @@ function normalizeToUint8Array(value: any, label: string): Uint8Array {
 }
 
 async function deriveKeyFromCode(code: string, saltBytes: Uint8Array, iterations : number = ENCRYPTION_CONFIG.iterations) {
-  const keyMaterial = await crypto.subtle.importKey(
+  const keyMaterial = await globalThis.crypto.subtle.importKey(
     'raw',
     textEncoder.encode(code),
     'PBKDF2',
@@ -115,7 +114,7 @@ async function deriveKeyFromCode(code: string, saltBytes: Uint8Array, iterations
     ['deriveKey']
   );
 
-  return crypto.subtle.deriveKey(
+  return globalThis.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
       salt: new Uint8Array(saltBytes),
@@ -148,11 +147,11 @@ function generateCode(): string {
 }
 
 export class WormholeService {
-  private gun: IGunInstance;
+  private gun: IZenInstance;
   public onStatusChange: (data: { code: string; status: WormholeStatus; message: string; metadata?: any; fileData?: any }) => void = () => {};
   public onProgress: (data: WormholeProgress & { code: string }) => void = () => {};
 
-  constructor(gun: IGunInstance) {
+  constructor(gun: IZenInstance) {
     this.gun = gun;
   }
 
@@ -194,12 +193,12 @@ export class WormholeService {
         message: 'Encrypting file...',
       });
 
-      const salt = crypto.getRandomValues(new Uint8Array(ENCRYPTION_CONFIG.saltLength));
-      const iv = crypto.getRandomValues(new Uint8Array(ENCRYPTION_CONFIG.ivLength));
+      const salt = globalThis.crypto.getRandomValues(new Uint8Array(ENCRYPTION_CONFIG.saltLength));
+      const iv = globalThis.crypto.getRandomValues(new Uint8Array(ENCRYPTION_CONFIG.ivLength));
 
       const key = await deriveKeyFromCode(code, salt);
       const fileBuffer = await file.arrayBuffer();
-      const encryptedBuffer = await crypto.subtle.encrypt(
+      const encryptedBuffer = await globalThis.crypto.subtle.encrypt(
         {
           name: ENCRYPTION_CONFIG.algorithm,
           iv,
@@ -407,7 +406,7 @@ export class WormholeService {
             const ivBytes = normalizeToUint8Array(enc.iv, 'IV');
             const key = await deriveKeyFromCode(code, saltBytes, enc.iterations);
             
-            const decryptedBuffer = await crypto.subtle.decrypt(
+            const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
                 { name: enc.algorithm || 'AES-GCM', iv: new Uint8Array(ivBytes) },
                 key,
                 await blob.arrayBuffer()

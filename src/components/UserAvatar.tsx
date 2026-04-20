@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 import { getDiceBearAvatar } from "../utils/avatar";
 
 interface UserAvatarProps {
@@ -29,16 +29,15 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
       : `~${pub}/profile/avatar`;
     
     // Subscribe to avatar changes
-    const evId = `avatar_${pub}_${Math.random().toString(36).substring(7)}`;
     
     db.On(path, (data: any) => {
       if (typeof data === "string") {
         setAvatar(data);
       }
-    }, evId);
+    });
 
     return () => {
-      db.Off(evId);
+      db.Off(path);
     };
   }, [pub, db, isGroup]);
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { GroupService } from "../GroupService";
 import type { GroupMember, GroupInfo, Role } from "../GroupService";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 import { UserAvatar } from "../components/UserAvatar";
 
 interface GroupSettingsPageProps {
@@ -75,9 +75,9 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   };
 
   useEffect(() => {
-    if (!groupId || !db.gun || !myRole || !['moderator', 'administrator'].includes(myRole)) return;
+    if (!groupId || !db.zen || !myRole || !['moderator', 'administrator'].includes(myRole)) return;
     
-    const reportsRef = db.gun.get(`signal_rooms/${groupId}/reports`);
+    const reportsRef = db.zen.get(`signal_rooms/${groupId}/reports`);
     const handleReport = (data: any, id: string) => {
         if (!data || id === '_' || id === '>') return;
         setReports(prev => {
@@ -98,7 +98,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
     return () => {
         try { (reportsRef as any).off(); } catch(e) {}
     };
-  }, [groupId, myRole, db.gun]);
+  }, [groupId, myRole, db.zen]);
 
   const handleUpdateMeta = async () => {
     if (!groupId) return;

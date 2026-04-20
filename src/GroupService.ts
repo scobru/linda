@@ -1,4 +1,5 @@
-import { DataBase } from "shogun-core";
+import { DataBase } from "./zen/db";
+import * as crypto from "./zen/crypto";
 import { ThresholdService } from "./ThresholdService";
 import * as umbral from "@nucypher/umbral-pre";
 
@@ -48,13 +49,13 @@ export class GroupService {
   }
 
   private async getThresholdService(): Promise<ThresholdService> {
-    const pair = (this.db.gun.user() as any)?._?.sea;
+    const pair = this.db.pair;
     if (!pair || !pair.priv) throw new Error("Not logged in or missing SEA keys");
     return await ThresholdService.init(pair.priv);
   }
 
   private generateUUID(): string {
-    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0;
       const v = c === 'x' ? r : (r & 0x3) | 0x8;
@@ -75,7 +76,7 @@ export class GroupService {
     if (!myPub) throw new Error("Not logged in");
 
     if (encryptionMode === 'symmetric') {
-      groupSecret = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+      groupSecret = btoa(String.fromCharCode(...globalThis.crypto.getRandomValues(new Uint8Array(32))));
     } else {
       const ts = await this.getThresholdService();
       const { groupSK, groupPK } = ts.createGroup();
@@ -83,10 +84,12 @@ export class GroupService {
       
       // We must encrypt the groupSK so the admin can always recover it.
       // We'll use Gun SEA to encrypt the groupSK using the admin's personal SEA pair.
-      const pair = (this.db.gun.user() as any)?._?.sea;
+      const pair = this.db.pair;
+      if (!pair) throw new Error("Authentication state lost during group creation");
+      
       const skString = ts.serializeSecretKey(groupSK);
       // In SEA, doing a simple encryption with own pair:
-      const encryptedSK = await SEA.encrypt(skString, pair);
+      const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
       
       // Store the encrypted SK
       await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
@@ -474,7 +477,7 @@ export class GroupService {
 
   async reportUser(groupId: string, targetPub: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
-    const reportId = crypto.randomUUID();
+    const reportId = globalThis.crypto.randomUUID();
     await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
       type: "user",
       targetPub,
@@ -727,10 +730,10 @@ export class GroupService {
             try {
               const encryptedSK = await this.waitForNode(`signal_rooms/${group.id}/admin_sk_encrypted`, attempt === 0 ? 1 : 2, 500);
               if (encryptedSK) {
-                  const pair = (this.db.gun.user() as IZenInstance)?._?.sea;
+                  const pair = (this.db.user as any)?._?.sea;
                   if (pair) {
                       console.log(`[GroupService] Attempting Admin SK recovery. Pair Pub matches Group Admin Pub: ${pair.pub === group.adminPub}`);
-                      const skString = await SEA.decrypt(encryptedSK, pair);
+                      const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
                       if (skString) {
                           const groupSK = ts.deserializeSecretKey(skString);
                           const plaintextBuf = ts.decryptDirect(groupSK, capsule, ciphertext);
@@ -816,8 +819,8 @@ export class GroupService {
     // Recover groupSK
     const encryptedSK = await (this.db.Get as any)(`signal_rooms/${groupId}/admin_sk_encrypted`);
     if (!encryptedSK) throw new Error("Group SK not found");
-    const pair = (this.db.gun.user() as any)?._?.sea;
-    const skString = await this.db.sea.decrypt(encryptedSK, pair);
+    const pair = (this.db.user as any)?._?.sea;
+    const skString = await this.db.crypto.decrypt(encryptedSK, pair);
     if (!skString) throw new Error("Failed to decrypt group SK");
     
     const groupSK = ts.deserializeSecretKey(skString);
@@ -1002,9 +1005,9 @@ export class GroupService {
     const { groupSK, groupPK } = ts.createGroup();
     const communityPK = ts.serializePublicKey(groupPK);
     
-    const pair = (this.db.gun.user() as any)?._?.sea;
+    const pair = (this.db.user as any)?._?.sea;
     const skString = ts.serializeSecretKey(groupSK);
-    const encryptedSK = await this.db.sea.encrypt(skString, pair);
+    const encryptedSK = await this.db.crypto.encrypt(skString, pair);
     
     await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
     

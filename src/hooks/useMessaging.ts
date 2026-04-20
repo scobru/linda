@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 import { CommunicationService } from "../CommunicationService";
 import { GroupService, type GroupInfo } from "../GroupService";
 import { generateSecureRandomString } from "../utils/crypto";
@@ -49,7 +49,6 @@ export const useMessaging = (
   const [pinnedMessages, setPinnedMessages] = useState<Record<string, Set<string>>>({});
   
   const processedRef = useRef<Set<string>>(new Set());
-  const resetsRef = useRef<Set<string>>(new Set());
   const blockedContactsRef = useRef<Set<string>>(new Set());
   const lastTypingSentRef = useRef<number>(0);
   const recipientRef = useRef(recipient);
@@ -138,13 +137,13 @@ export const useMessaging = (
   }, []);
 
   const saveContact = useCallback((contactId: string) => {
-    if (!userPub || !db.gun) return;
-    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
+    if (!userPub || !db.zen) return;
+    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
   }, [userPub, db]);
 
   const removeContact = useCallback((contactId: string) => {
-    if (!userPub || !db.gun) return;
-    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(null as any);
+    if (!userPub || !db.zen) return;
+    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(null as any);
   }, [userPub, db]);
 
   // ── Initialization Logic ──
@@ -154,7 +153,7 @@ export const useMessaging = (
     loadSavedDeletedMessages(userPub);
     loadProcessedKeys(userPub);
 
-    db.gun
+    db.zen
       .get(`signal_v3_contacts_${userPub}`)
       .map()
       .on((data: any, contactId: string) => {
@@ -196,31 +195,31 @@ export const useMessaging = (
       });
 
     // Mark as loaded once the initial fetch from the relay is done
-    db.gun.get(`signal_v3_contacts_${userPub}`).once(() => {
+    db.zen.get(`signal_v3_contacts_${userPub}`).once(() => {
         setIsContactsLoading(false);
     });
   }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
 
   const acceptContact = useCallback(async (contactId: string) => {
-    if (!userPub || !db.gun || !communicationService) return;
+    if (!userPub || !db.zen || !communicationService) return;
     console.log(`[Messaging] Accepting contact: ${contactId.slice(0, 8)}`);
     
     // 1. Issue certificate for this user (LoneWolf protocol)
     await communicationService.issueCertificate(contactId);
     
     // 2. Add to trusted contacts in GunDB
-    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
+    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
   }, [userPub, db, communicationService]);
 
   const blockContact = useCallback(async (contactId: string) => {
-    if (!userPub || !db.gun || !communicationService) return;
+    if (!userPub || !db.zen || !communicationService) return;
     console.log(`[Messaging] Blocking contact: ${contactId.slice(0, 8)}`);
     
     // 1. Revoke certificate
     await communicationService.revokeCertificate(contactId);
     
     // 2. Mark as blocked in contacts list
-    db.gun.get(`signal_v3_contacts_${userPub}`).get(contactId).put(false as any);
+    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(false as any);
     
     setRecipient("");
   }, [userPub, db, communicationService, setRecipient]);
@@ -230,7 +229,7 @@ export const useMessaging = (
   useEffect(() => {
     if (!userPub) return;
 
-    db.gun
+    db.zen
       .get(`signal_v2_typing_${userPub}`)
       .map()
       .on((data: any, senderPubKey: string) => {
@@ -297,7 +296,7 @@ export const useMessaging = (
         }
 
         // 1. Listen to Messages
-        db.gun.get(`signal_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
+        db.zen.get(`signal_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           if (blockedContactsRef.current.has(data.sender)) {
             if (userPub) saveProcessedKey(userPub, gunKey);
@@ -379,7 +378,7 @@ export const useMessaging = (
         });
 
         // 2. Listen to Deletions
-        db.gun.get(`signal_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
+        db.zen.get(`signal_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
           if (data) {
             setDeletedMessages((prev) => {
               const groupDeletions = new Set(prev[contactId] || []);
@@ -392,7 +391,7 @@ export const useMessaging = (
         });
 
         // 3. Listen to Pins
-        db.gun.get(`signal_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
+        db.zen.get(`signal_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
           setPinnedMessages(prev => {
             const groupPins = new Set(prev[contactId] || []);
             if (ts) groupPins.add(msgId);
@@ -427,7 +426,7 @@ export const useMessaging = (
         if (!meta || meta.adminPub !== userPub || meta.encryptionMode !== 'tpre') return;
 
         // Subscribe to member list
-        db.gun.get(`signal_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
+        db.zen.get(`signal_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
            if (!memberData || memberPub === "_" || memberPub === userPub) return;
            
            const grantKey = `${roomId}_${memberPub}`;
@@ -470,9 +469,9 @@ export const useMessaging = (
   useEffect(() => {
     if (!communicationService || !userPub) return;
     const sessionStartTime = Date.now();
-    const pendingResets = new Set<string>();
+    console.log(`[Signal] Listener started at ${sessionStartTime}`);
 
-    db.gun.get(`signal_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+    db.zen.get(`signal_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
       // 1. Strict Data Validation (Avoid GunDB type errors and malformed nodes)
       if (!data || typeof data !== "object") {
         if (data !== null) console.warn(`[Signal] Skipping non-object inbox data at ${gunKey}:`, data);
@@ -580,7 +579,7 @@ export const useMessaging = (
           const pub = recipient.length < 30 ? await communicationService.getPubKeyFromUsername(recipient) : recipient;
           path = `signal_v2_typing_${pub}`;
         }
-        db.gun.get(path).get(userPub).put({ typing: true, ts: now.toString(), s: generateSecureRandomString(4) } as any);
+        db.zen.get(path).get(userPub).put({ typing: true, ts: now.toString(), s: generateSecureRandomString(4) } as any);
       } catch (e) {}
     }
   }, [recipient, userPub, communicationService, db]);
@@ -757,10 +756,10 @@ export const useMessaging = (
           // We look for the message in our current state to find its Gun node key
           const msgs = messages[recipient] || [];
           const msgToDelete = msgs.find(m => m.id === messageId);
-          if (msgToDelete?.gunKey && db.gun) {
+          if (msgToDelete?.gunKey && db.zen) {
             const path = `signal_v3_inbox_${userPub}`;
             console.log(`[Signal] Nullifying GunDB node at ${path}/${msgToDelete.gunKey}`);
-            db.gun.get(path).get(msgToDelete.gunKey).put(null as any);
+            db.zen.get(path).get(msgToDelete.gunKey).put(null as any);
           }
 
           // 1. Mark as deleted locally
@@ -783,7 +782,7 @@ export const useMessaging = (
                 ? await communicationService.getPubKeyFromUsername(recipient)
                 : recipient;
 
-            db.gun.get(`signal_v3_inbox_${pub}`).set({
+            db.zen.get(`signal_v3_inbox_${pub}`).set({
               sender: userPub,
               type: cipher.type,
               body: cipher.body,
@@ -809,7 +808,7 @@ export const useMessaging = (
   );
 
   const handleClearChat = useCallback(async (contactId: string) => {
-    if (!userPub || !db.gun) return;
+    if (!userPub || !db.zen) return;
     const msgs = messages[contactId] || [];
     
     // 1. Clear from GunDB
@@ -818,7 +817,7 @@ export const useMessaging = (
     
     msgs.forEach(m => {
       if (m.gunKey) {
-        db.gun.get(path).get(m.gunKey).put(null as any);
+        db.zen.get(path).get(m.gunKey).put(null as any);
       }
     });
 

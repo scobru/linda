@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useShogun } from 'shogun-button-react';
-import { DataBase } from 'shogun-core';
+import { DataBase } from '../zen/db';
 import { CommunicationService } from '../CommunicationService';
 import { GroupService } from '../GroupService';
 
-export const useCommunicationInit = (db: DataBase, showNotification: (msg: string, type?: 'info' | 'error') => void) => {
-  const { isLoggedIn, username } = useShogun();
+export const useCommunicationInit = (
+  db: DataBase, 
+  isLoggedIn: boolean, 
+  username: string | null, 
+  showNotification: (msg: string, type?: 'info' | 'error') => void
+) => {
   const [communicationService, setCommunicationService] = useState<CommunicationService | null>(null);
   const [groupService, setGroupService] = useState<GroupService | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -19,16 +22,16 @@ export const useCommunicationInit = (db: DataBase, showNotification: (msg: strin
           // 1. Fetch or generate uniqueUsername
           let uniqueName: string | undefined;
           
-          // Wait for sync: Retry fetch multiple times over 10s before giving up
+          // Wait for sync: Retry fetch multiple times over a few seconds before giving up
           console.log(`[useCommunicationInit] Fetching uniqueUsername for ${username}...`);
-          for (let i = 0; i < 15; i++) {
+          for (let i = 0; i < 5; i++) {
             try {
               uniqueName = (await db.userGet('profile/uniqueUsername')) as string;
               if (uniqueName && typeof uniqueName === 'string') break;
             } catch (e: any) {
               if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Fetch error:", e);
             }
-            await new Promise(r => setTimeout(r, 750));
+            await new Promise(r => setTimeout(r, 500));
           }
 
           if (!uniqueName) {
@@ -38,13 +41,11 @@ export const useCommunicationInit = (db: DataBase, showNotification: (msg: strin
             uniqueName = `@${username}${digits}`;
             
             // Try to save it
-            const user = db.gun.user();
-            if (user.is) {
-              user.get('profile').get('uniqueUsername').put(uniqueName);
-            }
+            await db.userPut('profile/uniqueUsername', uniqueName);
+            
             const pub = db.getUserPub();
             if (pub) {
-              db.gun.get('signal_unique_usernames').get(uniqueName).put(pub);
+              await db.Put(`signal_unique_usernames/${uniqueName}`, pub);
             }
           }
           setUserUniqueUsername(uniqueName);

@@ -16,20 +16,15 @@ import {
 } from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationPage } from "./pages/GroupCreationPage";
-import { DataBase, ShogunCore, ZEN } from "shogun-core";
+import { DataBase } from "./zen/db";
+import { type IZenInstance } from "./zen/types";
+import ZEN from "zen";
 
-
-import type { IZenInstance as IGunInstance } from "shogun-core";
-import {
-  shogunConnector,
-  ShogunButtonProvider,
-  ShogunButton,
-  useShogun,
-} from "shogun-button-react";
 import { UserProfile } from "./pages/UserProfile";
 import { Settings } from "./pages/Settings";
 import { ChatView } from "./components/ChatView";
 import { Layout } from "./components/Layout";
+import AuthPage from "./pages/AuthPage";
 import { useCommunicationInit } from "./hooks/useCommunicationInit";
 import { useMessaging } from "./hooks/useMessaging";
 import { GroupService, type Role } from "./GroupService";
@@ -42,12 +37,12 @@ declare global {
   interface Window {
     shogunDebug?: {
       clearAllData: () => void;
-      sdk: ShogunCore;
-      gun: IGunInstance;
+      db: DataBase;
+      zen: IZenInstance;
       relays: string[];
     };
-    gun?: IGunInstance;
-    shogun?: ShogunCore;
+    zen?: IZenInstance;
+    db?: DataBase;
   }
 }
 
@@ -100,15 +95,14 @@ const LoadingScreen: React.FC<{
   </div>
 );
 
-const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
-  db,
-  sdkInstance,
-}) => {
-  const { isLoggedIn, userPub, logout } = useShogun() as any;
-  const sdk = sdkInstance; // Use the provided instance directly to avoid context delay
-  const username = (db.getCurrentUser()?.user as any)?._?.sea?.pub
-    ? (db.getCurrentUser()?.user as any)?.username
-    : "";
+const AppContent: React.FC<{
+  db: DataBase;
+  isLoggedIn: boolean;
+  userPub: string | null;
+  username: string;
+  onLogout: () => void;
+}> = ({ db, isLoggedIn, userPub, username, onLogout }) => {
+  const logout = onLogout;
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
 
@@ -141,7 +135,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
   // Initial state logging for troubleshooting
   useEffect(() => {
     console.log(
-      `[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, sdkReady: ${!!sdk}, URL: ${window.location.href}`,
+      `[AppContent] Mounted. isLoggedIn: ${isLoggedIn}, userPub: ${userPub ? userPub.substring(0, 8) : "none"}, dbReady: ${!!db}, URL: ${window.location.href}`,
     );
   }, []);
 
@@ -163,26 +157,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
     async (data: string, context: string = "Login") => {
       if (!data) return;
       try {
-        // 0. Ensure SDK is ready (Retry loop for slow bootstrap on mobile)
-        let activeSdk = sdk || window.shogun;
-        if (!activeSdk) {
-          console.log(
-            `[Login] SDK not detected in context, waiting for initialization...`,
-          );
-          for (let i = 0; i < 10; i++) {
-            await new Promise((r) => setTimeout(r, 500));
-            activeSdk = sdk || window.shogun;
-            if (activeSdk) {
-              console.log(`[Login] SDK became ready after ${(i + 1) * 0.5}s`);
-              break;
-            }
-          }
-        }
-
-        if (!activeSdk) {
-          throw new Error("SDK not ready. Please try again in a moment.");
-        }
-
         console.log(`[Login] ${context} context, processing data...`);
 
         let payload = data.trim();
@@ -276,11 +250,9 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
           showNotification("Authenticating...", "info");
 
           // Reset state before login to avoid conflicts with old sessions
-          if (typeof activeSdk.logout === "function") {
-            activeSdk.logout();
-          }
+          db.logout();
 
-          const result = await activeSdk.loginWithPair(finalUsername, pair);
+          const result = await db.loginWithPair(finalUsername, pair);
 
           console.log(
             `[Login] loginWithPair call completed. Result:`,
@@ -293,7 +265,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
             );
           }
           // Verify Gun state immediately
-          const gun = activeSdk.gun || (window as any).gun;
+          const gun = db.zen || (window as any).gun;
 
           // Wait up to 3 seconds for Gun to confirm auth
           let authenticated = false;
@@ -329,12 +301,12 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
         return false;
       }
     },
-    [sdk, showNotification],
+    [db, showNotification],
   );
 
   // ── Hooks ──
   const { communicationService, groupService, isLoading, userUniqueUsername } =
-    useCommunicationInit(db, showNotification);
+    useCommunicationInit(db, isLoggedIn, userPub, showNotification);
 
   // Sync ref for async listeners
   const communicationServiceRef = useRef<CommunicationService | null>(null);
@@ -344,7 +316,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
 
   const fileTransferServiceInst = useMemo(() => {
     if (!isLoggedIn || !userPub) return null;
-    const service = new FileTransferService(window.gun as any, userPub);
+    const service = new FileTransferService(db.zen as any, userPub);
 
     service.onFileReceived = (blob, _name, _mimeType, metaId) => {
       if (metaId) {
@@ -361,8 +333,8 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
   }, [isLoggedIn, userPub]);
 
   const wormholeServiceInst = useMemo(() => {
-    if (!isLoggedIn || !db.gun) return null;
-    const service = new WormholeService(db.gun);
+    if (!isLoggedIn || !db.zen) return null;
+    const service = new WormholeService(db.zen);
     service.onStatusChange = ({ code, status, message, fileData }) => {
       console.log(`[Wormhole] ${code} status: ${status} - ${message}`);
       setWormholeStatuses((prev) => ({ ...prev, [code]: status }));
@@ -392,7 +364,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
     })();
 
     return service;
-  }, [isLoggedIn, db.gun]);
+  }, [isLoggedIn, db.zen]);
 
   // Update signal sender whenever communicationService becomes available
   useEffect(() => {
@@ -403,7 +375,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
         prefix: string,
       ) => {
         try {
-          db.gun.get(`~${toPub}`).once(() => {});
+          db.zen.get(`~${toPub}`).once(() => {});
           let cert;
           for (let i = 0; i < 3; i++) {
             try {
@@ -422,7 +394,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
           const signalKey = `${userPub!.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
           // Secure SEA-compliant inbox soul (~toPub/signal_inbox_v13)
-          const targetInbox = db.gun.user(toPub).get(`signal_inbox_v13`);
+          const targetInbox = db.zen.user(toPub).get(`signal_inbox_v13`);
 
           const doSend = (
             sendCert: string | null,
@@ -505,7 +477,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
       `[App] Starting securely authorized signaling listener on ${inboxSoul}`,
     );
 
-    db.gun
+    db.zen
       .get(inboxSoul)
       .map()
       .on(async (data: any, gunKey: string) => {
@@ -585,7 +557,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
             : 20000;
           setTimeout(() => {
             if (userPub)
-              db.gun
+              db.zen
                 .user(userPub)
                 .get("signal_inbox_v13")
                 .get(gunKey)
@@ -604,11 +576,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
     // Periodically poke the inbox to ensure the Gun graph subscription remains active on mobile
     const kickInterval = setInterval(() => {
       console.log("[App] Sync Kick: Poking GunDB inbox...");
-      db.gun
-        .user(userPub)
-        .get("signal_inbox_v13")
-        .get("_poke")
-        .put(Date.now().toString());
+      db.Put(`~${userPub}/signal_inbox_v13/_poke`, Date.now().toString());
     }, 45000);
 
     return () => clearInterval(kickInterval);
@@ -682,13 +650,10 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
     const magic_login = searchParams.get("magic_login");
     const session = searchParams.get("session");
 
-    const activeSdk = sdkInstance || (window as any).shogun || sdk;
-
     if (
       (magic_login || session) &&
       !isLoggedIn &&
-      !magicLoginAttempted.current &&
-      activeSdk
+      !magicLoginAttempted.current
     ) {
       magicLoginAttempted.current = true;
       setIsProcessingMagicLink(true);
@@ -718,7 +683,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
         },
       );
     }
-  }, [isLoggedIn, sdk, searchParams, processUniversalLogin]);
+  }, [isLoggedIn, db, searchParams, processUniversalLogin]);
 
   // 2. Complete Magic Link Login state sync
   useEffect(() => {
@@ -739,17 +704,17 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
       !isLoggedIn &&
       !magicLoginAttempted.current &&
       !isProcessingMagicLink &&
-      sdk &&
+      db &&
       !sessionStorage.getItem("restored_tried")
     ) {
       sessionStorage.setItem("restored_tried", "true");
-      if (typeof sdk.db?.restoreSession === "function") {
-        sdk.db
+      if (typeof db.restoreSession === "function") {
+        db
           .restoreSession()
           .catch((e: any) => console.error("Restore failed:", e));
       }
     }
-  }, [isLoggedIn, sdk, isProcessingMagicLink]);
+  }, [isLoggedIn, db, isProcessingMagicLink]);
 
   // 4. Handle Add Friend Link
   useEffect(() => {
@@ -804,8 +769,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
             setUserNick(data);
             localStorage.setItem("linda_user_nick", data);
           }
-        },
-        "nick_self",
+        }
       );
       return () => {
         db.Off("nick_self");
@@ -837,8 +801,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
                   },
                 }));
               }
-            },
-            `group_meta_${contactId}`,
+            }
           );
         } else {
           let cPub = contactId;
@@ -854,8 +817,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
                 setContactProfiles((prev) => ({
                   ...prev,
                   [contactId]: { ...prev[contactId], avatar: data },
-                })),
-              `avatar_${cPub}`,
+                }))
             );
             db.On(
               `~${cPub}/profile/nickname`,
@@ -864,8 +826,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
                 setContactProfiles((prev) => ({
                   ...prev,
                   [contactId]: { ...prev[contactId], nickname: data },
-                })),
-              `nick_${cPub}`,
+                }))
             );
 
             // Priority 2: Public alias registry (fallback/faster sync)
@@ -886,8 +847,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
                     };
                   });
                 }
-              },
-              `alias_fallback_${cPub}`,
+              }
             );
           }
         }
@@ -1005,7 +965,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
       );
 
       const cert = await communicationService.getInboxCertificate(pub);
-      db.gun
+      db.zen
         .get(`signal_v3_inbox_${pub}`)
         .get("ping_heal_" + Date.now())
         .put(
@@ -1152,7 +1112,7 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({
 
               {/* Note: the full page loader above takes precedence when isProcessingMagicLink is true */}
               <div className="card-actions flex flex-col gap-3 w-full">
-                <ShogunButton />
+                <p className="text-center text-xs opacity-40">Native Zen Auth Enabled</p>
               </div>
 
               <div className="divider opacity-30 text-[10px] font-black tracking-[0.2em] font-mono">
@@ -1424,55 +1384,18 @@ const ChatWrapper: React.FC<{
   return <ChatView {...props} />;
 };
 
-// ── SDK Singleton Initializer ──
-// We initialize outside the component to handle React.StrictMode double-mounting properly.
-let sdkInitPromise: Promise<any> | null = null;
-
-const initSdk = async (relays: string[]) => {
-  console.log("[App] Initializing SDK singleton with relays:", relays);
-
-  const gunInstance = new ZEN({
-    peers: ["http://localhost:8765/zen"],
-    localStorage: true,
-    radisk: true,
-    wire: true,
-    webrtc: true,
-    axe: true,
-  });
-
-  window.gun = gunInstance;
-  console.log("[App] Gun instance created:", gunInstance);
-
-  const result = await (shogunConnector as any)({
-    appName: "Shogun Linda",
-    zenInstance: gunInstance as any,
-    storage: typeof window !== "undefined" ? window.localStorage : undefined,
-    webauthn: { enabled: true },
-    web3: { enabled: true },
-    nostr: { enabled: true },
-    showWebauthn: true,
-    showMetamask: true,
-    showNostr: true,
-    showSeedLogin: true,
-    deterministicAuth: {
-      enabled: true,
-      skipValidation: false,
-      debug: true,
-    },
-  });
-
-  // Global debug access
-  if (typeof window !== "undefined") {
-    window.shogun = result.core;
-    window.gun = result.core.gun;
-  }
-
-  return result;
-};
-
 const App: React.FC = () => {
-  const [coreContext, setCoreContext] = useState<any>(null);
+  const [initializing, setInitializing] = useState(true);
   const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
+  const [authState, setAuthState] = useState<{
+    isLoggedIn: boolean;
+    userPub: string | null;
+    username: string;
+  }>({
+    isLoggedIn: false,
+    userPub: null,
+    username: "",
+  });
 
   // ── Theme Initialization ──
   useEffect(() => {
@@ -1480,79 +1403,102 @@ const App: React.FC = () => {
     document.documentElement.dataset.theme = savedTheme;
   }, []);
 
-  const relays = useMemo(() => ["http://localhost:8765/zen"], []);
-
-  // Initialize ShogunCore with hardcoded relays
+  // ── Zen & DB Initialization ──
   useEffect(() => {
     let mounted = true;
 
-    if (!sdkInitPromise) {
-      sdkInitPromise = initSdk(relays);
-    }
+    const initZen = async () => {
+      try {
+        const relays = ["http://localhost:8765/zen"];
+        const zenInstance = new ZEN({
+          peers: relays,
+          localStorage: true,
+          radisk: true,
+        });
 
-    sdkInitPromise
-      .then((result) => {
-        if (!mounted) return;
+        const db = new DataBase(zenInstance);
 
-        console.log("[App] SDK initialized, updating state...");
-        setDbInstance(result.core.db);
-        setCoreContext(result);
+        // Debug access
+        window.zen = zenInstance;
+        window.db = db;
+        window.shogunDebug = {
+          clearAllData: () => {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+          },
+          db: db,
+          zen: zenInstance,
+          relays: relays,
+        };
 
-        // Add debug methods to window for testing (only in DEV)
-        if (import.meta.env.DEV && typeof window !== "undefined") {
-          setTimeout(() => {
-            window.shogunDebug = {
-              clearAllData: () => {
-                if (result.core.storage) result.core.storage.clearAll();
-                if (typeof sessionStorage !== "undefined")
-                  sessionStorage.removeItem("gunSessionData");
-              },
-              sdk: result.core,
-              gun: result.core.gun,
-              relays: relays,
-            };
-          }, 1000);
+        if (mounted) {
+          setDbInstance(db);
+
+          // Restore Session
+          const restored = await db.restoreSession();
+          if (restored.success && restored.username) {
+            setAuthState({
+              isLoggedIn: true,
+              userPub: db.getUserPub() || "",
+              username: restored.username,
+            });
+          }
         }
-      })
-      .catch((err) => {
-        console.error("[App] Failed to initialize Shogun SDK:", err);
-      });
+      } catch (err) {
+        console.error("[App] Failed to initialize Zen:", err);
+      } finally {
+        if (mounted) setInitializing(false);
+      }
+    };
 
+    initZen();
     return () => {
       mounted = false;
     };
-  }, [relays]);
+  }, []);
 
-  if (!coreContext || !dbInstance) {
+  const handleAuth = (username: string) => {
+    if (!dbInstance) return;
+    setAuthState({
+      isLoggedIn: true,
+      userPub: dbInstance.getUserPub() || "",
+      username: username,
+    });
+  };
+
+  const handleLogout = () => {
+    if (dbInstance) dbInstance.logout();
+    setAuthState({
+      isLoggedIn: false,
+      userPub: null,
+      username: "",
+    });
+  };
+
+  if (initializing || !dbInstance) {
     return (
       <LoadingScreen
-        message="Bootstrapping SDK"
-        submessage="Connecting to P2P decentralized relays"
+        message="Bootstrapping Zen"
+        submessage="Connecting to P2P decentralized graph"
         type="infinity"
       />
     );
   }
-  console.log(
-    `[App] Rendering with coreContext: ${!!coreContext}, dbInstance: ${!!dbInstance}, coreReady: ${!!coreContext?.core}`,
-  );
 
   return (
     <BrowserRouter>
-      <ShogunButtonProvider
-        core={coreContext.core}
-        options={coreContext.options}
-        onLoginSuccess={(data) => {
-          console.log("Logged in!", data);
-        }}
-        onSignupSuccess={(data) => {
-          console.log("Signed up!", data);
-        }}
-        onError={(err) => {
-          console.error("Auth error", err);
-        }}
-      >
-        <AppContent db={dbInstance} sdkInstance={coreContext.core} />
-      </ShogunButtonProvider>
+      {!authState.isLoggedIn ? (
+        <AuthPage db={dbInstance} onAuth={handleAuth} />
+      ) : (
+        <AppContent
+          db={dbInstance}
+          isLoggedIn={authState.isLoggedIn}
+          userPub={authState.userPub}
+          username={authState.username}
+          onLogout={handleLogout}
+        />
+      )}
     </BrowserRouter>
   );
 };

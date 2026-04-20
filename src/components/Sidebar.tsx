@@ -4,7 +4,7 @@ import { UserAvatar } from "./UserAvatar";
 import { CommunicationService } from "../CommunicationService";
 import { GroupService } from "../GroupService";
 import { QrScannerModal } from "./QrScannerModal";
-import { DataBase } from "shogun-core";
+import { DataBase } from "../zen/db";
 
 interface SidebarProps {
   userPub: string | null;
