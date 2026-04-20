@@ -15,12 +15,15 @@ export class DataBase {
   private _pair: IZenPair | null = null;
   private _pub: string | null = null;
   public crypto: typeof crypto;
-  private readonly usernamesNode: IZenChain;
 
   constructor(zen: IZenInstance) {
     this.zen = zen;
     this.crypto = crypto;
-    this.usernamesNode = this.zen.get('usernames');
+  }
+
+  private getUsernamesNode(): any {
+    if (!this.zen) return null;
+    return this.zen.get('usernames');
   }
 
   public get user(): any {
@@ -28,8 +31,12 @@ export class DataBase {
     try {
       const userChain = this.zen.get(`~${this._pub}`) as any;
       if (!userChain) return null;
+      
+      // Safely augment without destroying internal Gun/Zen metadata
+      if (!userChain._) userChain._ = {};
+      userChain._.sea = this._pair;
       userChain.is = { pub: this._pub };
-      userChain._ = { sea: this._pair };
+      
       return userChain;
     } catch (e) {
       console.warn('[DataBase] Failed to get user chain:', e);
@@ -99,12 +106,17 @@ export class DataBase {
 
       // Register username
       await new Promise((resolve) => {
-        this.usernamesNode.get(normalizedUsername).put(pub, () => resolve(true));
+        this.getUsernamesNode().get(normalizedUsername).put(pub, () => resolve(true));
       });
 
       // Store profile
       await new Promise((resolve) => {
-        this.zen.get(`~${pub}`).get('alias').put(normalizedUsername, () => resolve(true));
+        const profileNode = this.getChain(`~${pub}/alias`);
+        if (profileNode) {
+          profileNode.put(normalizedUsername, () => resolve(true));
+        } else {
+          resolve(false);
+        }
       });
 
       this._pair = userPair;
@@ -122,7 +134,12 @@ export class DataBase {
     const normalizedUsername = username.trim().toLowerCase();
     try {
       const pub = await new Promise<string | null>((resolve) => {
-        this.usernamesNode.get(normalizedUsername).once((p: any) => resolve(p || null));
+        const node = this.getUsernamesNode();
+        if (node) {
+          node.get(normalizedUsername).once((p: any) => resolve(p || null));
+        } else {
+          resolve(null);
+        }
       });
 
       if (!pub) return { success: false, error: 'User not found' };
@@ -219,32 +236,18 @@ export class DataBase {
   }
 
   userGet(path: string): Promise<any> {
-    const userNode = this.user;
-    if (!userNode) return Promise.reject('Not logged in');
-    
-    let chain = userNode;
-    const parts = path.split('/').filter(p => !!p);
-    for (const p of parts) {
-      if (!chain || typeof chain.get !== 'function') return Promise.resolve(null);
-      chain = chain.get(p);
-    }
-
+    if (!this._pub) return Promise.reject('Not logged in');
+    const chain = this.getChain(`~${this._pub}/${path}`);
+    if (!chain) return Promise.resolve(null);
     return new Promise((resolve) => {
       chain.once((s: any) => resolve(s));
     });
   }
 
   userPut(path: string, data: any): Promise<any> {
-    const userNode = this.user;
-    if (!userNode) return Promise.reject('Not logged in');
-
-    let chain = userNode;
-    const parts = path.split('/').filter(p => !!p);
-    for (const p of parts) {
-      if (!chain || typeof chain.get !== 'function') return Promise.reject('Invalid path');
-      chain = chain.get(p);
-    }
-
+    if (!this._pub) return Promise.reject('Not logged in');
+    const chain = this.getChain(`~${this._pub}/${path}`);
+    if (!chain || typeof chain.put !== 'function') return Promise.reject('Invalid path');
     return new Promise((resolve) => {
       chain.put(data, (ack: any) => resolve(ack));
     });
