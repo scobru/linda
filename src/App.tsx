@@ -16,54 +16,9 @@ import {
 } from "react-router-dom";
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationPage } from "./pages/GroupCreationPage";
-import { DataBase, ShogunCore, Zen } from "shogun-core";
+import { DataBase, ShogunCore, ZEN } from "shogun-core";
 
-// --- Zen User Compatibility Shim ---
-// This shims the legacy GunDB .user() method onto the Zen instance,
-// which is required by ShogunCore's DataBase class.
-const setupZenUserShim = (GunConstructor: any) => {
-  if (!GunConstructor || GunConstructor.prototype.user) return;
 
-  GunConstructor.prototype.user = function (pub?: string) {
-    const zen = this;
-    if (pub) {
-      return zen.get("~" + pub);
-    }
-
-    if (!zen._user) {
-      const userNode = zen.get("~");
-      userNode.is = null;
-      userNode._ = {};
-
-      userNode.auth = function (pair: any, cb?: (ack: any) => void) {
-        userNode.is = { pub: pair.pub, alias: pair.alias || "user" };
-        userNode._ = { sea: pair };
-        if (cb) {
-          setTimeout(() => cb({ err: undefined, ok: 1, pub: pair.pub }), 0);
-        }
-        return userNode;
-      };
-
-      userNode.recall = function (opt?: { sessionStorage: boolean }) {
-        // ShogunCore calls this. Its internal logic handles the actual recall,
-        // but it expects the user object to exist.
-        return userNode;
-      };
-
-      userNode.leave = function () {
-        userNode.is = null;
-        userNode._ = {};
-        return userNode;
-      };
-
-      zen._user = userNode;
-    }
-    return zen._user;
-  };
-};
-
-// Apply the shim immediately
-setupZenUserShim(Zen);
 import type { IZenInstance as IGunInstance } from "shogun-core";
 import {
   shogunConnector,
@@ -1476,12 +1431,13 @@ let sdkInitPromise: Promise<any> | null = null;
 const initSdk = async (relays: string[]) => {
   console.log("[App] Initializing SDK singleton with relays:", relays);
 
-  const gunInstance = new Zen({
+  const gunInstance = new ZEN({
     peers: ["http://localhost:8765/zen"],
-    localStorage: false,
+    localStorage: true,
     radisk: true,
     wire: true,
     webrtc: true,
+    axe: true,
   });
 
   window.gun = gunInstance;

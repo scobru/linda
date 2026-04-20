@@ -3,8 +3,20 @@ import ZEN from 'zen';
 import serve from "zen/lib/serve.js";
 import * as umbral from '@nucypher/umbral-pre';
 
+import fs from 'fs';
+import path from 'path';
+
 const port = process.env.PORT || 8765;
-const handle = serve(process.cwd());
+
+// Polyfill localStorage for Zen in Node environment
+import { LocalStorage } from 'node-localstorage';
+if (typeof global.localStorage === "undefined" || global.localStorage === null) {
+  const storagePath = './radata/localstorage';
+  if (!fs.existsSync(storagePath)) {
+    fs.mkdirSync(storagePath, { recursive: true });
+  }
+  global.localStorage = new LocalStorage(storagePath);
+}
 
 /**
  * Helper to wait for data in ZenDB (for sync latency)
@@ -42,7 +54,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 3. TPRE ENDPOINT
-    if (req.url === '/api/v1/tpre/reencrypt' && req.method === 'POST') {
+    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (parsedUrl.pathname === '/api/v1/tpre/reencrypt' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', async () => {
@@ -86,11 +99,58 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 4. FALLBACK TO ZEN SERVE (Static files & zen.js)
-    if (handle(req, res)) {
+    // First, try Zen's internal serve (for zen.js, zen/ etc)
+    if (serve(req, res)) {
         return;
     }
 
+    // Then try static files from current directory
+    const isSystemFile = req.url.match(/\.(wasm|js|css|gif|png|jpg|jpeg|svg|json|mp3|ico)$/);
+    
+    // Manual check for static files to avoid index.html fallback for system files
+    const staticPath = path.join(process.cwd(), parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname);
+    if (fs.existsSync(staticPath)) {
+        const stats = fs.statSync(staticPath);
+        if (stats.isFile()) {
+            const ext = path.extname(staticPath).toLowerCase();
+            const mimeTypes = {
+                '.js': 'text/javascript',
+                '.wasm': 'application/wasm',
+                '.css': 'text/css',
+                '.json': 'application/json',
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.svg': 'image/svg+xml',
+                '.mp3': 'audio/mpeg'
+            };
+            res.writeHead(200, { "Content-Type": mimeTypes[ext] || 'text/plain' });
+            fs.createReadStream(staticPath).pipe(res);
+            return;
+        }
+    }
+
+    if (isSystemFile) {
+        console.warn(`[Relay] ⚠️ System file NOT FOUND: ${req.url}`);
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        return res.end("404 Not Found");
+    }
+
+    // Default to index.html only for navigation requests
+    const indexPath = path.join(process.cwd(), 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        fs.createReadStream(indexPath).pipe(res);
+        return;
+    }
+
+    res.writeHead(404);
+    res.end();
+
     // If handle doesn't process it (returns false), we could add more or 404
+});
+
+server.on('upgrade', (req, socket, head) => {
+    console.log(`[Relay] 🆙 Upgrade request for: ${req.url}`);
 });
 
 server.listen(port, () => {
@@ -98,6 +158,10 @@ server.listen(port, () => {
 });
 
 const zen = new ZEN({
-    web: server
+    web: server,
+    ws: { path: '/zen' },
+    radisk: true
 });
+
+console.log(zen)
 console.log('ZenDB in ascolto...');

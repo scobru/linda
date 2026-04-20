@@ -33,6 +33,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
+    exclude: ['shogun-button-react', '@nucypher/umbral-pre'],
     include: ['sodium-javascript', 'sodium-universal', 'buffer']
   }
 })

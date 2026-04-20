@@ -25,16 +25,16 @@
     "react-router-dom": "^7.13.2",
     "shogun-button-react": "https://github.com/scobru/shogun-button-react",
     "shogun-core": "https://github.com/scobru/shogun-core",
-    "zen": "https://github.com/scobru/zen",
-    "styled-components": "^6.1.13",
     "socket.io-client": "^4.8.3",
     "sodium-javascript": "^0.8.0",
     "sodium-universal": "^5.0.1",
+    "styled-components": "^6.1.13",
     "vercel": "^50.28.0",
     "vite-plugin-node-polyfills": "^0.25.0",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
-    "webrtc-adapter": "^9.0.4"
+    "webrtc-adapter": "^9.0.4",
+    "zen": "https://github.com/akaoio/zen"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -50,6 +50,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "node-localstorage": "^3.0.5",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
