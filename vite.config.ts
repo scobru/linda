@@ -33,7 +33,6 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['sodium-javascript', 'sodium-universal', 'buffer'],
-    exclude: ['@nucypher/umbral-pre']
+    include: ['sodium-javascript', 'sodium-universal', 'buffer']
   }
 })
