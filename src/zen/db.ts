@@ -122,13 +122,22 @@ export class DataBase {
         this.zen.get('usernames').get(normalizedUsername).put(pub, (ack: any) => resolve(ack));
       });
 
-      // Store profile (signed)
+      // Pre-initialize unique username handle (e.g. @dev1234)
+      const digits = Math.floor(1000 + Math.random() * 9000);
+      const uniqueName = `@${normalizedUsername}${digits}`;
+      
+      // Store in user profile (signed) and global discovery index
+      await this.userPut('profile/uniqueUsername', uniqueName);
+      await this.Put(`signal_unique_usernames/${uniqueName}`, pub);
+
+      // Store basic profile alias
       await this.userPut('alias', normalizedUsername);
       
       localStorage.setItem('linda_auth_pair', JSON.stringify({ pair: userPair, username: normalizedUsername }));
+      localStorage.setItem("linda_user_unique_username", uniqueName);
       this.emitAuthEvent();
 
-      return { success: true, userPub: pub, username: normalizedUsername, isNewUser: true };
+      return { success: true, userPub: pub, username: normalizedUsername, uniqueUsername: uniqueName, isNewUser: true };
     } catch (error: any) {
       console.error('[DB] SignUp error:', error);
       return { success: false, error: `SignUp failed: ${error.message || error}` };
