@@ -205,30 +205,39 @@ export class CommunicationService {
   async getPubKeyFromUsername(username: string): Promise<string> {
     if (!username) throw new Error("Username/Pubkey is required");
 
-    // If it looks like a pubkey already, return it
-    if (username.length >= 30 && !username.startsWith("@")) return username;
+    const query = username.trim();
+    // If it looks like a pubkey already (Gun pubkeys are long strings), return as-is
+    if (query.length >= 30 && !query.startsWith("@")) return query;
 
-    const cached = this.pubkeyCache.get(username);
+    const cached = this.pubkeyCache.get(query);
     if (cached) return cached;
 
-    console.log(`[CommunicationService] Resolving pubkey for: ${username}`);
+    console.log(`[CommunicationService] Resolving pubkey for: ${query}`);
+    
+    // Normalize unique handle search (e.g. "dev1234" -> "@dev1234")
+    const normalizedUnique = query.startsWith("@") ? query : `@${query}`;
+    const loginQuery = query.startsWith("@") ? query.slice(1) : query;
+    const lowerLoginQuery = loginQuery.toLowerCase();
+
+    // Iterate attempts to handle eventual consistency on slow relays
     for (let i = 0; i < 6; i++) {
       try {
-        if (username.startsWith("@")) {
-          const uniquePubKey = await this.db.Get(
-            `signal_unique_usernames/${username}`,
-          );
-          if (
-            uniquePubKey &&
-            typeof uniquePubKey === "string" &&
-            uniquePubKey.length >= 30
-          ) {
-            this.pubkeyCache.set(username, uniquePubKey);
-            return uniquePubKey;
-          }
+        // Strategy A: Check Custom Unique Usernames Index (@handle format)
+        const uniquePubKey = await this.db.Get(`signal_unique_usernames/${normalizedUnique}`);
+        if (uniquePubKey && typeof uniquePubKey === "string" && uniquePubKey.length >= 30) {
+          this.pubkeyCache.set(query, uniquePubKey);
+          return uniquePubKey;
         }
 
-        const data = (await this.db.Get(`~@${username}`)) as any;
+        // Strategy B: Check Global Usernames Index (used for login mapping)
+        const loginPubKey = await this.db.Get(`usernames/${lowerLoginQuery}`);
+        if (loginPubKey && typeof loginPubKey === "string" && loginPubKey.length >= 30) {
+          this.pubkeyCache.set(query, loginPubKey);
+          return loginPubKey;
+        }
+
+        // Strategy C: Check native Gun Alias node (~@name)
+        const data = (await this.db.Get(`~@${loginQuery}`)) as any;
         if (data && typeof data === "object") {
           const pubNode = Object.keys(data).find(
             (k) => k.startsWith("~") && k !== "_" && k.length > 5,
@@ -236,15 +245,19 @@ export class CommunicationService {
           if (pubNode) {
             const pub = pubNode.slice(1);
             if (pub.length >= 30) {
-              this.pubkeyCache.set(username, pub);
+              this.pubkeyCache.set(query, pub);
               return pub;
             }
           }
         }
-      } catch (e) {}
-      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+      } catch (e) {
+        console.warn(`[CommunicationService] Resolution attempt ${i + 1} failed for ${query}:`, e);
+      }
+      
+      // Jittered backoff (400ms, 800ms, 1.2s...)
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
     }
-    throw new Error(`User "${username}" not found.`);
+    throw new Error(`Citizen "${query}" not found.`);
   }
 
   /**

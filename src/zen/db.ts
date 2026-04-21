@@ -113,17 +113,25 @@ export class DataBase {
       const userPair = pair || await this.crypto.generatePairFromSeed(password || Math.random().toString(36), this.zen);
       const pub = userPair.pub;
 
+      // Set state first so userPut and other operations can use it
+      this._pair = userPair;
+      this._pub = pub;
+
+      // Store in usernames mapping node for login lookup
+      await new Promise((resolve) => {
+        this.zen.get('usernames').get(normalizedUsername).put(pub, (ack: any) => resolve(ack));
+      });
+
       // Store profile (signed)
       await this.userPut('alias', normalizedUsername);
       
-      this._pair = userPair;
-      this._pub = pub;
       localStorage.setItem('linda_auth_pair', JSON.stringify({ pair: userPair, username: normalizedUsername }));
       this.emitAuthEvent();
 
       return { success: true, userPub: pub, username: normalizedUsername, isNewUser: true };
     } catch (error: any) {
-      return { success: false, error: `SignUp failed: ${error.message}` };
+      console.error('[DB] SignUp error:', error);
+      return { success: false, error: `SignUp failed: ${error.message || error}` };
     }
   }
 
@@ -148,7 +156,8 @@ export class DataBase {
 
       return { success: true, userPub: pub, username: normalizedUsername };
     } catch (error: any) {
-      return { success: false, error: `Login failed: ${error.message}` };
+      console.error('[DB] Login error:', error);
+      return { success: false, error: `Login failed: ${error.message || error}` };
     }
   }
 
@@ -162,7 +171,8 @@ export class DataBase {
       this.emitAuthEvent();
       return { success: true, userPub: pair.pub, username };
     } catch (e: any) {
-      return { success: false, error: e.message };
+      console.error('[DB] LoginWithPair error:', e);
+      return { success: false, error: e.message || e };
     }
   }
 
