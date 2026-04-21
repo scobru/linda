@@ -1,4 +1,0 @@
-src/App.tsx(34,1): error TS6133: 'TransferStatus' is declared but its value is never read.
-src/App.tsx(74,26): error TS6133: 'setTransferOffers' is declared but its value is never read.
-src/components/ChatView.tsx(94,9): error TS6133: 'acceptedMetaIds' is declared but its value is never read.
-src/components/ChatView.tsx(173,9): error TS6133: 'targetPub' is declared but its value is never read.

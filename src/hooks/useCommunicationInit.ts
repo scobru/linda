@@ -28,7 +28,7 @@ export const useCommunicationInit = (
           console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
           for (let i = 0; i < 15; i++) {
             try {
-              uniqueName = (await db.userGet('profile/uniqueUsername')) as string;
+              uniqueName = (await db.userGet('profile/uniqueUsername', 2000)) as string;
               if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
             } catch (e: any) {
               // Ignore notfound errors during the retry window

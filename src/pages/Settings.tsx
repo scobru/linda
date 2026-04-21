@@ -1,6 +1,5 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { useShogun } from "shogun-button-react";
 
 interface SettingsProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -8,8 +7,13 @@ interface SettingsProps {
 
 export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
   const navigate = useNavigate();
-  const { logout } = useShogun();
   const [currentTheme, setCurrentTheme] = React.useState(localStorage.getItem("linda-theme") || "linda");
+
+  const logout = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/";
+  };
 
   const setTheme = (theme: string) => {
     localStorage.setItem("linda-theme", theme);

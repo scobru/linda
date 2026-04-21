@@ -628,7 +628,7 @@ export class GroupService {
   /**
    * Helper to wait for a GunDB node to appear (sync delay)
    */
-  private async waitForNode(path: string, maxAttempts = 3, delay = 1000): Promise<any> {
+  private async waitForNode(path: string, maxAttempts = 10, delay = 500): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
         try {
             const data = await (this.db.Get as any)(path);
@@ -975,10 +975,18 @@ export class GroupService {
     const groupId = `p2p_${sorted[0].substring(0, 16)}_${sorted[1].substring(0, 16)}`;
     this.p2pGroupCache.set(otherPub, groupId);
     
-    try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      if (meta && meta.id) return meta;
-    } catch (e) {}
+    let meta = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`);
+        if (meta && meta.id) break;
+      } catch (e) {}
+      if (i < 2) {
+        console.warn(`[GroupService] P2P meta not found for ${groupId}, retry ${i+1}/3...`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+    if (meta && meta.id) return meta;
 
     return await this.createP2PGroup(otherPub, groupId);
   }
@@ -1009,14 +1017,30 @@ export class GroupService {
     const skString = ts.serializeSecretKey(groupSK);
     const encryptedSK = await this.db.crypto.encrypt(skString, pair);
     
-    await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
+    // Helper to retry Put with a small delay to avoid relay flooding
+    const retryPut = async (path: string, data: any) => {
+        for (let i = 0; i < 3; i++) {
+            const ack: any = await (this.db.Put as any)(path, data);
+            if (!ack || ack.err) {
+                console.warn(`[GroupService] Put failed for ${path}, retry ${i+1}/3...`, ack?.err);
+                await new Promise(r => setTimeout(r, 1000));
+            } else {
+                return ack;
+            }
+        }
+        throw new Error(`Failed to write critical group node after 3 attempts: ${path}`);
+    };
+
+    await retryPut(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
+    await new Promise(r => setTimeout(r, 500)); // Small pause to let relay breathe
     
     // Grant Me access
     const myUmbralPK = ts.getPublicKey();
     const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, 2, 3);
     if (kfrags.length > 0) {
-       await (this.db.Put as any)(`signal_rooms/${groupId}/relay_kfrags/${myPub}`, ts.serializeKFrag(kfrags[0]));
+       await retryPut(`signal_rooms/${groupId}/relay_kfrags/${myPub}`, ts.serializeKFrag(kfrags[0]));
     }
+    await new Promise(r => setTimeout(r, 500));
 
     const groupInfo: GroupInfo = {
       id: groupId,
@@ -1031,19 +1055,21 @@ export class GroupService {
       type: 'group'
     };
 
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, groupInfo);
+    await retryPut(`signal_rooms/${groupId}/meta`, groupInfo);
+    await new Promise(r => setTimeout(r, 500));
     
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, {
+    await retryPut(`signal_rooms/${groupId}/members/${myPub}`, {
       role: "administrator",
       joinedAt: Date.now(),
       umbral_pk: ts.getPublicKeyBase64()
-    } as any);
+    });
 
     if (!isSelf) {
-        await (this.db.Put as any)(`signal_rooms/${groupId}/members/${otherPub}`, {
+        await new Promise(r => setTimeout(r, 500));
+        await retryPut(`signal_rooms/${groupId}/members/${otherPub}`, {
             role: "peer",
             joinedAt: Date.now()
-        } as any);
+        });
     }
 
     return groupInfo;

@@ -89,7 +89,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     if (!pub) return;
     try {
       await db.Put(`signal_global_nicknames/${nick}`, pub);
+      await db.Put(`signal_aliases/${pub}`, { alias: nick }); // Add this for App.tsx fallback
       await db.userPut("profile/nickname", nick);
+      await db.userPut("alias", nick); // Add this for App.tsx fallback
       showNotification("Nickname updated", "info");
     } catch (e) {
       showNotification("Failed to save nickname", "error");

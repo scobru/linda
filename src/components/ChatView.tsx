@@ -377,8 +377,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   return (
     <div
-      key={recipient}
-      className="flex flex-col h-full bg-base-100 overflow-hidden relative animate-chat-fadeIn font-narrow"
+      className="flex flex-col h-full bg-base-100 overflow-hidden relative font-narrow"
     >
       {/* Upload Overlay */}
       {isUploading && (
@@ -434,9 +433,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
           </div>
           
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-col min-w-0 animate-fadeIn">
             <h3 className="text-[15px] font-bold tracking-tight truncate leading-tight">
-              {contactProfiles[recipient]?.nickname || (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient)}
+              {(() => {
+                const cleanId = recipient.startsWith('~') ? recipient.slice(1) : recipient;
+                return contactProfiles[cleanId]?.nickname || (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient);
+              })()}
             </h3>
             <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
               {typingStatuses[recipient] ? "Sta scrivendo..." : "Crittografato"}
@@ -546,7 +548,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Messages */}
       <div 
-        className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide"
+        key={recipient}
+        className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide animate-fadeIn"
         onClick={handleContainerClick}
       >
         {filteredMessages.length === 0 && (
@@ -575,9 +578,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         {filteredMessages.map((msg, i) => {
           const isMe = msg.sender === "Me";
+          const cleanSender = (msg.sender && msg.sender.startsWith('~')) ? msg.sender.slice(1) : msg.sender;
           const msgNick = isMe
             ? userNick || username || "?"
-            : contactProfiles[msg.sender]?.nickname || msg.sender;
+            : contactProfiles[cleanSender]?.nickname || msg.sender;
           const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
           return (

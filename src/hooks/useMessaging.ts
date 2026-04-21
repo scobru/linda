@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { DataBase } from "../zen/db";
-import { CommunicationService } from "../CommunicationService";
-import { GroupService, type GroupInfo } from "../GroupService";
+import { CommunicationService } from "../services/CommunicationService";
+import { GroupService, type GroupInfo } from "../services/GroupService";
+import { WormholeService } from "../services/WormholeService";
 import { generateSecureRandomString } from "../utils/crypto";
 
 export interface FileMetadata {
@@ -313,7 +314,8 @@ export const useMessaging = (
             const plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
             if (userPub) saveProcessedKey(userPub, gunKey);
             
-            const isMe = data.sender === userPub;
+            const cleanSender = data.sender.startsWith('~') ? data.sender.slice(1) : data.sender;
+            const isMe = cleanSender === userPub;
             const remoteMsgId = data.msgId || gunKey;
 
             setMessages((prev) => {
@@ -496,7 +498,8 @@ export const useMessaging = (
       // Skip self-messages in inbox to prevent duplication in My Cloud
       // When we send to ourselves, the optimistic update in handleSendMessage already added the message.
       // The inbox listener firing again would create a duplicate.
-      if (senderPubKeyRaw === userPub) {
+      const cleanSenderInbox = senderPubKeyRaw.startsWith('~') ? senderPubKeyRaw.slice(1) : senderPubKeyRaw;
+      if (cleanSenderInbox === userPub) {
         const selfMsgId = data.msgId;
         if (selfMsgId) {
           // Check if we already have this message from the optimistic update
@@ -685,13 +688,15 @@ export const useMessaging = (
         // POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the TPRE room
         try {
             const pokeCipher = await communicationService.encryptMessage(recipient, `TPRE_POKE:${p2pGroup.id}`);
+            const inboxCert = await communicationService.getInboxCertificate(recipient).catch(() => null);
+            
             await db.Set(`signal_v3_inbox_${recipient}`, {
                 sender: userPub,
                 type: pokeCipher.type,
                 body: pokeCipher.body,
                 timestamp: timestamp.toISOString(),
                 msgType: 'tpre_poke'
-            } as any);
+            } as any, { cert: inboxCert });
         } catch (e) {
             console.warn("[Signal] Failed to send TPRE_POKE, recipient might take longer to sync.", e);
         }

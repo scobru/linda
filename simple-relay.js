@@ -1,31 +1,27 @@
-import http from 'http';
-import ZEN from 'zen';
-import serve from "zen/lib/serve.js";
-import * as umbral from '@nucypher/umbral-pre';
-
+import './relay-env.js';
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
+
+// 2. Now import Zen and other dependencies
+const ZEN = (await import('zen')).default;
+const serve = (await import('zen/lib/serve.js')).default;
+const Store = (await import('zen/lib/rfs.js')).default;
+const umbral = await import('@nucypher/umbral-pre');
 
 const port = process.env.PORT || 8765;
-
-// Polyfill localStorage for Zen in Node environment
-import { LocalStorage } from 'node-localstorage';
-if (typeof global.localStorage === "undefined" || global.localStorage === null) {
-  const storagePath = './radata/localstorage';
-  if (!fs.existsSync(storagePath)) {
-    fs.mkdirSync(storagePath, { recursive: true });
-  }
-  global.localStorage = new LocalStorage(storagePath);
-}
 
 /**
  * Helper to wait for data in ZenDB (for sync latency)
  */
-async function waitForZenData(pathNode, attempts = 5, delay = 1000) {
+async function waitForZenData(pathNode, attempts = 15, delay = 1500) {
     for (let i = 0; i < attempts; i++) {
         const data = await new Promise((resolve) => {
-            pathNode.once((val) => resolve(val));
-            setTimeout(() => resolve(null), 800);
+            const timeout = setTimeout(() => resolve(null), 3000); // 3s per attempt
+            pathNode.once((val) => {
+                clearTimeout(timeout);
+                resolve(val);
+            });
         });
         if (data && typeof data === 'string') return data;
         if (i < attempts - 1) {
@@ -99,16 +95,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 4. FALLBACK TO ZEN SERVE (Static files & zen.js)
-    // First, try Zen's internal serve (for zen.js, zen/ etc)
     if (serve(req, res)) {
         return;
     }
 
     // Then try static files from current directory
     const isSystemFile = req.url.match(/\.(wasm|js|css|gif|png|jpg|jpeg|svg|json|mp3|ico)$/);
-    
-    // Manual check for static files to avoid index.html fallback for system files
     const staticPath = path.join(process.cwd(), parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname);
+    
     if (fs.existsSync(staticPath)) {
         const stats = fs.statSync(staticPath);
         if (stats.isFile()) {
@@ -130,12 +124,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (isSystemFile) {
-        console.warn(`[Relay] ⚠️ System file NOT FOUND: ${req.url}`);
         res.writeHead(404, { "Content-Type": "text/plain" });
         return res.end("404 Not Found");
     }
 
-    // Default to index.html only for navigation requests
     const indexPath = path.join(process.cwd(), 'index.html');
     if (fs.existsSync(indexPath)) {
         res.writeHead(200, { "Content-Type": "text/html" });
@@ -145,23 +137,37 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(404);
     res.end();
-
-    // If handle doesn't process it (returns false), we could add more or 404
 });
 
 server.on('upgrade', (req, socket, head) => {
     console.log(`[Relay] 🆙 Upgrade request for: ${req.url}`);
-});
-
-server.listen(port, () => {
-    console.log(`🚀 Semplice Relay Zen avviato su http://localhost:${port}`);
+    if (req.url !== '/zen') {
+        console.warn(`[Relay] ⚠️ Rejecting upgrade for invalid path: ${req.url}`);
+        socket.destroy();
+    }
 });
 
 const zen = new ZEN({
     web: server,
     ws: { path: '/zen' },
-    radisk: true
+    radisk: true,
+    store: Store({ file: 'radata' }),
+    localStorage: false
 });
 
-console.log(zen)
-console.log('ZenDB in ascolto...');
+// Middleware to log graph operations
+zen.on('in', function(msg) {
+    if (msg.put) {
+        const keys = Object.keys(msg.put);
+        console.log(`[Relay] 📤 PUT: ${keys.length} nodes (first: ${keys[0]})`);
+    }
+    if (msg.get) {
+        console.log(`[Relay] 📥 GET: ${msg.get['#']}`);
+    }
+    this.to.next(msg);
+});
+
+server.listen(port, () => {
+    console.log(`🚀 Semplice Relay Zen avviato su http://localhost:${port}`);
+    console.log('ZenDB in ascolto e pronto.');
+});

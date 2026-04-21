@@ -15,10 +15,49 @@ export class DataBase {
   private _pair: IZenPair | null = null;
   private _pub: string | null = null;
   public crypto: typeof crypto;
+  public static readonly DEFAULT_GET_TIMEOUT = 3000;
+  public static readonly DEFAULT_PUT_TIMEOUT = 10000;
 
   constructor(zen: IZenInstance) {
     this.zen = zen;
     this.crypto = crypto;
+
+    // Monkey-patch Zen instance to support .user() calls for legacy compatibility
+    // This allows calls like db.zen.user(pub).get(...) to work.
+    (this.zen as any).user = (pub?: string) => this.userShim(pub);
+  }
+
+  /**
+   * Universal User Shim
+   * @param pub If provided, returns a public node shim for that user.
+   *            If omitted, returns the shim for the currently authenticated user.
+   */
+  public userShim(pub?: string): any {
+    const targetPub = pub || this._pub;
+    if (!targetPub || !this.zen) return null;
+
+    const node = this.zen.get(`~${targetPub}`);
+    const shim = Object.create(node);
+
+    const isSelf = targetPub === this._pub;
+
+    Object.defineProperties(shim, {
+      is: { get: () => ({ pub: targetPub }) },
+      _: { get: () => ({ ...node._, sea: isSelf ? this._pair : null }) },
+      // Compatibility methods
+      auth: { value: () => { console.warn('[DB] skip auth() - Zen uses explicit authenticator'); return shim; } },
+      create: { value: () => { console.error('[DB] create() not supported - use signUp()'); } },
+      leave: { value: () => this.logout() },
+      // Proxy put for self
+      put: { value: (data: any, cb?: any, opt?: any) => {
+        if (isSelf) {
+            return this.userPut(node._.soul.split('~').pop() || '', data, cb, opt);
+        }
+        return node.put(data, cb, opt);
+      }}
+    });
+
+    return shim;
   }
 
   private getUsernamesNode(): any {
@@ -27,24 +66,7 @@ export class DataBase {
   }
 
   public get user(): any {
-    if (!this._pub || !this.zen) return null;
-    
-    // Return a shim that mimics a Gun/Zen user node
-    // but is actually a regular chain at ~pub/
-    const node = this.zen.get(`~${this._pub}`);
-    
-    // Add compatibility properties
-    const shim = Object.create(node);
-    Object.defineProperties(shim, {
-      is: { get: () => ({ pub: this._pub }) },
-      _: { get: () => ({ ...node._, sea: this._pair }) },
-      // Proxy put to our DataBase.Put for automatic signing
-      put: { value: (data: any, cb?: any, opt?: any) => {
-        return this.userPut(node._.soul.split('~').pop() || '', data, cb, opt);
-      }}
-    });
-
-    return shim;
+    return this.userShim();
   }
 
   public get pair(): IZenPair | null {
@@ -71,10 +93,12 @@ export class DataBase {
           // Instead, we store the pair locally and pass it as an 'authenticator'
           // in the options of each .put() call.
 
-          // Fetch username (alias)
-          const username = await new Promise<string | null>((resolve) => {
-             this.zen.get(`~${pair.pub}`).get('alias').once((a: any) => resolve(a || null));
-          });
+          // Fetch username (alias) with hard timeout (reduced to 5s to avoid boot hang)
+          const username = await this.safeGet(`~${pair.pub}/alias`, 5000);
+          
+          if (!username) {
+              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)}, using fallback`);
+          }
 
           this.emitAuthEvent();
           return { success: true, userPub: pair.pub, username: username || pair.pub };
@@ -118,9 +142,7 @@ export class DataBase {
       this._pub = pub;
 
       // Store in usernames mapping node for login lookup
-      await new Promise((resolve) => {
-        this.zen.get('usernames').get(normalizedUsername).put(pub, (ack: any) => resolve(ack));
-      });
+      await this.Put(`usernames/${normalizedUsername}`, pub);
 
       // Pre-initialize unique username handle (e.g. @dev1234)
       const digits = Math.floor(1000 + Math.random() * 9000);
@@ -128,9 +150,10 @@ export class DataBase {
       
       // Store in user profile (signed) and global discovery index
       await this.userPut('profile/uniqueUsername', uniqueName);
+      await this.userPut('profile/nickname', normalizedUsername);
       await this.Put(`signal_unique_usernames/${uniqueName}`, pub);
 
-      // Store basic profile alias
+      // Store basic profile alias (fallback)
       await this.userPut('alias', normalizedUsername);
       
       localStorage.setItem('linda_auth_pair', JSON.stringify({ pair: userPair, username: normalizedUsername }));
@@ -146,12 +169,15 @@ export class DataBase {
 
   async login(username: string, password: string): Promise<AuthResult> {
     const normalizedUsername = username.trim().toLowerCase();
+    console.log(`[DB] Attempting login for: ${normalizedUsername}...`);
     try {
-      const pub = await new Promise<string | null>((resolve) => {
-        this.zen.get('usernames').get(normalizedUsername).once((p: any) => resolve(p || null));
-      });
+      // Use Get (safeGet) with a generous 10s timeout for initial discovery
+      const pub = await this.Get(`usernames/${normalizedUsername}`, 10000);
 
-      if (!pub) return { success: false, error: 'User not found' };
+      if (!pub || typeof pub !== 'string') {
+        console.warn(`[DB] Login failed: User "${normalizedUsername}" not found in index.`);
+        return { success: false, error: 'User not found' };
+      }
 
       const pair = await this.crypto.generatePairFromSeed(password, this.zen);
       if (pair.pub !== pub) return { success: false, error: 'Invalid password' };
@@ -196,6 +222,45 @@ export class DataBase {
   }
 
   // Basic Zen Wrappers
+  /**
+   * Safe read with forced timeout to prevent relay-sync hangs
+   */
+  public async safeGet(pathOrChain: string | any, timeoutMs: number = DataBase.DEFAULT_GET_TIMEOUT): Promise<any> {
+    if (!this.zen) return null;
+    
+    let chain: any;
+    if (typeof pathOrChain === 'string') {
+        // Handle absolute vs relative paths
+        if (pathOrChain.includes('~')) {
+            const parts = pathOrChain.split('/');
+            chain = this.zen.get(parts[0]);
+            for (let i = 1; i < parts.length; i++) {
+                chain = chain.get(parts[i]);
+            }
+        } else {
+            chain = this.getChain(pathOrChain);
+        }
+    } else {
+        chain = pathOrChain;
+    }
+
+    if (!chain) return null;
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const soul = chain._?.soul || 'unknown';
+        const pathStr = typeof pathOrChain === 'string' ? pathOrChain : soul;
+        console.warn(`[DB] safeGet timeout (${timeoutMs}ms) for path: ${pathStr}`);
+        resolve(null);
+      }, timeoutMs);
+
+      chain.once((data: any) => {
+        clearTimeout(timer);
+        resolve(data || null);
+      });
+    });
+  }
+
   private getChain(path: string): any {
     if (!this.zen) return null;
 
@@ -225,38 +290,56 @@ export class DataBase {
   }
 
   Get(path: string): Promise<any> {
-    const chain = this.getChain(path);
-    if (!chain) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      chain.once((s: any) => resolve(s));
-    });
+    return this.safeGet(path);
+  }
+
+  private injectAuth(path: string, opt: any): any {
+    const isUserPath = path.startsWith('~') || path.includes('/~');
+    if (isUserPath && this._pair && !opt.authenticator) {
+      return { ...opt, authenticator: this._pair };
+    }
+    return opt;
   }
 
   Put(path: string, data: any, opt: any = {}): Promise<any> {
     const chain = this.getChain(path);
     if (!chain || typeof chain.put !== 'function') return Promise.reject('Invalid path');
     
-    // Inject authenticator if it's a user path and we have a pair
-    const isUserPath = path.startsWith('~') || path.includes('/~');
-    if (isUserPath && this._pair && !opt.authenticator) {
-      opt.authenticator = this._pair;
-    }
+    const finalOpt = this.injectAuth(path, opt);
 
     return new Promise((resolve) => {
-      chain.put(data, (ack: any) => resolve(ack), opt);
+      const timeout = setTimeout(() => {
+        console.warn(`[DB] Put timeout (${DataBase.DEFAULT_PUT_TIMEOUT}ms) for path: ${path}`);
+        resolve({ err: 'timeout' });
+      }, DataBase.DEFAULT_PUT_TIMEOUT);
+      chain.put(data, (ack: any) => {
+        clearTimeout(timeout);
+        resolve(ack);
+      }, finalOpt);
     });
   }
 
-  Set(path: string, data: any): Promise<any> {
-    return this.Put(path, data);
+  Set(path: string, data: any, opt: any = {}): Promise<any> {
+    const chain = this.getChain(path);
+    if (!chain || typeof chain.set !== 'function') return Promise.reject('Invalid path for Set');
+    
+    const finalOpt = this.injectAuth(path, opt);
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn(`[DB] Set timeout (${DataBase.DEFAULT_PUT_TIMEOUT}ms) for path: ${path}`);
+        resolve({ err: 'timeout' });
+      }, DataBase.DEFAULT_PUT_TIMEOUT);
+      chain.set(data, (ack: any) => {
+        clearTimeout(timeout);
+        resolve(ack);
+      }, finalOpt);
+    });
   }
 
-  userGet(path: string): Promise<any> {
-    const user = this.user;
-    if (!user) return Promise.reject('Not logged in');
-    return new Promise((resolve) => {
-      user.get(path).once((s: any) => resolve(s));
-    });
+  async userGet(path: string, timeoutMs: number = DataBase.DEFAULT_GET_TIMEOUT): Promise<any> {
+    if (!this._pub) return null;
+    return this.safeGet(`~${this._pub}/${path}`, timeoutMs);
   }
 
   userPut(path: string, data: any, cb?: any, opt: any = {}): Promise<any> {
@@ -276,7 +359,12 @@ export class DataBase {
     }
 
     return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn(`[DB] userPut timeout (${DataBase.DEFAULT_PUT_TIMEOUT}ms) for path: ${path}`);
+        resolve({ err: 'timeout' });
+      }, DataBase.DEFAULT_PUT_TIMEOUT);
       chain.put(data, (ack: any) => {
+        clearTimeout(timeout);
         if (cb) cb(ack);
         resolve(ack);
       }, options);

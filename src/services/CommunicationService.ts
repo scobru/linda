@@ -53,8 +53,9 @@ export class CommunicationService {
 
     this.initPromise = (async () => {
       console.log("[CommunicationService] Initializing SEA session...");
+      const start = Date.now();
       try {
-        // Wait for pair to be available and user to be logged in
+        // Wait for pair with 6s max timeout
         let pair = this.db.pair;
         if (!pair) {
           for (let i = 0; i < 30; i++) {
@@ -64,31 +65,37 @@ export class CommunicationService {
           }
         }
 
-        if (!pair) {
-          console.warn(
-            "[CommunicationService] User keys not available after waiting. SEA session may be degraded.",
-          );
-        }
-
         this.myPair = pair || null;
 
-        await this.publishBundle(username, uniqueUsername);
-        await this.regenerateCertificate();
+        // Run heavy sync steps with a wrap-around timeout
+        await Promise.race([
+          (async () => {
+            await this.publishBundle(username, uniqueUsername);
+            // Wildcard certificates (*) are explicitly unsupported in Zen-native for security.
+            // inbox_cert_v13 is no longer required for public paths if handled by PEN.
+          })(),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Initialization step timeout")), 5000);
+          })
+        ]).catch(err => {
+          console.warn("[CommunicationService] Init sync step timed out or failed:", err.message);
+        });
 
-        // Discovery metadata persistence is non-blocking to prevent slow relays from hanging initialization
+        // Discovery metadata persistence is non-blocking
         this.persistAlias(username, uniqueUsername).catch((e) => {
           console.warn(
-            "[CommunicationService] Background alias persistence failed (session still active):",
+            "[CommunicationService] Background alias persistence failed:",
             e,
           );
         });
       } catch (e) {
-        console.warn("[CommunicationService] Initialization steps failed:", e);
+        console.warn("[CommunicationService] Initialization failed after " + (Date.now() - start) + "ms:", e);
       }
       this.isInitialized = true;
       this.initPromise = null;
-      console.log("[CommunicationService] SEA Initialization complete.");
+      console.log("[CommunicationService] SEA Initialization checked in " + (Date.now() - start) + "ms.");
     })();
+
     return this.initPromise;
   }
 
@@ -155,7 +162,7 @@ export class CommunicationService {
       const aliasPayload: Record<string, string> = { alias: username };
       if (uniqueUsername) aliasPayload.uniqueUsername = uniqueUsername;
 
-      const aliasTimeout = 5000;
+      const aliasTimeout = 10000;
 
       await Promise.race([
         new Promise<void>((resolve) => {
@@ -265,8 +272,21 @@ export class CommunicationService {
    */
   public async getEpubFromPub(pub: string): Promise<string> {
     if (!pub) throw new Error("Pubkey is required for epub fetch");
-    const cached = this.epubCache.get(pub);
-    if (cached) return cached;
+    // Method 0: Self-user shortcut
+    const activePair = this.myPair || this.db.pair;
+    const cleanPub = pub.startsWith('~') ? pub.slice(1) : pub;
+    
+    if (activePair && activePair.pub === cleanPub) {
+      console.log("[CommunicationService] Hit self-user epub shortcut:", cleanPub.slice(0, 8));
+      return activePair.epub;
+    }
+
+    // Method 0b: Persistent Local Storage
+    const localCached = localStorage.getItem(`zen_epub_${pub}`);
+    if (localCached) {
+      this.epubCache.set(pub, localCached);
+      return localCached;
+    }
 
     console.log(
       `[CommunicationService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`,
@@ -277,14 +297,16 @@ export class CommunicationService {
       try {
         // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
         const gunEpub = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 2500);
+          const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
             .get("epub")
             .once((data: any) => {
               clearTimeout(timeout);
-              if (data && typeof data === "string" && data.length > 20)
-                resolve(data);
+              // Handle Zen-native signed format: { ":": value, "~": sig }
+              const val = (data && typeof data === "object") ? data[":"] : data;
+              if (val && typeof val === "string" && val.length > 20)
+                resolve(val);
               else resolve(null);
             });
         });
@@ -298,13 +320,15 @@ export class CommunicationService {
 
         // Method B: Bundle node (V7 format)
         const bundle = await new Promise<any>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 2500);
+          const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
             .get("signal_bundle_v7")
             .once((data: any) => {
               clearTimeout(timeout);
+              // Handle Zen-native signed format or raw
               if (data && data.epub) resolve(data);
+              else if (data && data[":"] && data[":"]["epub"]) resolve(data[":"]);
               else resolve(null);
             });
         });
@@ -317,11 +341,13 @@ export class CommunicationService {
             `[CommunicationService] Found epub via bundle for: ${pub.slice(0, 8)}`,
           );
           this.epubCache.set(pub, bundle.epub);
+          localStorage.setItem(`zen_epub_${pub}`, bundle.epub);
           return bundle.epub;
         }
 
-        // Method C: Root node (Old/Alternative format)
-        const rootData = (await this.db.Get(`~${pub}`)) as any;
+        // Method C: Root node
+        const rootDataRaw = (await this.db.Get(`~${pub}`)) as any;
+        const rootData = (rootDataRaw && typeof rootDataRaw === "object" && rootDataRaw[":"]) ? rootDataRaw[":"] : rootDataRaw;
         if (
           rootData &&
           typeof rootData.epub === "string" &&
@@ -367,7 +393,7 @@ export class CommunicationService {
     try {
       if (!force) {
         let currentCert = await new Promise<any>((resolve) => {
-          let timeout = setTimeout(() => resolve(null), 2500);
+          let timeout = setTimeout(() => resolve(null), 3000);
           user.get("inbox_cert_v13").once((data: any) => {
             clearTimeout(timeout);
             resolve(data);
@@ -407,27 +433,11 @@ export class CommunicationService {
         }
       }
 
-      console.log(
-        `[CommunicationService] Generating fresh recursive SEA certificate (v13) for current session (force: ${force})...`,
-      );
-      // Policy: Allow anyone (public inbox) to write to this user's signal_inbox_v13 soul.
-      // We include multiple soul variations (trailing slash, nested wildcard) for maximum relay compatibility.
-      const soul = `~${pair.pub}/signal_inbox_v13`;
-      const policyContent = [
-        { "#": { "*": soul } },
-        { "#": soul },
-        { "#": soul + "/" },
-        { "#": { "*": soul + "/" } },
-        { "#": { "*": soul + "/." } },
-        { "#": { "*": "*" } }, // absolute wildcard fallback for relay compatibility
-      ];
+      // Wildcard certificates (*) are explicitly disabled in Zen-native for security.
+      // We return null and skip generation.
+      console.warn("[CommunicationService] Wildcard (*) certificates are forbidden in Zen-native. Skipping.");
+      return null;
 
-      const cert = await zenCrypto.certify(
-        "*", // Allow anyone (public inbox)
-        policyContent,
-        pair,
-        this.db.zen,
-      );
 
       if (!cert) {
         console.warn("[CommunicationService] Failed to generate SEA inbox certificate (v13). Certificate-based writes may be unavailable.");
@@ -572,7 +582,7 @@ export class CommunicationService {
 
         // Method 2: Public certificate v13 (latest) — validated
         const v13Cert = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 3500);
+          const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
             .get("inbox_cert_v13")
@@ -592,7 +602,7 @@ export class CommunicationService {
 
         // Method 3: Public certificate in bundle v8 — validated
         const bundleCert = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 2000);
+          const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
             .get("signal_bundle_v8")
@@ -736,7 +746,7 @@ export class CommunicationService {
         decrypted = await Promise.race([
           zenCrypto.decrypt(ciphertext.body, secret, this.db.zen),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("SEA.decrypt timeout")), 10000),
+            setTimeout(() => reject(new Error("SEA.decrypt timeout")), 5000),
           ),
         ]);
         console.log(
@@ -782,7 +792,7 @@ export class CommunicationService {
             new Promise((_, reject) =>
               setTimeout(
                 () => reject(new Error("SEA.decrypt fresh retry timeout")),
-                8000,
+                3000,
               ),
             ),
           ]);

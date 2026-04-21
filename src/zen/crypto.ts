@@ -90,30 +90,22 @@ export async function certify(
     return null;
   }
 
+  // Zen-native explicitly rejects wildcards (*) for security.
+  if (who === '*') {
+    console.warn('[Crypto] Wildcard (*) certification is explicitly unsupported in Zen-native.');
+    return null;
+  }
+
   try {
-    // Some native Zen versions reject '*' as a string for 'who'.
-    // We try it first, and if it fails with a specific error or returns null, we try fallback.
     const result = await zen.certify(who, policy, pair);
-    if (!result && who === '*') {
-      console.warn('[Crypto] Wildcard (*) certification returned null. Retrying with null certificant...');
-      return await zen.certify(null as any, policy, pair);
-    }
-    return result;
+    return result || null;
   } catch (e: any) {
-    const errStr = e?.message || String(e);
-    if (who === '*' && (errStr.includes('*') || errStr.includes('certificant'))) {
-       console.warn('[Crypto] Native zen rejected wildcard (*). Retrying with null...');
-       try {
-         return await zen.certify(null as any, policy, pair);
-       } catch (innerErr) {
-         console.error('[Crypto] Fallback certification failed:', innerErr);
-         return null;
-       }
-    }
-    console.error('[Crypto] Certification error:', e);
+    console.error('[Crypto] Certification failed:', e?.message || e);
     return null;
   }
 }
+
+
 
 export async function generatePairFromSeed(
   seedPhrase: string,
