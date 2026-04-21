@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { DataBase } from "../zen/db";
-import { CommunicationService } from "../CommunicationService";
+import { CommunicationService } from "../services/CommunicationService";
 
 export const useProfile = (
   db: DataBase,

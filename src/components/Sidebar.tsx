@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { UserAvatar } from "./UserAvatar";
-import { CommunicationService } from "../CommunicationService";
-import { GroupService } from "../GroupService";
+import { CommunicationService } from "../services/CommunicationService";
+import { GroupService } from "../services/GroupService";
 import { QrScannerModal } from "./QrScannerModal";
 import { DataBase } from "../zen/db";
 

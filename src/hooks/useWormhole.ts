@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef } from "react";
-import { WormholeService } from "../WormholeService";
+import { WormholeService } from "../services/WormholeService";
 import { DataBase } from "../zen/db";
 
 export const useWormhole = (db: DataBase, isLoggedIn: boolean) => {
@@ -10,15 +10,12 @@ export const useWormhole = (db: DataBase, isLoggedIn: boolean) => {
     if (!isLoggedIn || !db.zen) return null;
     const service = new WormholeService(db.zen);
     
-    service.onStatusChange = ({ code, status, message: _msg, fileData }) => {
+    service.onStatusChange = ({ code, status }: any) => {
       setWormholeStatuses((prev) => ({ ...prev, [code]: status }));
-      // Blobs are handled in FileTransfer or passed back
     };
     
-    service.onProgress = ({ progress, code }: any) => {
-      if (code) {
-        // This progress can be merged with transferProgress if needed
-      }
+    service.onProgress = (_progressData: any) => {
+      // Logic for progress if needed
     };
     
     wormholeServiceRef.current = service;

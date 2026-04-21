@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { DataBase } from "../zen/db";
-import { CommunicationService } from "../CommunicationService";
-import { FileTransferService } from "../FileTransferService";
+import { CommunicationService } from "../services/CommunicationService";
+import { FileTransferService } from "../services/FileTransferService";
 
 export const useSignalingListener = (
   db: DataBase,

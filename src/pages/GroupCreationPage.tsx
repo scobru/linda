@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GroupService } from "../GroupService";
+import { GroupService } from "../services/GroupService";
 
 interface GroupCreationPageProps {
   groupService: GroupService;

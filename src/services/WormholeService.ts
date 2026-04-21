@@ -1,4 +1,4 @@
-import { type IZenInstance } from "./zen/types";
+import type { IZenInstance } from "../zen/types";
 
 // Shared config
 const ENCRYPTION_CONFIG = {

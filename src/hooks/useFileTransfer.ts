@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { DataBase } from "../zen/db";
-import { FileTransferService } from "../FileTransferService";
-import { CommunicationService } from "../CommunicationService";
+import { FileTransferService } from "../services/FileTransferService";
+import { CommunicationService } from "../services/CommunicationService";
 
 export const useFileTransfer = (
   db: DataBase,
@@ -17,7 +17,7 @@ export const useFileTransfer = (
     if (!isLoggedIn || !userPub) return null;
     const service = new FileTransferService(db.zen as any, userPub);
 
-    service.onFileReceived = (blob, _name, _mimeType, metaId) => {
+    service.onFileReceived = (blob: any, _name: any, _mimeType: any, metaId: any) => {
       if (metaId) setTransferBlobs((prev) => ({ ...prev, [metaId]: blob }));
       else setTransferBlobs((prev) => ({ ...prev, last: blob }));
     };

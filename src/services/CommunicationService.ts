@@ -1,5 +1,6 @@
-import { DataBase } from "./zen/db";
-import * as zenCrypto from "./zen/crypto";
+import { DataBase } from "../zen/db";
+import * as zenCrypto from "../zen/crypto";
+
 
 /**
  * CommunicationService
@@ -436,15 +437,11 @@ export class CommunicationService {
       // Wildcard certificates (*) are explicitly disabled in Zen-native for security.
       // We return null and skip generation.
       console.warn("[CommunicationService] Wildcard (*) certificates are forbidden in Zen-native. Skipping.");
-      return null;
+      return;
 
 
-      if (!cert) {
-        console.warn("[CommunicationService] Failed to generate SEA inbox certificate (v13). Certificate-based writes may be unavailable.");
-        return;
-      }
-
-      // Publish in multiple locations for maximum discoverability
+      /* 
+      // Cert generation is handled differently in Zen-native (PEN)
       this.db.userPut("signal_bundle_v8/inbox_cert", cert);
       this.db.userPut("inbox_cert_v13", cert, (ack: any) => {
         if (ack?.err) {
@@ -458,6 +455,7 @@ export class CommunicationService {
           );
         }
       });
+      */
     } catch (e) {
       console.error(
         "[CommunicationService] Error during inbox certificate generation:",

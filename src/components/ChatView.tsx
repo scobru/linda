@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
-import { GroupService } from "../GroupService";
+
 import { AudioRecorder } from "./AudioRecorder";
 import { AudioPlayer } from "./AudioPlayer";
 import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useMessaging";
-import { CommunicationService } from "../CommunicationService";
-import { WormholeService } from "../WormholeService";
+import { type CommunicationService } from "../services/CommunicationService";
+import { type GroupService } from "../services/GroupService";
+import { type WormholeService } from "../services/WormholeService";
 import { shortenLink } from "../utils/ui";
 import { UserAvatar } from "./UserAvatar";
 import { DataBase } from "../zen/db";

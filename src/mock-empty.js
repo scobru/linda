@@ -1,0 +1,10 @@
+export default {};
+export const open = () => {};
+export const readFile = () => {};
+export const writeFile = () => {};
+export const mkdir = () => {};
+export const stat = () => {};
+export const unlink = () => {};
+export const readdir = () => {};
+export const access = () => {};
+export const constants = {};

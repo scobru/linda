@@ -1,4 +1,5 @@
 import * as umbral from '@nucypher/umbral-pre';
+import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 
 export type VerifiedKeyFrag = umbral.VerifiedKeyFrag;
 export type VerifiedCapsuleFrag = umbral.VerifiedCapsuleFrag;
@@ -15,6 +16,8 @@ export class ThresholdService {
   private static instance: ThresholdService | null = null;
   private signer: umbral.Signer | null = null;
   private personalSK: umbral.SecretKey | null = null;
+  private personalPQSK: Uint8Array | null = null;
+  private personalPQPK: Uint8Array | null = null;
 
   private constructor() {}
 
@@ -55,6 +58,13 @@ export class ThresholdService {
     // Umbral SecretKey takes 32 bytes - using big-endian format
     this.personalSK = umbral.SecretKey.fromBEBytes(new Uint8Array(hash));
     this.signer = new umbral.Signer(this.personalSK);
+
+    // PQ Key Derivation (ML-KEM-768 requires a 64-byte seed for deterministic keygen)
+    const pqData = encoder.encode(seaPriv + "threshold_pq_seed");
+    const pqHash = await crypto.subtle.digest('SHA-512', pqData); // SHA-512 gives 64 bytes
+    const pqKeys = ml_kem768.keygen(new Uint8Array(pqHash));
+    this.personalPQSK = pqKeys.secretKey;
+    this.personalPQPK = pqKeys.publicKey;
   }
 
   public getPublicKey(): PublicKey {
@@ -64,6 +74,32 @@ export class ThresholdService {
   
   public getPublicKeyBase64(): string {
     return this.serializePublicKey(this.getPublicKey());
+  }
+
+  public getPQPublicKeyBase64(): string | null {
+    if (!this.personalPQPK) return null;
+    return Buffer.from(this.personalPQPK).toString('base64');
+  }
+
+  /**
+   * Hybrid Encapsulation: Generates a shared secret and its PQ capsule.
+   */
+  public encapsulatePQ(recipientPQPKBase64: string): { capsule: string, sharedSecret: Uint8Array } {
+    const recipientPK = new Uint8Array(Buffer.from(recipientPQPKBase64, 'base64'));
+    const { cipherText, sharedSecret } = ml_kem768.encapsulate(recipientPK);
+    return {
+      capsule: Buffer.from(cipherText).toString('base64'),
+      sharedSecret
+    };
+  }
+
+  /**
+   * Hybrid Decapsulation: Recovers the shared secret from a PQ capsule.
+   */
+  public decapsulatePQ(capsuleBase64: string): Uint8Array {
+    if (!this.personalPQSK) throw new Error("PQ Secret Key not initialized");
+    const capsule = new Uint8Array(Buffer.from(capsuleBase64, 'base64'));
+    return ml_kem768.decapsulate(capsule, this.personalPQSK);
   }
 
   /**

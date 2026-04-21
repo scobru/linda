@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import type { CallStatus } from '../CallingService';
+import { type CallStatus } from "../services/CallingService";
 
 interface CallingOverlayProps {
   status: CallStatus;

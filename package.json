@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@hyperswarm/secret-stream": "^6.9.1",
+    "@noble/post-quantum": "^0.6.1",
     "@nucypher/umbral-pre": "^0.10.0",
     "axios": "^1.13.6",
     "buffer": "^6.0.3",

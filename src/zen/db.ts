@@ -1,6 +1,5 @@
 import type {
   IZenInstance,
-  IZenChain,
   IZenPair,
   AuthCallback,
   AuthResult,
@@ -15,8 +14,8 @@ export class DataBase {
   private _pair: IZenPair | null = null;
   private _pub: string | null = null;
   public crypto: typeof crypto;
-  public static readonly DEFAULT_GET_TIMEOUT = 3000;
-  public static readonly DEFAULT_PUT_TIMEOUT = 10000;
+  public static readonly DEFAULT_GET_TIMEOUT = 15000;
+  public static readonly DEFAULT_PUT_TIMEOUT = 15000;
 
   constructor(zen: IZenInstance) {
     this.zen = zen;
@@ -60,10 +59,7 @@ export class DataBase {
     return shim;
   }
 
-  private getUsernamesNode(): any {
-    if (!this.zen) return null;
-    return this.zen.get('usernames');
-  }
+
 
   public get user(): any {
     return this.userShim();
@@ -93,8 +89,8 @@ export class DataBase {
           // Instead, we store the pair locally and pass it as an 'authenticator'
           // in the options of each .put() call.
 
-          // Fetch username (alias) with hard timeout (reduced to 5s to avoid boot hang)
-          const username = await this.safeGet(`~${pair.pub}/alias`, 5000);
+          // Fetch username (alias) with default timeout (15s)
+          const username = await this.safeGet(`~${pair.pub}/alias`, DataBase.DEFAULT_GET_TIMEOUT);
           
           if (!username) {
               console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)}, using fallback`);
@@ -134,7 +130,8 @@ export class DataBase {
   async signUp(username: string, password?: string, pair?: IZenPair | null): Promise<SignUpResult> {
     const normalizedUsername = username.trim().toLowerCase();
     try {
-      const userPair = pair || await this.crypto.generatePairFromSeed(password || Math.random().toString(36), this.zen);
+      const seed = password ? (normalizedUsername + password) : Math.random().toString(36);
+      const userPair = pair || await this.crypto.generatePairFromSeed(seed, this.zen);
       const pub = userPair.pub;
 
       // Set state first so userPut and other operations can use it
@@ -179,7 +176,8 @@ export class DataBase {
         return { success: false, error: 'User not found' };
       }
 
-      const pair = await this.crypto.generatePairFromSeed(password, this.zen);
+      // Combine username and password for a unique deterministic seed
+      const pair = await this.crypto.generatePairFromSeed(normalizedUsername + password, this.zen);
       if (pair.pub !== pub) return { success: false, error: 'Invalid password' };
 
       // Native Zen uses explicit authenticator in put options.
@@ -289,8 +287,8 @@ export class DataBase {
     return chain;
   }
 
-  Get(path: string): Promise<any> {
-    return this.safeGet(path);
+  Get(path: string, timeoutMs?: number): Promise<any> {
+    return this.safeGet(path, timeoutMs);
   }
 
   private injectAuth(path: string, opt: any): any {

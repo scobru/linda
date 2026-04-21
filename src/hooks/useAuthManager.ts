@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { DataBase } from "../zen/db";
 
 export interface Notification {
@@ -7,9 +7,9 @@ export interface Notification {
   type: "info" | "error";
 }
 
-export const useAuthManager = (db: DataBase, isLoggedIn: boolean, userPub: string | null) => {
+export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+
   const magicLoginAttempted = useRef(false);
   const [isProcessingMagicLink, setIsProcessingMagicLink] = useState(false);
   const [notification, setNotification] = useState<Notification | null>(null);
@@ -82,10 +82,8 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean, userPub: strin
           await db.loginWithPair(finalUsername, pair);
 
           const gun = db.zen || (window as any).gun;
-          let authenticated = false;
           for (let i = 0; i < 30; i++) {
             if (gun && gun.user().is) {
-              authenticated = true;
               break;
             }
             await new Promise((r) => setTimeout(r, 100));

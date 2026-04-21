@@ -1,4 +1,4 @@
-import { generateSecureRandomString } from "./utils/crypto";
+import { generateSecureRandomString } from "../utils/crypto";
 export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
 export interface CallSignal {

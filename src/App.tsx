@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import ZEN from "zen";
 
 // Services & DB
 import { DataBase } from "./zen/db";
-import { GroupService, type Role } from "./services/GroupService";
-import { CommunicationService } from "./services/CommunicationService";
+import { type Role } from "./services/GroupService";
 
 // Pages & Components
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
@@ -40,30 +45,62 @@ const AppContent: React.FC<{
   const [message, setMessage] = useState("");
 
   // 1. Auth & Notifications
-  const { isProcessingMagicLink, notification, showNotification } = useAuthManager(db, isLoggedIn, userPub);
+  const { isProcessingMagicLink, notification, showNotification } =
+    useAuthManager(db, isLoggedIn);
 
   // 2. Base Services Initialization
-  const { communicationService, groupService, isLoading, userUniqueUsername } = useCommunicationInit(db, isLoggedIn, userPub, showNotification);
+  const { communicationService, groupService, isLoading, userUniqueUsername } =
+    useCommunicationInit(db, isLoggedIn, userPub, showNotification);
 
   // 3. P2P Signal & File Transfer
-  const { fileTransferServiceInst, transferProgress, transferBlobs } = useFileTransfer(db, isLoggedIn, userPub, communicationService);
+  const { fileTransferServiceInst, transferProgress, transferBlobs } =
+    useFileTransfer(db, isLoggedIn, userPub, communicationService);
   const { wormholeServiceInst, wormholeStatuses } = useWormhole(db, isLoggedIn);
 
   // 4. Signaling Listener
-  useSignalingListener(db, isLoggedIn, userPub, communicationService, fileTransferServiceInst);
+  useSignalingListener(
+    db,
+    isLoggedIn,
+    userPub,
+    communicationService,
+    fileTransferServiceInst,
+  );
 
   // 5. Messaging Core
-  const messaging = useMessaging(db, userPub, communicationService, groupService, recipient, setRecipient, "http://localhost:8765");
+  const messaging = useMessaging(
+    db,
+    userPub,
+    communicationService,
+    groupService,
+    recipient,
+    setRecipient,
+    "https://shogun-relay.scobrudot.dev",
+    showNotification,
+  );
 
   // 6. Profiles
-  const { userNick, contactProfiles } = useProfile(db, isLoggedIn, messaging.contacts, communicationService);
+  const { userNick, contactProfiles } = useProfile(
+    db,
+    isLoggedIn,
+    messaging.contacts,
+    communicationService,
+  );
 
   // 7. Role Sync
   const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
-    if (recipient && groupService && recipient.length === 36 && recipient.includes("-")) {
+    if (
+      recipient &&
+      groupService &&
+      recipient.length === 36 &&
+      recipient.includes("-")
+    ) {
       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
-      return groupService.onMemberRoleChange(recipient, userPub || "", (role) => setMyRole(role));
+      return groupService.onMemberRoleChange(
+        recipient,
+        userPub || "",
+        (role: Role | null) => setMyRole(role),
+      );
     }
     setMyRole(null);
   }, [recipient, groupService, userPub]);
@@ -81,17 +118,27 @@ const AppContent: React.FC<{
     onLogout();
   };
 
-  const handleSendMessage = async (msg?: string, audio?: string, fileMetadata?: any) => {
+  const handleSendMessage = async (
+    msg?: string,
+    audio?: string,
+    fileMetadata?: any,
+  ) => {
     if (!recipient) return;
     try {
       await messaging.handleSendMessage(msg || message, audio, fileMetadata);
       if (!audio && !fileMetadata) setMessage("");
     } catch (err: any) {
-      showNotification("Send failed: " + (err.message || "Unknown error"), "error");
+      showNotification(
+        "Send failed: " + (err.message || "Unknown error"),
+        "error",
+      );
     }
   };
 
-  const handleDeleteContact = async (contactKey: string, e: React.MouseEvent) => {
+  const handleDeleteContact = async (
+    contactKey: string,
+    e: React.MouseEvent,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     if (!window.confirm("Delete conversation?")) return;
@@ -113,8 +160,41 @@ const AppContent: React.FC<{
   };
 
   if (isLoading || isProcessingMagicLink) {
-    return <LoadingScreen message={isLoading ? "Initializing session" : "Authenticating Link"} submessage="Verifying identity on decentralized web" />;
+    return (
+      <LoadingScreen
+        message={isLoading ? "Initializing session" : "Authenticating Link"}
+        submessage="Verifying identity on decentralized web"
+      />
+    );
   }
+
+  const commonChatProps = {
+    ...messaging,
+    db,
+    setRecipient: (id: string) => {
+      setRecipient(id);
+      navigate(id ? `/chat/${id}` : "/");
+    },
+    communicationService,
+    groupService,
+    userPub: userPub || "",
+    userNick,
+    username,
+    message,
+    setMessage,
+    handleSendMessage,
+    contactProfiles,
+    myRole,
+    transferProgress,
+    transferBlobs,
+    wormholeService: wormholeServiceInst,
+    wormholeStatuses,
+    showNotification,
+    setShowGroupSettings: (id: string | null) =>
+      navigate(id ? `/chat/${id}/settings` : "/"),
+    handleFixSync: () => messaging.handleFixSync(recipient),
+    handleClearChat: messaging.handleClearChat,
+  };
 
   return (
     <div className="h-dvh w-screen overflow-hidden bg-base-100 relative">
@@ -144,18 +224,63 @@ const AppContent: React.FC<{
             />
           }
         >
-          <Route path="/" element={<ChatView recipient="" {...messaging} db={db} userPub={userPub || ""} userNick={userNick} username={username} message={message} setMessage={setMessage} handleSendMessage={handleSendMessage} contactProfiles={contactProfiles} myRole={myRole} transferProgress={transferProgress} transferBlobs={transferBlobs} wormholeService={wormholeServiceInst} wormholeStatuses={wormholeStatuses} showNotification={showNotification} setShowGroupSettings={(id) => navigate(`/chat/${id}/settings`)} />} />
-          <Route path="/chat/:id" element={<ChatView recipient={recipient} {...messaging} db={db} userPub={userPub || ""} userNick={userNick} username={username} message={message} setMessage={setMessage} handleSendMessage={handleSendMessage} contactProfiles={contactProfiles} myRole={myRole} transferProgress={transferProgress} transferBlobs={transferBlobs} wormholeService={wormholeServiceInst} wormholeStatuses={wormholeStatuses} showNotification={showNotification} setShowGroupSettings={(id) => navigate(`/chat/${id}/settings`)} />} />
-          <Route path="/profile" element={<UserProfile db={db} username={username} currentNick={userNick} currentUniqueUsername={userUniqueUsername} handleLogout={handleLogout} showNotification={showNotification} />} />
-          <Route path="/settings" element={<Settings showNotification={showNotification} />} />
-          <Route path="/chat/:id/settings" element={<GroupSettingsPage groupService={groupService!} db={db} showNotification={showNotification} />} />
-          <Route path="/create-group" element={<GroupCreationPage groupService={groupService!} onCreated={(id) => { messaging.saveContact(id); setRecipient(id); navigate(`/chat/${id}`); }} showNotification={showNotification} />} />
+          <Route
+            path="/"
+            element={<ChatView recipient="" {...commonChatProps} />}
+          />
+          <Route
+            path="/chat/:id"
+            element={<ChatView recipient={recipient} {...commonChatProps} />}
+          />
+          <Route
+            path="/profile"
+            element={
+              <UserProfile
+                db={db}
+                username={username}
+                currentNick={userNick}
+                currentUniqueUsername={userUniqueUsername}
+                handleLogout={handleLogout}
+                showNotification={showNotification}
+              />
+            }
+          />
+          <Route
+            path="/settings"
+            element={<Settings showNotification={showNotification} />}
+          />
+          <Route
+            path="/chat/:id/settings"
+            element={
+              <GroupSettingsPage
+                groupService={groupService!}
+                db={db}
+                showNotification={showNotification}
+              />
+            }
+          />
+          <Route
+            path="/create-group"
+            element={
+              <GroupCreationPage
+                groupService={groupService!}
+                onCreated={(id) => {
+                  messaging.saveContact(id);
+                  setRecipient(id);
+                  navigate(`/chat/${id}`);
+                }}
+                showNotification={showNotification}
+              />
+            }
+          />
         </Route>
       </Routes>
 
       {notification && (
         <div className="toast toast-top toast-end z-[100]">
-          <div className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-base-content/5`}>
+          <div
+            className={`alert ${notification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-base-content/5`}
+          >
             <span>{notification.msg}</span>
           </div>
         </div>
@@ -168,7 +293,11 @@ const AppContent: React.FC<{
 const App: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const [dbInstance, setDbInstance] = useState<DataBase | null>(null);
-  const [authState, setAuthState] = useState({ isLoggedIn: false, userPub: null as string | null, username: "" });
+  const [authState, setAuthState] = useState({
+    isLoggedIn: false,
+    userPub: null as string | null,
+    username: "",
+  });
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("linda-theme") || "linda";
@@ -176,14 +305,22 @@ const App: React.FC = () => {
 
     const initZen = async () => {
       try {
-        const relays = ["http://localhost:8765/zen"];
-        const zen = new ZEN({ peers: relays, localStorage: false, radisk: false });
+        const relays = ["https://shogun-relay.scobrudot.dev/zen"];
+        const zen = new ZEN({
+          peers: relays,
+          localStorage: false,
+          radisk: false,
+        });
         const db = new DataBase(zen);
         setDbInstance(db);
 
         const restored = await db.restoreSession();
         if (restored.success) {
-          setAuthState({ isLoggedIn: true, userPub: db.getUserPub(), username: restored.username || "" });
+          setAuthState({
+            isLoggedIn: true,
+            userPub: db.getUserPub(),
+            username: restored.username || "",
+          });
         }
       } catch (err) {
         console.error("Zen Init Failed", err);
@@ -194,14 +331,36 @@ const App: React.FC = () => {
     initZen();
   }, []);
 
-  if (initializing || !dbInstance) return <LoadingScreen message="Bootstrapping Zen" submessage="Connecting to P2P decentralized graph" type="infinity" />;
+  if (initializing || !dbInstance)
+    return (
+      <LoadingScreen
+        message="Bootstrapping Zen"
+        submessage="Connecting to P2P decentralized graph"
+        type="infinity"
+      />
+    );
 
   return (
     <BrowserRouter>
       {!authState.isLoggedIn ? (
-        <AuthPage db={dbInstance} onAuth={(user) => setAuthState({ isLoggedIn: true, userPub: dbInstance.getUserPub(), username: user })} />
+        <AuthPage
+          db={dbInstance}
+          onAuth={(user) =>
+            setAuthState({
+              isLoggedIn: true,
+              userPub: dbInstance.getUserPub(),
+              username: user,
+            })
+          }
+        />
       ) : (
-        <AppContent db={dbInstance} {...authState} onLogout={() => setAuthState({ isLoggedIn: false, userPub: null, username: "" })} />
+        <AppContent
+          db={dbInstance}
+          {...authState}
+          onLogout={() =>
+            setAuthState({ isLoggedIn: false, userPub: null, username: "" })
+          }
+        />
       )}
     </BrowserRouter>
   );

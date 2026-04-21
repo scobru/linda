@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { DataBase } from "../zen/db";
 import { CommunicationService } from "../services/CommunicationService";
 import { GroupService, type GroupInfo } from "../services/GroupService";
-import { WormholeService } from "../services/WormholeService";
 import { generateSecureRandomString } from "../utils/crypto";
 
 export interface FileMetadata {
@@ -37,7 +36,8 @@ export const useMessaging = (
   groupService: GroupService | null,
   recipient: string,
   setRecipient: (id: string) => void,
-  relayUrl?: string
+  relayUrl?: string,
+  showNotification?: (msg: string, type?: "info" | "error") => void
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [contacts, setContacts] = useState<string[]>([]);
@@ -279,7 +279,7 @@ export const useMessaging = (
         let roomId = contactId;
         
         if (isP2P) {
-            const calculatedId = groupService.getP2PGroupId(contactId);
+            const calculatedId = await groupService.getP2PGroupId(contactId);
             if (!calculatedId) return;
             roomId = calculatedId;
         }
@@ -418,7 +418,7 @@ export const useMessaging = (
     contacts.forEach(async (contactId) => {
       let roomId = contactId;
       if (contactId.length >= 30 && !contactId.includes("-")) {
-          const calculatedId = groupService.getP2PGroupId(contactId);
+          const calculatedId = await groupService.getP2PGroupId(contactId);
           if (!calculatedId) return;
           roomId = calculatedId;
       }
@@ -904,5 +904,17 @@ export const useMessaging = (
     saveContact,
     removeContact,
     saveMessages,
+    handlePinMessage: (msgId: string, pin: boolean) => {
+       if (!recipient || !groupService) return;
+       groupService.pinMessage(recipient, msgId, pin);
+    },
+    handleReportMessage: () => {
+       showNotification?.("Message reported", "info");
+    },
+    handleRegenerateCertificate: async () => {
+       if (!communicationService) return;
+       await communicationService.republishBundle();
+       showNotification?.("Identity certificate regenerated", "info");
+    }
   };
 };

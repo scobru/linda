@@ -1,4 +1,4 @@
-import { type IZenInstance } from "./zen/types";
+import type { IZenInstance } from "../zen/types";
 
 export type TransferStatus = 'idle' | 'offering' | 'incoming' | 'signaling' | 'transferring' | 'completed' | 'failed' | 'offered';
 
@@ -21,7 +21,6 @@ export class FileTransferService {
   private dc: RTCDataChannel | null = null;
   private remoteCandidates = new Map<string, RTCIceCandidateInit[]>();
   private processedCandidates = new Map<string, Set<string>>();
-  
   public onStatusChange: (status: TransferStatus, progress?: number, data?: any) => void = () => {};
   public onFileReceived: (blob: Blob, name: string, mimeType: string, metaId?: string) => void = () => {};
   public onStats: (stats: { bitrate: number; bufferedAmount: number }) => void = () => {};

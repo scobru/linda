@@ -5,7 +5,7 @@
 ## 🚀 Key Features
 
 -   **P2P Messaging**: Instant messaging with Zen-native authenticated writes. No central database; your data lives on the decentralized graph.
--   **TPRE Encryption**: Post-quantum resistant Threshold Proxy Re-Encryption for all chats (1:1 and Groups).
+-   **TPRE Encryption**: Threshold Proxy Re-Encryption for all chats (1:1 and Groups). High security delegated decryption.
 -   **P2P File Transfers**: Send images and files of any size directly to peers using WebRTC Data Channels.
 -   **Wormhole Integration**: Async file transfers via temporary binary relays.
 -   **Self-Custody**: Your identity is your public key. No phone number or email required.

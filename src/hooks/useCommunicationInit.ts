@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { DataBase } from '../zen/db';
-import { CommunicationService } from '../CommunicationService';
-import { GroupService } from '../GroupService';
+import { CommunicationService } from "../services/CommunicationService";
+import { GroupService } from "../services/GroupService";
+import { ThresholdService } from '../services/ThresholdService';
 
 export const useCommunicationInit = (
   db: DataBase, 
@@ -26,15 +27,14 @@ export const useCommunicationInit = (
           // We increase the limit to 15 attempts (~7.5s) to avoid generating redundant 
           // random handles for existing users on slow relays or second-device login.
           console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
-          for (let i = 0; i < 15; i++) {
+          for (let i = 0; i < 10; i++) {
             try {
-              uniqueName = (await db.userGet('profile/uniqueUsername', 2000)) as string;
+              uniqueName = (await db.userGet('profile/uniqueUsername', 5000)) as string;
               if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
             } catch (e: any) {
-              // Ignore notfound errors during the retry window
               if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Sync attempt failed:", e);
             }
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 1000));
           }
 
           if (!uniqueName) {
@@ -60,6 +60,18 @@ export const useCommunicationInit = (
           
           const gService = new GroupService(db);
           setGroupService(gService);
+          
+          // Publish PQ/Umbral Identity to profile for discovery
+          try {
+            const ts = await ThresholdService.init(db.pair!.priv);
+            const myUmbralPK = ts.getPublicKeyBase64();
+            const myPQPK = ts.getPQPublicKeyBase64();
+            await db.userPut('profile/umbral_pk', myUmbralPK);
+            if (myPQPK) await db.userPut('profile/pq_pk', myPQPK);
+          } catch (e) {
+            console.warn("[useCommunicationInit] Failed to publish PQ identity to profile", e);
+          }
+
           showNotification(`Welcome, ${username}! Secure session ready.`);
         } catch (e) {
           console.error('[useCommunicationInit] Communication session initialization failed:', e);

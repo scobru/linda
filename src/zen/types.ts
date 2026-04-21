@@ -44,6 +44,7 @@ export interface AuthResult {
 
 export interface SignUpResult extends AuthResult {
   isNewUser?: boolean;
+  uniqueUsername?: string;
 }
 
 export type Ack = {

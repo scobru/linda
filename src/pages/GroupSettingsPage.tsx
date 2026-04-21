@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { GroupService } from "../GroupService";
-import type { GroupMember, GroupInfo, Role } from "../GroupService";
+import { GroupService, type GroupMember, type GroupInfo, type Role } from "../services/GroupService";
 import { DataBase } from "../zen/db";
 import { UserAvatar } from "../components/UserAvatar";
 

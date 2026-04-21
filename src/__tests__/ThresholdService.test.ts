@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { ThresholdService } from './ThresholdService';
+import { ThresholdService } from '../services/ThresholdService';
 
 describe('ThresholdService', () => {
   let ts: ThresholdService;
