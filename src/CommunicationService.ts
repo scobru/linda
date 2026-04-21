@@ -416,9 +416,14 @@ export class CommunicationService {
         this.db.zen,
       );
 
+      if (!cert) {
+        console.warn("[CommunicationService] Failed to generate SEA inbox certificate (v13). Certificate-based writes may be unavailable.");
+        return;
+      }
+
       // Publish in multiple locations for maximum discoverability
-      user.get("signal_bundle_v8").get("inbox_cert").put(cert);
-      user.get("inbox_cert_v13").put(cert, (ack: any) => {
+      this.db.userPut("signal_bundle_v8/inbox_cert", cert);
+      this.db.userPut("inbox_cert_v13", cert, (ack: any) => {
         if (ack?.err) {
           console.warn(
             "[CommunicationService] Failed to publish primary inbox certificate (v13):",
@@ -461,8 +466,9 @@ export class CommunicationService {
       this.db.zen,
     );
 
-    const user = this.db.user;
-    if (user) user.get("certs").get(peerPub).put(cert);
+    if (this.db.isLoggedIn()) {
+      await this.db.userPut(`certs/${peerPub}`, cert);
+    }
     return cert;
   }
 
@@ -470,15 +476,11 @@ export class CommunicationService {
    * Revokes a specific certificate for a peer.
    */
   public async revokeCertificate(peerPub: string): Promise<void> {
-    const user = this.db.user;
-    if (!user || !user.is) return;
+    if (!this.db.isLoggedIn()) return;
     console.log(
       `[CommunicationService] Revoking certificate for: ${peerPub.slice(0, 8)}`,
     );
-    user
-      .get("certs")
-      .get(peerPub)
-      .put(null as any);
+    this.db.userPut(`certs/${peerPub}`, null as any);
   }
 
   /**

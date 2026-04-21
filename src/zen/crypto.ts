@@ -84,7 +84,35 @@ export async function certify(
   zenInstance?: any,
 ) {
   const zen = getZenLibrary(zenInstance);
-  return await zen.certify(who, policy, pair);
+  
+  if (!zen || typeof zen.certify !== 'function') {
+    console.error('[Crypto] zen.certify is unavailable');
+    return null;
+  }
+
+  try {
+    // Some native Zen versions reject '*' as a string for 'who'.
+    // We try it first, and if it fails with a specific error or returns null, we try fallback.
+    const result = await zen.certify(who, policy, pair);
+    if (!result && who === '*') {
+      console.warn('[Crypto] Wildcard (*) certification returned null. Retrying with null certificant...');
+      return await zen.certify(null as any, policy, pair);
+    }
+    return result;
+  } catch (e: any) {
+    const errStr = e?.message || String(e);
+    if (who === '*' && (errStr.includes('*') || errStr.includes('certificant'))) {
+       console.warn('[Crypto] Native zen rejected wildcard (*). Retrying with null...');
+       try {
+         return await zen.certify(null as any, policy, pair);
+       } catch (innerErr) {
+         console.error('[Crypto] Fallback certification failed:', innerErr);
+         return null;
+       }
+    }
+    console.error('[Crypto] Certification error:', e);
+    return null;
+  }
 }
 
 export async function generatePairFromSeed(

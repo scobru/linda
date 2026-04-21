@@ -27,21 +27,24 @@ export class DataBase {
   }
 
   public get user(): any {
-    if (!this._pub) return null;
-    try {
-      const userChain = this.zen.get(`~${this._pub}`) as any;
-      if (!userChain) return null;
-      
-      // Safely augment without destroying internal Gun/Zen metadata
-      if (!userChain._) userChain._ = {};
-      userChain._.sea = this._pair;
-      userChain.is = { pub: this._pub };
-      
-      return userChain;
-    } catch (e) {
-      console.warn('[DataBase] Failed to get user chain:', e);
-      return null;
-    }
+    if (!this._pub || !this.zen) return null;
+    
+    // Return a shim that mimics a Gun/Zen user node
+    // but is actually a regular chain at ~pub/
+    const node = this.zen.get(`~${this._pub}`);
+    
+    // Add compatibility properties
+    const shim = Object.create(node);
+    Object.defineProperties(shim, {
+      is: { get: () => ({ pub: this._pub }) },
+      _: { get: () => ({ ...node._, sea: this._pair }) },
+      // Proxy put to our DataBase.Put for automatic signing
+      put: { value: (data: any, cb?: any, opt?: any) => {
+        return this.userPut(node._.soul.split('~').pop() || '', data, cb, opt);
+      }}
+    });
+
+    return shim;
   }
 
   public get pair(): IZenPair | null {
@@ -56,12 +59,17 @@ export class DataBase {
 
   async restoreSession(): Promise<AuthResult> {
     try {
-      const storedPair = localStorage.getItem('zen_session_pair');
+      const storedPair = localStorage.getItem('linda_auth_pair'); // Use standard key
       if (storedPair) {
-        const pair = JSON.parse(storedPair) as IZenPair;
+        const payload = JSON.parse(storedPair);
+        const pair = payload.pair || payload;
         if (pair && pair.pub) {
           this._pair = pair;
           this._pub = pair.pub;
+
+          // Native Zen does not use a singleton user().auth() state.
+          // Instead, we store the pair locally and pass it as an 'authenticator'
+          // in the options of each .put() call.
 
           // Fetch username (alias)
           const username = await new Promise<string | null>((resolve) => {
@@ -95,7 +103,8 @@ export class DataBase {
   }
 
   isLoggedIn(): boolean {
-    return !!this._pub;
+    const user = this.user;
+    return !!(user && user.is);
   }
 
   async signUp(username: string, password?: string, pair?: IZenPair | null): Promise<SignUpResult> {
@@ -104,21 +113,9 @@ export class DataBase {
       const userPair = pair || await this.crypto.generatePairFromSeed(password || Math.random().toString(36), this.zen);
       const pub = userPair.pub;
 
-      // Register username
-      await new Promise((resolve) => {
-        this.getUsernamesNode().get(normalizedUsername).put(pub, () => resolve(true));
-      });
-
-      // Store profile
-      await new Promise((resolve) => {
-        const profileNode = this.getChain(`~${pub}/alias`);
-        if (profileNode) {
-          profileNode.put(normalizedUsername, () => resolve(true));
-        } else {
-          resolve(false);
-        }
-      });
-
+      // Store profile (signed)
+      await this.userPut('alias', normalizedUsername);
+      
       this._pair = userPair;
       this._pub = pub;
       localStorage.setItem('linda_auth_pair', JSON.stringify({ pair: userPair, username: normalizedUsername }));
@@ -134,18 +131,15 @@ export class DataBase {
     const normalizedUsername = username.trim().toLowerCase();
     try {
       const pub = await new Promise<string | null>((resolve) => {
-        const node = this.getUsernamesNode();
-        if (node) {
-          node.get(normalizedUsername).once((p: any) => resolve(p || null));
-        } else {
-          resolve(null);
-        }
+        this.zen.get('usernames').get(normalizedUsername).once((p: any) => resolve(p || null));
       });
 
       if (!pub) return { success: false, error: 'User not found' };
 
       const pair = await this.crypto.generatePairFromSeed(password, this.zen);
       if (pair.pub !== pub) return { success: false, error: 'Invalid password' };
+
+      // Native Zen uses explicit authenticator in put options.
 
       this._pair = pair;
       this._pub = pub;
@@ -160,6 +154,8 @@ export class DataBase {
 
   async loginWithPair(username: string, pair: IZenPair): Promise<AuthResult> {
     try {
+      // Native Zen uses explicit authenticator in put options.
+
       this._pair = pair;
       this._pub = pair.pub;
       localStorage.setItem('linda_auth_pair', JSON.stringify({ pair, username }));
@@ -200,13 +196,7 @@ export class DataBase {
     for (const p of parts) {
       if (!chain || typeof chain.get !== 'function') return null;
       try {
-        const next = chain.get(p);
-        if (!next || typeof next.get !== 'function') {
-           // If we hit a dead end, we try to recover via string concatenation if Zen supports it,
-           // but here we just return null to avoid the '$' crash
-           return null;
-        }
-        chain = next;
+        chain = chain.get(p);
       } catch (err) {
         console.warn(`[DataBase] Zen get crash at part ${p}:`, err);
         return null;
@@ -223,11 +213,18 @@ export class DataBase {
     });
   }
 
-  Put(path: string, data: any): Promise<any> {
+  Put(path: string, data: any, opt: any = {}): Promise<any> {
     const chain = this.getChain(path);
     if (!chain || typeof chain.put !== 'function') return Promise.reject('Invalid path');
+    
+    // Inject authenticator if it's a user path and we have a pair
+    const isUserPath = path.startsWith('~') || path.includes('/~');
+    if (isUserPath && this._pair && !opt.authenticator) {
+      opt.authenticator = this._pair;
+    }
+
     return new Promise((resolve) => {
-      chain.put(data, (ack: any) => resolve(ack));
+      chain.put(data, (ack: any) => resolve(ack), opt);
     });
   }
 
@@ -236,20 +233,34 @@ export class DataBase {
   }
 
   userGet(path: string): Promise<any> {
-    if (!this._pub) return Promise.reject('Not logged in');
-    const chain = this.getChain(`~${this._pub}/${path}`);
-    if (!chain) return Promise.resolve(null);
+    const user = this.user;
+    if (!user) return Promise.reject('Not logged in');
     return new Promise((resolve) => {
-      chain.once((s: any) => resolve(s));
+      user.get(path).once((s: any) => resolve(s));
     });
   }
 
-  userPut(path: string, data: any): Promise<any> {
-    if (!this._pub) return Promise.reject('Not logged in');
-    const chain = this.getChain(`~${this._pub}/${path}`);
-    if (!chain || typeof chain.put !== 'function') return Promise.reject('Invalid path');
+  userPut(path: string, data: any, cb?: any, opt: any = {}): Promise<any> {
+    if (!this._pub || !this._pair) return Promise.reject('Not logged in');
+    
+    // Ensure bitwise-stable authenticator injection
+    const options = { 
+      ...opt, 
+      authenticator: opt.authenticator || this._pair 
+    };
+
+    const parts = path.split('/').filter(p => !!p);
+    let chain = this.zen.get(`~${this._pub}`);
+    
+    for (const p of parts) {
+      chain = chain.get(p);
+    }
+
     return new Promise((resolve) => {
-      chain.put(data, (ack: any) => resolve(ack));
+      chain.put(data, (ack: any) => {
+        if (cb) cb(ack);
+        resolve(ack);
+      }, options);
     });
   }
 
