@@ -439,7 +439,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {(() => {
                 const isGroup = recipient.length === 36 && recipient.includes("-");
                 const cleanId = isGroup ? recipient : DataBase.cleanPub(recipient);
-                return contactProfiles[cleanId]?.nickname || (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient);
+                const profile = contactProfiles[cleanId] || {};
+                return profile.nickname || 
+                       profile.uniqueUsername || 
+                       (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient);
               })()}
             </h3>
             <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
@@ -582,9 +585,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const isMe = msg.sender === "Me";
           const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
           const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
+          const profile = contactProfiles[cleanSender] || {};
           const msgNick = isMe
             ? userNick || username || "?"
-            : contactProfiles[cleanSender]?.nickname || (msg.sender.length > 20 ? `${msg.sender.slice(0, 8)}...${msg.sender.slice(-4)}` : msg.sender);
+            : profile.nickname || 
+              profile.uniqueUsername || 
+              (msg.sender.length > 20 ? `${msg.sender.slice(0, 8)}...${msg.sender.slice(-4)}` : msg.sender);
           const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
           return (

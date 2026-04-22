@@ -56,25 +56,44 @@ export const useProfile = (
             if (cleanId.length < 43 || cleanId.startsWith("@")) {
               cPub = DataBase.cleanPub(await communicationService.getPubKeyFromUsername(cleanId));
             }
+
             if (cPub) {
+              const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {
+                setContactProfiles((prev) => {
+                  const existing = prev[id] || {};
+                  // Priority check: avoid overwriting dynamic nickname with a less specific one if already present
+                  // but for simplicity, we let the latest update win as db.On is reactive.
+                  return { ...prev, [id]: { ...existing, ...updates } };
+                });
+              };
+
               db.On(`~${cPub}/profile/avatar`, (data: any) =>
-                typeof data === "string" && setContactProfiles((prev) => ({
-                  ...prev,
-                  [cleanId]: { ...prev[cleanId], avatar: data },
-                }))
+                typeof data === "string" && updateProfile(cleanId, { avatar: data })
               );
+
+              // Primary path for nicknames
               db.On(`~${cPub}/profile/nickname`, (data: any) =>
-                typeof data === "string" && setContactProfiles((prev) => ({
-                  ...prev,
-                  [cleanId]: { ...prev[cleanId], nickname: data },
-                }))
+                typeof data === "string" && updateProfile(cleanId, { nickname: data })
               );
+
+              // Secondary: v7 bundle username
+              db.On(`~${cPub}/signal_bundle_v7/username`, (data: any) =>
+                typeof data === "string" && updateProfile(cleanId, { nickname: data })
+              );
+
+              // Tertiary: signal_aliases global index
+              db.On(`signal_aliases/${cPub}/alias`, (data: any) =>
+                typeof data === "string" && updateProfile(cleanId, { nickname: data })
+              );
+
+              // Quaternary: Fallback to native alias
               db.On(`~${cPub}/alias`, (data: any) =>
-                typeof data === "string" && setContactProfiles((prev) => {
-                  const existing = prev[cleanId] || {};
-                  if (existing.nickname) return prev;
-                  return { ...prev, [cleanId]: { ...existing, nickname: data } };
-                })
+                typeof data === "string" && updateProfile(cleanId, { nickname: data })
+              );
+
+              // Also resolve unique handles (@handle)
+              db.On(`~${cPub}/profile/uniqueUsername`, (data: any) =>
+                typeof data === "string" && updateProfile(cleanId, { uniqueUsername: data })
               );
             }
           }
