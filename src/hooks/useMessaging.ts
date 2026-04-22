@@ -337,7 +337,7 @@ export const useMessaging = (
 
               const isFile = data.type === 'file' || data.type === 'image';
               let fileMetadata: FileMetadata | undefined;
-              let messageText = plaintext;
+              let messageText: string | undefined = plaintext;
 
               if (isFile) {
                 try {
