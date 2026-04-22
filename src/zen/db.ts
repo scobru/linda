@@ -161,7 +161,7 @@ export class DataBase {
       // Store in user profile (signed) and global discovery index
       await this.userPut('profile/uniqueUsername', uniqueName);
       await this.userPut('profile/nickname', normalizedUsername);
-      await this.Put(`signal_unique_usernames/${uniqueName}`, pub);
+      await this.Put(`linda_unique_usernames/${uniqueName}`, pub);
 
       // Store basic profile alias (fallback)
       await this.userPut('alias', normalizedUsername);

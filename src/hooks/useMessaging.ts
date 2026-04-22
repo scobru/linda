@@ -139,12 +139,12 @@ export const useMessaging = (
 
   const saveContact = useCallback((contactId: string) => {
     if (!userPub || !db.zen) return;
-    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
+    db.zen.get(`linda_v3_contacts_${userPub}`).get(contactId).put(true as any);
   }, [userPub, db]);
 
   const removeContact = useCallback((contactId: string) => {
     if (!userPub || !db.zen) return;
-    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(null as any);
+    db.zen.get(`linda_v3_contacts_${userPub}`).get(contactId).put(null as any);
   }, [userPub, db]);
 
   // ── Initialization Logic ──
@@ -155,7 +155,7 @@ export const useMessaging = (
     loadProcessedKeys(userPub);
 
     db.zen
-      .get(`signal_v3_contacts_${userPub}`)
+      .get(`linda_v3_contacts_${userPub}`)
       .map()
       .on((data: any, contactId: string) => {
         if (data === true) {
@@ -196,7 +196,7 @@ export const useMessaging = (
       });
 
     // Mark as loaded once the initial fetch from the relay is done
-    db.zen.get(`signal_v3_contacts_${userPub}`).once(() => {
+    db.zen.get(`linda_v3_contacts_${userPub}`).once(() => {
         setIsContactsLoading(false);
     });
   }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
@@ -231,7 +231,7 @@ export const useMessaging = (
     if (!userPub) return;
 
     db.zen
-      .get(`signal_v2_typing_${userPub}`)
+      .get(`linda_v2_typing_${userPub}`)
       .map()
       .on((data: any, senderPubKey: string) => {
         if (blockedContactsRef.current.has(senderPubKey)) return;
@@ -285,7 +285,7 @@ export const useMessaging = (
         }
 
         // We use roomId to find the metadata, but we'll store messages under contactId
-        const meta = await (db.Get as any)(`signal_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
+        const meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
         if (!meta || (meta as any).err) return;
 
         groupSubscriptionsRef.current.add(contactId);
@@ -297,7 +297,7 @@ export const useMessaging = (
         }
 
         // 1. Listen to Messages
-        db.zen.get(`signal_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
+        db.zen.get(`linda_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           if (blockedContactsRef.current.has(data.sender)) {
             if (userPub) saveProcessedKey(userPub, gunKey);
@@ -394,7 +394,7 @@ export const useMessaging = (
         });
 
         // 2. Listen to Deletions
-        db.zen.get(`signal_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
+        db.zen.get(`linda_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
           if (data) {
             setDeletedMessages((prev) => {
               const groupDeletions = new Set(prev[contactId] || []);
@@ -407,7 +407,7 @@ export const useMessaging = (
         });
 
         // 3. Listen to Pins
-        db.zen.get(`signal_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
+        db.zen.get(`linda_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
           setPinnedMessages(prev => {
             const groupPins = new Set(prev[contactId] || []);
             if (ts) groupPins.add(msgId);
@@ -438,11 +438,11 @@ export const useMessaging = (
       }
 
       try {
-        const meta = await (db.Get as any)(`signal_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
+        const meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
         if (!meta || meta.adminPub !== userPub || meta.encryptionMode !== 'tpre') return;
 
         // Subscribe to member list
-        db.zen.get(`signal_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
+        db.zen.get(`linda_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
            if (!memberData || memberPub === "_" || memberPub === userPub) return;
            
            const grantKey = `${roomId}_${memberPub}`;
@@ -453,7 +453,7 @@ export const useMessaging = (
            if (umbralPK) {
               // Check if we already granted access to the relay for this member
               try {
-                const existingKFrag = await (db.Get as any)(`signal_rooms/${roomId}/relay_kfrags/${memberPub}`);
+                const existingKFrag = await (db.Get as any)(`linda_rooms/${roomId}/relay_kfrags/${memberPub}`);
                 if (!existingKFrag) {
                     console.log(`[AdminReactor] Found new member ${memberPub.substring(0,8)} in room ${roomId.substring(0,8)}. Granting TPRE access...`);
                     await groupService.grantTPREAccess(roomId, memberPub, umbralPK);
@@ -487,7 +487,7 @@ export const useMessaging = (
     const sessionStartTime = Date.now();
     console.log(`[Signal] Listener started at ${sessionStartTime}`);
 
-    db.zen.get(`signal_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+    db.zen.get(`linda_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
       // 1. Strict Data Validation (Avoid GunDB type errors and malformed nodes)
       if (!data || typeof data !== "object") {
         if (data !== null) console.warn(`[Signal] Skipping non-object inbox data at ${gunKey}:`, data);
@@ -591,10 +591,10 @@ export const useMessaging = (
       lastTypingSentRef.current = now;
       try {
         const isGroup = recipient.length === 36 && recipient.includes("-");
-        let path = `signal_v2_typing_${recipient}`;
+        let path = `linda_v2_typing_${recipient}`;
         if (!isGroup) {
           const pub = recipient.length < 30 ? await communicationService.getPubKeyFromUsername(recipient) : recipient;
-          path = `signal_v2_typing_${pub}`;
+          path = `linda_v2_typing_${pub}`;
         }
         db.zen.get(path).get(userPub).put({ typing: true, ts: now.toString(), s: generateSecureRandomString(4) } as any);
       } catch (e) {}
@@ -671,10 +671,10 @@ export const useMessaging = (
         
         const myRole = await groupService.getMemberRole(recipient, userPub);
         if (!myRole) throw new Error("Not a member");
-        const meta = await (db.Get as any)(`signal_rooms/${recipient}/meta`);
+        const meta = await (db.Get as any)(`linda_rooms/${recipient}/meta`);
         if (!meta) throw new Error("Group metadata not found");
         ciphertext = await groupService.encryptGroupMessage(meta, payload || "");
-        await db.Set(`signal_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
+        await db.Set(`linda_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
       } else {
         // 1:1 direct message -> NOW TPRE
         console.log(`[Signal] Using TPRE for 1:1 chat with ${recipient.slice(0, 8)}...`);
@@ -682,7 +682,7 @@ export const useMessaging = (
         ciphertext = await groupService.encryptGroupMessage(p2pGroup, payload || "");
         
         // Write to the TPRE room messages node
-        await db.Set(`signal_rooms/${p2pGroup.id}/messages`, { 
+        await db.Set(`linda_rooms/${p2pGroup.id}/messages`, { 
             msgId, 
             sender: userPub, 
             body: ciphertext, 
@@ -704,7 +704,7 @@ export const useMessaging = (
             const pokeCipher = await communicationService.encryptMessage(recipient, `TPRE_POKE:${p2pGroup.id}`);
             const inboxCert = await communicationService.getInboxCertificate(recipient).catch(() => null);
             
-            await db.Set(`signal_v3_inbox_${recipient}`, {
+            await db.Set(`linda_v3_inbox_${recipient}`, {
                 sender: userPub,
                 type: pokeCipher.type,
                 body: pokeCipher.body,
@@ -776,7 +776,7 @@ export const useMessaging = (
           const msgs = messages[recipient] || [];
           const msgToDelete = msgs.find(m => m.id === messageId);
           if (msgToDelete?.gunKey && db.zen) {
-            const path = `signal_v3_inbox_${userPub}`;
+            const path = `linda_v3_inbox_${userPub}`;
             console.log(`[Signal] Nullifying GunDB node at ${path}/${msgToDelete.gunKey}`);
             db.zen.get(path).get(msgToDelete.gunKey).put(null as any);
           }
@@ -832,7 +832,7 @@ export const useMessaging = (
     
     // 1. Clear from GunDB
     const isGroup = contactId.length === 36 && contactId.includes("-");
-    const path = isGroup ? `signal_rooms/${contactId}/messages` : `signal_v3_inbox_${userPub}`;
+    const path = isGroup ? `linda_rooms/${contactId}/messages` : `linda_v3_inbox_${userPub}`;
     
     msgs.forEach(m => {
       if (m.gunKey) {

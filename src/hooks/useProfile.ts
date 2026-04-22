@@ -43,7 +43,7 @@ export const useProfile = (
           const cleanId = isGroup ? contactId : DataBase.cleanPub(contactId);
           
           if (isGroup) {
-            db.On(`signal_rooms/${cleanId}/meta`, (data: any) => {
+            db.On(`linda_rooms/${cleanId}/meta`, (data: any) => {
               if (data && typeof data === "object") {
                 setContactProfiles((prev) => ({
                   ...prev,
@@ -77,12 +77,12 @@ export const useProfile = (
               );
 
               // Secondary: v7 bundle username
-              db.On(`~${cPub}/signal_bundle_v7/username`, (data: any) =>
+              db.On(`~${cPub}/linda_bundle_v7/username`, (data: any) =>
                 typeof data === "string" && updateProfile(cleanId, { nickname: data })
               );
 
-              // Tertiary: signal_aliases global index
-              db.On(`signal_aliases/${cPub}/alias`, (data: any) =>
+              // Tertiary: linda_aliases global index
+              db.On(`linda_aliases/${cPub}/alias`, (data: any) =>
                 typeof data === "string" && updateProfile(cleanId, { nickname: data })
               );
 

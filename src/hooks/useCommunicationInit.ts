@@ -50,7 +50,7 @@ export const useCommunicationInit = (
             await db.userPut('profile/uniqueUsername', uniqueName);
             
             if (pub) {
-              await db.Put(`signal_unique_usernames/${uniqueName}`, pub);
+              await db.Put(`linda_unique_usernames/${uniqueName}`, pub);
             }
           }
           setUserUniqueUsername(uniqueName);

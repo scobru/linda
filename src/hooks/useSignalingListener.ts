@@ -15,7 +15,7 @@ export const useSignalingListener = (
   useEffect(() => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst || !communicationService) return;
 
-    const inboxSoul = `~${userPub}/signal_inbox_v13`;
+    const inboxSoul = `~${userPub}/linda_inbox_v13`;
     console.log(`[Signaling] Starting listener on ${inboxSoul}`);
 
     db.zen.get(inboxSoul).map().on(async (data: any, gunKey: string) => {
@@ -60,7 +60,7 @@ export const useSignalingListener = (
 
         const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:") ? 60000 : 20000;
         setTimeout(() => {
-          if (userPub) db.zen.user(userPub).get("signal_inbox_v13").get(gunKey).put(null as any);
+          if (userPub) db.zen.user(userPub).get("linda_inbox_v13").get(gunKey).put(null as any);
         }, cleanupDelay);
       } catch (e) {
         console.warn(`[Signaling] Failed to process signal on ${gunKey}:`, e);
@@ -73,7 +73,7 @@ export const useSignalingListener = (
     if (!isLoggedIn || !userPub) return;
     const kickInterval = setInterval(() => {
       console.log("[Signaling] Sync Kick: Poking inbox...");
-      db.Put(`~${userPub}/signal_inbox_v13/_poke`, Date.now().toString());
+      db.Put(`~${userPub}/linda_inbox_v13/_poke`, Date.now().toString());
     }, 120000);
     return () => clearInterval(kickInterval);
   }, [isLoggedIn, userPub, db]);

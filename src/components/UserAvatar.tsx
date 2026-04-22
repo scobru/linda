@@ -26,7 +26,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
 
     const cleanPub = DataBase.cleanPub(pub);
     const path = isGroup 
-      ? `signal_rooms/${cleanPub}/meta/avatar` 
+      ? `linda_rooms/${cleanPub}/meta/avatar` 
       : `~${cleanPub}/profile/avatar`;
     
     // Subscribe to avatar changes

@@ -62,7 +62,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ db, onAuth }) => {
 
       <div className="max-w-md w-full glass p-8 rounded-2xl shadow-2xl z-10 border border-white/10">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-black text-white mb-2 tracking-tighter">ZEN SIGNAL</h1>
+          <h1 className="text-4xl font-black text-white mb-2 tracking-tighter">LINDA</h1>
           <p className="text-white/60 text-sm">Decentralized. Private. Forever.</p>
         </div>
 

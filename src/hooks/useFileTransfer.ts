@@ -46,7 +46,7 @@ export const useFileTransfer = (
           const cipher = await communicationService.encryptMessage(toPub, payload);
           const signalKey = `${userPub.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-          const targetInbox = db.zen.user(toPub).get(`signal_inbox_v13`);
+          const targetInbox = db.zen.user(toPub).get(`linda_inbox_v13`);
 
           const putOptions = toPub === userPub ? {} : { opt: { cert: cert } };
           targetInbox.get(signalKey).put(

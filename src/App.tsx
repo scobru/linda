@@ -7,6 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
+import "zen/lib/rindexed";
 
 // Services & DB
 import { DataBase } from "./zen/db";
@@ -309,6 +310,7 @@ const App: React.FC = () => {
         const zen = new ZEN({
           peers: relays,
           localStorage: true,
+          indexedDB: true,
           radisk: true,
         });
         const db = new DataBase(zen);

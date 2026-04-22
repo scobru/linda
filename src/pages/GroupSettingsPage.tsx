@@ -41,7 +41,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
     if (!groupId) return;
     setLoading(true);
     try {
-      const info = await (db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const info = await (db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
       setGroupInfo(info);
       setEditName(info.name);
       setEditDesc(info.description || "");
@@ -76,7 +76,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   useEffect(() => {
     if (!groupId || !db.zen || !myRole || !['moderator', 'administrator'].includes(myRole)) return;
     
-    const reportsRef = db.zen.get(`signal_rooms/${groupId}/reports`);
+    const reportsRef = db.zen.get(`linda_rooms/${groupId}/reports`);
     const handleReport = (data: any, id: string) => {
         if (!data || id === '_' || id === '>') return;
         setReports(prev => {

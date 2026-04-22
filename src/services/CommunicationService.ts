@@ -124,12 +124,12 @@ export class CommunicationService {
       await new Promise((r) => setTimeout(r, 300));
 
       console.log(
-        "[CommunicationService] Publishing secondary signal_bundle_v7 metadata...",
+        "[CommunicationService] Publishing secondary linda_bundle_v7 metadata...",
       );
-      await this.db.userPut("signal_bundle_v7/epub", pair.epub);
-      await this.db.userPut("signal_bundle_v7/username", username);
+      await this.db.userPut("linda_bundle_v7/epub", pair.epub);
+      await this.db.userPut("linda_bundle_v7/username", username);
       if (uniqueUsername) {
-        await this.db.userPut("signal_bundle_v7/uniqueUsername", uniqueUsername);
+        await this.db.userPut("linda_bundle_v7/uniqueUsername", uniqueUsername);
       }
 
       console.log(
@@ -153,11 +153,11 @@ export class CommunicationService {
     const pub = this.db.getUserPub();
     if (!pub) return;
 
-    localStorage.setItem("signal_alias", username);
+    localStorage.setItem("linda_alias", username);
     if (uniqueUsername) {
-      localStorage.setItem("signal_unique_username", uniqueUsername);
+      localStorage.setItem("linda_unique_username", uniqueUsername);
     }
-    localStorage.setItem("signal_pub", pub);
+    localStorage.setItem("linda_pub", pub);
 
     try {
       const aliasPayload: Record<string, string> = { alias: username };
@@ -168,7 +168,7 @@ export class CommunicationService {
       await Promise.race([
         new Promise<void>((resolve) => {
           this.db.zen
-            .get("signal_aliases")
+            .get("linda_aliases")
             .get(pub)
             .put(aliasPayload, () => resolve());
         }),
@@ -187,7 +187,7 @@ export class CommunicationService {
         await Promise.race([
           new Promise<void>((resolve) => {
             this.db.zen
-              .get("signal_unique_usernames")
+              .get("linda_unique_usernames")
               .get(normalized)
               .put(pub, () => resolve());
           }),
@@ -231,7 +231,7 @@ export class CommunicationService {
     for (let i = 0; i < 6; i++) {
       try {
         // Strategy A: Check Custom Unique Usernames Index (@handle format)
-        const uniquePubKey = await this.db.Get(`signal_unique_usernames/${normalizedUnique}`);
+        const uniquePubKey = await this.db.Get(`linda_unique_usernames/${normalizedUnique}`);
         if (uniquePubKey && typeof uniquePubKey === "string" && uniquePubKey.length >= 30) {
           this.pubkeyCache.set(query, uniquePubKey);
           return uniquePubKey;
@@ -324,7 +324,7 @@ export class CommunicationService {
           const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
-            .get("signal_bundle_v7")
+            .get("linda_bundle_v7")
             .once((data: any) => {
               clearTimeout(timeout);
               // Handle Zen-native signed format or raw
@@ -377,8 +377,8 @@ export class CommunicationService {
   }
 
   /**
-   * Initializes the user's SEA certificate for their secure signal_inbox
-   * allowing anyone (or specific peers) to write signals to ~${pub}/signal_inbox
+   * Initializes the user's SEA certificate for their secure linda_inbox
+   * allowing anyone (or specific peers) to write signals to ~${pub}/linda_inbox
    */
   public async regenerateCertificate(force: boolean = false): Promise<void> {
     const pair = this.myPair || this.db.pair;
@@ -410,10 +410,10 @@ export class CommunicationService {
               this.db.zen,
             );
             if (verified && verified.c) {
-              // Check if the policy mentions signal_inbox_v13
+              // Check if the policy mentions linda_inbox_v13
               const policyStr = JSON.stringify(verified.c);
               if (
-                policyStr.includes("signal_inbox_v13") ||
+                policyStr.includes("linda_inbox_v13") ||
                 policyStr.includes('"*"')
               ) {
                 isValid = true;
@@ -442,7 +442,7 @@ export class CommunicationService {
 
       /* 
       // Cert generation is handled differently in Zen-native (PEN)
-      this.db.userPut("signal_bundle_v8/inbox_cert", cert);
+      this.db.userPut("linda_bundle_v8/inbox_cert", cert);
       this.db.userPut("inbox_cert_v13", cert, (ack: any) => {
         if (ack?.err) {
           console.warn(
@@ -473,7 +473,7 @@ export class CommunicationService {
       `[CommunicationService] Issuing specific recursive certificate for: ${peerPub.slice(0, 8)}...`,
     );
 
-    const soul = `~${this.myPair.pub}/signal_inbox_v13`;
+    const soul = `~${this.myPair.pub}/linda_inbox_v13`;
     const cert = await zenCrypto.certify(
       [peerPub],
       [
@@ -505,7 +505,7 @@ export class CommunicationService {
   }
 
   /**
-   * Retrieves the SEA certificate allowing writes to a peer's signal_inbox
+   * Retrieves the SEA certificate allowing writes to a peer's linda_inbox
    */
   public async getInboxCertificate(pub: string): Promise<string> {
     if (!pub)
@@ -518,7 +518,7 @@ export class CommunicationService {
       `[CommunicationService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`,
     );
 
-    // Helper: validate that a cert's policy actually covers signal_inbox_v12
+    // Helper: validate that a cert's policy actually covers linda_inbox_v13
     const validateCert = async (
       cert: string,
       label: string,
@@ -534,7 +534,7 @@ export class CommunicationService {
         const policyStr = JSON.stringify(verified.c);
         // Accept policies that explicitly mention v13 OR have a global wildcard "*"
         if (
-          policyStr.includes("signal_inbox_v13") ||
+          policyStr.includes("linda_inbox_v13") ||
           policyStr.includes('"*"')
         ) {
           return true;
@@ -603,7 +603,7 @@ export class CommunicationService {
           const timeout = setTimeout(() => resolve(null), 3000);
           this.db.zen
             .get(`~${pub}`)
-            .get("signal_bundle_v8")
+            .get("linda_bundle_v8")
             .get("inbox_cert")
             .once((data: any) => {
               clearTimeout(timeout);
@@ -843,9 +843,9 @@ export class CommunicationService {
    * Force republish the user's bundle. Useful for fixing synchronization issues.
    */
   async republishBundle(): Promise<void> {
-    const username = localStorage.getItem("signal_alias") || "Anonymous";
+    const username = localStorage.getItem("linda_alias") || "Anonymous";
     const uniqueUsername =
-      localStorage.getItem("signal_unique_username") || undefined;
+      localStorage.getItem("linda_unique_username") || undefined;
     console.log("[CommunicationService] Action: Force republishing bundle...");
     await this.publishBundle(username, uniqueUsername);
   }

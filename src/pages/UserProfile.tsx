@@ -88,8 +88,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     const pub = db.getUserPub();
     if (!pub) return;
     try {
-      await db.Put(`signal_global_nicknames/${nick}`, pub);
-      await db.Put(`signal_aliases/${pub}`, { alias: nick }); // Add this for App.tsx fallback
+      await db.Put(`linda_global_nicknames/${nick}`, pub);
+      await db.Put(`linda_aliases/${pub}`, { alias: nick }); // Add this for App.tsx fallback
       await db.userPut("profile/nickname", nick);
       await db.userPut("alias", nick); // Add this for App.tsx fallback
       showNotification("Nickname updated", "info");
@@ -111,12 +111,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     try {
       let takenPub: any = undefined;
       try {
-        takenPub = await db.Get(`signal_unique_usernames/${normalized}`);
-      } catch (e) {}
-      if (takenPub && takenPub !== pub) {
-        showNotification("Unique username already taken", "error");
-      } else {
-        await db.Put(`signal_unique_usernames/${normalized}`, pub);
+        await db.Put(`linda_unique_usernames/${normalized}`, pub);
         await db.userPut("profile/uniqueUsername", normalized);
         localStorage.setItem("linda_user_unique_username", normalized);
         showNotification("Unique username updated", "info");

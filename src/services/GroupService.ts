@@ -90,7 +90,7 @@ export class GroupService {
       const skString = ts.serializeSecretKey(groupSK);
       const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
       
-      await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
       
       const myUmbralPK = ts.getPublicKey();
       const threshold = 1;
@@ -99,12 +99,12 @@ export class GroupService {
       
       if (kfrags.length > 0) {
          const relayKFrag = ts.serializeKFrag(kfrags[0]);
-         await (this.db.Put as any)(`signal_rooms/${groupId}/relay_kfrags/${myPub}`, relayKFrag);
+         await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${myPub}`, relayKFrag);
       }
       
       if (kfrags.length > 1) {
          const memberKFrag = ts.serializeKFrag(kfrags[1]);
-         await (this.db.Put as any)(`signal_rooms/${groupId}/member_kfrags/${myPub}/${myPub}`, memberKFrag);
+         await (this.db.Put as any)(`linda_rooms/${groupId}/member_kfrags/${myPub}/${myPub}`, memberKFrag);
       }
     }
 
@@ -126,8 +126,8 @@ export class GroupService {
     };
 
     try {
-      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, groupInfo);
-      await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, {
+      await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, groupInfo);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}`, {
         role: "administrator",
         joinedAt: Date.now(),
       } as GroupMember);
@@ -141,10 +141,10 @@ export class GroupService {
 
   async getMemberRole(groupId: string, memberPub: string): Promise<Role | null> {
     try {
-      const member = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${memberPub}`) as GroupMember;
+      const member = await (this.db.Get as any)(`linda_rooms/${groupId}/members/${memberPub}`) as GroupMember;
       if (member && member.role) return member.role;
 
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
       if (meta && meta.adminPub === memberPub) {
         return "administrator";
       }
@@ -153,7 +153,7 @@ export class GroupService {
   }
 
   onMemberRoleChange(groupId: string, memberPub: string, callback: (role: Role | null) => void): () => void {
-    const path = `signal_rooms/${groupId}/members/${memberPub}/role`;
+    const path = `linda_rooms/${groupId}/members/${memberPub}/role`;
     const evId = `role_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
 
     (this.db.On as any)(path, (data: any) => {
@@ -170,7 +170,7 @@ export class GroupService {
   }
 
   onMuteStatusChange(groupId: string, memberPub: string, callback: (isMuted: boolean) => void): () => void {
-    const path = `signal_rooms/${groupId}/mutes/${memberPub}`;
+    const path = `linda_rooms/${groupId}/mutes/${memberPub}`;
     const evId = `mute_${groupId}_${memberPub}_${Math.random().toString(36).slice(2, 9)}`;
 
     (this.db.On as any)(path, (data: any) => {
@@ -197,7 +197,7 @@ export class GroupService {
 
     if (action === "send_message") {
       try {
-        const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+        const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
         if (meta && meta.type === "broadcast") {
           if (!role || (role !== "administrator" && role !== "moderator")) {
             return false;
@@ -208,7 +208,7 @@ export class GroupService {
 
     if (!role) {
       try {
-        const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+        const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
         if (meta && meta.adminPub === myPub) {
           return true;
         }
@@ -239,12 +239,12 @@ export class GroupService {
 
   async muteMember(groupId: string, memberPub: string, muted: boolean): Promise<void> {
     if (!(await this.canPerform(groupId, "mute_peer"))) throw new Error("Unauthorized");
-    await (this.db.Put as any)(`signal_rooms/${groupId}/mutes/${memberPub}`, muted ? Date.now() : null);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/mutes/${memberPub}`, muted ? Date.now() : null);
   }
 
   async isMuted(groupId: string, memberPub: string): Promise<boolean> {
     try {
-      const muted = await (this.db.Get as any)(`signal_rooms/${groupId}/mutes/${memberPub}`);
+      const muted = await (this.db.Get as any)(`linda_rooms/${groupId}/mutes/${memberPub}`);
       return !!muted;
     } catch (e) {
       return false;
@@ -254,8 +254,8 @@ export class GroupService {
   async updateGroupMeta(groupId: string, updates: Partial<Pick<GroupInfo, 'name' | 'description' | 'avatar'>>): Promise<void> {
     if (!(await this.canPerform(groupId, "update_meta"))) throw new Error("Unauthorized");
     try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, ...updates });
+      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
+      await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, { ...meta, ...updates });
     } catch (e) {
       console.error('[GroupService] Failed to update group meta:', e);
       throw new Error("Failed to update group metadata on GunDB");
@@ -265,9 +265,9 @@ export class GroupService {
   async toggleFeature(groupId: string, feature: 'callsEnabled' | 'activityEnabled', enabled: boolean): Promise<void> {
     if (!(await this.canPerform(groupId, "toggle_features"))) throw new Error("Unauthorized");
     try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
       const features = { ...meta.features, [feature]: enabled };
-      await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, { ...meta, features });
+      await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, { ...meta, features });
     } catch (e) {
       console.error('[GroupService] Failed to toggle feature:', e);
       throw new Error("Failed to update group features on GunDB");
@@ -288,7 +288,7 @@ export class GroupService {
         const adminCount = members.filter(m => m.role === 'administrator').length;
         if (adminCount <= 1) throw new Error("Cannot downgrade the last administrator");
       }
-      await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}/role`, newRole);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${memberPub}/role`, newRole);
       return;
     }
 
@@ -299,13 +299,13 @@ export class GroupService {
     if (newRole === "moderator" && !(await this.canPerform(groupId, "promote_moderator"))) throw new Error("Unauthorized");
     if (newRole === "peer" && !(await this.canPerform(groupId, "kick_user"))) throw new Error("Unauthorized");
 
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}/role`, newRole);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/members/${memberPub}/role`, newRole);
   }
 
   async getMembers(groupId: string): Promise<GroupMember[]> {
     try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
-      const membersNode = await (this.db.Get as any)(`signal_rooms/${groupId}/members`) as Record<string, any>;
+      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
+      const membersNode = await (this.db.Get as any)(`linda_rooms/${groupId}/members`) as Record<string, any>;
 
       const members: GroupMember[] = [];
       if (membersNode) {
@@ -313,7 +313,7 @@ export class GroupService {
         
         const memberData = await Promise.all(pubs.map(async (pub) => {
           try {
-            const data = await (this.db.Get as any)(`signal_rooms/${groupId}/members/${pub}`);
+            const data = await (this.db.Get as any)(`linda_rooms/${groupId}/members/${pub}`);
             if (data) {
               return {
                 pub,
@@ -351,20 +351,20 @@ export class GroupService {
 
   async kickMember(groupId: string, memberPub: string): Promise<void> {
     if (!(await this.canPerform(groupId, "kick_user"))) throw new Error("Unauthorized");
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${memberPub}`, null);
-    await (this.db.Put as any)(`signal_v3_contacts_${memberPub}/${groupId}`, null);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/members/${memberPub}`, null);
+    await (this.db.Put as any)(`linda_v3_contacts_${memberPub}/${groupId}`, null);
   }
 
   async leaveGroup(groupId: string): Promise<void> {
     const myPub = this.db.getUserPub();
     if (!myPub) throw new Error("Not logged in");
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}`, null);
-    await (this.db.Put as any)(`signal_v3_contacts_${myPub}/${groupId}`, null);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}`, null);
+    await (this.db.Put as any)(`linda_v3_contacts_${myPub}/${groupId}`, null);
   }
 
   async pinMessage(groupId: string, messageId: string, pinned: boolean): Promise<void> {
     if (!(await this.canPerform(groupId, "pin_message"))) throw new Error("Unauthorized");
-    await (this.db.Put as any)(`signal_rooms/${groupId}/pins/${messageId}`, pinned ? Date.now() : null);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/pins/${messageId}`, pinned ? Date.now() : null);
   }
 
   async deleteMessage(groupId: string, messageId: string, senderPub: string): Promise<void> {
@@ -377,7 +377,7 @@ export class GroupService {
       if (!(await this.canPerform(groupId, "delete_any_message"))) throw new Error("Unauthorized");
     }
 
-    await (this.db.Put as any)(`signal_rooms/${groupId}/deleted_messages/${messageId}`, {
+    await (this.db.Put as any)(`linda_rooms/${groupId}/deleted_messages/${messageId}`, {
       deletedAt: Date.now(),
       deletedBy: myPub
     });
@@ -386,7 +386,7 @@ export class GroupService {
   async reportContent(groupId: string, contentId: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
     const reportId = this.generateUUID();
-    await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
+    await (this.db.Put as any)(`linda_rooms/${groupId}/reports/${reportId}`, {
       type: "content",
       contentId,
       reason,
@@ -399,7 +399,7 @@ export class GroupService {
   async reportUser(groupId: string, targetPub: string, reason: string): Promise<void> {
     if (!(await this.canPerform(groupId, "report"))) throw new Error("Unauthorized");
     const reportId = globalThis.crypto.randomUUID();
-    await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}`, {
+    await (this.db.Put as any)(`linda_rooms/${groupId}/reports/${reportId}`, {
       type: "user",
       targetPub,
       reason,
@@ -411,7 +411,7 @@ export class GroupService {
 
   async getReports(groupId: string): Promise<any[]> {
     if (!(await this.canPerform(groupId, "action_reports"))) throw new Error("Unauthorized");
-    const reportsNode = await (this.db.Get as any)(`signal_rooms/${groupId}/reports`) as Record<string, any>;
+    const reportsNode = await (this.db.Get as any)(`linda_rooms/${groupId}/reports`) as Record<string, any>;
     if (!reportsNode) return [];
     return Object.entries(reportsNode)
       .filter(([id, data]) => id !== "_" && id !== ">" && data !== null)
@@ -420,16 +420,16 @@ export class GroupService {
 
   async resolveReport(groupId: string, reportId: string, status: "resolved" | "dismissed"): Promise<void> {
     if (!(await this.canPerform(groupId, "action_reports"))) throw new Error("Unauthorized");
-    const report = await (this.db.Get as any)(`signal_rooms/${groupId}/reports/${reportId}`);
+    const report = await (this.db.Get as any)(`linda_rooms/${groupId}/reports/${reportId}`);
     if (!report) throw new Error("Report not found");
-    await (this.db.Put as any)(`signal_rooms/${groupId}/reports/${reportId}/status`, status);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/reports/${reportId}/status`, status);
   }
 
   async generateInvite(groupId: string, role: Role = "peer", singleUse: boolean = false): Promise<string> {
     const action = role === "administrator" ? "invite_admin" : (role === "moderator" ? "invite_moderator" : "invite_peer");
     if (!(await this.canPerform(groupId, action))) throw new Error("Unauthorized");
 
-    const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+    const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
     if (!meta) throw new Error("Group not found");
 
     const inviteId = this.generateUUID();
@@ -443,7 +443,7 @@ export class GroupService {
     };
 
     if (invite.u) {
-      await (this.db.Put as any)(`signal_rooms/${groupId}/active_invites/${inviteId}`, { status: 'active' });
+      await (this.db.Put as any)(`linda_rooms/${groupId}/active_invites/${inviteId}`, { status: 'active' });
     }
 
     return btoa(unescape(encodeURIComponent(JSON.stringify(invite))));
@@ -467,10 +467,10 @@ export class GroupService {
 
     if (Date.now() > invite.t) throw new Error("Invite expired");
 
-    const meta = await (this.db.Get as any)(`signal_rooms/${invite.g}/meta`) as GroupInfo;
+    const meta = await (this.db.Get as any)(`linda_rooms/${invite.g}/meta`) as GroupInfo;
     if (!meta) throw new Error("Group meta not found");
 
-    await (this.db.Put as any)(`signal_rooms/${invite.g}/members/${myPub}`, {
+    await (this.db.Put as any)(`linda_rooms/${invite.g}/members/${myPub}`, {
       role: invite.r,
       joinedAt: Date.now()
     } as GroupMember);
@@ -479,13 +479,13 @@ export class GroupService {
   }
 
   async setGroupPublic(groupId: string, isPublic: boolean, publicName?: string): Promise<void> {
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta/isPublic`, isPublic);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/meta/isPublic`, isPublic);
     if (publicName) {
-      await (this.db.Put as any)(`signal_rooms/${groupId}/meta/publicName`, publicName);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/meta/publicName`, publicName);
       if (isPublic) {
-        await (this.db.Put as any)(`signal_public_index/${publicName}`, groupId);
+        await (this.db.Put as any)(`linda_public_index/${publicName}`, groupId);
       } else {
-        await (this.db.Put as any)(`signal_public_index/${publicName}`, null);
+        await (this.db.Put as any)(`linda_public_index/${publicName}`, null);
       }
     }
   }
@@ -516,7 +516,7 @@ export class GroupService {
   async getOrCreateP2PGroup(contactPub: string): Promise<GroupInfo> {
     const groupId = await this.getP2PGroupId(contactPub);
     try {
-      const meta = await (this.db.Get as any)(`signal_rooms/${groupId}/meta`) as GroupInfo;
+      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
       if (meta) return meta;
     } catch (e) {}
 
@@ -531,7 +531,7 @@ export class GroupService {
     const skString = ts.serializeSecretKey(groupSK);
     const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
     
-    await (this.db.Put as any)(`signal_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
 
     const groupInfo: GroupInfo = {
       id: groupId,
@@ -546,13 +546,13 @@ export class GroupService {
       type: 'group'
     };
 
-    await (this.db.Put as any)(`signal_rooms/${groupId}/meta`, groupInfo);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, groupInfo);
     
     // Initial kfrags for myself
     const myUmbralPK = ts.getPublicKey();
     const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, 1, 1);
     if (kfrags.length > 0) {
-       await (this.db.Put as any)(`signal_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
+       await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
     }
 
     return groupInfo;
@@ -560,7 +560,7 @@ export class GroupService {
 
   async grantTPREAccess(groupId: string, memberPub: string, memberUmbralPKB64: string): Promise<void> {
     const ts = await this.getThresholdService();
-    const encryptedSK = await (this.db.Get as any)(`signal_rooms/${groupId}/admin_sk_encrypted`);
+    const encryptedSK = await (this.db.Get as any)(`linda_rooms/${groupId}/admin_sk_encrypted`);
     if (!encryptedSK) throw new Error("Missing group SK for TPRE grant");
     
     const pair = this.db.pair;
@@ -574,12 +574,12 @@ export class GroupService {
     
     if (kfrags.length > 0) {
        const relayKFrag = ts.serializeKFrag(kfrags[0]);
-       await (this.db.Put as any)(`signal_rooms/${groupId}/relay_kfrags/${memberPub}`, relayKFrag);
+       await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${memberPub}`, relayKFrag);
     }
     
     if (kfrags.length > 1) {
        const memberKFrag = ts.serializeKFrag(kfrags[1]);
-       await (this.db.Put as any)(`signal_rooms/${groupId}/member_kfrags/${memberPub}/${this.db.getUserPub()}`, memberKFrag);
+       await (this.db.Put as any)(`linda_rooms/${groupId}/member_kfrags/${memberPub}/${this.db.getUserPub()}`, memberKFrag);
     }
   }
 
@@ -592,13 +592,13 @@ export class GroupService {
     const myPQPK = ts.getPQPublicKeyBase64();
     
     // Publish our Umbral PK and PQ PK so the group admin (or other members) can grant us access
-    await (this.db.Put as any)(`signal_rooms/${groupId}/umbral_pks/${myPub}`, myUmbralPK);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/umbral_pks/${myPub}`, myUmbralPK);
     if (myPQPK) {
-      await (this.db.Put as any)(`signal_rooms/${groupId}/pq_pks/${myPub}`, myPQPK);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/pq_pks/${myPub}`, myPQPK);
       // Also update member node for easier lookup
-      await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}/pq_pk`, myPQPK);
+      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/pq_pk`, myPQPK);
     }
-    await (this.db.Put as any)(`signal_rooms/${groupId}/members/${myPub}/umbral_pk`, myUmbralPK);
+    await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/umbral_pk`, myUmbralPK);
   }
 
   async encryptGroupMessage(group: GroupInfo, plaintext: string): Promise<string> {
@@ -726,7 +726,7 @@ export class GroupService {
 
       let memberCFrag: VerifiedCapsuleFrag | null = null;
       try {
-        const kfragsNode = await (this.db.Get as any)(`signal_rooms/${group.id}/member_kfrags/${myPub}`);
+        const kfragsNode = await (this.db.Get as any)(`linda_rooms/${group.id}/member_kfrags/${myPub}`);
         if (kfragsNode) {
           for (const senderPub of Object.keys(kfragsNode)) {
             if (senderPub !== "_" && kfragsNode[senderPub]) {
@@ -751,7 +751,7 @@ export class GroupService {
 
       if (myPub === group.adminPub) {
         try {
-          const encryptedSK = await (this.db.Get as any)(`signal_rooms/${group.id}/admin_sk_encrypted`);
+          const encryptedSK = await (this.db.Get as any)(`linda_rooms/${group.id}/admin_sk_encrypted`);
           if (encryptedSK) {
               const pair = this.db.pair;
               if (pair) {
