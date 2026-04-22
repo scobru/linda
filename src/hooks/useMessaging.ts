@@ -209,7 +209,7 @@ export const useMessaging = (
     await communicationService.issueCertificate(contactId);
     
     // 2. Add to trusted contacts in GunDB
-    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(true as any);
+    db.zen.get(`linda_v3_contacts_${userPub}`).get(contactId).put(true as any);
   }, [userPub, db, communicationService]);
 
   const blockContact = useCallback(async (contactId: string) => {
@@ -220,7 +220,7 @@ export const useMessaging = (
     await communicationService.revokeCertificate(contactId);
     
     // 2. Mark as blocked in contacts list
-    db.zen.get(`signal_v3_contacts_${userPub}`).get(contactId).put(false as any);
+    db.zen.get(`linda_v3_contacts_${userPub}`).get(contactId).put(false as any);
     
     setRecipient("");
   }, [userPub, db, communicationService, setRecipient]);
@@ -801,7 +801,7 @@ export const useMessaging = (
                 ? await communicationService.getPubKeyFromUsername(recipient)
                 : recipient;
 
-            db.zen.get(`signal_v3_inbox_${pub}`).set({
+            db.zen.get(`linda_v3_inbox_${pub}`).set({
               sender: userPub,
               type: cipher.type,
               body: cipher.body,
@@ -860,7 +860,7 @@ export const useMessaging = (
       
       const ping = await communicationService.encryptMessage(contactId, "PING_HEAL");
       const pub = contactId.length < 30 ? await communicationService.getPubKeyFromUsername(contactId) : contactId;
-      await db.Set(`signal_v3_inbox_${pub}`, { 
+      await db.Set(`linda_v3_inbox_${pub}`, { 
         sender: userPub, 
         type: ping.type, 
         body: ping.body, 

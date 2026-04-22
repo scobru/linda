@@ -492,7 +492,7 @@ export class GroupService {
 
   async getPublicGroup(publicName: string): Promise<string | null> {
     try {
-      const groupId = await (this.db.Get as any)(`signal_public_index/${publicName}`);
+      const groupId = await (this.db.Get as any)(`linda_public_index/${publicName}`);
       return groupId || null;
     } catch (e) {
       return null;

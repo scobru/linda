@@ -309,7 +309,7 @@ const App: React.FC = () => {
         const relays = ["https://shogun-relay.scobrudot.dev/zen"];
         const zen = new ZEN({
           peers: relays,
-          localStorage: true,
+          localStorage: false,
           indexedDB: true,
           radisk: true,
         });
