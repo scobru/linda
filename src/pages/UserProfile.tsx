@@ -109,13 +109,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       return;
     }
     try {
-      let takenPub: any = undefined;
-      try {
-        await db.Put(`linda_unique_usernames/${normalized}`, pub);
-        await db.userPut("profile/uniqueUsername", normalized);
-        localStorage.setItem("linda_user_unique_username", normalized);
-        showNotification("Unique username updated", "info");
-      }
+      await db.Put(`linda_unique_usernames/${normalized}`, pub);
+      await db.userPut("profile/uniqueUsername", normalized);
+      localStorage.setItem("linda_user_unique_username", normalized);
+      showNotification("Unique username updated", "info");
     } catch (e) {
       showNotification("Failed to save unique username", "error");
     }
