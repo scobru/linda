@@ -36,6 +36,26 @@ Thanks to deterministic IDs, two Linda users who know each other's public keys a
 
 ---
 
+## 🆔 Identity & Discovery
+
+Linda implements a sophisticated decentralized identity system to map cryptographic keys to human-readable names.
+
+### Unique Handles (@username)
+Users can claim a unique handle which is stored in a global decentralized index (`signal_unique_usernames`). This handle acts as a discoverable pointer to the user's public key.
+
+### Multi-path Profile Resolution
+To ensure eventual consistency and high availability of contact metadata across different network conditions and relay states, Linda's `useProfile` hook employs a multi-path resolution strategy:
+
+1.  **Primary Path**: `~${pub}/profile/nickname` (App-specific display name).
+2.  **Unique Handle**: `~${pub}/profile/uniqueUsername` (Verified handle).
+3.  **Communication Bundle**: `~${pub}/signal_bundle_v7/username` (Signals from `CommunicationService`).
+4.  **Global Index**: `signal_aliases/${pub}/alias` (Searchable alias registry).
+5.  **Legacy Fallback**: `~${pub}/alias` (Backward compatibility).
+
+This reactive resolution ensures that the UI updates instantly as soon as any of these paths yield a valid identity, falling back to a truncated public key only as a last resort.
+
+---
+
 ## ✅ Technical Roadmap Completed
 - [x] **Research**: Integration of the NuCypher Umbral library (WASM/JS).
 - [x] **ThresholdService**: Implementation of the core service for key, ciphertext, and kfrag management.

@@ -335,6 +335,19 @@ export const useMessaging = (
                 return prev;
               }
 
+              const isFile = data.type === 'file' || data.type === 'image';
+              let fileMetadata: FileMetadata | undefined;
+              let messageText = plaintext;
+
+              if (isFile) {
+                try {
+                  fileMetadata = JSON.parse(plaintext);
+                  messageText = undefined;
+                } catch (e) {
+                  console.error("[Messaging] Failed to parse file metadata:", e);
+                }
+              }
+
               const updatedMessages = [
                 ...groupMsgs,
                 {
@@ -342,8 +355,9 @@ export const useMessaging = (
                   gunKey: gunKey,
                   sender: isMe ? "Me" : data.sender,
                   senderPub: data.sender,
-                  text: data.type === 'audio' ? undefined : plaintext,
+                  text: (data.type === 'audio' || isFile) ? undefined : messageText,
                   audio: data.type === 'audio' ? plaintext : undefined,
+                  fileMetadata,
                   type: (data.type as any) || "text",
                   timestamp: new Date(data.timestamp || Date.now()),
                   status: "delivered" as const,

@@ -6,9 +6,10 @@
 
 -   **P2P Messaging**: Instant messaging with Zen-native authenticated writes. No central database; your data lives on the decentralized graph.
 -   **TPRE Encryption**: Threshold Proxy Re-Encryption for all chats (1:1 and Groups). High security delegated decryption.
+-   **Unique Handles (@username)**: Claim a human-readable unique identifier mapped to your public key via a decentralized discovery index.
 -   **P2P File Transfers**: Send images and files of any size directly to peers using WebRTC Data Channels.
 -   **Wormhole Integration**: Async file transfers via temporary binary relays.
--   **Self-Custody**: Your identity is your public key. No phone number or email required.
+-   **Self-Custody**: Your identity is your public key. Multi-path profile resolution ensures you always see your contacts' identities across all devices.
 
 ## 🏗️ Architecture
 
