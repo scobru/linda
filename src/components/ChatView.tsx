@@ -440,9 +440,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const isGroup = recipient.length === 36 && recipient.includes("-");
                 const cleanId = isGroup ? recipient : DataBase.cleanPub(recipient);
                 const profile = contactProfiles[cleanId] || {};
-                return profile.nickname || 
-                       profile.uniqueUsername || 
-                       (recipient.length > 20 ? `${recipient.slice(0, 8)}...${recipient.slice(-4)}` : recipient);
+                const dName = profile.nickname || profile.uniqueUsername || recipient;
+                if (dName.length > 30 && !dName.includes(" ")) {
+                  return `${dName.slice(0, 8)}...${dName.slice(-4)}`;
+                }
+                return dName;
               })()}
             </h3>
             <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
@@ -586,11 +588,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
           const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
           const profile = contactProfiles[cleanSender] || {};
-          const msgNick = isMe
-            ? userNick || username || "?"
-            : profile.nickname || 
-              profile.uniqueUsername || 
-              (msg.sender.length > 20 ? `${msg.sender.slice(0, 8)}...${msg.sender.slice(-4)}` : msg.sender);
+          let msgNick = isMe ? (userNick || username || "?") : (profile.nickname || profile.uniqueUsername || msg.sender);
+          if (msgNick.length > 30 && !msgNick.includes(" ")) {
+            msgNick = `${msgNick.slice(0, 8)}...${msgNick.slice(-4)}`;
+          }
           const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
           return (

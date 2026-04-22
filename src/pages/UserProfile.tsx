@@ -118,6 +118,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       } else {
         await db.Put(`signal_unique_usernames/${normalized}`, pub);
         await db.userPut("profile/uniqueUsername", normalized);
+        localStorage.setItem("linda_user_unique_username", normalized);
         showNotification("Unique username updated", "info");
       }
     } catch (e) {

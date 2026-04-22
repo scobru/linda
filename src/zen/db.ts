@@ -6,6 +6,7 @@ import type {
   SignUpResult,
 } from './types';
 import * as crypto from './crypto';
+import { generateRandomHandle } from '../utils/names';
 
 
 
@@ -105,6 +106,11 @@ export class DataBase {
           }
 
           this.emitAuthEvent();
+          
+          // Re-generate deterministic handle if not in sync or lost
+          const uniqueName = generateRandomHandle(pair.pub);
+          localStorage.setItem("linda_user_unique_username", uniqueName);
+
           return { success: true, userPub: pair.pub, username: username || pair.pub };
         }
       }
@@ -149,9 +155,8 @@ export class DataBase {
       // Store in usernames mapping node for login lookup
       await this.Put(`usernames/${normalizedUsername}`, pub);
 
-      // Pre-initialize unique username handle (e.g. @dev1234)
-      const digits = Math.floor(1000 + Math.random() * 9000);
-      const uniqueName = `@${normalizedUsername}${digits}`;
+      // Pre-initialize unique username handle (deterministic based on pubkey)
+      const uniqueName = generateRandomHandle(pub);
       
       // Store in user profile (signed) and global discovery index
       await this.userPut('profile/uniqueUsername', uniqueName);

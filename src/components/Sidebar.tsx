@@ -288,11 +288,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-[15px] tracking-tight truncate">
-                        {profile.nickname ||
-                          profile.uniqueUsername ||
-                          (id.length > 20
-                            ? `${id.slice(0, 8)}...${id.slice(-4)}`
-                            : id)}
+                        {(() => {
+                          const dName = profile.nickname || profile.uniqueUsername || id;
+                          if (dName.length > 30 && !dName.includes(" ")) {
+                            return `${dName.slice(0, 8)}...${dName.slice(-4)}`;
+                          }
+                          return dName;
+                        })()}
                       </span>
                     </div>
                     <div className="text-[13px] opacity-40 font-medium truncate mt-0.5">

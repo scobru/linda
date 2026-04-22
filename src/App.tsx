@@ -308,8 +308,8 @@ const App: React.FC = () => {
         const relays = ["https://shogun-relay.scobrudot.dev/zen"];
         const zen = new ZEN({
           peers: relays,
-          localStorage: false,
-          radisk: false,
+          localStorage: true,
+          radisk: true,
         });
         const db = new DataBase(zen);
         setDbInstance(db);

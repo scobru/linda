@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { DataBase } from '../zen/db';
 import { CommunicationService } from "../services/CommunicationService";
 import { GroupService } from "../services/GroupService";
+import { generateRandomHandle } from '../utils/names';
 import { ThresholdService } from '../services/ThresholdService';
 
 export const useCommunicationInit = (
@@ -29,7 +30,7 @@ export const useCommunicationInit = (
             console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
             for (let i = 0; i < 5; i++) {
               try {
-                uniqueName = (await db.userGet('profile/uniqueUsername', 1500)) as string;
+                uniqueName = (await db.userGet('profile/uniqueUsername', 5000)) as string;
                 if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
               } catch (e: any) {
                 if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Sync attempt failed:", e);
@@ -41,15 +42,13 @@ export const useCommunicationInit = (
           }
 
           if (!uniqueName) {
-            console.log(`[useCommunicationInit] Handle not found for ${username}, generating random fallback...`);
-            // Generate a default one: @name + 4 random digits
-            const digits = Math.floor(1000 + Math.random() * 9000);
-            uniqueName = `@${username}${digits}`;
+            console.log(`[useCommunicationInit] Handle not found for ${username}, generating deterministic fallback...`);
+            const pub = db.getUserPub();
+            uniqueName = generateRandomHandle(pub || username);
             
             // Try to save it
             await db.userPut('profile/uniqueUsername', uniqueName);
             
-            const pub = db.getUserPub();
             if (pub) {
               await db.Put(`signal_unique_usernames/${uniqueName}`, pub);
             }
@@ -89,6 +88,21 @@ export const useCommunicationInit = (
       }
     };
     initCommunicationSession();
+
+    if (isLoggedIn) {
+      const pub = db.getUserPub();
+      if (pub) {
+        db.On(`~${pub}/profile/uniqueUsername`, (data: any) => {
+          if (typeof data === "string" && data.startsWith("@")) {
+            setUserUniqueUsername(data);
+            localStorage.setItem("linda_user_unique_username", data);
+          }
+        });
+        return () => {
+          db.Off(`~${pub}/profile/uniqueUsername`);
+        };
+      }
+    }
   }, [isLoggedIn, username, db, showNotification]);
 
   return { communicationService, groupService, isLoading, userUniqueUsername };
