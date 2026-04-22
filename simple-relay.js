@@ -64,7 +64,7 @@ const server = http.createServer(async (req, res) => {
                     return res.end(JSON.stringify({ error: "Missing required parameters" }));
                 }
 
-                const kfragNode = zen.get("signal_rooms").get(groupId).get("relay_kfrags").get(memberPub);
+                const kfragNode = zen.get("linda_rooms").get(groupId).get("relay_kfrags").get(memberPub);
                 const kfragString = await waitForZenData(kfragNode);
 
                 if (!kfragString) {
