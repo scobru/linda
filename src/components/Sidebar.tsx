@@ -252,9 +252,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {contacts.map((id) => {
-            const profile = contactProfiles[id] || {};
-            const unreadCount = unreadCounts[id] || 0;
             const isGroup = id.length === 36 && id.includes("-");
+            const cleanId = isGroup ? id : DataBase.cleanPub(id);
+            const profile = contactProfiles[cleanId] || {};
+            const unreadCount = unreadCounts[id] || 0;
 
             return (
               <li key={id} className="group relative">

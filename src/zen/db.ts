@@ -17,6 +17,14 @@ export class DataBase {
   public static readonly DEFAULT_GET_TIMEOUT = 15000;
   public static readonly DEFAULT_PUT_TIMEOUT = 15000;
 
+  /**
+   * Cleans a Zen public key by removing the leading tilde if present.
+   */
+  public static cleanPub(pub: string): string {
+    if (!pub) return '';
+    return pub.startsWith('~') ? pub.slice(1) : pub;
+  }
+
   constructor(zen: IZenInstance) {
     this.zen = zen;
     this.crypto = crypto;
@@ -89,11 +97,11 @@ export class DataBase {
           // Instead, we store the pair locally and pass it as an 'authenticator'
           // in the options of each .put() call.
 
-          // Fetch username (alias) with default timeout (15s)
-          const username = await this.safeGet(`~${pair.pub}/alias`, DataBase.DEFAULT_GET_TIMEOUT);
+          // Fetch username (alias) with a short timeout (3s) to avoid blocking startup
+          const username = await this.safeGet(`~${pair.pub}/alias`, 3000);
           
           if (!username) {
-              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)}, using fallback`);
+              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 3s, using fallback`);
           }
 
           this.emitAuthEvent();
@@ -266,11 +274,11 @@ export class DataBase {
     let chain: any = this.zen;
 
     if (parts.length > 0 && parts[0].startsWith('~')) {
-      const pub = parts[0].substring(1);
-      if (pub === this._pub) {
+      const pub = DataBase.cleanPub(parts[0]);
+      if (pub === DataBase.cleanPub(this._pub || '')) {
         chain = this.user;
       } else {
-        chain = this.zen.get(parts[0]);
+        chain = this.zen.get(`~${pub}`);
       }
       parts.shift();
     }

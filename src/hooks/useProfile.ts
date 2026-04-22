@@ -39,44 +39,46 @@ export const useProfile = (
       subscribedProfilesRef.current.add(contactId);
 
       try {
-        const isGroup = contactId.length === 36 && contactId.includes("-");
-        if (isGroup) {
-          db.On(`signal_rooms/${contactId}/meta`, (data: any) => {
-            if (data && typeof data === "object") {
-              setContactProfiles((prev) => ({
-                ...prev,
-                [contactId]: { ...prev[contactId], nickname: data.name, avatar: data.avatar },
-              }));
+          const isGroup = contactId.length === 36 && contactId.includes("-");
+          const cleanId = isGroup ? contactId : DataBase.cleanPub(contactId);
+          
+          if (isGroup) {
+            db.On(`signal_rooms/${cleanId}/meta`, (data: any) => {
+              if (data && typeof data === "object") {
+                setContactProfiles((prev) => ({
+                  ...prev,
+                  [cleanId]: { ...prev[cleanId], nickname: data.name, avatar: data.avatar },
+                }));
+              }
+            });
+          } else {
+            let cPub = cleanId;
+            if (cleanId.length < 43 || cleanId.startsWith("@")) {
+              cPub = DataBase.cleanPub(await communicationService.getPubKeyFromUsername(cleanId));
             }
-          });
-        } else {
-          let cPub = contactId;
-          if (contactId.length < 43 || contactId.startsWith("@")) {
-            cPub = await communicationService.getPubKeyFromUsername(contactId);
+            if (cPub) {
+              db.On(`~${cPub}/profile/avatar`, (data: any) =>
+                typeof data === "string" && setContactProfiles((prev) => ({
+                  ...prev,
+                  [cleanId]: { ...prev[cleanId], avatar: data },
+                }))
+              );
+              db.On(`~${cPub}/profile/nickname`, (data: any) =>
+                typeof data === "string" && setContactProfiles((prev) => ({
+                  ...prev,
+                  [cleanId]: { ...prev[cleanId], nickname: data },
+                }))
+              );
+              db.On(`~${cPub}/alias`, (data: any) =>
+                typeof data === "string" && setContactProfiles((prev) => {
+                  const existing = prev[cleanId] || {};
+                  if (existing.nickname) return prev;
+                  return { ...prev, [cleanId]: { ...existing, nickname: data } };
+                })
+              );
+            }
           }
-          if (cPub) {
-            db.On(`~${cPub}/profile/avatar`, (data: any) =>
-              typeof data === "string" && setContactProfiles((prev) => ({
-                ...prev,
-                [contactId]: { ...prev[contactId], avatar: data },
-              }))
-            );
-            db.On(`~${cPub}/profile/nickname`, (data: any) =>
-              typeof data === "string" && setContactProfiles((prev) => ({
-                ...prev,
-                [contactId]: { ...prev[contactId], nickname: data },
-              }))
-            );
-            db.On(`~${cPub}/alias`, (data: any) =>
-              typeof data === "string" && setContactProfiles((prev) => {
-                const existing = prev[contactId] || {};
-                if (existing.nickname) return prev;
-                return { ...prev, [contactId]: { ...existing, nickname: data } };
-              })
-            );
-          }
-        }
-      } catch (e) {}
+        } catch (e) {}
     });
   }, [contacts, communicationService, db]);
 

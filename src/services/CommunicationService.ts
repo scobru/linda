@@ -121,7 +121,7 @@ export class CommunicationService {
       await this.db.userPut("epub", pair.epub);
 
       // 2. Secondary path: individual fields for maximum GunDB verification reliability
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 300));
 
       console.log(
         "[CommunicationService] Publishing secondary signal_bundle_v7 metadata...",

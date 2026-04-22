@@ -28,7 +28,7 @@
     "sodium-javascript": "^0.8.0",
     "sodium-universal": "^5.0.1",
     "styled-components": "^6.1.13",
-    "vercel": "^50.28.0",
+    "vercel": "^52.0.0",
     "vite-plugin-node-polyfills": "^0.25.0",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",

@@ -23,18 +23,21 @@ export const useCommunicationInit = (
           // 1. Fetch or generate uniqueUsername
           let uniqueName: string | undefined;
           
-          // Wait for sync: Retry fetch multiple times over several seconds before giving up.
-          // We increase the limit to 15 attempts (~7.5s) to avoid generating redundant 
-          // random handles for existing users on slow relays or second-device login.
-          console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
-          for (let i = 0; i < 10; i++) {
-            try {
-              uniqueName = (await db.userGet('profile/uniqueUsername', 5000)) as string;
-              if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
-            } catch (e: any) {
-              if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Sync attempt failed:", e);
+          // Wait for sync: Try fetch multiple times before giving up.
+          // We reduce attempts and timeout to prevent long UI blocking.
+          if (!userUniqueUsername) {
+            console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
+            for (let i = 0; i < 5; i++) {
+              try {
+                uniqueName = (await db.userGet('profile/uniqueUsername', 1500)) as string;
+                if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
+              } catch (e: any) {
+                if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Sync attempt failed:", e);
+              }
+              await new Promise(r => setTimeout(r, 500));
             }
-            await new Promise(r => setTimeout(r, 1000));
+          } else {
+            uniqueName = userUniqueUsername;
           }
 
           if (!uniqueName) {
