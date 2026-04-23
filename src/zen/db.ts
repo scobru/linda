@@ -99,7 +99,7 @@ export class DataBase {
           // in the options of each .put() call.
 
           // Fetch username (alias) with a short timeout (3s) to avoid blocking startup
-          const username = await this.safeGet(`~${pair.pub}/alias`, 3000);
+          const username = await this.safeGet(`~${pair.pub}/alias`, 10000);
           
           if (!username) {
               console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 3s, using fallback`);
