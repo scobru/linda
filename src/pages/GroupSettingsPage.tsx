@@ -120,8 +120,8 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       img.onload = async () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        const MAX_WIDTH = 200;
-        const MAX_HEIGHT = 200;
+        const MAX_WIDTH = 100;
+        const MAX_HEIGHT = 100;
         let width = img.width;
         let height = img.height;
 
@@ -140,7 +140,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
         canvas.width = width;
         canvas.height = height;
         ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
         
         try {
           await groupService.updateGroupMeta(groupId, { avatar: dataUrl });

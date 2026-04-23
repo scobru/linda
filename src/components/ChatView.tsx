@@ -556,206 +556,208 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Messages */}
       <div 
         key={recipient}
-        className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide animate-fadeIn"
+        className="flex-1 overflow-y-auto scrollbar-hide animate-fadeIn"
         onClick={handleContainerClick}
       >
-        {filteredMessages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1}
-              stroke="currentColor"
-              className="w-16 h-16"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
-            <span className="text-xl font-bold tracking-tight text-center">
-              {searchQuery || activeTags.size > 0 
-                ? "Nessun messaggio trovato per i criteri selezionati" 
-                : "Inizia una conversazione sicura..."}
-            </span>
-          </div>
-        )}
-
-        {filteredMessages.map((msg, i) => {
-          const isMe = msg.sender === "Me";
-          const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
-          const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
-          const profile = contactProfiles[cleanSender] || {};
-          let msgNick = isMe ? (userNick || username || "?") : (profile.nickname || profile.uniqueUsername || msg.sender);
-          if (msgNick.length > 30 && !msgNick.includes(" ")) {
-            msgNick = `${msgNick.slice(0, 8)}...${msgNick.slice(-4)}`;
-          }
-          const isPinned = pinnedMessages[recipient]?.has(msg.id);
-
-          return (
-            <div key={msg.id || i} className={`chat ${isMe ? "chat-end" : "chat-start"} group/chat relative mb-4`}>
-              <div className="chat-image avatar">
-                <UserAvatar 
-                  pub={msg.sender === "Me" ? userPub : msg.sender} 
-                  db={db} 
-                  isGroup={!isMe && msg.sender.length === 36 && msg.sender.includes("-")} 
-                  className="w-12 h-12" 
-                />
-              </div>
-
-              <div className="chat-header opacity-40 text-[9px] font-bold uppercase tracking-widest mb-1 mx-2">
-                {!isMe && <span>{msgNick}</span>}
-              </div>
-
-              <div
-                className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? 'ring-2 ring-primary/40 brightness-110' : ''}`}
-                onClick={(e) => handleMessageClick(e, msg.id)}
-                onContextMenu={(e) => handleLongPress(e, msg.id)}
+        <div className="max-w-3xl mx-auto w-full p-6 space-y-8">
+          {filteredMessages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1}
+                stroke="currentColor"
+                className="w-16 h-16"
               >
-                {isPinned && (
-                  <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-base-content/10">
-                    📌
-                  </span>
-                )}
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                />
+              </svg>
+              <span className="text-xl font-bold tracking-tight text-center">
+                {searchQuery || activeTags.size > 0 
+                  ? "Nessun messaggio trovato per i criteri selezionati" 
+                  : "Inizia una conversazione sicura..."}
+              </span>
+            </div>
+          )}
 
-                {msg.type === "audio" && msg.audio ? (
-                  <AudioPlayer src={msg.audio} />
-                ) : (msg.type === "file" || msg.type === "image") &&
-                  msg.fileMetadata ? (
-                  <FileBubble
-                    metadata={msg.fileMetadata}
-                    isMe={isMe}
-                    isCloud={recipient === userPub}
-                    status="idle"
-                    wormholeStatus={msg.fileMetadata.method === 'wormhole' ? wormholeStatuses[msg.fileMetadata.wormholeCode || ''] : undefined}
-                    progress={
-                      msg.fileMetadata.method === 'wormhole' 
-                        ? transferProgress[msg.fileMetadata.wormholeCode || ''] || 0
-                        : 0
-                    }
-                    blob={
-                      msg.fileMetadata.method === 'wormhole'
-                        ? transferBlobs[msg.fileMetadata.wormholeCode || '']
-                        : undefined
-                    }
-                    onAccept={async () => {
-                      const meta = msg.fileMetadata!;
-                      if (meta.method === 'wormhole' && meta.wormholeCode && wormholeService) {
-                        const relays = [
-                          import.meta.env.VITE_RELAY_URL,
-                          'https://shogun-relay.scobrudot.dev',
-                          'https://relay.peer.ooo'
-                        ].filter(Boolean) as string[];
-                        
-                        let success = false;
-                        for (const relayUrl of relays) {
-                          try {
-                            console.log(`[ChatView] Attempting Wormhole receive via: ${relayUrl}`);
-                            await wormholeService.receive(meta.wormholeCode, relayUrl);
-                            success = true;
-                            break;
-                          } catch (err: any) {
-                            console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
+          {filteredMessages.map((msg, i) => {
+            const isMe = msg.sender === "Me";
+            const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
+            const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
+            const profile = contactProfiles[cleanSender] || {};
+            let msgNick = isMe ? (userNick || username || "?") : (profile.nickname || profile.uniqueUsername || msg.sender);
+            if (msgNick.length > 30 && !msgNick.includes(" ")) {
+              msgNick = `${msgNick.slice(0, 8)}...${msgNick.slice(-4)}`;
+            }
+            const isPinned = pinnedMessages[recipient]?.has(msg.id);
+
+            return (
+              <div key={msg.id || i} className={`chat ${isMe ? "chat-end" : "chat-start"} group/chat relative mb-4`}>
+                <div className="chat-image avatar">
+                  <UserAvatar 
+                    pub={msg.sender === "Me" ? userPub : msg.sender} 
+                    db={db} 
+                    isGroup={!isMe && msg.sender.length === 36 && msg.sender.includes("-")} 
+                    className="w-12 h-12" 
+                  />
+                </div>
+
+                <div className="chat-header opacity-40 text-[9px] font-bold uppercase tracking-widest mb-1 mx-2">
+                  {!isMe && <span>{msgNick}</span>}
+                </div>
+
+                <div
+                  className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? 'ring-2 ring-primary/40 brightness-110' : ''}`}
+                  onClick={(e) => handleMessageClick(e, msg.id)}
+                  onContextMenu={(e) => handleLongPress(e, msg.id)}
+                >
+                  {isPinned && (
+                    <span className="absolute -top-2 -right-2 text-sm drop-shadow-xl bg-base-300 rounded-full w-7 h-7 flex items-center justify-center border border-base-content/10">
+                      📌
+                    </span>
+                  )}
+
+                  {msg.type === "audio" && msg.audio ? (
+                    <AudioPlayer src={msg.audio} />
+                  ) : (msg.type === "file" || msg.type === "image") &&
+                    msg.fileMetadata ? (
+                    <FileBubble
+                      metadata={msg.fileMetadata}
+                      isMe={isMe}
+                      isCloud={recipient === userPub}
+                      status="idle"
+                      wormholeStatus={msg.fileMetadata.method === 'wormhole' ? wormholeStatuses[msg.fileMetadata.wormholeCode || ''] : undefined}
+                      progress={
+                        msg.fileMetadata.method === 'wormhole' 
+                          ? transferProgress[msg.fileMetadata.wormholeCode || ''] || 0
+                          : 0
+                      }
+                      blob={
+                        msg.fileMetadata.method === 'wormhole'
+                          ? transferBlobs[msg.fileMetadata.wormholeCode || '']
+                          : undefined
+                      }
+                      onAccept={async () => {
+                        const meta = msg.fileMetadata!;
+                        if (meta.method === 'wormhole' && meta.wormholeCode && wormholeService) {
+                          const relays = [
+                            import.meta.env.VITE_RELAY_URL,
+                            'https://shogun-relay.scobrudot.dev',
+                            'https://relay.peer.ooo'
+                          ].filter(Boolean) as string[];
+                          
+                          let success = false;
+                          for (const relayUrl of relays) {
+                            try {
+                              console.log(`[ChatView] Attempting Wormhole receive via: ${relayUrl}`);
+                              await wormholeService.receive(meta.wormholeCode, relayUrl);
+                              success = true;
+                              break;
+                            } catch (err: any) {
+                              console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
+                            }
+                          }
+                          if (!success) {
+                            console.error("All Wormhole relays failed to receive.");
                           }
                         }
-                        if (!success) {
-                          console.error("All Wormhole relays failed to receive.");
-                        }
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
-                    <div className="break-all whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
-                    
-                    {msg.tags && msg.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2 mb-1">
-                        {msg.tags.map(tag => (
-                          <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary brightness-125'}`}>
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                      }}
+                    />
+                  ) : (
+                    <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
+                      <div className="break-all whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
+                      
+                      {msg.tags && msg.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2 mb-1">
+                          {msg.tags.map(tag => (
+                            <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary brightness-125'}`}>
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
-                    {msg.text?.includes("Impossibile decriptare") && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFixSync();
-                        }}
-                        className="btn btn-xs btn-error btn-outline rounded-full ml-3 mt-1 scale-90"
-                      >
-                        RIPRISTINA SINCRONIA
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Bubble Actions */}
-                <div
-                  className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto'} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
-                >
-                    {recipient.length === 36 && recipient.includes("-") && (
-                      <>
-                        {["moderator", "administrator"].includes(
-                          myRole || "",
-                        ) && (
-                          <button
-                            onClick={() => handlePinMessage(msg.id, !isPinned)}
-                            className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                            title={isPinned ? "Unpin" : "Pin"}
-                          >
-                            📌
-                          </button>
-                        )}
+                      {msg.text?.includes("Impossibile decriptare") && (
                         <button
-                          onClick={() => handleReportMessage(msg.id)}
-                          className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
-                          title="Report"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFixSync();
+                          }}
+                          className="btn btn-xs btn-error btn-outline rounded-full ml-3 mt-1 scale-90"
                         >
-                          🚩
+                          RIPRISTINA SINCRONIA
                         </button>
-                      </>
-                    )}
+                      )}
+                    </div>
+                  )}
 
-                    {(isMe ||
-                      ["moderator", "administrator"].includes(myRole || "")) && (
-                      <button
-                        onClick={() =>
-                          handleDeleteMessage(msg.id, msg.senderPub)
-                        }
-                        className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
-                        title="Delete"
-                      >
-                        🗑️
-                      </button>
-                    )}
+                  {/* Bubble Actions */}
+                  <div
+                    className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto'} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
+                  >
+                      {recipient.length === 36 && recipient.includes("-") && (
+                        <>
+                          {["moderator", "administrator"].includes(
+                            myRole || "",
+                          ) && (
+                            <button
+                              onClick={() => handlePinMessage(msg.id, !isPinned)}
+                              className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
+                              title={isPinned ? "Unpin" : "Pin"}
+                            >
+                              📌
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleReportMessage(msg.id)}
+                            className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
+                            title="Report"
+                          >
+                            🚩
+                          </button>
+                        </>
+                      )}
+
+                      {(isMe ||
+                        ["moderator", "administrator"].includes(myRole || "")) && (
+                        <button
+                          onClick={() =>
+                            handleDeleteMessage(msg.id, msg.senderPub)
+                          }
+                          className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
+                          title="Delete"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                  </div>
+                </div>
+
+                <div className="chat-footer opacity-30 text-[9px] font-bold flex items-center gap-1.5 mt-1 mx-1">
+                  {msg.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {isMe && (
+                    <span className="flex items-center scale-90">
+                      {msg.status === "sending" && "🕒"}
+                      {msg.status === "sent" && "✓"}
+                      {msg.status === "delivered" && "✓✓"}
+                      {msg.status === "read" && (
+                        <span className="text-primary font-black">✓✓</span>
+                      )}
+                    </span>
+                  )}
                 </div>
               </div>
-
-              <div className="chat-footer opacity-30 text-[9px] font-bold flex items-center gap-1.5 mt-1 mx-1">
-                {msg.timestamp.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                {isMe && (
-                  <span className="flex items-center scale-90">
-                    {msg.status === "sending" && "🕒"}
-                    {msg.status === "sent" && "✓"}
-                    {msg.status === "delivered" && "✓✓"}
-                    {msg.status === "read" && (
-                      <span className="text-primary font-black">✓✓</span>
-                    )}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
+            );
+          })}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input Area - Signal Minimalism Style */}
@@ -799,7 +801,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             Solo gli amministratori possono inviare messaggi
           </div>
         ) : (
-          <div className="flex items-center gap-2 w-full max-w-5xl mx-auto">
+          <div className="flex items-center gap-2 w-full max-w-3xl mx-auto">
             <input
               type="file"
               ref={fileInputRef}
