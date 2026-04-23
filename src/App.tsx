@@ -54,9 +54,14 @@ const AppContent: React.FC<{
     useCommunicationInit(db, isLoggedIn, userPub, showNotification);
 
   // 3. P2P Signal & File Transfer
-  const { fileTransferServiceInst, transferProgress, transferBlobs } =
+  const { fileTransferServiceInst, transferProgress, setTransferProgress, transferBlobs, setTransferBlobs } =
     useFileTransfer(db, isLoggedIn, userPub, communicationService);
-  const { wormholeServiceInst, wormholeStatuses } = useWormhole(db, isLoggedIn);
+  const { wormholeServiceInst, wormholeStatuses } = useWormhole(
+    db, 
+    isLoggedIn, 
+    setTransferProgress, 
+    setTransferBlobs
+  );
 
   // 4. Signaling Listener
   useSignalingListener(

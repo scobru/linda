@@ -2,7 +2,12 @@ import { useMemo, useState, useRef } from "react";
 import { WormholeService } from "../services/WormholeService";
 import { DataBase } from "../zen/db";
 
-export const useWormhole = (db: DataBase, isLoggedIn: boolean) => {
+export const useWormhole = (
+  db: DataBase, 
+  isLoggedIn: boolean,
+  setTransferProgress?: React.Dispatch<React.SetStateAction<Record<string, number>>>,
+  setTransferBlobs?: React.Dispatch<React.SetStateAction<Record<string, Blob>>>
+) => {
   const [wormholeStatuses, setWormholeStatuses] = useState<Record<string, string>>({});
   const wormholeServiceRef = useRef<WormholeService | null>(null);
 
@@ -10,12 +15,19 @@ export const useWormhole = (db: DataBase, isLoggedIn: boolean) => {
     if (!isLoggedIn || !db.zen) return null;
     const service = new WormholeService(db.zen);
     
-    service.onStatusChange = ({ code, status }: any) => {
+    service.onStatusChange = ({ code, status, fileData }: any) => {
       setWormholeStatuses((prev) => ({ ...prev, [code]: status }));
+      
+      // If downloaded, save the blob to the shared transfer blobs state
+      if (status === 'downloaded' && fileData?.blob && setTransferBlobs) {
+        setTransferBlobs((prev) => ({ ...prev, [code]: fileData.blob }));
+      }
     };
     
-    service.onProgress = (_progressData: any) => {
-      // Logic for progress if needed
+    service.onProgress = ({ progress, code }: any) => {
+      if (setTransferProgress) {
+        setTransferProgress((prev) => ({ ...prev, [code]: progress }));
+      }
     };
     
     wormholeServiceRef.current = service;
