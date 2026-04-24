@@ -313,11 +313,11 @@ export class CommunicationService {
     );
 
     // Attempt multiple paths and methods to find the epub
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
       try {
         // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
         const gunEpub = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 3000);
+          const timeout = setTimeout(() => resolve(null), 5000);
           this.db.zen
             .get(`~${pub}`)
             .get("epub")
@@ -335,12 +335,13 @@ export class CommunicationService {
             `[CommunicationService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`,
           );
           this.epubCache.set(pub, gunEpub);
+          localStorage.setItem(`zen_epub_${pub}`, gunEpub);
           return gunEpub;
         }
 
         // Method B: Bundle node (V7 format)
         const bundle = await new Promise<any>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 3000);
+          const timeout = setTimeout(() => resolve(null), 5000);
           this.db.zen
             .get(`~${pub}`)
             .get("linda_bundle_v7")
@@ -365,19 +366,28 @@ export class CommunicationService {
           return bundle.epub;
         }
 
-        // Method C: Root node
-        const rootDataRaw = (await this.db.Get(`~${pub}`)) as any;
-        const rootData = (rootDataRaw && typeof rootDataRaw === "object" && rootDataRaw[":"]) ? rootDataRaw[":"] : rootDataRaw;
-        if (
-          rootData &&
-          typeof rootData.epub === "string" &&
-          rootData.epub.length > 20
-        ) {
+        // Method C: Targeted Profile Fetch (Replacement for root node fetch)
+        const profileEpub = await new Promise<string | null>((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 5000);
+          this.db.zen
+            .get(`~${pub}`)
+            .get("profile")
+            .get("epub")
+            .once((data: any) => {
+              clearTimeout(timeout);
+              const val = (data && typeof data === "object") ? data[":"] : data;
+              if (val && typeof val === "string" && val.length > 20)
+                resolve(val);
+              else resolve(null);
+            });
+        });
+        if (profileEpub) {
           console.log(
-            `[CommunicationService] Found epub via root node for: ${pub.slice(0, 8)}`,
+            `[CommunicationService] Found epub via profile node for: ${pub.slice(0, 8)}`,
           );
-          this.epubCache.set(pub, rootData.epub);
-          return rootData.epub;
+          this.epubCache.set(pub, profileEpub);
+          localStorage.setItem(`zen_epub_${pub}`, profileEpub);
+          return profileEpub;
         }
       } catch (e: any) {
         console.warn(
@@ -391,7 +401,7 @@ export class CommunicationService {
       await new Promise((r) => setTimeout(r, backoff));
     }
     throw new Error(
-      `Could not find SEA epub for ${pub.slice(0, 8)} after 10 attempts.`,
+      `Could not find SEA epub for ${pub.slice(0, 8)} after 5 attempts.`,
     );
   }
 

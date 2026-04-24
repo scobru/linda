@@ -331,7 +331,7 @@ export const useMessaging = (
 
           try {
             // Pacing delay to allow GunDB sync to catch up on fragments
-            await new Promise(r => setTimeout(r, 1200));
+            await new Promise(r => setTimeout(r, 2000));
             
             const plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
             if (userPub) saveProcessedKey(userPub, gunKey);

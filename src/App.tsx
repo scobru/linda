@@ -320,12 +320,9 @@ const App: React.FC = () => {
       try {
         const relays = ["https://shogun-relay.scobrudot.dev/zen"];
         const zen = new ZEN({
-          opfs: true,
-          rindexed: true,
           peers: relays,
           localStorage: false,
-          radisk: true,
-          file: "radata",
+          radisk: false,
         });
         const db = new DataBase(zen);
         setDbInstance(db);

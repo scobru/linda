@@ -573,12 +573,20 @@ export class GroupService {
         // Robust discovery: try to fetch from room graph FIRST (faster), then profile
         let profileUmbralPK = await (this.db.Get as any)(`linda_rooms/${groupId}/umbral_pks/${contactPub}`);
         if (!profileUmbralPK) {
-          profileUmbralPK = await this.db.Get(`~${contactPub}/profile/umbral_pk`, 8000);
+          // Targeted profile fetch for umbral_pk
+          profileUmbralPK = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 5000);
+            this.db.zen.get(`~${contactPub}`).get("profile").get("umbral_pk").once((data: any) => {
+                clearTimeout(timeout);
+                const val = (data && typeof data === "object") ? data[":"] : data;
+                resolve(val || null);
+            });
+          });
         }
 
         if (profileUmbralPK) {
           console.log(`[GroupService] Discovered Umbral PK for ${contactPub.slice(0, 8)}, granting TPRE access.`);
-          await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}/umbral_pk`, profileUmbralPK);
+          await (this.db.Put as any)(`linda_rooms/${groupId}/umbral_pks/${contactPub}`, profileUmbralPK);
           await this.grantTPREAccess(groupId, contactPub, profileUmbralPK);
         } else {
           console.warn(`[GroupService] Could not discover Umbral PK for ${contactPub.slice(0, 8)} yet. Access will be granted once profile or room syncs.`);
@@ -756,14 +764,20 @@ export class GroupService {
               relayCFrag = ts.deserializeCFrag(data.cfrag);
               break; // Success!
             } else if (res.status === 404) {
-              const errBody = await res.text().catch(() => "N/A");
-              console.warn(`[HybridGroup] Relay 404 on attempt ${attempt + 1}. Kfrag not found yet. Retrying...`, { body: errBody });
-              // Wait before retry (exponential-ish backoff: 1.5s, 3s)
-              await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+              console.warn(`[HybridGroup] Relay 404 on attempt ${attempt + 1}. Kfrag not found yet.`);
+              
+              // If we are getting 404, it means the relay's internal wait timed out.
+              // We should check if we can trigger a re-grant if we are the admin,
+              // but for now we just wait and retry on the next message or manual retry.
+              
+              if (attempt < 2) {
+                // Wait before retry (1s, 2s)
+                await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+              }
             } else {
               const errBody = await res.text().catch(() => "N/A");
               console.warn(`[HybridGroup] Relay failed. Status: ${res.status}`, { url: res.url, body: errBody });
-              break; // Other error, don't retry immediately
+              break; 
             }
           }
         }
