@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataBase } from "../zen/db";
+import { truncatePub } from "../utils/names";
 import { UserAvatar } from "../components/UserAvatar";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -24,9 +25,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   const navigate = useNavigate();
   const [nick, setNick] = useState(currentNick);
   const [uniqueName, setUniqueName] = useState(currentUniqueUsername);
-  const [keys, setKeys] = useState("");
+
+  useEffect(() => {
+    if (currentNick && (!nick || nick.length > 40)) {
+      setNick(currentNick);
+    }
+  }, [currentNick]);
+
+  useEffect(() => {
+    if (currentUniqueUsername && !uniqueName) {
+      setUniqueName(currentUniqueUsername);
+    }
+  }, [currentUniqueUsername]);
   const [showKeys, setShowKeys] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+
+  const [keys, setKeys] = useState("");
 
   useEffect(() => {
     const pair = ((db.user as any) as any)?._?.sea;
@@ -67,9 +81,20 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         ctx?.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
         
-        db.userPut("profile/avatar", dataUrl)
+        const pub = db.getUserPub();
+        if (pub) {
+          localStorage.setItem(`linda_avatar_${pub}`, dataUrl);
+        }
+
+        Promise.all([
+          db.userPut("profile/avatar", dataUrl),
+          pub ? db.Put(`linda_public_profiles/${pub}/avatar`, dataUrl) : Promise.resolve()
+        ])
           .then(() => showNotification("Avatar updated!", "info"))
-          .catch(() => showNotification("Failed to save avatar", "error"));
+          .catch((err) => {
+            console.error("Failed to save avatar:", err);
+            showNotification("Failed to save avatar to network", "error");
+          });
       };
       img.src = event.target?.result as string;
     };
@@ -91,9 +116,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     try {
       await db.Put(`linda_global_nicknames/${nick}`, pub);
       await db.Put(`linda_aliases/${pub}`, { alias: nick }); // Add this for App.tsx fallback
+      await db.Put(`linda_pub_to_nickname/${pub}`, nick); // New reverse index
       await db.userPut("profile/nickname", nick);
       await db.userPut("alias", nick); // Add this for App.tsx fallback
-      showNotification("Nickname updated", "info");
+      
+      // Update local cache for immediate feedback elsewhere
+      const cachedRaw = localStorage.getItem("linda_contact_profiles_v2");
+      const cached = cachedRaw ? JSON.parse(cachedRaw) : {};
+      cached[pub] = { ...cached[pub], nickname: nick };
+      localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(cached));
+
+      showNotification("Nickname updated!", "info");
     } catch (e) {
       showNotification("Failed to save nickname", "error");
     }
@@ -111,6 +144,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
     try {
       await db.Put(`linda_unique_usernames/${normalized}`, pub);
+      await db.Put(`linda_pub_to_handle/${pub}`, normalized); // New reverse index
       await db.userPut("profile/uniqueUsername", normalized);
       localStorage.setItem("linda_user_unique_username", normalized);
       showNotification("Unique username updated", "info");
@@ -150,7 +184,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         </div>
 
         <div className="text-center sm:text-left z-10 flex-1 min-w-0">
-          <h2 className="text-xl sm:text-2xl font-black mb-2 truncate tracking-tight">{currentNick || username}</h2>
+          <h2 className="text-xl sm:text-2xl font-black mb-2 truncate tracking-tight">{truncatePub(currentNick || username)}</h2>
           <div className="badge badge-primary font-black tracking-widest text-[9px] h-6 sm:h-7 px-3 sm:px-4 rounded-full border-none">{currentUniqueUsername || "ID NOT SET"}</div>
         </div>
 

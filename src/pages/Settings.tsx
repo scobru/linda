@@ -19,7 +19,8 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
     localStorage.setItem("linda-theme", theme);
     document.documentElement.dataset.theme = theme;
     setCurrentTheme(theme);
-    showNotification(`Theme set to ${theme === "linda" ? "Dark" : "Light"}`, "info");
+    const themeName = theme === "linda" ? "Dark" : theme === "linda-light" ? "Light" : "Gray";
+    showNotification(`Theme set to ${themeName}`, "info");
   };
 
   const handleReset = () => {
@@ -99,18 +100,24 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
         <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
           <div className="card-body p-6 sm:p-8 gap-6">
             <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Appearance</h3>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-base-300 rounded-2xl border border-base-content/5">
+            <div className="grid grid-cols-3 gap-2 p-1 bg-base-300 rounded-2xl border border-base-content/5">
               <button 
                 className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
                 onClick={() => setTheme("linda")}
               >
-                Dark Mode
+                Dark
+              </button>
+              <button 
+                className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda-gray" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
+                onClick={() => setTheme("linda-gray")}
+              >
+                Gray
               </button>
               <button 
                 className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda-light" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
                 onClick={() => setTheme("linda-light")}
               >
-                Light Mode
+                Light
               </button>
             </div>
           </div>

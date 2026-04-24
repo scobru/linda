@@ -9,10 +9,27 @@ export const useProfile = (
   communicationService: CommunicationService | null
 ) => {
   const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_user_nick") || "");
+  
+  // Initialize contact profiles from cache
   const [contactProfiles, setContactProfiles] = useState<
     Record<string, { avatar?: string; nickname?: string; uniqueUsername?: string }>
-  >({});
+  >(() => {
+    try {
+      const cached = localStorage.getItem("linda_contact_profiles_v2");
+      return cached ? JSON.parse(cached) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
   const subscribedProfilesRef = useRef<Set<string>>(new Set());
+
+  // Persist contact profiles to cache whenever they change
+  useEffect(() => {
+    if (Object.keys(contactProfiles).length > 0) {
+      localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(contactProfiles));
+    }
+  }, [contactProfiles]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -22,18 +39,47 @@ export const useProfile = (
     }
     const pub = db.getUserPub();
     if (pub) {
-      db.On(`~${pub}/profile/nickname`, (data: any) => {
-        if (typeof data === "string") {
-          setUserNick(data);
-          localStorage.setItem("linda_user_nick", data);
-        }
+      const tryPaths = [
+        `~${pub}/profile/nickname`,
+        `~${pub}/profile/name`,
+        `~${pub}/alias`,
+        `linda_pub_to_nickname/${pub}`,
+        `signal_aliases/${pub}/alias`,
+      ];
+
+      tryPaths.forEach(path => {
+        db.Get(path, 5000).then(data => {
+          if (typeof data === "string" && data) {
+            setUserNick(data);
+            localStorage.setItem("linda_user_nick", data);
+          } else if (data && typeof data === "object") {
+            const val = data.nickname || data.alias || data.name;
+            if (typeof val === "string" && val) {
+                setUserNick(val);
+                localStorage.setItem("linda_user_nick", val);
+            }
+          }
+        });
+
+        db.On(path, (data: any) => {
+          if (typeof data === "string" && data) {
+            setUserNick(data);
+            localStorage.setItem("linda_user_nick", data);
+          } else if (data && typeof data === "object") {
+            const val = data.nickname || data.alias || data.name;
+            if (typeof val === "string" && val) {
+                setUserNick(val);
+                localStorage.setItem("linda_user_nick", val);
+            }
+          }
+        });
       });
-      return () => db.Off(`~${pub}/profile/nickname`);
     }
   }, [isLoggedIn, db]);
 
   useEffect(() => {
     if (!communicationService || contacts.length === 0) return;
+    
     contacts.forEach(async (contactId) => {
       if (subscribedProfilesRef.current.has(contactId)) return;
       subscribedProfilesRef.current.add(contactId);
@@ -42,62 +88,102 @@ export const useProfile = (
           const isGroup = contactId.length === 36 && contactId.includes("-");
           const cleanId = isGroup ? contactId : DataBase.cleanPub(contactId);
           
+          const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {
+            setContactProfiles((prev) => {
+              const existing = prev[id] || {};
+              // Merge updates
+              const next = { ...existing, ...updates };
+              // Avoid redundant state updates if nothing changed
+              if (JSON.stringify(existing) === JSON.stringify(next)) return prev;
+              return { ...prev, [id]: next };
+            });
+          };
+
           if (isGroup) {
             db.On(`linda_rooms/${cleanId}/meta`, (data: any) => {
               if (data && typeof data === "object") {
-                setContactProfiles((prev) => ({
-                  ...prev,
-                  [cleanId]: { ...prev[cleanId], nickname: data.name, avatar: data.avatar },
-                }));
+                updateProfile(cleanId, { nickname: data.name, avatar: data.avatar });
               }
             });
           } else {
             let cPub = cleanId;
             if (cleanId.length < 43 || cleanId.startsWith("@")) {
-              cPub = DataBase.cleanPub(await communicationService.getPubKeyFromUsername(cleanId));
+              const resolved = await communicationService.getPubKeyFromUsername(cleanId);
+              if (resolved) cPub = DataBase.cleanPub(resolved);
             }
 
-            if (cPub) {
-              const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {
-                setContactProfiles((prev) => {
-                  const existing = prev[id] || {};
-                  // Priority check: avoid overwriting dynamic nickname with a less specific one if already present
-                  // but for simplicity, we let the latest update win as db.On is reactive.
-                  return { ...prev, [id]: { ...existing, ...updates } };
+          if (cPub) {
+              // 1. Proactive Initial Fetch (speed up UI load)
+              const tryPaths = [
+                `linda_pub_to_nickname/${cPub}`,
+                `linda_pub_to_handle/${cPub}`,
+                `~${cPub}/profile/nickname`,
+                `~${cPub}/profile/name`,
+                `~${cPub}/profile/username`,
+                `~${cPub}/profile/uniqueUsername`,
+                `linda_aliases/${cPub}/alias`,
+                `linda_aliases/${cPub}`, // Try object root
+                `~${cPub}/alias`,
+                `~${cPub}/profile/avatar`,
+                // Legacy Fallbacks
+                `~${cPub}/signal_bundle_v7/username`,
+                `signal_aliases/${cPub}/alias`,
+                `~${cPub}/profile/display_name`,
+                `~${cPub}/nickname`
+              ];
+
+              // Rapid fire safeGet for nickname fallback
+              for (const path of tryPaths) {
+                db.Get(path, 4000).then(data => {
+                  if (!data) return;
+                  
+                  // Handle if data is an object with a string property
+                  let resolvedString = "";
+                  if (typeof data === "string") resolvedString = data;
+                  else if (typeof data === "object") {
+                    resolvedString = data.nickname || data.alias || data.name || data.username || data.uniqueUsername || "";
+                  }
+
+                  if (resolvedString) {
+                    if (path.includes("avatar")) updateProfile(cleanId, { avatar: resolvedString });
+                    else if (path.includes("uniqueUsername")) updateProfile(cleanId, { uniqueUsername: resolvedString });
+                    else updateProfile(cleanId, { nickname: resolvedString });
+                  }
                 });
-              };
+              }
 
-              db.On(`~${cPub}/profile/avatar`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { avatar: data })
-              );
+              // 2. Reactive Listeners for live updates
+              const reactivePaths = [
+                { path: `linda_pub_to_nickname/${cPub}`, field: 'nickname' },
+                { path: `linda_pub_to_handle/${cPub}`, field: 'uniqueUsername' },
+                { path: `~${cPub}/profile/avatar`, field: 'avatar' },
+                { path: `~${cPub}/profile/nickname`, field: 'nickname' },
+                { path: `~${cPub}/profile/name`, field: 'nickname' },
+                { path: `~${cPub}/profile/uniqueUsername`, field: 'uniqueUsername' },
+                { path: `~${cPub}/linda_bundle_v7/username`, field: 'nickname' },
+                { path: `linda_aliases/${cPub}/alias`, field: 'nickname' },
+                { path: `~${cPub}/alias`, field: 'nickname' },
+                // Legacy reactive fallbacks
+                { path: `~${cPub}/signal_bundle_v7/username`, field: 'nickname' },
+                { path: `signal_aliases/${cPub}/alias`, field: 'nickname' },
+                { path: `~${cPub}/nickname`, field: 'nickname' }
+              ];
 
-              // Primary path for nicknames
-              db.On(`~${cPub}/profile/nickname`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { nickname: data })
-              );
-
-              // Secondary: v7 bundle username
-              db.On(`~${cPub}/linda_bundle_v7/username`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { nickname: data })
-              );
-
-              // Tertiary: linda_aliases global index
-              db.On(`linda_aliases/${cPub}/alias`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { nickname: data })
-              );
-
-              // Quaternary: Fallback to native alias
-              db.On(`~${cPub}/alias`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { nickname: data })
-              );
-
-              // Also resolve unique handles (@handle)
-              db.On(`~${cPub}/profile/uniqueUsername`, (data: any) =>
-                typeof data === "string" && updateProfile(cleanId, { uniqueUsername: data })
-              );
+              reactivePaths.forEach(({ path, field }) => {
+                db.On(path, (data: any) => {
+                  if (typeof data === "string") {
+                    updateProfile(cleanId, { [field]: data });
+                  } else if (data && typeof data === "object") {
+                    const val = data.nickname || data.alias || data.name || data.avatar;
+                    if (typeof val === "string") updateProfile(cleanId, { [field]: val });
+                  }
+                });
+              });
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error("[useProfile] Error resolving contact:", contactId, e);
+        }
     });
   }, [contacts, communicationService, db]);
 

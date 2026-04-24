@@ -38,3 +38,17 @@ export const generateRandomHandle = (seed?: string): string => {
 
   return `@${adjectives[adjIndex]}${nouns[nounIndex]}${digits}`;
 };
+
+export const truncatePub = (pub: any): string => {
+  if (!pub) return "";
+  const s = String(pub);
+  if (s.length <= 16) return s;
+  if (s.length === 36 && s.includes("-")) return s; // Keep UUIDs full
+  return s.slice(0, 8) + "..." + s.slice(-4);
+};
+
+export const getDisplayName = (id: string, profile?: { nickname?: string, uniqueUsername?: string }): string => {
+  if (!id) return "Unknown";
+  const name = profile?.nickname || profile?.uniqueUsername || id;
+  return truncatePub(name);
+};

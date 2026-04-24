@@ -19,27 +19,41 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   className = "w-12 h-12", 
   isGroup = false 
 }) => {
-  const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatar, setAvatar] = useState<string | null>(() => {
+    if (!pub) return null;
+    const cleanPub = DataBase.cleanPub(pub);
+    return localStorage.getItem(`linda_avatar_${cleanPub}`);
+  });
 
   useEffect(() => {
     if (!pub || !db) return;
 
     const cleanPub = DataBase.cleanPub(pub);
-    const path = isGroup 
-      ? `linda_rooms/${cleanPub}/meta/avatar` 
-      : `~${cleanPub}/profile/avatar`;
     
-    // Subscribe to avatar changes
+    // Define all possible paths for the avatar
+    const paths = isGroup 
+      ? [`linda_rooms/${cleanPub}/meta/avatar`] 
+      : [
+          `~${cleanPub}/profile/avatar`, 
+          `linda_public_profiles/${cleanPub}/avatar`
+        ];
     
-    db.On(path, (data: any) => {
-      if (typeof data === "string") {
-        setAvatar(data);
-      }
+    // Subscribe to all paths
+    paths.forEach(path => {
+      db.On(path, (data: any) => {
+        if (typeof data === "string") {
+          setAvatar(data);
+          // If it's the current user, keep localStorage in sync
+          if (!isGroup && cleanPub === DataBase.cleanPub(db.getUserPub() || "")) {
+            localStorage.setItem(`linda_avatar_${cleanPub}`, data);
+          }
+        }
+      });
     });
 
-    return () => {
-      db.Off(path);
-    };
+    // Note: We don't call db.Off(path) here because Gun's .off() 
+    // is destructive and would remove listeners for all components 
+    // watching this avatar (e.g. sidebar AND chat view).
   }, [pub, db, isGroup]);
 
   return (

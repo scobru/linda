@@ -10,6 +10,7 @@ import { type WormholeService } from "../services/WormholeService";
 import { shortenLink } from "../utils/ui";
 import { UserAvatar } from "./UserAvatar";
 import { DataBase } from "../zen/db";
+import { getDisplayName, truncatePub } from "../utils/names";
 
 interface ChatViewProps {
   recipient: string;
@@ -353,7 +354,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   if (!recipient) {
     return (
-      <div className="flex flex-col h-full items-center justify-center bg-base-100 text-center p-8 gap-6 animate-fadeIn font-narrow">
+      <div className="flex flex-col h-full items-center justify-center bg-base-100 bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
         <div className="avatar">
           <div className="w-20 h-20 rounded-full bg-primary/5 flex items-center justify-center border border-primary/10 shadow-inner">
             <img
@@ -440,11 +441,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const isGroup = recipient.length === 36 && recipient.includes("-");
                 const cleanId = isGroup ? recipient : DataBase.cleanPub(recipient);
                 const profile = contactProfiles[cleanId] || {};
-                const dName = profile.nickname || profile.uniqueUsername || recipient;
-                if (dName.length > 30 && !dName.includes(" ")) {
-                  return `${dName.slice(0, 8)}...${dName.slice(-4)}`;
-                }
-                return dName;
+                return getDisplayName(recipient, profile);
               })()}
             </h3>
             <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
@@ -556,7 +553,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Messages */}
       <div 
         key={recipient}
-        className="flex-1 overflow-y-auto scrollbar-hide animate-fadeIn"
+        className="flex-1 overflow-y-auto scrollbar-hide animate-fadeIn bg-doodle"
         onClick={handleContainerClick}
       >
         <div className="max-w-3xl mx-auto w-full p-6 space-y-8">
@@ -589,10 +586,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
             const profile = contactProfiles[cleanSender] || {};
-            let msgNick = isMe ? (userNick || username || "?") : (profile.nickname || profile.uniqueUsername || msg.sender);
-            if (msgNick.length > 30 && !msgNick.includes(" ")) {
-              msgNick = `${msgNick.slice(0, 8)}...${msgNick.slice(-4)}`;
-            }
+            let msgNick = isMe 
+              ? (userNick || truncatePub(userPub) || truncatePub(username) || "?") 
+              : getDisplayName(msg.sender, profile);
             const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
             return (

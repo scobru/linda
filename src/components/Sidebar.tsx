@@ -5,6 +5,7 @@ import { CommunicationService } from "../services/CommunicationService";
 import { GroupService } from "../services/GroupService";
 import { QrScannerModal } from "./QrScannerModal";
 import { DataBase } from "../zen/db";
+import { getDisplayName } from "../utils/names";
 
 interface SidebarProps {
   userPub: string | null;
@@ -288,13 +289,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-[15px] tracking-tight truncate">
-                        {(() => {
-                          const dName = profile.nickname || profile.uniqueUsername || id;
-                          if (dName.length > 30 && !dName.includes(" ")) {
-                            return `${dName.slice(0, 8)}...${dName.slice(-4)}`;
-                          }
-                          return dName;
-                        })()}
+                        {getDisplayName(id, profile)}
                       </span>
                     </div>
                     <div className="text-[13px] opacity-40 font-medium truncate mt-0.5">

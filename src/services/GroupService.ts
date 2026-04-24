@@ -555,6 +555,25 @@ export class GroupService {
        await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
     }
 
+    // Proactive member initialization for P2P: Grant access before recipient even joins
+    try {
+      // 1. Add recipient to members list immediately
+      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}`, {
+        role: 'peer',
+        joinedAt: Date.now()
+      });
+
+      // 2. Attempt to fetch Umbral PK from profile to grant access immediately
+      const profileUmbralPK = await this.db.Get(`~${contactPub}/profile/umbral_pk`, 5000);
+      if (profileUmbralPK) {
+        console.log(`[GroupService] Proactively discovered Umbral PK for ${contactPub.slice(0, 8)}, granting TPRE access.`);
+        await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}/umbral_pk`, profileUmbralPK);
+        await this.grantTPREAccess(groupId, contactPub, profileUmbralPK);
+      }
+    } catch (e) {
+      console.warn("[GroupService] Proactive member init failed (benign):", e);
+    }
+
     return groupInfo;
   }
 

@@ -71,6 +71,41 @@
   --depth: 0.2;
 }
 
+@plugin "daisyui/theme" {
+  name: "linda-gray";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+
+  /* Signal-inspired Charcoal Gray Palette */
+  --color-base-100: #1c1c1e;
+  --color-base-200: #2c2c2e;
+  --color-base-300: #3a3a3c;
+  --color-base-content: #f5f5f5;
+
+  --color-primary: #2c6bed;
+  --color-primary-content: #ffffff;
+  
+  --color-secondary: #2c2c2e;
+  --color-secondary-content: #ffffff;
+  
+  --color-accent: #2c6bed;
+  --color-accent-content: #ffffff;
+  
+  --color-neutral: #2c2c2e;
+  --color-neutral-content: #f5f5f5;
+  
+  --color-info: #2c6bed;
+  --color-success: #1fb377;
+  --color-warning: #f1c40f;
+  --color-error: #ff453a;
+
+  --radius-selector: 1.25rem;
+  --radius-field: 1.5rem;
+  --radius-box: 1.25rem;
+  --depth: 0.4;
+}
+
 /* ── Global Styles ─────────────────────────────────────── */
 :root {
   --bg-hover: rgba(36, 175, 252, 0.08);
@@ -99,6 +134,12 @@ body {
 .font-narrow {
   font-family: 'Inter Tight', sans-serif;
   letter-spacing: -0.02em;
+}
+
+/* ── Pattern Utility ────────────────────────────────────── */
+.bg-doodle {
+  background-image: url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 10c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm50 50c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-40-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm100 80c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-60-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm120 100c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-60-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4z' fill='%23ffffff' fill-opacity='0.03'/%3E%3C/svg%3E");
+  background-attachment: fixed;
 }
 
 /* Scrollbar styling */
