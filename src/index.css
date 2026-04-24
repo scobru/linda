@@ -7,32 +7,33 @@
   prefersdark: true;
   color-scheme: dark;
 
-  /* Signal-inspired Deep Charcoal Palette - OLED Black */
-  --color-base-100: #000000;
-  --color-base-200: #121214;
-  --color-base-300: #1b1b1f;
+  /* Telegram-inspired Deep Charcoal Palette - OLED Black */
+  --color-base-100: #0f0f0f;
+  --color-base-100-rgb: 15, 15, 15;
+  --color-base-200: #181818;
+  --color-base-300: #212121;
   --color-base-content: #f5f5f5;
 
-  --color-primary: #2c6bed;
+  --color-primary: #766ac8;
   --color-primary-content: #ffffff;
   
-  --color-secondary: #2c2c2e;
+  --color-secondary: #212121;
   --color-secondary-content: #ffffff;
   
-  --color-accent: #2c6bed;
+  --color-accent: #766ac8;
   --color-accent-content: #ffffff;
   
-  --color-neutral: #1b1b1f;
+  --color-neutral: #181818;
   --color-neutral-content: #f5f5f5;
   
-  --color-info: #2c6bed;
-  --color-success: #1fb377;
+  --color-info: #3390ec;
+  --color-success: #62d44d;
   --color-warning: #f1c40f;
   --color-error: #ff453a;
 
-  --radius-selector: 1.25rem;
-  --radius-field: 1.5rem;
-  --radius-box: 1.25rem;
+  --radius-selector: 1rem;
+  --radius-field: 1rem;
+  --radius-box: 1rem;
   --depth: 0.5;
 }
 
@@ -120,26 +121,44 @@ html, body {
 }
 
 body {
-  /* Inter Tight for that narrower, premium feel */
-  font-family: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  /* Telegram system font stack */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-base-100);
+  background-image: none;
   color: var(--color-base-content);
-  /* Subtle letter-spacing for a more 'technical' compressed look */
-  letter-spacing: -0.01em;
+  letter-spacing: normal;
 }
 
 /* Narrow Typography Utility */
 .font-narrow {
-  font-family: 'Inter Tight', sans-serif;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 /* ── Pattern Utility ────────────────────────────────────── */
 .bg-doodle {
-  background-image: url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 10c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm50 50c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-40-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm100 80c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-60-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm120 100c5 0 10-5 10-10s-5-10-10-10-10 5-10 10 5 10 10 10zm-60-20c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4z' fill='%23ffffff' fill-opacity='0.03'/%3E%3C/svg%3E");
+  background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png"); /* Simple dark pattern fallback */
+  background-color: var(--color-base-100);
   background-attachment: fixed;
+  opacity: 0.8;
+}
+
+/* Telegram-like bubble adjustments */
+.chat-bubble {
+  border-radius: 18px !important;
+  padding: 8px 12px !important;
+  max-width: 85% !important;
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+}
+
+.chat-start .chat-bubble {
+  border-bottom-left-radius: 4px !important;
+}
+
+.chat-end .chat-bubble {
+  border-bottom-right-radius: 4px !important;
 }
 
 /* Scrollbar styling */
@@ -175,10 +194,18 @@ body {
 
 /* ── Premium Loading & Glassmorphism ──────────────────────── */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
+  background: rgba(var(--color-base-100-rgb), 0.4);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .loader-glow {

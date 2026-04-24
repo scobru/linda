@@ -354,7 +354,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   if (!recipient) {
     return (
-      <div className="flex flex-col h-full items-center justify-center bg-base-100 bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
+      <div className="flex flex-col h-full items-center justify-center bg-transparent bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
         <div className="avatar">
           <div className="w-20 h-20 rounded-full bg-primary/5 flex items-center justify-center border border-primary/10 shadow-inner">
             <img
@@ -379,7 +379,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   return (
     <div
-      className="flex flex-col h-full bg-base-100 overflow-hidden relative font-narrow"
+      className="flex flex-col h-full glass-panel overflow-hidden relative font-narrow"
     >
       {/* Upload Overlay */}
       {isUploading && (
@@ -410,7 +410,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* Header - Signal Minimalism Style */}
-      <div className="navbar bg-base-200 border-b border-base-content/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
+      <div className="navbar bg-white/5 backdrop-blur-md border-b border-base-content/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
             onClick={() => setRecipient("")}
@@ -435,8 +435,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
           </div>
           
-          <div className="flex flex-col min-w-0 animate-fadeIn">
-            <h3 className="text-[15px] font-bold tracking-tight truncate leading-tight">
+          <div className="flex flex-col min-w-0">
+            <h3 className="text-[16px] font-bold tracking-tight truncate leading-tight">
               {(() => {
                 const isGroup = recipient.length === 36 && recipient.includes("-");
                 const cleanId = isGroup ? recipient : DataBase.cleanPub(recipient);
@@ -444,8 +444,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 return getDisplayName(recipient, profile);
               })()}
             </h3>
-            <span className="text-[10px] font-black uppercase tracking-[0.1em] opacity-40">
-              {typingStatuses[recipient] ? "Sta scrivendo..." : "Crittografato"}
+            <span className="text-[13px] opacity-60">
+              {typingStatuses[recipient] ? "sta scrivendo..." : "ultimo accesso di recente"}
             </span>
           </div>
         </div>
@@ -664,13 +664,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       }}
                     />
                   ) : (
-                    <div className="py-0.5 leading-relaxed font-semibold text-[14px]">
-                      <div className="break-all whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
+                    <div className="py-0.5 leading-relaxed text-[15px]">
+                      <div className="break-words whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
                       
                       {msg.tags && msg.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2 mb-1">
                           {msg.tags.map(tag => (
-                            <span key={tag} className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary brightness-125'}`}>
+                            <span key={tag} className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${isMe ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary'}`}>
                               #{tag}
                             </span>
                           ))}
@@ -688,6 +688,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           RIPRISTINA SINCRONIA
                         </button>
                       )}
+
+                      {/* Telegram-style meta (time + status) inside bubble */}
+                      <div className={`flex items-center justify-end gap-1 mt-1 -mb-1 ml-4 float-right select-none opacity-60 text-[11px] ${isMe ? 'text-primary-content' : 'text-base-content'}`}>
+                        <span>
+                          {msg.timestamp.toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        {isMe && (
+                          <span className="flex items-center scale-90">
+                            {msg.status === "sending" && "🕒"}
+                            {msg.status === "sent" && "✓"}
+                            {(msg.status === "delivered" || msg.status === "read") && (
+                              <span className={msg.status === "read" ? "text-white brightness-150" : ""}>✓✓</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -733,22 +752,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 </div>
 
-                <div className="chat-footer opacity-30 text-[9px] font-bold flex items-center gap-1.5 mt-1 mx-1">
-                  {msg.timestamp.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {isMe && (
-                    <span className="flex items-center scale-90">
-                      {msg.status === "sending" && "🕒"}
-                      {msg.status === "sent" && "✓"}
-                      {msg.status === "delivered" && "✓✓"}
-                      {msg.status === "read" && (
-                        <span className="text-primary font-black">✓✓</span>
-                      )}
-                    </span>
-                  )}
-                </div>
+
               </div>
             );
           })}
@@ -757,7 +761,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       {/* Input Area - Signal Minimalism Style */}
-      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-base-200 border-t border-base-content/5 shrink-0 z-20 flex items-center justify-center">
+      <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/5 backdrop-blur-md border-t border-base-content/5 shrink-0 z-20 flex items-center justify-center">
         {!isTrusted ? (
           <div className="flex flex-col items-center gap-6 p-8 bg-base-300 rounded-[2rem] border border-base-content/5 w-full max-w-5xl">
             <div className="text-center space-y-2">
@@ -816,8 +820,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
             <div className="flex-1 relative flex items-center">
               <textarea
-                className="textarea textarea-sm w-full min-h-[44px] max-h-48 py-3 bg-base-content/10 border-none focus:ring-1 focus:ring-primary/20 rounded-2xl px-4 font-bold text-[13px] placeholder:opacity-40 resize-none leading-tight"
-                placeholder="Aa"
+                className="textarea textarea-sm w-full min-h-[44px] max-h-48 py-3 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-4 text-[15px] placeholder:opacity-50 resize-none leading-tight"
+                placeholder="Scrivi un messaggio..."
                 rows={1}
                 value={message}
                 onChange={(e) => {

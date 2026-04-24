@@ -210,7 +210,7 @@ const AppContent: React.FC<{
   };
 
   return (
-    <div className="h-dvh w-screen overflow-hidden bg-base-100 relative">
+    <div className="h-dvh w-screen overflow-hidden bg-transparent relative">
       <Routes>
         <Route
           element={

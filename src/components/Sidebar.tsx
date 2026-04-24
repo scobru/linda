@@ -145,10 +145,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-base-100 border-r border-base-content/5 w-full transition-all overflow-hidden font-narrow">
+    <div className="flex flex-col h-full glass-panel border-r border-base-content/5 w-full transition-all overflow-hidden font-narrow">
       {/* Header - Signal Style */}
-      <div className="px-6 flex items-center justify-between bg-base-100 h-20 shrink-0 z-20">
-        <div className="flex items-center gap-4">
+      <div className="px-6 flex items-center justify-between bg-transparent h-20 shrink-0 z-20">
+        <div className="flex items-center gap-3">
           <div 
             className="avatar cursor-pointer hover:opacity-80 transition-all pointer-events-auto"
             onClick={() => navigate("/profile")}
@@ -156,24 +156,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <UserAvatar 
               pub={userPub || ""} 
               db={db} 
-              className="w-10 h-10" 
+              className="w-11 h-11" 
             />
           </div>
           {!showSearch && (
-            <h1 className="text-2xl font-black tracking-tight text-base-content animate-fadeIn">
-              Linda
+            <h1 className="text-[20px] font-bold tracking-tight text-base-content">
+              Chat
             </h1>
           )}
         </div>
 
         <div className="flex items-center gap-1">
           {showSearch ? (
-            <div className="flex items-center gap-2 animate-slideInRight w-full max-w-[200px]">
+            <div className="flex items-center gap-2 w-full max-w-[200px]">
               <input
                  autoFocus
                  type="text"
-                 className="input input-sm bg-base-200 border-none rounded-full w-full font-bold text-xs"
-                 placeholder="Search..."
+                 className="input input-sm bg-base-300/50 border-none rounded-full w-full font-medium text-[14px]"
+                 placeholder="Cerca..."
                  value={searchQuery}
                  onChange={(e) => setSearchQuery(e.target.value)}
                  onKeyDown={handleSearchSubmit}
@@ -189,25 +189,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <>
               <button
                 onClick={() => setShowSearch(true)}
-                className="btn btn-ghost btn-circle btn-sm opacity-70 hover:opacity-100"
+                className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
               <div className="dropdown dropdown-end">
                 <button
                   tabIndex={0}
-                  className="btn btn-ghost btn-circle btn-sm opacity-70 hover:opacity-100"
+                  className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                   </svg>
                 </button>
-                <ul tabIndex={0} className="dropdown-content menu p-2 shadow-2xl bg-base-200 rounded-2xl w-52 mt-2 z-[100] border border-white/5 font-bold">
-                  <li><button onClick={() => navigate("/create-group")}>New Group</button></li>
-                  <li><button onClick={() => navigate("/settings")}>Settings</button></li>
-                  <li><button onClick={() => requestNotifications()}>Notifications</button></li>
+                <ul tabIndex={0} className="dropdown-content menu p-2 shadow-2xl bg-base-300 rounded-xl w-52 mt-2 z-[100] border border-white/5 font-bold">
+                  <li><button onClick={() => navigate("/create-group")}>Nuovo Gruppo</button></li>
+                  <li><button onClick={() => navigate("/settings")}>Impostazioni</button></li>
+                  <li><button onClick={() => requestNotifications()}>Notifiche</button></li>
                 </ul>
               </div>
             </>
@@ -223,8 +223,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavLink
                 to={`/chat/${userPub}`}
                 className={({ isActive }) => 
-                  `flex items-center p-4 px-5 gap-4 transition-all relative border-none hover:bg-base-content/5 ${
-                    isActive ? "bg-base-content/10" : "bg-transparent"
+                  `flex items-center p-3 px-4 gap-3 transition-all relative border-none hover:bg-base-content/5 rounded-xl mx-1 ${
+                    isActive ? "bg-primary text-primary-content" : "bg-transparent"
                   }`
                 }
                 onClick={() => {
@@ -233,20 +233,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
               >
                 <div className="avatar">
-                  <div className="w-14 h-14 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm">
-                    <div className="w-full h-full flex items-center justify-center bg-primary/10">
-                       <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className={`w-12 h-12 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm flex items-center justify-center ${({ isActive }: any) => isActive ? 'bg-white/20' : 'bg-primary/10'}`}>
+                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                        </svg>
-                    </div>
                   </div>
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-[15px] tracking-tight">Note a me stesso</span>
-                    <span className="text-[10px] opacity-40 font-bold uppercase tracking-widest text-primary">Nuvola</span>
+                    <span className="font-bold text-[16px] tracking-tight">Messaggi Salvati</span>
                   </div>
-                  <div className="text-[13px] opacity-40 font-medium truncate mt-0.5">Spazio personale crittografato</div>
+                  <div className="text-[13px] opacity-60 truncate">Spazio personale</div>
                 </div>
               </NavLink>
             </li>
@@ -263,8 +260,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <NavLink
                   to={`/chat/${id}`}
                   className={({ isActive }) =>
-                    `flex items-center p-4 px-5 gap-4 transition-all relative border-none hover:bg-base-content/5 ${
-                      isActive ? "bg-base-content/10" : "bg-transparent"
+                    `flex items-center p-3 px-4 gap-3 transition-all relative border-none hover:bg-base-content/5 rounded-xl mx-1 ${
+                      isActive ? "bg-primary text-primary-content" : "bg-transparent"
                     }`
                   }
                   onClick={() => {
@@ -277,10 +274,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       pub={id} 
                       db={db} 
                       isGroup={isGroup} 
-                      className="w-14 h-14" 
+                      className="w-12 h-12" 
                     />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 badge badge-primary badge-sm font-black border-2 border-base-100 px-1.5 animate-bounce">
+                      <span className="absolute -top-1 -right-1 badge badge-primary badge-sm font-bold border-2 border-base-100 px-1.5">
                         {unreadCount}
                       </span>
                     )}
@@ -288,12 +285,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-[15px] tracking-tight truncate">
+                      <span className="font-bold text-[16px] tracking-tight truncate">
                         {getDisplayName(id, profile)}
                       </span>
                     </div>
-                    <div className="text-[13px] opacity-40 font-medium truncate mt-0.5">
-                      {isGroup ? "Group Chat" : "Private Chat"}
+                    <div className="text-[13px] opacity-60 truncate">
+                      {isGroup ? "Gruppo" : "Chat privata"}
                     </div>
                   </div>
 

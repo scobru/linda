@@ -54,13 +54,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ db, onAuth }) => {
   };
 
   return (
-    <div className="min-h-screen bg-neutral flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Blobs */}
-      <div className="absolute top-0 -left-4 w-72 h-72 bg-primary rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-      <div className="absolute top-0 -right-4 w-72 h-72 bg-secondary rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-accent rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+    <div className="min-h-screen bg-[#000000] flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Enhanced Background Blobs */}
+      <div className="absolute top-0 -left-4 w-96 h-96 bg-primary rounded-full mix-blend-screen filter blur-[80px] opacity-10 animate-blob"></div>
+      <div className="absolute -bottom-8 -right-4 w-96 h-96 bg-secondary rounded-full mix-blend-screen filter blur-[80px] opacity-10 animate-blob animation-delay-2000"></div>
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-accent/5 rounded-full filter blur-[120px] pointer-events-none"></div>
 
-      <div className="max-w-md w-full glass p-8 rounded-2xl shadow-2xl z-10 border border-white/10">
+      <div className="max-w-md w-full glass-panel p-8 rounded-[2.5rem] shadow-2full z-10 border border-white/10">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-black text-white mb-2 tracking-tighter">LINDA</h1>
           <p className="text-white/60 text-sm">Decentralized. Private. Forever.</p>
