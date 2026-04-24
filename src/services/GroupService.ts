@@ -515,66 +515,80 @@ export class GroupService {
 
   async getOrCreateP2PGroup(contactPub: string): Promise<GroupInfo> {
     const groupId = await this.getP2PGroupId(contactPub);
+    let meta: GroupInfo | null = null;
     try {
-      const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
-      if (meta) return meta;
+      meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
     } catch (e) {}
 
-    // Create a virtual meta for TPRE P2P
-    const ts = await this.getThresholdService();
-    const { groupSK, groupPK } = ts.createGroup();
-    const communityPK = ts.serializePublicKey(groupPK);
-    
-    const pair = this.db.pair;
-    if (!pair) throw new Error("Authentication state lost");
-    
-    const skString = ts.serializeSecretKey(groupSK);
-    const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
-    
-    await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
+    if (!meta) {
+      // Create a virtual meta for TPRE P2P
+      const ts = await this.getThresholdService();
+      const { groupSK, groupPK } = ts.createGroup();
+      const communityPK = ts.serializePublicKey(groupPK);
+      
+      const pair = this.db.pair;
+      if (!pair) throw new Error("Authentication state lost");
+      
+      const skString = ts.serializeSecretKey(groupSK);
+      const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
+      
+      await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
 
-    const groupInfo: GroupInfo = {
-      id: groupId,
-      name: "Direct Chat",
-      description: "Encrypted P2P Conversation",
-      adminPub: this.db.getUserPub() || "",
-      secret: "",
-      encryptionMode: 'tpre',
-      communityPK,
-      threshold: 1,
-      totalShares: 1,
-      type: 'group'
-    };
+      meta = {
+        id: groupId,
+        name: "Direct Chat",
+        description: "Encrypted P2P Conversation",
+        adminPub: this.db.getUserPub() || "",
+        secret: "",
+        encryptionMode: 'tpre',
+        communityPK,
+        threshold: 1,
+        totalShares: 1,
+        type: 'group'
+      };
 
-    await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, groupInfo);
-    
-    // Initial kfrags for myself
-    const myUmbralPK = ts.getPublicKey();
-    const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, 1, 1);
-    if (kfrags.length > 0) {
-       await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
+      await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, meta);
+      
+      // Initial kfrags for myself
+      const myUmbralPK = ts.getPublicKey();
+      const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, 1, 1);
+      if (kfrags.length > 0) {
+         await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
+      }
     }
 
-    // Proactive member initialization for P2P: Grant access before recipient even joins
+    // Proactive check: Ensure recipient has TPRE access even if the room was already created
     try {
-      // 1. Add recipient to members list immediately
-      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}`, {
-        role: 'peer',
-        joinedAt: Date.now()
-      });
+      const kfragExists = await (this.db.Get as any)(`linda_rooms/${groupId}/relay_kfrags/${contactPub}`);
+      if (!kfragExists) {
+        // 1. Ensure member entry exists
+        await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}`, {
+          role: 'peer',
+          joinedAt: Date.now()
+        });
 
-      // 2. Attempt to fetch Umbral PK from profile to grant access immediately
-      const profileUmbralPK = await this.db.Get(`~${contactPub}/profile/umbral_pk`, 5000);
-      if (profileUmbralPK) {
-        console.log(`[GroupService] Proactively discovered Umbral PK for ${contactPub.slice(0, 8)}, granting TPRE access.`);
-        await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}/umbral_pk`, profileUmbralPK);
-        await this.grantTPREAccess(groupId, contactPub, profileUmbralPK);
+        // 2. Discover and grant
+        console.log(`[GroupService] Kfrag missing for ${contactPub.slice(0, 8)}, attempting proactive grant...`);
+        
+        // Robust discovery: try to fetch from room graph FIRST (faster), then profile
+        let profileUmbralPK = await (this.db.Get as any)(`linda_rooms/${groupId}/umbral_pks/${contactPub}`);
+        if (!profileUmbralPK) {
+          profileUmbralPK = await this.db.Get(`~${contactPub}/profile/umbral_pk`, 8000);
+        }
+
+        if (profileUmbralPK) {
+          console.log(`[GroupService] Discovered Umbral PK for ${contactPub.slice(0, 8)}, granting TPRE access.`);
+          await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}/umbral_pk`, profileUmbralPK);
+          await this.grantTPREAccess(groupId, contactPub, profileUmbralPK);
+        } else {
+          console.warn(`[GroupService] Could not discover Umbral PK for ${contactPub.slice(0, 8)} yet. Access will be granted once profile or room syncs.`);
+        }
       }
     } catch (e) {
-      console.warn("[GroupService] Proactive member init failed (benign):", e);
+      console.warn("[GroupService] Proactive member sync check failed (benign):", e);
     }
 
-    return groupInfo;
+    return meta;
   }
 
   async grantTPREAccess(groupId: string, memberPub: string, memberUmbralPKB64: string): Promise<void> {
@@ -618,6 +632,9 @@ export class GroupService {
       await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/pq_pk`, myPQPK);
     }
     await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/umbral_pk`, myUmbralPK);
+    
+    // Also trigger kfrag generation
+    await this.grantTPREAccess(groupId, myPub, myUmbralPK);
   }
 
   async encryptGroupMessage(group: GroupInfo, plaintext: string): Promise<string> {
@@ -722,21 +739,32 @@ export class GroupService {
       let relayCFrag: VerifiedCapsuleFrag | null = null;
       try {
         if (relayUrl) {
-          const res = await fetch(`${relayUrl}/api/v1/tpre/reencrypt`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              groupId: group.id,
-              memberPub: myPub,
-              capsuleB64: payload.c
-            })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            relayCFrag = ts.deserializeCFrag(data.cfrag);
-          } else {
-            const errBody = await res.text().catch(() => "N/A");
-            console.warn(`[HybridGroup] Relay failed to re-encrypt. Status: ${res.status} ${res.statusText}`, { url: res.url, body: errBody });
+          // Retry loop for relay re-encryption to handle eventual consistency
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const res = await fetch(`${relayUrl}/api/v1/tpre/reencrypt`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                groupId: group.id,
+                memberPub: myPub,
+                capsuleB64: payload.c
+              })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              relayCFrag = ts.deserializeCFrag(data.cfrag);
+              break; // Success!
+            } else if (res.status === 404) {
+              const errBody = await res.text().catch(() => "N/A");
+              console.warn(`[HybridGroup] Relay 404 on attempt ${attempt + 1}. Kfrag not found yet. Retrying...`, { body: errBody });
+              // Wait before retry (exponential-ish backoff: 1.5s, 3s)
+              await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+            } else {
+              const errBody = await res.text().catch(() => "N/A");
+              console.warn(`[HybridGroup] Relay failed. Status: ${res.status}`, { url: res.url, body: errBody });
+              break; // Other error, don't retry immediately
+            }
           }
         }
       } catch (e: any) {

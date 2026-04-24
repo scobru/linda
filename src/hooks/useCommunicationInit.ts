@@ -60,6 +60,9 @@ export const useCommunicationInit = (
           await service.initSession(username, uniqueName);
           setCommunicationService(service);
           
+          // Proactively ensure local cache is synchronized for useProfile
+          localStorage.setItem("linda_alias", username);
+          
           const gService = new GroupService(db);
           setGroupService(gService);
           

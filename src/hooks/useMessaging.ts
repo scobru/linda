@@ -291,23 +291,45 @@ export const useMessaging = (
         groupSubscriptionsRef.current.add(contactId);
         if (isP2P) groupSubscriptionsRef.current.add(roomId);
 
-        // Retroactive TPRE Registration: Ensure our own Umbral PK is published for the Admin to see
+        // 0. Proactive TPRE Grant Reactor: Listen for new member PKs to grant access immediately
         if (meta.encryptionMode === 'tpre') {
             groupService.ensureUmbralPK(roomId).catch(() => {});
+            
+            // If we are the admin, listen for new member PKs to grant access
+            if (meta.adminPub === userPub) {
+                db.zen.get(`linda_rooms/${roomId}/umbral_pks`).map().on(async (pk: string, memberPub: string) => {
+                    if (pk && memberPub !== userPub) {
+                        try {
+                            // Check if already granted to avoid redundant writes
+                            const existingKfrag = await (db.Get as any)(`linda_rooms/${roomId}/relay_kfrags/${memberPub}`);
+                            if (!existingKfrag) {
+                                console.log(`[Messaging] Reactive TPRE grant for ${memberPub.slice(0, 8)}`);
+                                await groupService.grantTPREAccess(roomId, memberPub, pk);
+                            }
+                        } catch (e) {
+                            console.warn(`[Messaging] Failed reactive TPRE grant for ${memberPub}:`, e);
+                        }
+                    }
+                });
+            }
         }
 
         // 1. Listen to Messages
         db.zen.get(`linda_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
+          
+          if (processedRef.current.has(gunKey)) return;
+          if (userPub) {
+            processedRef.current.add(gunKey);
+            console.log(`[Messaging] New message observed: ${gunKey.slice(0, 8)} from ${data.sender.slice(0, 8)}`);
+          }
+
           if (blockedContactsRef.current.has(data.sender)) {
             if (userPub) saveProcessedKey(userPub, gunKey);
             return;
           }
-          if (processedRef.current.has(gunKey)) return;
 
           try {
-            if (processedRef.current.has(gunKey)) return;
-            
             // Pacing delay to allow GunDB sync to catch up on fragments
             await new Promise(r => setTimeout(r, 1200));
             

@@ -165,6 +165,7 @@ export class CommunicationService {
 
       const aliasTimeout = 10000;
 
+      // 1. Update primary alias index
       await Promise.race([
         new Promise<void>((resolve) => {
           this.db.zen
@@ -179,6 +180,12 @@ export class CommunicationService {
           ),
         ),
       ]);
+
+      // 2. Update reactive reverse indices for faster lookup by other users
+      await this.db.Put(`linda_pub_to_nickname/${pub}`, username);
+      if (uniqueUsername) {
+        await this.db.Put(`linda_pub_to_handle/${pub}`, uniqueUsername);
+      }
 
       if (uniqueUsername) {
         const normalized = uniqueUsername.startsWith("@")

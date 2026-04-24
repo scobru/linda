@@ -7,7 +7,9 @@ import {
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
-import "zen/lib/rindexed";
+import "zen/lib/opfs";
+//import "zen/lib/rfsmix";
+//import "zen/lib/rindexed";
 
 // Services & DB
 import { DataBase } from "./zen/db";
@@ -54,13 +56,18 @@ const AppContent: React.FC<{
     useCommunicationInit(db, isLoggedIn, userPub, showNotification);
 
   // 3. P2P Signal & File Transfer
-  const { fileTransferServiceInst, transferProgress, setTransferProgress, transferBlobs, setTransferBlobs } =
-    useFileTransfer(db, isLoggedIn, userPub, communicationService);
+  const {
+    fileTransferServiceInst,
+    transferProgress,
+    setTransferProgress,
+    transferBlobs,
+    setTransferBlobs,
+  } = useFileTransfer(db, isLoggedIn, userPub, communicationService);
   const { wormholeServiceInst, wormholeStatuses } = useWormhole(
-    db, 
-    isLoggedIn, 
-    setTransferProgress, 
-    setTransferBlobs
+    db,
+    isLoggedIn,
+    setTransferProgress,
+    setTransferBlobs,
   );
 
   // 4. Signaling Listener
@@ -313,10 +320,12 @@ const App: React.FC = () => {
       try {
         const relays = ["https://shogun-relay.scobrudot.dev/zen"];
         const zen = new ZEN({
+          opfs: true,
+          rindexed: true,
           peers: relays,
           localStorage: false,
-          indexedDB: true,
           radisk: true,
+          file: "radata",
         });
         const db = new DataBase(zen);
         setDbInstance(db);

@@ -8,7 +8,7 @@ export const useProfile = (
   contacts: string[],
   communicationService: CommunicationService | null
 ) => {
-  const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_user_nick") || "");
+  const [userNick, setUserNick] = useState<string>(localStorage.getItem("linda_alias") || "");
   
   // Initialize contact profiles from cache
   const [contactProfiles, setContactProfiles] = useState<
@@ -33,7 +33,7 @@ export const useProfile = (
 
   useEffect(() => {
     if (!isLoggedIn) {
-      localStorage.removeItem("linda_user_nick");
+      localStorage.removeItem("linda_alias");
       localStorage.removeItem("linda_user_unique_username");
       return;
     }
@@ -51,12 +51,12 @@ export const useProfile = (
         db.Get(path, 5000).then(data => {
           if (typeof data === "string" && data) {
             setUserNick(data);
-            localStorage.setItem("linda_user_nick", data);
+            localStorage.setItem("linda_alias", data);
           } else if (data && typeof data === "object") {
             const val = data.nickname || data.alias || data.name;
             if (typeof val === "string" && val) {
                 setUserNick(val);
-                localStorage.setItem("linda_user_nick", val);
+                localStorage.setItem("linda_alias", val);
             }
           }
         });
@@ -64,12 +64,12 @@ export const useProfile = (
         db.On(path, (data: any) => {
           if (typeof data === "string" && data) {
             setUserNick(data);
-            localStorage.setItem("linda_user_nick", data);
+            localStorage.setItem("linda_alias", data);
           } else if (data && typeof data === "object") {
             const val = data.nickname || data.alias || data.name;
             if (typeof val === "string" && val) {
                 setUserNick(val);
-                localStorage.setItem("linda_user_nick", val);
+                localStorage.setItem("linda_alias", val);
             }
           }
         });

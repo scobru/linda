@@ -99,19 +99,22 @@ export class DataBase {
           // in the options of each .put() call.
 
           // Fetch username (alias) with a short timeout (3s) to avoid blocking startup
-          const username = await this.safeGet(`~${pair.pub}/alias`, 10000);
+          const cachedAlias = localStorage.getItem('linda_alias');
+          const username = await this.safeGet(`~${pair.pub}/alias`, 6000);
           
-          if (!username) {
-              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 3s, using fallback`);
+          if (!username && !cachedAlias) {
+              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 6s, and no cache found`);
           }
+
+          const finalUsername = username || cachedAlias || pair.pub;
 
           this.emitAuthEvent();
           
           // Re-generate deterministic handle if not in sync or lost
-          const uniqueName = generateRandomHandle(pair.pub);
+          const uniqueName = localStorage.getItem("linda_user_unique_username") || generateRandomHandle(pair.pub);
           localStorage.setItem("linda_user_unique_username", uniqueName);
 
-          return { success: true, userPub: pair.pub, username: username || pair.pub };
+          return { success: true, userPub: pair.pub, username: finalUsername };
         }
       }
     } catch (e) {
