@@ -61,7 +61,11 @@ export const useCommunicationInit = (
           setCommunicationService(service);
           
           // Proactively ensure local cache is synchronized for useProfile
-          localStorage.setItem("linda_alias", username);
+          // But ONLY if it's a real username, not a pubkey fallback
+          const isPub = username.length >= 30 && !username.includes(" ") && !username.startsWith("@");
+          if (!isPub) {
+            localStorage.setItem("linda_alias", username);
+          }
           
           const gService = new GroupService(db);
           setGroupService(gService);

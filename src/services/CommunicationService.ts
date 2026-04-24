@@ -153,11 +153,23 @@ export class CommunicationService {
     const pub = this.db.getUserPub();
     if (!pub) return;
 
-    localStorage.setItem("linda_alias", username);
+    // Detect if the username being persisted is actually just a public key fallback
+    const isPubkeyFallback = username.length >= 30 && !username.includes(" ") && !username.startsWith("@");
+
+    if (!isPubkeyFallback) {
+      localStorage.setItem("linda_alias", username);
+      localStorage.setItem("linda_user_nick", username); // Sync both for safety
+    }
+
     if (uniqueUsername) {
       localStorage.setItem("linda_unique_username", uniqueUsername);
     }
     localStorage.setItem("linda_pub", pub);
+
+    if (isPubkeyFallback) {
+        console.warn("[CommunicationService] persistAlias: username is a pubkey, skipping persistence to alias nodes");
+        return;
+    }
 
     try {
       const aliasPayload: Record<string, string> = { alias: username };

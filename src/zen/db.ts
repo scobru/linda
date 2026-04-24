@@ -101,12 +101,23 @@ export class DataBase {
           // Fetch username (alias) with a short timeout (3s) to avoid blocking startup
           const cachedAlias = localStorage.getItem('linda_alias');
           const username = await this.safeGet(`~${pair.pub}/alias`, 6000);
+          const isPub = (s: string | null) => !!(s && s.length >= 30 && !s.includes(" ") && !s.startsWith("@"));
           
-          if (!username && !cachedAlias) {
-              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 6s, and no cache found`);
+          let finalUsername = pair.pub;
+          if (!isPub(username)) {
+            finalUsername = username || "";
+          } else if (!isPub(cachedAlias)) {
+            finalUsername = cachedAlias || "";
           }
 
-          const finalUsername = username || cachedAlias || pair.pub;
+          if (!finalUsername || isPub(finalUsername)) {
+            if (cachedAlias && !isPub(cachedAlias)) finalUsername = cachedAlias;
+            else finalUsername = pair.pub;
+          }
+
+          if (isPub(finalUsername) && !username && !cachedAlias) {
+              console.warn(`[DB] restoreSession: no alias found for ${pair.pub.substring(0,8)} within 6s, and no cache found`);
+          }
 
           this.emitAuthEvent();
           
