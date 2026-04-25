@@ -8,6 +8,11 @@ import path from 'path';
 
 const port = process.env.PORT || 8765;
 
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : ["http://localhost:5173"];
+
 // Polyfill localStorage for Zen in Node environment
 import { LocalStorage } from 'node-localstorage';
 if (typeof global.localStorage === "undefined" || global.localStorage === null) {
@@ -38,7 +43,12 @@ async function waitForZenData(pathNode, attempts = 5, delay = 1000) {
 
 const server = http.createServer(async (req, res) => {
     // 1. Handle CORS for API
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+    }
+
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
 
