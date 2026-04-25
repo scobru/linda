@@ -312,11 +312,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             'https://relay.peer.ooo'
           ].filter(Boolean) as string[];
           
-          for (const relayUrl of relays) {
-             try {
-               await wormholeService.receive(code, relayUrl);
-               break;
-             } catch(e) {}
+          try {
+            await Promise.any(relays.map(relayUrl => wormholeService.receive(code, relayUrl)));
+          } catch {
+             // Ignore
           }
         }
       }
@@ -586,7 +585,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
             const profile = contactProfiles[cleanSender] || {};
-            let msgNick = isMe 
+            const msgNick = isMe
               ? (userNick || truncatePub(userPub) || truncatePub(username) || "?") 
               : getDisplayName(msg.sender, profile);
             const isPinned = pinnedMessages[recipient]?.has(msg.id);
@@ -646,19 +645,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             'https://relay.peer.ooo'
                           ].filter(Boolean) as string[];
                           
-                          let success = false;
-                          for (const relayUrl of relays) {
-                            try {
+                          try {
+                            await Promise.any(relays.map(async (relayUrl) => {
                               console.log(`[ChatView] Attempting Wormhole receive via: ${relayUrl}`);
-                              await wormholeService.receive(meta.wormholeCode, relayUrl);
-                              success = true;
-                              break;
-                            } catch (err: any) {
-                              console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
-                            }
-                          }
-                          if (!success) {
-                            console.error("All Wormhole relays failed to receive.");
+                              try {
+                                await wormholeService.receive(meta.wormholeCode as string, relayUrl);
+                              } catch (err: any) {
+                                console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
+                                throw err; // re-throw for Promise.any
+                              }
+                            }));
+                          } catch (err: any) {
+                            console.error("All Wormhole relays failed to receive.", err);
                           }
                         }
                       }}
