@@ -7,6 +7,7 @@ import type {
 } from './types.ts';
 import * as crypto from './crypto.ts';
 import { generateRandomHandle } from '../utils/names.ts';
+import { generateSecureRandomString } from '../utils/crypto.ts';
 
 
 
@@ -158,7 +159,7 @@ export class DataBase {
   async signUp(username: string, password?: string, pair?: IZenPair | null): Promise<SignUpResult> {
     const normalizedUsername = username.trim().toLowerCase();
     try {
-      const seed = password ? (normalizedUsername + password) : Math.random().toString(36);
+      const seed = password ? (normalizedUsername + password) : generateSecureRandomString(32);
       const userPair = pair || await this.crypto.generatePairFromSeed(seed, this.zen);
       const pub = userPair.pub;
 
