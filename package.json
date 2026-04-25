@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "relay": "node simple-relay.js",
+    "bot": "ts-node --esm bot-runner.ts",
     "test": "vitest"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
     "node-localstorage": "^3.0.5",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
+    "ts-node": "^10.9.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
     "vite": "^6.0.0",
