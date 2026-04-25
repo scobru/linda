@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "relay": "node simple-relay.js",
-    "bot": "ts-node --esm bot-runner.ts",
+    "bot": "npx tsx bot-runner.ts",
     "test": "vitest"
   },
   "dependencies": {

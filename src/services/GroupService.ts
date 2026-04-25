@@ -1,6 +1,6 @@
-import { DataBase } from "../zen/db";
-import * as crypto from "../zen/crypto";
-import { ThresholdService } from "./ThresholdService";
+import { DataBase } from "../zen/db.ts";
+import * as crypto from "../zen/crypto.ts";
+import { ThresholdService } from "./ThresholdService.ts";
 import { PublicKey } from "@nucypher/umbral-pre";
 import type { VerifiedCapsuleFrag } from "@nucypher/umbral-pre";
 
@@ -313,7 +313,7 @@ export class GroupService {
         
         const memberData = await Promise.all(pubs.map(async (pub) => {
           try {
-            const data = await (this.db.Get as any)(`linda_rooms/${groupId}/members/${pub}`);
+            const data = await (this.db.Get as any)(`linda_rooms/${groupId}/members/${pub}`, 3000);
             if (data) {
               return {
                 pub,
@@ -655,7 +655,6 @@ export class GroupService {
       const encoder = new TextEncoder();
       const ptBuf = encoder.encode(plaintext);
       
-      // 1. Umbral Encryption (Standard Path)
       const { capsule: umbralCapsule, ciphertext: umbralCiphertext } = ts.encryptForGroup(groupPK, ptBuf);
       
       const payload: any = {
@@ -663,29 +662,26 @@ export class GroupService {
         t: Buffer.from(umbralCiphertext).toString('base64')
       };
 
-      // 2. PQ Hybrid Path: Try to find PQ keys for members
-      try {
-        const members = await this.getMembers(group.id);
-        const pqCapsules: Record<string, string> = {};
-        
-        for (const member of members) {
-          if (member.pq_pk && member.pub !== this.db.getUserPub()) {
-            // In a real hybrid model, we'd wrap the Umbral secret. 
-            // For now, we provide a direct PQ encapsulation of the same plaintext or a symmetric key.
-            // Simplest approach for this stack: the PQ layer handles the message key.
-            // However, Umbral's internal key is not directly exposed.
-            // We'll just attach a Kyber capsule. 
-            // NOTE: Full hybrid integration would require deeper changes in Umbral or a custom KDF.
-            const { capsule } = ts.encapsulatePQ(member.pq_pk);
-            pqCapsules[member.pub] = capsule;
+      // 2. PQ Hybrid Path: Try to find PQ keys for members (Skipped in Node.js to avoid hanging)
+      const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+      if (!isNode) {
+        try {
+          const members = await this.getMembers(group.id);
+          const pqCapsules: Record<string, string> = {};
+          
+          for (const member of members) {
+            if (member.pq_pk && member.pub !== this.db.getUserPub()) {
+              const { capsule } = ts.encapsulatePQ(member.pq_pk);
+              pqCapsules[member.pub] = capsule;
+            }
           }
+          
+          if (Object.keys(pqCapsules).length > 0) {
+            payload.pq = pqCapsules;
+          }
+        } catch (e) {
+          console.warn("[GroupService] Failed to generate PQ capsules", e);
         }
-        
-        if (Object.keys(pqCapsules).length > 0) {
-          payload.pq = pqCapsules;
-        }
-      } catch (e) {
-        console.warn("[GroupService] Failed to generate PQ capsules", e);
       }
       
       return JSON.stringify(payload);

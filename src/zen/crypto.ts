@@ -1,5 +1,5 @@
 import ZEN from 'zen';
-import { type IZenPair } from './types';
+import { type IZenPair } from './types.ts';
 
 /**
  * Helper to get the best available Zen cryptographic methods.

@@ -4,9 +4,9 @@ import type {
   AuthCallback,
   AuthResult,
   SignUpResult,
-} from './types';
-import * as crypto from './crypto';
-import { generateRandomHandle } from '../utils/names';
+} from './types.ts';
+import * as crypto from './crypto.ts';
+import { generateRandomHandle } from '../utils/names.ts';
 
 
 
