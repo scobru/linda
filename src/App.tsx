@@ -319,17 +319,21 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
       'https://shogun-relay.scobrudot.dev',
       'https://relay.peer.ooo'
     ].filter(Boolean) as string[];
-    const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
+    const authToken = import.meta.env.VITE_AUTH_TOKEN;
 
-    (async () => {
-      for (const relayUrl of relays) {
-        try {
-          await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
-          console.log(`[App] Wormhole cleanup success via: ${relayUrl}`);
-          break;
-        } catch (e) { }
-      }
-    })();
+    if (authToken) {
+      (async () => {
+        for (const relayUrl of relays) {
+          try {
+            await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
+            console.log(`[App] Wormhole cleanup success via: ${relayUrl}`);
+            break;
+          } catch (e) { }
+        }
+      })();
+    } else {
+      console.warn("[App] Skipping Wormhole cleanup: VITE_AUTH_TOKEN is not set.");
+    }
 
     return service;
   }, [isLoggedIn, db.gun]);

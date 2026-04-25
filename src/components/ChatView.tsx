@@ -246,7 +246,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           'https://relay.peer.ooo'
         ].filter(Boolean) as string[];
         
-        const authToken = import.meta.env.VITE_AUTH_TOKEN || 'shogun2025';
+        const authToken = import.meta.env.VITE_AUTH_TOKEN;
+        if (!authToken) {
+          throw new Error("Missing VITE_AUTH_TOKEN. File transfers are disabled.");
+        }
+
         let code: string | undefined;
         let lastError: any;
 
