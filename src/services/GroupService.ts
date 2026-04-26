@@ -52,7 +52,7 @@ export class GroupService {
 
   private async getThresholdService(): Promise<ThresholdService> {
     const pair = this.db.pair;
-    if (!pair || !pair.priv) throw new Error("Not logged in or missing SEA keys");
+    if (!pair || !pair.priv) throw new Error("Not logged in or missing Zen keys");
     return await ThresholdService.init(pair.priv);
   }
 

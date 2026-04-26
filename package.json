@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "relay": "node simple-relay.js",
     "bot": "npx tsx bot-runner.ts",
+    "bot:gemini": "npx tsx bot-runner-gemini.ts",
     "test": "vitest"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "axios": "^1.13.6",
     "buffer": "^6.0.3",
     "compact-encoding": "^2.19.2",
+    "dotenv": "^17.4.2",
     "html5-qrcode": "^2.3.8",
     "process": "^0.11.10",
     "qrcode.react": "^4.2.0",

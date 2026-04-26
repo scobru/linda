@@ -24,10 +24,10 @@ export class ThresholdService {
   /**
    * Initializes the ThresholdService, waiting for the WASM module.
    */
-  public static async init(myGunSeaPrivKey?: string): Promise<ThresholdService> {
+  public static async init(myZenPrivKey?: string): Promise<ThresholdService> {
     if (this.instance) {
-      if (myGunSeaPrivKey && !this.instance.personalSK) {
-        await this.instance.initKeys(myGunSeaPrivKey);
+      if (myZenPrivKey && !this.instance.personalSK) {
+        await this.instance.initKeys(myZenPrivKey);
       }
       return this.instance;
     }
@@ -35,8 +35,8 @@ export class ThresholdService {
     // WASM module should be loaded automatically by vite-plugin-wasm
     // We just wrap instantiation here
     const service = new ThresholdService();
-    if (myGunSeaPrivKey) {
-      await service.initKeys(myGunSeaPrivKey);
+    if (myZenPrivKey) {
+      await service.initKeys(myZenPrivKey);
     }
     
     this.instance = service;
@@ -44,15 +44,15 @@ export class ThresholdService {
   }
 
   /**
-   * Initialize personal deterministic keys derived from GunDB SEA priv
+   * Initialize personal deterministic keys derived from Zen priv
    */
-  private async initKeys(seaPriv: string) {
-    if (!seaPriv) return;
+  private async initKeys(zenPriv: string) {
+    if (!zenPriv) return;
     
     // We deterministically derive a Curve25519 scalar using WebCrypto SHA-256
     // Since Umbral is WASM, it expects bytes that we generate securely
     const encoder = new TextEncoder();
-    const data = encoder.encode(seaPriv + "threshold_seed");
+    const data = encoder.encode(zenPriv + "threshold_seed");
     const hash = await crypto.subtle.digest('SHA-256', data);
     
     // Umbral SecretKey takes 32 bytes - using big-endian format
@@ -60,7 +60,7 @@ export class ThresholdService {
     this.signer = new umbral.Signer(this.personalSK);
 
     // PQ Key Derivation (ML-KEM-768 requires a 64-byte seed for deterministic keygen)
-    const pqData = encoder.encode(seaPriv + "threshold_pq_seed");
+    const pqData = encoder.encode(zenPriv + "threshold_pq_seed");
     const pqHash = await crypto.subtle.digest('SHA-512', pqData); // SHA-512 gives 64 bytes
     const pqKeys = ml_kem768.keygen(new Uint8Array(pqHash));
     this.personalPQSK = pqKeys.secretKey;

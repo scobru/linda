@@ -5,10 +5,10 @@ import * as zenCrypto from "../zen/crypto";
 /**
  * CommunicationService
  *
- * Bridges shogun-core DataBase with SEA-based encryption.
- * Replaces the complex libsignal-protocol with native GunDB SEA.encrypt/decrypt.
+ * Bridges shogun-core DataBase with Zen-based encryption.
+ * Replaces the complex libsignal-protocol with native Zen-native encrypt/decrypt.
  *
- * Uses 'epub' (exchange public key) to derive a shared secret (SEA.secret)
+ * Uses 'epub' (exchange public key) to derive a shared secret
  * for secure 1:1 messaging.
  */
 export class CommunicationService {
@@ -18,7 +18,7 @@ export class CommunicationService {
   private pubkeyCache: Map<string, string> = new Map();
   private epubCache: Map<string, string> = new Map();
   private secretCache: Map<string, any> = new Map(); // Memoized DH secrets
-  private inboxCertCache: Map<string, string> = new Map(); // Memoized SEA certs
+  private inboxCertCache: Map<string, string> = new Map(); // Memoized Zen certs
   private myPair: any = null;
   private cryptoMutex: Promise<any> = Promise.resolve(); // Serialize all WebCrypto operations
 
@@ -46,14 +46,14 @@ export class CommunicationService {
   }
 
   /**
-   * Initializes the SEA-based messaging session by publishing the user's bundle.
+   * Initializes the Zen-based messaging session by publishing the user's bundle.
    */
   async initSession(username: string, uniqueUsername?: string) {
     if (this.isInitialized) return;
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      console.log("[CommunicationService] Initializing SEA session...");
+      console.log("[CommunicationService] Initializing Zen session...");
       const start = Date.now();
       try {
         // Wait for pair with 6s max timeout
@@ -94,7 +94,7 @@ export class CommunicationService {
       }
       this.isInitialized = true;
       this.initPromise = null;
-      console.log("[CommunicationService] SEA Initialization checked in " + (Date.now() - start) + "ms.");
+      console.log("[CommunicationService] Zen Initialization checked in " + (Date.now() - start) + "ms.");
     })();
 
     return this.initPromise;
@@ -133,7 +133,7 @@ export class CommunicationService {
       }
 
       console.log(
-        "[CommunicationService] Published SEA bundle properties successfully.",
+        "[CommunicationService] Published Zen bundle properties successfully.",
       );
     } catch (e: any) {
       console.error(
@@ -401,12 +401,12 @@ export class CommunicationService {
       await new Promise((r) => setTimeout(r, backoff));
     }
     throw new Error(
-      `Could not find SEA epub for ${pub.slice(0, 8)} after 5 attempts.`,
+      `Could not find Zen epub for ${pub.slice(0, 8)} after 5 attempts.`,
     );
   }
 
   /**
-   * Initializes the user's SEA certificate for their secure linda_inbox
+   * Initializes the user's Zen certificate for their secure linda_inbox
    * allowing anyone (or specific peers) to write signals to ~${pub}/linda_inbox
    */
   public async regenerateCertificate(force: boolean = false): Promise<void> {
@@ -457,7 +457,7 @@ export class CommunicationService {
 
         if (isValid) {
           console.log(
-            "[CommunicationService] Valid SEA inbox certificate (v13) found for current session.",
+            "[CommunicationService] Valid Zen inbox certificate (v13) found for current session.",
           );
           return;
         }
@@ -494,7 +494,7 @@ export class CommunicationService {
   }
 
   /**
-   * Issues a specific SEA certificate for a peer.
+   * Issues a specific Zen certificate for a peer.
    */
   public async issueCertificate(peerPub: string): Promise<string> {
     if (!this.myPair) throw new Error("Not logged in");
@@ -534,7 +534,7 @@ export class CommunicationService {
   }
 
   /**
-   * Retrieves the SEA certificate allowing writes to a peer's linda_inbox
+   * Retrieves the Zen certificate allowing writes to a peer's linda_inbox
    */
   public async getInboxCertificate(pub: string): Promise<string> {
     if (!pub)
@@ -556,7 +556,7 @@ export class CommunicationService {
         const verified = await zenCrypto.verify(cert, pub, this.db.zen);
         if (!verified || !verified.c) {
           console.warn(
-            `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed SEA.verify`,
+            `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed Zen verify`,
           );
           return false;
         }
@@ -656,7 +656,7 @@ export class CommunicationService {
     }
 
     throw new Error(
-      `Could not find valid SEA inbox certificate for ${pub.slice(0, 8)} after multiple attempts.`,
+      `Could not find valid Zen inbox certificate for ${pub.slice(0, 8)} after multiple attempts.`,
     );
   }
 
@@ -672,7 +672,7 @@ export class CommunicationService {
   }
 
   /**
-   * Encrypts a message using SEA.secret and SEA.encrypt.
+   * Encrypts a message using Zen secret and Zen encrypt.
    * Returns a format compatible with existing messaging hooks.
    */
   async encryptMessage(
@@ -715,7 +715,7 @@ export class CommunicationService {
   }
 
   /**
-   * Decrypts a message using SEA.secret and SEA.decrypt.
+   * Decrypts a message using Zen secret and Zen decrypt.
    */
   async decryptMessage(
     senderUsernameOrPub: string,
@@ -766,22 +766,22 @@ export class CommunicationService {
       }
 
       console.log(
-        `[CommunicationService] Derived secret for ${pubKey.slice(0, 8)}. Calling SEA.decrypt... (cipher length: ${ciphertext.body.length})`,
+        `[CommunicationService] Derived secret for ${pubKey.slice(0, 8)}. Calling Zen decrypt... (cipher length: ${ciphertext.body.length})`,
       );
       let decrypted;
       try {
         decrypted = await Promise.race([
           zenCrypto.decrypt(ciphertext.body, secret, this.db.zen),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("SEA.decrypt timeout")), 5000),
+            setTimeout(() => reject(new Error("Zen decrypt timeout")), 5000),
           ),
         ]);
         console.log(
-          `[CommunicationService] SEA.decrypt resolved. decryped value type: ${typeof decrypted}`,
+          `[CommunicationService] Zen decrypt resolved. decrypted value type: ${typeof decrypted}`,
         );
       } catch (decryptErr: any) {
         console.error(
-          `[CommunicationService] SEA.decrypt threw or timed out:`,
+          `[CommunicationService] Zen decrypt threw or timed out:`,
           decryptErr.message,
         );
         decrypted = undefined;
@@ -818,7 +818,7 @@ export class CommunicationService {
             zenCrypto.decrypt(ciphertext.body, freshSecret, this.db.zen),
             new Promise((_, reject) =>
               setTimeout(
-                () => reject(new Error("SEA.decrypt fresh retry timeout")),
+                () => reject(new Error("Zen decrypt fresh retry timeout")),
                 3000,
               ),
             ),
@@ -839,7 +839,7 @@ export class CommunicationService {
 
       if (decrypted === undefined || decrypted === null) {
         console.warn(
-          `[CommunicationService] SEA Decryption yielded ${decrypted === null ? "NULL" : "UNDEFINED"} for sender: ${pubKey.slice(0, 8)} after retry.`,
+          `[CommunicationService] Zen Decryption yielded ${decrypted === null ? "NULL" : "UNDEFINED"} for sender: ${pubKey.slice(0, 8)} after retry.`,
         );
         return undefined;
       }
@@ -880,11 +880,11 @@ export class CommunicationService {
   }
 
   /**
-   * Reset session (No-op in stateless SEA mode, kept for API compatibility).
+   * Reset session (No-op in stateless Zen mode, kept for API compatibility).
    */
   async resetSession(contactUsernameOrPub: string): Promise<void> {
     console.log(
-      `[CommunicationService] Reset requested for ${contactUsernameOrPub} (SEA mode is stateless).`,
+      `[CommunicationService] Reset requested for ${contactUsernameOrPub} (Zen mode is stateless).`,
     );
     // Clear cache to force fresh epub fetch
     const oldEpub = this.epubCache.get(contactUsernameOrPub);
