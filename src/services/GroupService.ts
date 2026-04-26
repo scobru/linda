@@ -688,6 +688,9 @@ export class GroupService {
     }
     
     const groupSecret = group.secret || "";
+    if (!groupSecret) {
+      throw new Error("Missing group secret for symmetric encryption");
+    }
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
     const keyData = Uint8Array.from(atob(groupSecret), c => c.charCodeAt(0));
@@ -825,6 +828,9 @@ export class GroupService {
     }
 
     const groupSecret = group.secret || "";
+    if (!groupSecret) {
+      throw new Error("Missing group secret for symmetric decryption");
+    }
     if (!boxed) return "";
 
     let combined;
