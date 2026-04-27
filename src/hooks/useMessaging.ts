@@ -924,12 +924,36 @@ export const useMessaging = (
   const unreadCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of contacts) {
-      if (messages[c] === lastMessagesRef.current[c] && unreadCountsCache.current[c] !== undefined) {
-        counts[c] = unreadCountsCache.current[c];
+      const currentMsgs = messages[c] || [];
+      const prevMsgs = lastMessagesRef.current[c] || [];
+      const prevCount = unreadCountsCache.current[c];
+
+      // 1. If array identity hasn't changed, reuse the cached count
+      if (currentMsgs === prevMsgs && prevCount !== undefined) {
+        counts[c] = prevCount;
+        continue;
+      }
+
+      // 2. Optimization: check if it's an append and we have a cached count
+      // We verify the prefix by checking the first and previous-last elements.
+      const isAppend =
+        prevCount !== undefined &&
+        currentMsgs.length > prevMsgs.length &&
+        prevMsgs.length > 0 &&
+        currentMsgs[0] === prevMsgs[0] &&
+        currentMsgs[prevMsgs.length - 1] === prevMsgs[prevMsgs.length - 1];
+
+      if (isAppend) {
+        const newMessages = currentMsgs.slice(prevMsgs.length);
+        const addedUnread = newMessages.filter((m) => m.sender === c && m.status !== "read").length;
+        counts[c] = prevCount + addedUnread;
       } else {
-        counts[c] = (messages[c] || []).filter((m) => m.sender === c && m.status !== "read").length;
+        // 3. Fallback: Full scan for first load, deletions, or status updates
+        counts[c] = currentMsgs.filter((m) => m.sender === c && m.status !== "read").length;
       }
     }
+
+    // Persist results to refs for next calculation
     lastMessagesRef.current = messages;
     unreadCountsCache.current = counts;
     return counts;
