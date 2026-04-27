@@ -66,7 +66,6 @@ export class FileTransferService {
   constructor(_zen: IZenInstance, myPub: string) {
     this.myPub = myPub;
     this.clientId = Math.random().toString(36).substring(7);
-    console.log(`[FileTransfer] Instance initialized with clientId: ${this.clientId}`);
   }
 
   /**
@@ -105,23 +104,19 @@ export class FileTransferService {
       return;
     }
 
-    console.log(`[FileTransfer] Received secure signal: ${signal.type} from ${from.substring(0, 8)}... (Remote Client: ${signal.clientId})`);
 
     switch (signal.type) {
       case 'file_offer':
         const metaId = signal.payload?.metaId || signal.payload?.id;
-        console.log(`[FileTransfer] Received offer for metaId: ${metaId}. SDP exists: ${!!(signal.payload?.sdp || signal.payload?.type)}`);
 
         // Check for ICE Restart condition
         if (this.currentMetaId === metaId && (this.currentStatus === 'signaling' || this.currentStatus === 'transferring') && this.pc) {
-           console.log(`[FileTransfer] Received duplicate offer for ${metaId}. Assuming ICE restart.`);
            this.handleIceRestartOffer(from, signal.payload);
            return;
         }
 
         // Clean up any stale transfer before accepting a new one
         if (this.currentStatus !== 'idle' && this.currentMetaId && this.currentMetaId !== metaId) {
-          console.log(`[FileTransfer] Cleaning up stale transfer ${this.currentMetaId} to accept new offer ${metaId}`);
           this.cleanup('new_offer_overlap');
         }
 
@@ -135,7 +130,6 @@ export class FileTransferService {
       case 'file_answer':
         if ((this.currentStatus === 'offering' || this.currentStatus === 'transferring') && this.pc) {
           const answerMetaId = signal.payload?.metaId || signal.payload?.id;
-          console.log(`[FileTransfer] Received answer for metaId: ${answerMetaId}. (Current: ${this.currentMetaId})`);
 
           if (this.currentStatus === 'offering') {
             this.currentStatus = 'signaling';
@@ -172,7 +166,6 @@ export class FileTransferService {
 
           if (isValidCandidate) {
             if (this.pc.remoteDescription && this.pc.remoteDescription.type) {
-                console.log(`[FileTransfer] Adding candidate for ${candMetaId}`);
                 this.pc.addIceCandidate(new RTCIceCandidate(candidatePayload)).catch(e => {
                   console.warn('[FileTransfer] Failed to add candidate:', e.message);
                 });
@@ -193,7 +186,6 @@ export class FileTransferService {
             this.remoteCandidates.set(candMetaId, list);
           }
           list.push(candidatePayload);
-          console.log(`[FileTransfer] Buffered remote candidate for metaId: ${candMetaId} (Total: ${list.length})`);
         }
         break;
 
@@ -209,7 +201,6 @@ export class FileTransferService {
   public async handleIceRestartOffer(senderPub: string, offer: any) {
     if (!this.pc) return;
     try {
-      console.log(`[FileTransfer] Handling ICE restart offer from ${senderPub.substring(0, 8)}`);
 
       let sdpType: RTCSdpType = offer.type || offer.sdp?.type || 'offer';
       let sdpStr: string = typeof offer.sdp === 'string' ? offer.sdp : offer.sdp?.sdp;
@@ -238,7 +229,6 @@ export class FileTransferService {
   private async handleAnswer(payload: any) {
     try {
       if (!this.pc || this.pc.signalingState === 'stable') return;
-      console.log('[FileTransfer] Setting remote description (answer)...');
 
       let sdpType = payload.type || payload.sdp?.type || 'answer';
       let sdpStr = typeof payload.sdp === 'string' ? payload.sdp : (payload.sdp?.sdp || payload.sdp);
@@ -248,7 +238,6 @@ export class FileTransferService {
       await this.pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp: sdpStr }));
       const metaId = this.currentMetaId || "";
       const list = this.remoteCandidates.get(metaId) || [];
-      console.log(`[FileTransfer] Remote description set. Draining ${list.length} buffered candidates for ${metaId}`);
 
       list.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
         console.warn('[FileTransfer] Failed to add buffered candidate after answer:', err);
@@ -261,7 +250,6 @@ export class FileTransferService {
   }
 
   private async sendSignal(toPub: string, signal: FileSignal) {
-    console.log(`[FileTransfer] Sending secure signal: ${signal.type} to ${toPub.substring(0, 8)}... (My Client: ${this.clientId})`);
     this.onSendSignal(toPub, { ...signal, clientId: this.clientId });
   }
 
@@ -277,7 +265,6 @@ export class FileTransferService {
     this.startTimeout();
 
     try {
-      console.log(`[FileTransfer] Offering file to ${recipientPub.substring(0, 8)}... (metaId: ${metaId})`);
       const pc = new RTCPeerConnection({ 
         iceServers: this.iceServers,
         bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
@@ -287,7 +274,6 @@ export class FileTransferService {
 
       // Monitor connection health with more granularity for mobile diagnostics
       pc.onconnectionstatechange = () => {
-        console.log(`[FileTransfer] Connection state: ${pc.connectionState} (metaId: ${metaId})`);
         if (pc.connectionState === 'failed') {
           console.error(`[FileTransfer] PeerConnection FAILED for ${metaId}`);
         }
@@ -295,7 +281,6 @@ export class FileTransferService {
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
-        console.log(`[FileTransfer] ICE state (offer): ${pc.iceConnectionState}`);
         if (pc.iceConnectionState === 'failed') {
           if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
             console.warn(`[FileTransfer] ICE failed for ${metaId}, attempting ICE restart...`);
@@ -328,11 +313,9 @@ export class FileTransferService {
       };
 
       pc.onicegatheringstatechange = () => {
-        console.log(`[FileTransfer] ICE gathering state: ${pc.iceGatheringState}`);
       };
 
       pc.onsignalingstatechange = () => {
-        console.log(`[FileTransfer] Signaling state: ${pc.signalingState}`);
       };
 
       const dc = pc.createDataChannel('fileTransfer', { ordered: true });
@@ -341,7 +324,6 @@ export class FileTransferService {
       dc.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
 
       dc.onopen = () => {
-        console.log('[FileTransfer] DataChannel OPENED (Initiator/Sender)');
         this.currentStatus = 'transferring';
         this.onStatusChange('transferring', 0, { metaId: this.currentMetaId });
         this.startHeartbeat();
@@ -349,7 +331,6 @@ export class FileTransferService {
       };
 
       dc.onclose = () => {
-        console.log('[FileTransfer] DataChannel CLOSED');
         if (this.currentStatus !== 'completed') this.cleanup('dc_close');
       };
 
@@ -390,7 +371,6 @@ export class FileTransferService {
   private async triggerIceRestart(recipientPub: string, _file: any, metaId: string) {
     if (!this.pc) return;
     try {
-      console.log(`[FileTransfer] Triggering ICE restart for ${metaId}...`);
       const offer = await this.pc.createOffer({ iceRestart: true });
       await this.pc.setLocalDescription(offer);
       this.sendSignal(recipientPub, {
@@ -409,7 +389,6 @@ export class FileTransferService {
     if (!metaId || this.pendingOps.has(metaId)) return;
 
     if (this.pc || (this.currentStatus !== 'idle' && this.currentStatus !== 'incoming')) {
-        console.log(`[FileTransfer] Cleaning up for new accept ${metaId}. Current status: ${this.currentStatus}`);
         this.cleanup('pre_accept_cleanup');
     }
 
@@ -421,8 +400,6 @@ export class FileTransferService {
     this.startTimeout();
 
     try {
-      console.log(`[FileTransfer] Accepting file from ${senderPub.substring(0, 8)}... (metaId: ${metaId})`);
-      console.log(`[FileTransfer] Offer payload keys: ${Object.keys(offer).join(', ')}`);
       const pc = new RTCPeerConnection({ 
         iceServers: this.iceServers,
         bundlePolicy: 'max-bundle', // Critical for mobile NAT traversal
@@ -431,12 +408,10 @@ export class FileTransferService {
       this.pc = pc;
 
       pc.onconnectionstatechange = () => {
-        console.log(`[FileTransfer] Connection state (accept): ${pc.connectionState} (metaId: ${metaId})`);
       };
 
       // Monitor ICE connection state for failure detection
       pc.oniceconnectionstatechange = () => {
-        console.log(`[FileTransfer] ICE state (accept): ${pc.iceConnectionState}`);
         if (pc.iceConnectionState === 'failed') {
           if (!this.hasAttemptedIceRestart && this.currentStatus !== 'completed') {
             console.warn(`[FileTransfer] ICE failed (accept) for ${metaId}, attempting ICE restart...`);
@@ -461,20 +436,16 @@ export class FileTransferService {
       };
 
       pc.onicegatheringstatechange = () => {
-        console.log(`[FileTransfer] ICE gathering state: ${pc.iceGatheringState}`);
       };
 
       pc.onsignalingstatechange = () => {
-        console.log(`[FileTransfer] Signaling state: ${pc.signalingState}`);
       };
 
       pc.ondatachannel = (e) => {
-        console.log('[FileTransfer] Received DataChannel from sender.');
         const dc = e.channel;
         this.dc = dc;
         dc.binaryType = 'arraybuffer';
         dc.onopen = () => {
-            console.log('[FileTransfer] DataChannel OPENED (Receiver/Acceptor)');
             this.currentStatus = 'transferring';
             this.onStatusChange('transferring', 0, { metaId: this.currentMetaId });
             dc.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
@@ -505,29 +476,24 @@ export class FileTransferService {
         // Format B: SDP is wrapped in an object
         sdpType = offer.sdp.type || offer.type || 'offer';
         sdpStr = offer.sdp.sdp;
-        console.log('[FileTransfer] SDP extracted from nested object (Format B)');
       } else if (typeof offer.sdp === 'string' && offer.sdp.startsWith('v=')) {
         // Format A/C: SDP is a raw string
         sdpType = offer.type || 'offer';
         sdpStr = offer.sdp;
-        console.log('[FileTransfer] SDP extracted as raw string (Format A/C)');
       } else {
         // Last resort: try to find SDP anywhere in the offer
         const allValues = Object.values(offer).filter(v => typeof v === 'string' && (v as string).startsWith('v='));
         if (allValues.length > 0) {
           sdpStr = allValues[0] as string;
           sdpType = offer.type || 'offer';
-          console.log('[FileTransfer] SDP found via deep scan');
         } else {
           throw new Error(`Invalid SDP received for acceptFile. Keys: ${Object.keys(offer).join(', ')}, sdp type: ${typeof offer.sdp}`);
         }
       }
 
-      console.log(`[FileTransfer] Setting remote description: type=${sdpType}, sdp length=${sdpStr.length}`);
       await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp: sdpStr }));
       
       const list = this.remoteCandidates.get(metaId) || [];
-      console.log(`[FileTransfer] Remote description set. Draining ${list.length} buffered candidates for ${metaId}`);
 
       list.forEach(cand => this.pc?.addIceCandidate(new RTCIceCandidate(cand)).catch((err) => {
          console.warn('[FileTransfer] Failed to add buffered candidate after accept:', err);
@@ -558,7 +524,6 @@ export class FileTransferService {
     const totalSize = file.size;
     let offset = 0;
     
-    console.log(`[FileTransfer] STARTING SEND: ${file.name} (${totalSize} bytes)`);
 
     const reader = new FileReader();
     let lastStatsTime = Date.now();
@@ -629,12 +594,10 @@ export class FileTransferService {
         setTimeout(readNextChunk, 0); 
       } else {
         // Send EOF
-        console.log('[FileTransfer] Sending EOF packet.');
         const eof = new Uint8Array([1]);
         this.dc.send(eof.buffer.slice(eof.byteOffset, eof.byteOffset + eof.byteLength));
 
         this.currentStatus = 'completed';
-        console.log('[FileTransfer] Send operation COMPLETED.');
         this.onStatusChange('completed', totalSize, { metaId: this.currentMetaId });
         setTimeout(() => this.cleanup('success_sender'), 5000);
       }
@@ -671,10 +634,8 @@ export class FileTransferService {
         receivedBytes += data.byteLength;
         this.updateProgress(receivedBytes);
       } else if (type === 1) { // EOF
-        console.log(`[FileTransfer] EOF received for ${this.currentMetaId}. Assembling final blob...`);
 
         const blob = new Blob(chunks as any);
-        console.log(`[FileTransfer] File assembly complete. Size: ${blob.size} bytes.`);
 
         this.onFileReceived(blob, "received_file", blob.type, this.currentMetaId || undefined);
         this.currentStatus = 'completed';
@@ -714,7 +675,6 @@ export class FileTransferService {
   }
 
   private cleanup(source: string) {
-    console.log(`[FileTransfer] Cleanup triggered from source: ${source}`);
     this.clearTimeout();
     this.stopHeartbeat();
     // We only clear ALL candidates on full cleanup if we are going to 'idle'
@@ -724,7 +684,6 @@ export class FileTransferService {
     }
     this.hasAttemptedIceRestart = false;
     if (this.pc) { 
-        console.log('[FileTransfer] Closing PeerConnection');
         this.pc.close(); 
         this.pc = null; 
     }
