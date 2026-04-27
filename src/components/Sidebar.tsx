@@ -152,6 +152,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div 
             className="avatar cursor-pointer hover:opacity-80 transition-all pointer-events-auto"
             onClick={() => navigate("/profile")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/profile"); }}
+            role="button"
+            tabIndex={0}
+            aria-label="Profilo utente"
           >
             <UserAvatar 
               pub={userPub || ""} 
@@ -174,6 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  type="text"
                  className="input input-sm bg-base-300/50 border-none rounded-full w-full font-medium text-[14px]"
                  placeholder="Cerca..."
+                 aria-label="Cerca contatti o gruppi"
                  value={searchQuery}
                  onChange={(e) => setSearchQuery(e.target.value)}
                  onKeyDown={handleSearchSubmit}
@@ -181,6 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button 
                 onClick={() => { setShowSearch(false); setSearchQuery(""); }}
                 className="btn btn-ghost btn-circle btn-xs opacity-40"
+                aria-label="Chiudi ricerca"
               >
                 ✕
               </button>
@@ -190,6 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={() => setShowSearch(true)}
                 className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100"
+                aria-label="Cerca"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -199,6 +206,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   tabIndex={0}
                   className="btn btn-ghost btn-circle btn-sm opacity-60 hover:opacity-100"
+                  aria-label="Menu opzioni"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
@@ -297,6 +305,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     onClick={(e) => handleDeleteContact(id, e)}
                     className="btn btn-ghost btn-circle btn-xs opacity-0 group-hover:opacity-100 transition-all hover:bg-error/20 hover:text-error"
+                    aria-label="Elimina contatto"
                   >
                     ✕
                   </button>
@@ -312,7 +321,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={() => setShowScanner(true)}
           className="btn btn-circle bg-base-300 hover:bg-base-content/10 border-none shadow-2xl h-12 w-12 group transition-all"
-          title="Camera"
+          title="Scansiona QR Code"
+          aria-label="Scansiona QR Code"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 opacity-60 group-hover:opacity-100">
              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
@@ -322,7 +332,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={() => setShowSearch(true)}
           className="btn btn-circle btn-primary shadow-2full h-14 w-14 transition-all hover:scale-105"
-          title="Compose"
+          title="Nuova chat o gruppo"
+          aria-label="Nuova chat o gruppo"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />

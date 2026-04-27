@@ -134,16 +134,25 @@ async function deriveKeyFromCode(code: string, saltBytes: Uint8Array, iterations
 function generateCode(): string {
   const adjectives = [
     'quick', 'lazy', 'happy', 'bright', 'calm', 'wild', 'gentle', 'brave', 'clever', 'kind',
+    'swift', 'silent', 'bold', 'fierce', 'mighty', 'frosty', 'golden', 'silver', 'crimson', 'azure',
+    'vivid', 'pixel', 'cyber', 'neon', 'solar', 'lunar', 'atomic', 'cosmic', 'omega', 'alpha'
   ];
   const nouns = [
     'cat', 'dog', 'bird', 'fish', 'tree', 'star', 'moon', 'rock', 'wave', 'fire',
+    'tiger', 'eagle', 'wolf', 'shark', 'falcon', 'dragon', 'phoenix', 'titan', 'knight', 'scout',
+    'rogue', 'ninja', 'robot', 'comet', 'planet', 'nebula', 'galaxy', 'vortex', 'portal', 'matrix'
   ];
-  const numbers = Math.floor(Math.random() * 100);
 
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const array = new Uint32Array(3);
+  globalThis.crypto.getRandomValues(array);
 
-  return `${numbers}-${adj}-${noun}`;
+  const numbers = array[0] % 10000;
+  const adj = adjectives[array[1] % adjectives.length];
+  const noun = nouns[array[2] % nouns.length];
+
+  // Format: 1234-adjective-noun (e.g., 5829-cosmic-vortex)
+  // Entropy: 10,000 * 30 * 30 = 9,000,000 combinations (900x better than before)
+  return `${numbers.toString().padStart(4, '0')}-${adj}-${noun}`;
 }
 
 export class WormholeService {

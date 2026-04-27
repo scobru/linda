@@ -12,8 +12,9 @@ interface UserAvatarProps {
 /**
  * A robust avatar component that handles GunDB subscriptions 
  * to show custom avatars with an automatic DiceBear fallback.
+ * Memoized to prevent re-renders in long lists (ChatView, Sidebar).
  */
-export const UserAvatar: React.FC<UserAvatarProps> = ({ 
+export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({ 
   pub, 
   db, 
   className = "w-12 h-12", 
@@ -77,4 +78,4 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -333,7 +333,26 @@ export const useMessaging = (
             // Pacing delay to allow GunDB sync to catch up on fragments
             await new Promise(r => setTimeout(r, 2000));
             
-            const plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
+            let plaintext = "";
+            let retries = 10;
+            let delay = 2000;
+            
+            while (retries > 0) {
+              try {
+                plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
+                break;
+              } catch (e) {
+                retries--;
+                if (retries === 0) {
+                  if (userPub) processedRef.current.delete(gunKey);
+                  throw e;
+                }
+                console.warn(`[Messaging] Decryption failed for ${gunKey.slice(0, 8)}, retrying in ${delay}ms... (${retries} left)`);
+                await new Promise(r => setTimeout(r, delay));
+                delay += 1000; // Linear backoff
+              }
+            }
+            
             if (userPub) saveProcessedKey(userPub, gunKey);
             
             const cleanSender = data.sender.startsWith('~') ? data.sender.slice(1) : data.sender;
@@ -412,6 +431,7 @@ export const useMessaging = (
             }
           } catch (e) {
             console.warn(`[Groups] Failed to decrypt message in ${contactId} (${roomId}):`, e);
+            if (userPub) processedRef.current.delete(gunKey);
           }
         });
 

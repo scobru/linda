@@ -55,10 +55,11 @@ interface ChatViewProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
 }
 
-const renderTextWithLinks = (text?: string, isMe?: boolean) => {
+const MessageText = React.memo(({ text, isMe }: { text?: string; isMe?: boolean }) => {
+  const urlRegex = useMemo(() => /(https?:\/\/[^\s]+|magnet:\?[^\s]+)/gi, []);
+  const parts = useMemo(() => (text ? text.split(urlRegex) : []), [text, urlRegex]);
+
   if (!text) return null;
-  const urlRegex = /(https?:\/\/[^\s]+|magnet:\?[^\s]+)/gi;
-  const parts = text.split(urlRegex);
 
   return parts.map((part, i) => {
     if (part.match(urlRegex)) {
@@ -77,7 +78,7 @@ const renderTextWithLinks = (text?: string, isMe?: boolean) => {
     }
     return <span key={i}>{part}</span>;
   });
-};
+});
 
 export const ChatView: React.FC<ChatViewProps> = ({
   recipient,
@@ -413,6 +414,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <button
             onClick={() => setRecipient("")}
             className="btn btn-ghost btn-circle btn-sm"
+            aria-label="Torna ai contatti"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -455,6 +457,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               if (isSearchOpen) setSearchQuery("");
             }}
             className={`btn btn-ghost btn-circle btn-sm ${isSearchOpen ? 'text-primary' : 'opacity-60'}`}
+            aria-label={isSearchOpen ? "Chiudi ricerca" : "Cerca nei messaggi"}
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -465,6 +468,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
                onClick={() => setShowGroupSettings(recipient)}
                className="btn btn-ghost btn-circle btn-sm"
+               aria-label="Impostazioni gruppo"
             >
                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 opacity-60">
                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -472,14 +476,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </button>
           )}
           <div className="dropdown dropdown-end">
-             <button tabIndex={0} className="btn btn-ghost btn-circle btn-sm">
+             <button tabIndex={0} className="btn btn-ghost btn-circle btn-sm" aria-label="Altre opzioni">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 opacity-60">
                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                 </svg>
              </button>
              <ul tabIndex={0} className="dropdown-content mt-2 z-[50] menu p-2 shadow-2xl bg-base-300 border border-base-content/5 rounded-2xl w-56 font-bold">
-               <li><button onClick={() => handleClearChat(recipient)} className="text-error py-3">Elimina cronologia</button></li>
-               <li><button onClick={() => handleRegenerateCertificate()} className="py-3">Rigenera certificato</button></li>
+               <li><button onClick={() => { if(window.confirm("Sei sicuro di voler eliminare tutta la cronologia di questa chat?")) handleClearChat(recipient); }} className="text-error py-3">Elimina cronologia</button></li>
+               <li><button onClick={() => { if(window.confirm("Rigenerare il certificato di sicurezza? Potrebbe interrompere momentaneamente le sessioni attive.")) handleRegenerateCertificate(); }} className="py-3">Rigenera certificato</button></li>
              </ul>
           </div>
         </div>
@@ -584,7 +588,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isGroupMsg = !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg ? msg.sender : DataBase.cleanPub(msg.sender);
             const profile = contactProfiles[cleanSender] || {};
-            let msgNick = isMe 
+            const msgNick = isMe 
               ? (userNick || truncatePub(userPub) || truncatePub(username) || "?") 
               : getDisplayName(msg.sender, profile);
             const isPinned = pinnedMessages[recipient]?.has(msg.id);
@@ -655,7 +659,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     />
                   ) : (
                     <div className="py-0.5 leading-relaxed text-[15px]">
-                      <div className="break-words whitespace-pre-wrap">{renderTextWithLinks(msg.text, isMe)}</div>
+                      <div className="break-words whitespace-pre-wrap"><MessageText text={msg.text} isMe={isMe} /></div>
                       
                       {msg.tags && msg.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2 mb-1">
@@ -802,6 +806,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               onClick={() => fileInputRef.current?.click()}
               disabled={recipient.length === 36 && recipient.includes("-")}
               className={`btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-11 w-11 min-h-0 border-none ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
+              aria-label="Allega file o immagine"
+              title={recipient.length === 36 && recipient.includes("-") ? "Il trasferimento file non è ancora supportato nei gruppi" : "Allega file"}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 opacity-60">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -812,6 +818,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <textarea
                 className="textarea textarea-sm w-full min-h-[44px] max-h-48 py-3 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-4 text-[15px] placeholder:opacity-50 resize-none leading-tight"
                 placeholder="Scrivi un messaggio..."
+                aria-label="Messaggio"
                 rows={1}
                 value={message}
                 onChange={(e) => {
@@ -846,6 +853,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 }
               }}
               disabled={!message.trim()}
+              aria-label="Invia messaggio"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
