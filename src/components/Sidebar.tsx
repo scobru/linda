@@ -60,11 +60,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const encoded = url.searchParams.get("magic_login") || url.searchParams.get("session");
         if (encoded) {
           let jsonStr = "";
+          const cleanEncoded = encoded.trim().replace(/ /g, "+");
           try {
-            jsonStr = decodeURIComponent(escape(window.atob(encoded)));
+            jsonStr = decodeURIComponent(escape(window.atob(cleanEncoded)));
           } catch (e) {
             try {
-              jsonStr = window.atob(encoded);
+              jsonStr = window.atob(cleanEncoded);
             } catch (e2) {
               jsonStr = encoded;
             }

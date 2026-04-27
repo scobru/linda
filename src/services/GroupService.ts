@@ -451,11 +451,12 @@ export class GroupService {
 
   async joinGroup(inviteB64: string): Promise<GroupInfo> {
     let jsonStr = "";
+    const cleanInviteB64 = inviteB64.trim().replace(/ /g, "+");
     try {
-      jsonStr = decodeURIComponent(escape(atob(inviteB64)));
+      jsonStr = decodeURIComponent(escape(atob(cleanInviteB64)));
     } catch (e) {
       try {
-        jsonStr = atob(inviteB64);
+        jsonStr = atob(cleanInviteB64);
       } catch (e2) {
         throw new Error("Invalid invite format");
       }
