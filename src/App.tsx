@@ -7,9 +7,6 @@ import {
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
-import "zen/lib/opfs";
-//import "zen/lib/rfsmix";
-//import "zen/lib/rindexed";
 
 // Services & DB
 import { DataBase } from "./zen/db";

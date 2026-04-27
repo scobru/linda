@@ -251,7 +251,7 @@ export class DataBase {
   /**
    * Safe read with forced timeout to prevent relay-sync hangs
    */
-  public async safeGet(pathOrChain: string | any, timeoutMs: number = DataBase.DEFAULT_GET_TIMEOUT): Promise<any> {
+  public async safeGet(pathOrChain: string | any, timeoutMs: number = DataBase.DEFAULT_GET_TIMEOUT, silent: boolean = false): Promise<any> {
     if (!this.zen) return null;
     
     let chain: any;
@@ -276,7 +276,7 @@ export class DataBase {
       const timer = setTimeout(() => {
         const soul = chain._?.soul || 'unknown';
         const pathStr = typeof pathOrChain === 'string' ? pathOrChain : soul;
-        console.warn(`[DB] safeGet timeout (${timeoutMs}ms) for path: ${pathStr}`);
+        if (!silent) console.warn(`[DB] safeGet timeout (${timeoutMs}ms) for path: ${pathStr}`);
         resolve(null);
       }, timeoutMs);
 
@@ -315,8 +315,8 @@ export class DataBase {
     return chain;
   }
 
-  Get(path: string, timeoutMs?: number): Promise<any> {
-    return this.safeGet(path, timeoutMs);
+  Get(path: string, timeoutMs?: number, silent: boolean = false): Promise<any> {
+    return this.safeGet(path, timeoutMs, silent);
   }
 
   private injectAuth(path: string, opt: any): any {

@@ -134,7 +134,7 @@ export const useProfile = (
 
               // Rapid fire safeGet for nickname fallback
               for (const path of tryPaths) {
-                db.Get(path, 4000).then(data => {
+                db.Get(path, 4000, true).then(data => {
                   if (!data) return;
                   
                   // Handle if data is an object with a string property
