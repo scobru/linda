@@ -506,7 +506,6 @@ const AppContent: React.FC<{ db: DataBase; sdkInstance: ShogunCore }> = ({ db, s
     unreadCounts,
     handleTyping,
     handleSendMessage: baseSendMessage,
-    handleFixSync: _unused,
     handleClearChat,
     handleDeleteMessage: baseDeleteMessage,
     currentMessages,
