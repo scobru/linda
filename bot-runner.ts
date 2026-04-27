@@ -67,10 +67,11 @@ async function startLindaBot() {
     // Tentiamo di capire se è un Invite Link Base64
     try {
         let jsonStr = "";
+        const cleanInputArg = inputArg.trim().replace(/ /g, "+");
         try {
-            jsonStr = decodeURIComponent(escape(atob(inputArg)));
+            jsonStr = decodeURIComponent(escape(atob(cleanInputArg)));
         } catch (e) {
-            jsonStr = atob(inputArg);
+            jsonStr = atob(cleanInputArg);
         }
         const decoded = JSON.parse(jsonStr);
         if (decoded && decoded.g) {
