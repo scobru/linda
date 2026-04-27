@@ -39,6 +39,7 @@ export const useCommunicationInit = (
             // Generate a default one: @name + 4 random digits
             const digits = Math.floor(1000 + Math.random() * 9000);
             uniqueName = `@${username}${digits}`;
+            if (uniqueName.length > 64) uniqueName = uniqueName.slice(0, 64);
             
             // Try to save it
             await db.userPut('profile/uniqueUsername', uniqueName);

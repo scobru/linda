@@ -108,7 +108,8 @@ export class DataBase {
   }
 
   async signUp(username: string, password?: string, pair?: IZenPair | null): Promise<SignUpResult> {
-    const normalizedUsername = username.trim().toLowerCase();
+    let normalizedUsername = username.trim().toLowerCase();
+    if (normalizedUsername.length > 64) normalizedUsername = normalizedUsername.slice(0, 64);
     try {
       const userPair = pair || await this.crypto.generatePairFromSeed(password || Math.random().toString(36), this.zen);
       const pub = userPair.pub;
@@ -128,7 +129,8 @@ export class DataBase {
   }
 
   async login(username: string, password: string): Promise<AuthResult> {
-    const normalizedUsername = username.trim().toLowerCase();
+    let normalizedUsername = username.trim().toLowerCase();
+    if (normalizedUsername.length > 64) normalizedUsername = normalizedUsername.slice(0, 64);
     try {
       const pub = await new Promise<string | null>((resolve) => {
         this.zen.get('usernames').get(normalizedUsername).once((p: any) => resolve(p || null));
@@ -153,14 +155,15 @@ export class DataBase {
   }
 
   async loginWithPair(username: string, pair: IZenPair): Promise<AuthResult> {
+    const finalUsername = username.length > 64 ? username.slice(0, 64) : username;
     try {
       // Native Zen uses explicit authenticator in put options.
 
       this._pair = pair;
       this._pub = pair.pub;
-      localStorage.setItem('linda_auth_pair', JSON.stringify({ pair, username }));
+      localStorage.setItem('linda_auth_pair', JSON.stringify({ pair, username: finalUsername }));
       this.emitAuthEvent();
-      return { success: true, userPub: pair.pub, username };
+      return { success: true, userPub: pair.pub, username: finalUsername };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
