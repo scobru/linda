@@ -246,11 +246,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             'https://relay.peer.ooo'
           ].filter(Boolean) as string[];
           
-          for (const relayUrl of relays) {
-             try {
-               await wormholeService.receive(code, relayUrl);
-               break;
-             } catch(e) {}
+          try {
+            await Promise.any(relays.map(relayUrl => wormholeService.receive(code, relayUrl)));
+          } catch (e) {
+            // All relays failed
           }
         }
       }
@@ -498,19 +497,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           'https://relay.peer.ooo'
                         ].filter(Boolean) as string[];
                         
-                        let success = false;
-                        for (const relayUrl of relays) {
-                          try {
-                            console.log(`[ChatView] Attempting Wormhole receive via: ${relayUrl}`);
-                            await wormholeService.receive(meta.wormholeCode, relayUrl);
-                            success = true;
-                            break;
-                          } catch (err: any) {
-                            console.warn(`[ChatView] Failed to receive via ${relayUrl}:`, err.message);
-                          }
-                        }
-                        if (!success) {
-                          console.error("All Wormhole relays failed to receive.");
+                        try {
+                          console.log(`[ChatView] Attempting Wormhole receive via raced relays`);
+                          await Promise.any(relays.map(relayUrl => wormholeService.receive(meta.wormholeCode!, relayUrl)));
+                        } catch (err: any) {
+                          console.error("All Wormhole relays failed to receive.", err);
                         }
                       }
                     }}
