@@ -87,9 +87,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     if (!nick || nick === currentNick) return;
     const pub = db.getUserPub();
     if (!pub) return;
+
+    // Gun usernames/aliases must be 64 chars or less
+    let finalNick = nick;
+    if (finalNick.length > 64) {
+      finalNick = finalNick.slice(0, 64);
+    }
+
     try {
-      await db.Put(`signal_global_nicknames/${nick}`, pub);
-      await db.userPut("profile/nickname", nick);
+      await db.Put(`signal_global_nicknames/${finalNick}`, pub);
+      await db.userPut("profile/nickname", finalNick);
       showNotification("Nickname updated", "info");
     } catch (e) {
       showNotification("Failed to save nickname", "error");
@@ -100,8 +107,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     if (!uniqueName || uniqueName === currentUniqueUsername) return;
     const pub = db.getUserPub();
     if (!pub) return;
+
     let normalized = uniqueName.trim();
     if (!normalized.startsWith("@")) normalized = `@${normalized}`;
+
+    // Gun usernames/aliases must be 64 chars or less
+    if (normalized.length > 64) {
+      normalized = normalized.slice(0, 64);
+    }
+
     if (!/^@[a-zA-Z0-9]+$/.test(normalized)) {
       showNotification("Username must be @name1234 format", "error");
       return;

@@ -37,6 +37,11 @@ export const useCommunicationInit = (db: DataBase, showNotification: (msg: strin
             const digits = Math.floor(1000 + Math.random() * 9000);
             uniqueName = `@${username}${digits}`;
             
+            // Gun usernames/aliases must be 64 chars or less
+            if (uniqueName.length > 64) {
+              uniqueName = uniqueName.slice(0, 64);
+            }
+
             // Try to save it
             const user = db.gun.user();
             if (user.is) {
