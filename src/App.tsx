@@ -17,7 +17,6 @@ import {
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
 import { GroupCreationPage } from "./pages/GroupCreationPage";
 import { DataBase } from "./zen/db";
-import { type IZenInstance } from "./zen/types";
 import ZEN from "zen";
 
 import { UserProfile } from "./pages/UserProfile";
@@ -38,10 +37,10 @@ declare global {
     shogunDebug?: {
       clearAllData: () => void;
       db: DataBase;
-      zen: IZenInstance;
+      zen: DataBase["zen"];
       relays: string[];
     };
-    zen?: IZenInstance;
+    zen?: DataBase["zen"];
     db?: DataBase;
   }
 }
