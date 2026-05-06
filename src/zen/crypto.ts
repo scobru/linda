@@ -109,6 +109,7 @@ export async function certify(
 
 export async function generatePairFromSeed(
   seedPhrase: string,
+  salt?: string | null,
   zenInstance?: any,
 ): Promise<IZenPair> {
   const zen = getZenLibrary(zenInstance);
@@ -116,7 +117,7 @@ export async function generatePairFromSeed(
   if (!result) {
     const derivedPassword = await zen.hash(
       seedPhrase,
-      'shogun-seed-salt',
+      salt || 'shogun-seed-salt',
       null,
       { name: 'SHA-256' },
     );

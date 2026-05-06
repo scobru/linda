@@ -159,8 +159,9 @@ export class DataBase {
   async signUp(username: string, password?: string, pair?: IZenPair | null): Promise<SignUpResult> {
     const normalizedUsername = username.trim().toLowerCase();
     try {
+      const salt = generateSecureRandomString(16);
       const seed = password ? (normalizedUsername + password) : generateSecureRandomString(32);
-      const userPair = pair || await this.crypto.generatePairFromSeed(seed, this.zen);
+      const userPair = pair || await this.crypto.generatePairFromSeed(seed, salt, this.zen);
       const pub = userPair.pub;
 
       // Set state first so userPut and other operations can use it
@@ -168,7 +169,7 @@ export class DataBase {
       this._pub = pub;
 
       // Store in usernames mapping node for login lookup
-      await this.Put(`usernames/${normalizedUsername}`, pub);
+      await this.Put(`usernames/${normalizedUsername}`, { pub, salt });
 
       // Pre-initialize unique username handle (deterministic based on pubkey)
       const uniqueName = generateRandomHandle(pub);
@@ -197,15 +198,28 @@ export class DataBase {
     console.log(`[DB] Attempting login for: ${normalizedUsername}...`);
     try {
       // Use Get (safeGet) with a generous 10s timeout for initial discovery
-      const pub = await this.Get(`usernames/${normalizedUsername}`, 10000);
+      const userData = await this.Get(`usernames/${normalizedUsername}`, 10000);
 
-      if (!pub || typeof pub !== 'string') {
+      if (!userData) {
         console.warn(`[DB] Login failed: User "${normalizedUsername}" not found in index.`);
         return { success: false, error: 'User not found' };
       }
 
+      let pub: string;
+      let salt: string | undefined;
+
+      if (typeof userData === 'string') {
+        pub = userData;
+      } else if (typeof userData === 'object' && userData.pub) {
+        pub = userData.pub;
+        salt = userData.salt;
+      } else {
+        console.warn(`[DB] Login failed: Invalid user data for "${normalizedUsername}".`);
+        return { success: false, error: 'Invalid user data' };
+      }
+
       // Combine username and password for a unique deterministic seed
-      const pair = await this.crypto.generatePairFromSeed(normalizedUsername + password, this.zen);
+      const pair = await this.crypto.generatePairFromSeed(normalizedUsername + password, salt, this.zen);
       if (pair.pub !== pub) return { success: false, error: 'Invalid password' };
 
       // Native Zen uses explicit authenticator in put options.
