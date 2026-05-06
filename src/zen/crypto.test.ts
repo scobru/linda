@@ -3,7 +3,7 @@ import assert from 'node:assert';
 
 // Simple mock for Zen
 const mockZen = {
-  pair: async (val: any, opt: any) => {
+  pair: async (_val: any, opt: any) => {
     if (opt && opt.seed) {
         // Deterministic mock for seed
         return { pub: 'pub_' + opt.seed, priv: 'priv_' + opt.seed, epub: 'epub_' + opt.seed, epriv: 'epriv_' + opt.seed };
@@ -41,15 +41,14 @@ async function generatePairFromSeedLocal(
 
 describe('Zen Crypto - generatePairFromSeed (Logic Test)', () => {
   const seed = 'test-seed';
-  const legacySalt = 'shogun-seed-salt';
   const customSalt = 'custom-salt';
 
   test('should use legacy salt when no salt is provided', async () => {
     const mockZenWithHashPath = {
         ...mockZen,
-        pair: async (val: any, opt: any) => {
+        pair: async (_val: any, opt: any) => {
             if (opt && opt.seed) return null; // Force hash path
-            return mockZen.pair(val, opt);
+            return mockZen.pair(_val, opt);
         }
     };
 
@@ -60,9 +59,9 @@ describe('Zen Crypto - generatePairFromSeed (Logic Test)', () => {
   test('should use custom salt when provided', async () => {
     const mockZenWithHashPath = {
         ...mockZen,
-        pair: async (val: any, opt: any) => {
+        pair: async (_val: any, opt: any) => {
             if (opt && opt.seed) return null; // Force hash path
-            return mockZen.pair(val, opt);
+            return mockZen.pair(_val, opt);
         }
     };
 
@@ -73,9 +72,9 @@ describe('Zen Crypto - generatePairFromSeed (Logic Test)', () => {
   test('different salts should produce different pairs', async () => {
     const mockZenWithHashPath = {
         ...mockZen,
-        pair: async (val: any, opt: any) => {
+        pair: async (_val: any, opt: any) => {
             if (opt && opt.seed) return null; // Force hash path
-            return mockZen.pair(val, opt);
+            return mockZen.pair(_val, opt);
         }
     };
 

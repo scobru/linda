@@ -7,6 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
+import "zen/lib/yson.js";
 
 // Services & DB
 import { DataBase } from "./zen/db";
@@ -320,6 +321,9 @@ const App: React.FC = () => {
           peers: relays,
           localStorage: false,
           radisk: false,
+          dht: false,
+          axe: false,
+          multicast: false,
         });
         const db = new DataBase(zen);
         setDbInstance(db);
