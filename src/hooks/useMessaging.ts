@@ -897,6 +897,7 @@ export const useMessaging = (
     if (!communicationService || !userPub) return;
     console.log(`[Signal] Manual Fix Sync for ${contactId}...`);
     try {
+      // 1. Double Ratchet Repair
       await communicationService.resetSession(contactId);
       await communicationService.republishBundle().catch(() => {});
       
@@ -908,12 +909,46 @@ export const useMessaging = (
         body: ping.body, 
         timestamp: new Date().toISOString() 
       } as any);
+
+      // 2. TPRE Repair (if group or p2p group exists)
+      if (groupService) {
+        const isGroup = contactId.length === 36 && contactId.includes("-");
+        const groupId = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        
+        // Only admin can repair
+        const meta = await (db.Get as any)(`linda_rooms/${groupId}/meta`);
+        if (meta?.adminPub === userPub) {
+            console.log(`[Signal] Triggering TPRE repair for ${groupId.slice(0, 8)}`);
+            await groupService.repairRoomKeys(groupId);
+        } else {
+            console.log(`[Signal] Not admin of ${groupId.slice(0, 8)}, skipping TPRE repair`);
+            // We still ensure our Umbral PK is there
+            await groupService.ensureUmbralPK(groupId);
+        }
+      }
       
       setContactErrors(prev => ({ ...prev, [contactId]: false }));
+      showNotification?.("Synchronization repaired", "info");
     } catch (e) {
       console.error("[Signal] Fix Sync failed:", e);
+      showNotification?.("Repair failed", "error");
     }
-  }, [communicationService, userPub, db]);
+  }, [communicationService, userPub, db, groupService, showNotification]);
+
+  const handleRepairTPRE = useCallback(async (contactId: string) => {
+    if (!groupService || !userPub) return;
+    try {
+        const isGroup = contactId.length === 36 && contactId.includes("-");
+        const groupId = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        
+        await groupService.repairRoomKeys(groupId);
+        showNotification?.("Encryption keys repaired", "info");
+    } catch (e: any) {
+        console.error("[Signal] TPRE Repair failed:", e);
+        showNotification?.(e.message || "Repair failed", "error");
+    }
+  }, [groupService, userPub, showNotification]);
+
 
   const currentMessages = useMemo(() => {
     const msgs = messages[recipient] || [];
@@ -979,6 +1014,7 @@ export const useMessaging = (
     handleTyping,
     handleSendMessage,
     handleFixSync,
+    handleRepairTPRE,
     handleClearChat,
     handleDeleteMessage,
     saveContact,

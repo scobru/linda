@@ -42,6 +42,7 @@ interface ChatViewProps {
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   handleRegenerateCertificate: () => void;
+  handleRepairTPRE: (id: string) => void;
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
@@ -114,6 +115,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   blockContact,
   showNotification,
   currentMessages,
+  handleRepairTPRE,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -483,6 +485,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
              </button>
              <ul tabIndex={0} className="dropdown-content mt-2 z-[50] menu p-2 shadow-2xl bg-base-300 border border-base-content/5 rounded-2xl w-56 font-bold">
                <li><button onClick={() => { if(window.confirm("Sei sicuro di voler eliminare tutta la cronologia di questa chat?")) handleClearChat(recipient); }} className="text-error py-3">Elimina cronologia</button></li>
+               <li><button onClick={() => handleRepairTPRE(recipient)} className="py-3">Ripristina Crittografia (TPRE)</button></li>
                <li><button onClick={() => { if(window.confirm("Rigenerare il certificato di sicurezza? Potrebbe interrompere momentaneamente le sessioni attive.")) handleRegenerateCertificate(); }} className="py-3">Rigenera certificato</button></li>
              </ul>
           </div>
@@ -672,15 +675,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       )}
 
                       {msg.text?.includes("Impossibile decriptare") && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleFixSync();
-                          }}
-                          className="btn btn-xs btn-error btn-outline rounded-full ml-3 mt-1 scale-90"
-                        >
-                          RIPRISTINA SINCRONIA
-                        </button>
+                        <div className="flex flex-col gap-2 mt-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFixSync();
+                            }}
+                            className="btn btn-xs btn-error btn-outline rounded-full scale-90"
+                          >
+                            RIPRISTINA SINCRONIA
+                          </button>
+                          {msg.text?.includes("validation failed") && (
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleRepairTPRE(recipient);
+                               }}
+                               className="btn btn-xs btn-warning btn-outline rounded-full scale-90"
+                             >
+                               RIPARA CHIAVI (TPRE)
+                             </button>
+                          )}
+                        </div>
                       )}
 
                       {/* Telegram-style meta (time + status) inside bubble */}

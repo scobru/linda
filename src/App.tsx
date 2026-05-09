@@ -204,6 +204,7 @@ const AppContent: React.FC<{
     setShowGroupSettings: (id: string | null) =>
       navigate(id ? `/chat/${id}/settings` : "/"),
     handleFixSync: () => messaging.handleFixSync(recipient),
+    handleRepairTPRE: (id: string) => messaging.handleRepairTPRE(id),
     handleClearChat: messaging.handleClearChat,
   };
 

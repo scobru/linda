@@ -601,14 +601,17 @@ export class GroupService {
   }
 
   async grantTPREAccess(groupId: string, memberPub: string, memberUmbralPKB64: string): Promise<void> {
+    console.log(`[GroupService] Granting TPRE access for ${memberPub.slice(0, 8)} in room ${groupId.slice(0, 8)}`);
     const ts = await this.getThresholdService();
     const encryptedSK = await (this.db.Get as any)(`linda_rooms/${groupId}/admin_sk_encrypted`);
-    if (!encryptedSK) throw new Error("Missing group SK for TPRE grant");
+    if (!encryptedSK) throw new Error("Missing group SK for TPRE grant. You might not be the room admin.");
     
     const pair = this.db.pair;
     if (!pair) throw new Error("Not logged in");
     
     const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
+    if (!skString) throw new Error("Failed to decrypt group SK. This room might have been created by another identity.");
+
     const groupSK = ts.deserializeSecretKey(skString);
     
     const memberPK = ts.deserializePublicKey(memberUmbralPKB64);
@@ -624,6 +627,55 @@ export class GroupService {
        await (this.db.Put as any)(`linda_rooms/${groupId}/member_kfrags/${memberPub}/${this.db.getUserPub()}`, memberKFrag);
     }
   }
+
+  /**
+   * Repairs TPRE keys for a room by regenerating all kfrags.
+   * Only the room admin (creator) can perform this.
+   */
+  async repairRoomKeys(groupId: string): Promise<void> {
+    const myPub = this.db.getUserPub();
+    if (!myPub) throw new Error("Not logged in");
+
+    const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
+    if (!meta) throw new Error("Group meta not found");
+
+    if (meta.adminPub !== myPub) {
+        throw new Error("Only the room administrator can repair encryption keys.");
+    }
+
+    const ts = await this.getThresholdService();
+    const encryptedSK = await (this.db.Get as any)(`linda_rooms/${groupId}/admin_sk_encrypted`);
+    if (!encryptedSK) throw new Error("Missing encrypted group SK. Repair impossible from this device.");
+
+    const pair = this.db.pair;
+    const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
+    if (!skString) throw new Error("Failed to decrypt group SK.");
+
+    const groupSK = ts.deserializeSecretKey(skString);
+    const communityPK = ts.serializePublicKey(groupSK.publicKey());
+
+    // 1. Synchronize Community PK if out of sync
+    if (meta.communityPK !== communityPK) {
+        console.log(`[GroupService] Fixing communityPK mismatch in meta for ${groupId.slice(0, 8)}`);
+        await (this.db.Put as any)(`linda_rooms/${groupId}/meta/communityPK`, communityPK);
+    }
+
+    // 2. Regenerate kfrags for all members who have published an Umbral PK
+    const members = await this.getMembers(groupId);
+    console.log(`[GroupService] Repairing keys for ${members.length} members in ${groupId.slice(0, 8)}`);
+    
+    for (const member of members) {
+        const memberUmbralPK = member.umbral_pk || await (this.db.Get as any)(`linda_rooms/${groupId}/umbral_pks/${member.pub}`);
+        if (memberUmbralPK) {
+            try {
+                await this.grantTPREAccess(groupId, member.pub, memberUmbralPK);
+            } catch (e) {
+                console.error(`[GroupService] Failed to repair kfrag for ${member.pub}:`, e);
+            }
+        }
+    }
+  }
+
 
   async ensureUmbralPK(groupId: string): Promise<void> {
     const myPub = this.db.getUserPub();
