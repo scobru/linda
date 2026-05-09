@@ -913,7 +913,8 @@ export const useMessaging = (
       // 2. TPRE Repair (if group or p2p group exists)
       if (groupService) {
         const isGroup = contactId.length === 36 && contactId.includes("-");
-        const groupId = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        const res = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        const groupId = typeof res === 'string' ? res : res.id;
         
         // Only admin can repair
         const meta = await (db.Get as any)(`linda_rooms/${groupId}/meta`);
@@ -939,7 +940,8 @@ export const useMessaging = (
     if (!groupService || !userPub) return;
     try {
         const isGroup = contactId.length === 36 && contactId.includes("-");
-        const groupId = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        const res = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
+        const groupId = typeof res === 'string' ? res : res.id;
         
         await groupService.repairRoomKeys(groupId);
         showNotification?.("Encryption keys repaired", "info");

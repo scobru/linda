@@ -648,6 +648,7 @@ export class GroupService {
     if (!encryptedSK) throw new Error("Missing encrypted group SK. Repair impossible from this device.");
 
     const pair = this.db.pair;
+    if (!pair) throw new Error("Authentication pair not found.");
     const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
     if (!skString) throw new Error("Failed to decrypt group SK.");
 
