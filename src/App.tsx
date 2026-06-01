@@ -85,7 +85,7 @@ const AppContent: React.FC<{
     groupService,
     recipient,
     setRecipient,
-    "https://shogun-relay.scobrudot.dev",
+    "https://delay.scobrudot.dev",
     showNotification,
   );
 
@@ -317,7 +317,7 @@ const App: React.FC = () => {
 
     const initZen = async () => {
       try {
-        const relays = ["https://shogun-relay.scobrudot.dev/zen"];
+        const relays = ["https://delay.scobrudot.dev/zen"];
         const zen = new ZEN({
           peers: relays,
           localStorage: false,

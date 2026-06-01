@@ -18,7 +18,7 @@ async function startLindaBot() {
     console.log("\n🚀 Avvio del bot Linda (Zen-native)...");
 
     const zen = new ZEN({
-        peers: ["https://shogun-relay.scobrudot.dev/zen"],
+        peers: ["https://delay.scobrudot.dev/zen"],
         radisk: false,
         localStorage: false
     });
@@ -132,7 +132,7 @@ async function startLindaBot() {
         if (!meta) return;
 
         try {
-            const decrypted = await groupService.decryptGroupMessage(meta, data.body, "https://shogun-relay.scobrudot.dev");
+            const decrypted = await groupService.decryptGroupMessage(meta, data.body, "https://delay.scobrudot.dev");
             console.log(`[Bot] Messaggio ricevuto (${msgId.slice(0, 8)}): ${decrypted}`);
 
             const cleanMsg = decrypted.trim().toLowerCase();
