@@ -317,7 +317,13 @@ const App: React.FC = () => {
 
     const initZen = async () => {
       try {
-        const relays = ["https://delay.scobrudot.dev/zen"];
+        const relays = [
+          "https://delay.scobrudot.dev/zen",
+          "https://delay.up.railway.app/zen",
+          "https://zen.akao.io:8420/zen",
+          "https://zen0.akao.io:8420/zen",
+          "https://zen1.akao.io:8420/zen",
+        ];
         const zen = new ZEN({
           peers: relays,
           localStorage: false,
