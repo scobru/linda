@@ -456,7 +456,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* Header - Signal Minimalism Style */}
-      <div className="navbar bg-white/5 backdrop-blur-md border-b border-base-content/5 h-16 shrink-0 px-6 gap-4 z-10 sticky top-0">
+      <div className="navbar bg-white/5 backdrop-blur-md border-b border-base-content/5 min-h-16 pt-safe shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
             onClick={() => setRecipient("")}
@@ -630,7 +630,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Search Input Area */}
       {isSearchOpen && (
-        <div className="px-6 py-3 bg-base-200/80 backdrop-blur-md border-b border-base-content/5 sticky top-16 z-[9]">
+        <div className="px-6 py-3 bg-base-200/80 backdrop-blur-md border-b border-base-content/5 sticky top-[calc(4rem+env(safe-area-inset-top))] z-[9]">
           <div className="relative group">
             <input
               type="text"
@@ -668,7 +668,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Tag Filter Bar */}
       {allTags.length > 0 && (
-        <div className="px-6 py-2.5 bg-base-100 border-b border-base-content/5 overflow-x-auto flex items-center gap-2 scrollbar-hide sticky top-[calc(4rem+1px)] z-[8]">
+        <div className="px-6 py-2.5 bg-base-100 border-b border-base-content/5 overflow-x-auto flex items-center gap-2 scrollbar-hide sticky top-[calc(4rem+1px+env(safe-area-inset-top))] z-[8]">
           <div className="text-[10px] font-black uppercase tracking-widest opacity-30 mr-2 flex-none">
             Filtra per:
           </div>
