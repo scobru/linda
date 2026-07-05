@@ -40,6 +40,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showScanner, setShowScanner] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread">("all");
+
+  const visibleContacts = contacts.filter((id) =>
+    filter === "unread" ? (unreadCounts[id] || 0) > 0 : true,
+  );
 
   const handleQrScan = async (data: string) => {
     setShowScanner(false);
@@ -148,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className="flex flex-col h-full glass-panel border-r border-base-content/5 w-full transition-all overflow-hidden font-narrow">
       {/* Header - Signal Style */}
-      <div className="px-6 flex items-center justify-between bg-transparent h-20 shrink-0 z-20">
+      <div className="px-6 pt-safe flex items-center justify-between bg-transparent min-h-20 shrink-0 z-20">
         <div className="flex items-center gap-3">
           <div 
             className="avatar cursor-pointer hover:opacity-80 transition-all pointer-events-auto"
@@ -224,10 +229,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 pb-32 scrollbar-hide relative">
+      {/* Filter Chips - All / Unread */}
+      <div className="px-4 pb-2 flex items-center gap-2 shrink-0">
+        <button
+          onClick={() => setFilter("all")}
+          className={`btn btn-sm rounded-full px-5 font-bold border-none transition-all ${
+            filter === "all"
+              ? "bg-primary text-primary-content"
+              : "bg-base-300/60 opacity-70 hover:opacity-100"
+          }`}
+        >
+          Tutte
+        </button>
+        <button
+          onClick={() => setFilter("unread")}
+          className={`btn btn-sm rounded-full px-5 font-bold border-none transition-all ${
+            filter === "unread"
+              ? "bg-primary text-primary-content"
+              : "bg-base-300/60 opacity-70 hover:opacity-100"
+          }`}
+        >
+          Non lette
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-2 pb-40 scrollbar-hide relative">
         <ul className="menu menu-md w-full p-0 space-y-0.5">
+          {filter === "unread" && visibleContacts.length === 0 && (
+            <li className="px-4 py-10 text-center opacity-30 text-sm font-bold">
+              Nessuna chat non letta
+            </li>
+          )}
           {/* My Cloud / Self Transfer Section */}
-          {userPub && (
+          {userPub && filter === "all" && (
             <li key="self-transfer">
               <NavLink
                 to={`/chat/${userPub}`}
@@ -258,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </li>
           )}
 
-          {contacts.map((id) => {
+          {visibleContacts.map((id) => {
             const isGroup = id.length === 36 && id.includes("-");
             const cleanId = isGroup ? id : DataBase.cleanPub(id);
             const profile = contactProfiles[cleanId] || {};
@@ -318,7 +352,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Floating Action Buttons */}
-      <div className="fixed bottom-6 right-6 lg:absolute lg:bottom-8 lg:right-8 flex flex-col gap-4 z-50 animate-slideUp">
+      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-6 lg:absolute lg:bottom-8 lg:right-8 flex flex-col gap-4 z-50 animate-slideUp">
         <button
           onClick={() => setShowScanner(true)}
           className="btn btn-circle bg-base-300 hover:bg-base-content/10 border-none shadow-2xl h-12 w-12 group transition-all"

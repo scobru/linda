@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
+import { BottomNav } from "./BottomNav";
 
 interface LayoutProps {
   sidebarProps: any; // Using any for brevity in this transitional phase, but should ideally be typed
@@ -9,7 +10,9 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
   const location = useLocation();
   const isRoot = location.pathname === "/";
-  
+  // Bottom tab bar only makes sense on top-level mobile screens, not inside a chat/detail view.
+  const showBottomNav = isRoot || location.pathname === "/profile";
+
   // Close drawer on location change (works for mobile)
   useEffect(() => {
     const drawerCheckbox = document.getElementById("my-drawer") as HTMLInputElement;
@@ -23,7 +26,7 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
         {/* Mobile Header: Shown only on root path when no recipient is selected */}
         {/* Mobile Header: Hidden since Sidebar in main area has its own header */}
         {/* We only show a global Layout navbar if we are on a route that doesn't provide its own back button or header, but currently all pages (Chat, Profile, Settings) provide their own. */}
-        
+
         <main className="flex-1 overflow-hidden relative flex flex-col">
           {isRoot ? (
             <div className="h-full">
@@ -38,6 +41,7 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
             <Outlet />
           )}
         </main>
+        {showBottomNav && <BottomNav />}
       </div>
       <div className="drawer-side z-30">
         <label htmlFor="my-drawer" aria-label="close sidebar" className="drawer-overlay"></label>
