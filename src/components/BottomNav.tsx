@@ -1,18 +1,21 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { useSmoothNavigate } from "../hooks/useSmoothNavigate";
 
 export const BottomNav: React.FC = () => {
+  const location = useLocation();
+  const smoothNavigate = useSmoothNavigate();
+  const isHomeActive = location.pathname === "/";
+  const isProfileActive = location.pathname === "/profile";
+
   return (
     <nav
       className="lg:hidden flex items-stretch bg-base-200/90 backdrop-blur-xl border-t border-base-content/5 pb-safe shrink-0 z-40 font-narrow"
       aria-label="Navigazione principale"
     >
-      <NavLink
-        to="/"
-        end
-        className={({ isActive }) =>
-          `bottom-nav-item ${isActive ? "active" : ""}`
-        }
+      <button
+        onClick={() => smoothNavigate("/")}
+        className={`bottom-nav-item ${isHomeActive ? "active" : ""}`}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -29,13 +32,11 @@ export const BottomNav: React.FC = () => {
           />
         </svg>
         <span className="text-[10px] font-bold tracking-tight">Chat</span>
-      </NavLink>
+      </button>
 
-      <NavLink
-        to="/profile"
-        className={({ isActive }) =>
-          `bottom-nav-item ${isActive ? "active" : ""}`
-        }
+      <button
+        onClick={() => smoothNavigate("/profile")}
+        className={`bottom-nav-item ${isProfileActive ? "active" : ""}`}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -52,7 +53,7 @@ export const BottomNav: React.FC = () => {
           />
         </svg>
         <span className="text-[10px] font-bold tracking-tight">Profilo</span>
-      </NavLink>
+      </button>
     </nav>
   );
 };

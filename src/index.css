@@ -1,35 +1,40 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+@theme {
+  --font-sans: "Outfit", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
 @plugin "daisyui/theme" {
   name: "linda";
   default: true;
   prefersdark: true;
   color-scheme: dark;
 
-  /* Telegram-inspired Deep Charcoal Palette - OLED Black */
-  --color-base-100: #0f0f0f;
-  --color-base-100-rgb: 15, 15, 15;
-  --color-base-200: #181818;
-  --color-base-300: #212121;
-  --color-base-content: #f5f5f5;
+  /* Keet-inspired Premium Slate & Charcoal Palette */
+  --color-base-100: #0a0b0d;
+  --color-base-100-rgb: 10, 11, 13;
+  --color-base-200: #12141a;
+  --color-base-300: #191c24;
+  --color-base-content: #f8fafc;
 
-  --color-primary: #766ac8;
+  --color-primary: #6366f1;
   --color-primary-content: #ffffff;
   
-  --color-secondary: #212121;
-  --color-secondary-content: #ffffff;
+  --color-secondary: #191c24;
+  --color-secondary-content: #f8fafc;
   
-  --color-accent: #766ac8;
+  --color-accent: #6366f1;
   --color-accent-content: #ffffff;
   
-  --color-neutral: #181818;
-  --color-neutral-content: #f5f5f5;
+  --color-neutral: #12141a;
+  --color-neutral-content: #f8fafc;
   
-  --color-info: #3390ec;
-  --color-success: #62d44d;
-  --color-warning: #f1c40f;
-  --color-error: #ff453a;
+  --color-info: #38bdf8;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
 
   --radius-selector: 1rem;
   --radius-field: 1rem;
@@ -121,19 +126,18 @@ html, body {
 }
 
 body {
-  /* Telegram system font stack */
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-base-100);
   background-image: none;
   color: var(--color-base-content);
-  letter-spacing: normal;
+  letter-spacing: -0.01em;
 }
 
 /* Narrow Typography Utility */
 .font-narrow {
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 /* ── Safe Area Utilities (notches / home indicator) ───────── */
@@ -169,29 +173,54 @@ body {
   transform: scale(0.92);
 }
 
-/* ── Pattern Utility ────────────────────────────────────── */
+/* ── Pattern Utility (Keet-inspired transparent doodle pattern) ── */
 .bg-doodle {
-  background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png"); /* Simple dark pattern fallback */
-  background-color: var(--color-base-100);
-  background-attachment: fixed;
-  opacity: 0.8;
+  position: relative;
+  background-color: var(--color-base-100) !important;
 }
 
-/* Telegram-like bubble adjustments */
+.bg-doodle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png");
+  background-repeat: repeat;
+  background-size: 380px;
+  opacity: 0.035; /* Subtle background pattern */
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-doodle > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Keet-like bubble adjustments */
 .chat-bubble {
-  border-radius: 18px !important;
-  padding: 8px 12px !important;
-  max-width: 85% !important;
+  border-radius: 16px !important;
+  padding: 10px 14px !important;
+  max-width: 80% !important;
   font-size: 15px !important;
-  line-height: 1.4 !important;
+  line-height: 1.45 !important;
+  font-weight: 500; /* Outfit font looks extremely solid and crisp at medium weight */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .chat-start .chat-bubble {
+  background-color: var(--color-base-300) !important;
+  color: var(--color-base-content) !important;
+  border-top-left-radius: 16px !important;
   border-bottom-left-radius: 4px !important;
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .chat-end .chat-bubble {
+  background: linear-gradient(135deg, #184c40 0%, #11342c 100%) !important;
+  color: #ffffff !important;
+  border-top-right-radius: 16px !important;
   border-bottom-right-radius: 4px !important;
+  border: none !important;
 }
 
 /* Scrollbar styling */
@@ -210,10 +239,19 @@ body {
 }
 
 /* ── Transitions ───────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 @keyframes chat-fadeIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(2px);
   }
   to {
     opacity: 1;

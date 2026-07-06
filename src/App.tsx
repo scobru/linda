@@ -3,7 +3,6 @@ import {
   BrowserRouter,
   Routes,
   Route,
-  useNavigate,
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
@@ -31,6 +30,7 @@ import { useSignalingListener } from "./hooks/useSignalingListener";
 import { useFileTransfer } from "./hooks/useFileTransfer";
 import { useWormhole } from "./hooks/useWormhole";
 import { useProfile } from "./hooks/useProfile";
+import { useSmoothNavigate } from "./hooks/useSmoothNavigate";
 
 // ── App Content Component ──
 const AppContent: React.FC<{
@@ -40,7 +40,7 @@ const AppContent: React.FC<{
   username: string;
   onLogout: () => void;
 }> = ({ db, isLoggedIn, userPub, username, onLogout }) => {
-  const navigate = useNavigate();
+  const smoothNavigate = useSmoothNavigate();
   const location = useLocation();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -161,8 +161,7 @@ const AppContent: React.FC<{
       }
       messaging.removeContact(contactKey);
       if (recipient === contactKey) {
-        setRecipient("");
-        navigate("/");
+        smoothNavigate("/", () => setRecipient(""));
       }
       showNotification("Contact removed", "info");
     } catch (err) {
@@ -183,8 +182,7 @@ const AppContent: React.FC<{
     ...messaging,
     db,
     setRecipient: (id: string) => {
-      setRecipient(id);
-      navigate(id ? `/chat/${id}` : "/");
+      smoothNavigate(id ? `/chat/${id}` : "/", () => setRecipient(id));
     },
     communicationService,
     groupService,
@@ -202,7 +200,7 @@ const AppContent: React.FC<{
     wormholeStatuses,
     showNotification,
     setShowGroupSettings: (id: string | null) =>
-      navigate(id ? `/chat/${id}/settings` : "/"),
+      smoothNavigate(id ? `/chat/${id}/settings` : "/"),
     handleFixSync: () => messaging.handleFixSync(recipient),
     handleRepairTPRE: (id: string) => messaging.handleRepairTPRE(id),
     handleClearChat: messaging.handleClearChat,
@@ -221,8 +219,7 @@ const AppContent: React.FC<{
                 username: username || "",
                 contacts: messaging.contacts,
                 setRecipient: (id: string) => {
-                  setRecipient(id);
-                  navigate(id ? `/chat/${id}` : "/");
+                  smoothNavigate(id ? `/chat/${id}` : "/", () => setRecipient(id));
                 },
                 contactProfiles,
                 unreadCounts: messaging.unreadCounts,
@@ -277,9 +274,10 @@ const AppContent: React.FC<{
               <GroupCreationPage
                 groupService={groupService!}
                 onCreated={(id) => {
-                  messaging.saveContact(id);
-                  setRecipient(id);
-                  navigate(`/chat/${id}`);
+                  smoothNavigate(`/chat/${id}`, () => {
+                    messaging.saveContact(id);
+                    setRecipient(id);
+                  });
                 }}
                 showNotification={showNotification}
               />

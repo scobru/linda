@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
+import { useSmoothNavigate } from "../hooks/useSmoothNavigate";
 import { UserAvatar } from "./UserAvatar";
 import { CommunicationService } from "../services/CommunicationService";
 import { GroupService } from "../services/GroupService";
@@ -36,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   saveContact,
   requestNotifications,
 }) => {
-  const navigate = useNavigate();
+  const smoothNavigate = useSmoothNavigate();
   const [showScanner, setShowScanner] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -88,8 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
 
       saveContact(pubKey);
-      setRecipient(pubKey);
-      navigate(`/chat/${pubKey}`);
+      smoothNavigate(`/chat/${pubKey}`, () => setRecipient(pubKey));
       showNotification(`Contact added via QR!`, "info");
     } catch (err: any) {
       showNotification("Invalid QR Code", "error");
@@ -109,11 +109,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const publicGroup = await groupService.getPublicGroup(name);
         if (publicGroup) {
           const groupInfo = await groupService.joinPublicGroup(name);
-          setRecipient(groupInfo.id);
+          smoothNavigate(`/chat/${groupInfo.id}`, () => {
+            setRecipient(groupInfo.id);
+            setShowSearch(false);
+            setSearchQuery("");
+          });
           showNotification(`Joined public group: ${groupInfo.name}`, "info");
-          navigate(`/chat/${groupInfo.id}`);
-          setShowSearch(false);
-          setSearchQuery("");
           return;
         }
 
@@ -121,11 +122,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (name.length > 50 && !name.startsWith("@")) {
           try {
             const groupInfo = await groupService.joinGroup(name);
-            setRecipient(groupInfo.id);
+            smoothNavigate(`/chat/${groupInfo.id}`, () => {
+              setRecipient(groupInfo.id);
+              setShowSearch(false);
+              setSearchQuery("");
+            });
             showNotification(`Joined group via invite: ${groupInfo.name}`, "info");
-            navigate(`/chat/${groupInfo.id}`);
-            setShowSearch(false);
-            setSearchQuery("");
             return;
           } catch (ge) {}
         }
@@ -137,10 +139,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
 
         saveContact(pubKey);
-        setRecipient(pubKey);
-        navigate(`/chat/${pubKey}`);
-        setShowSearch(false);
-        setSearchQuery("");
+        smoothNavigate(`/chat/${pubKey}`, () => {
+          setRecipient(pubKey);
+          setShowSearch(false);
+          setSearchQuery("");
+        });
       } catch (err: any) {
         showNotification(`Could not resolve: ${name}`, "error");
       }
@@ -157,8 +160,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-3">
           <div 
             className="avatar cursor-pointer hover:opacity-80 transition-all pointer-events-auto"
-            onClick={() => navigate("/profile")}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/profile"); }}
+            onClick={() => smoothNavigate("/profile")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") smoothNavigate("/profile"); }}
             role="button"
             tabIndex={0}
             aria-label="Profilo utente"
@@ -219,8 +222,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </svg>
                 </button>
                 <ul tabIndex={0} className="dropdown-content menu p-2 shadow-2xl bg-base-300 rounded-xl w-52 mt-2 z-[100] border border-white/5 font-bold">
-                  <li><button onClick={() => navigate("/create-group")}>Nuovo Gruppo</button></li>
-                  <li><button onClick={() => navigate("/settings")}>Impostazioni</button></li>
+                  <li><button onClick={() => smoothNavigate("/create-group")}>Nuovo Gruppo</button></li>
+                  <li><button onClick={() => smoothNavigate("/settings")}>Impostazioni</button></li>
                   <li><button onClick={() => requestNotifications()}>Notifiche</button></li>
                 </ul>
               </div>
