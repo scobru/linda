@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataBase } from "../zen/db";
 import { truncatePub } from "../utils/names";
@@ -48,6 +48,21 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       setKeys(JSON.stringify(pair, null, 2));
     }
   }, [db]);
+
+  // Stable Magic Link for the QR: recomputing it on every render (Date.now)
+  // made the QR change on each keystroke in the inputs above.
+  const magicLinkValue = useMemo(() => {
+    const pair = ((db.user as any) as any)?._?.sea || {};
+    const sessionData = {
+      type: "shogun-auth-pair",
+      version: "1.0",
+      pair,
+      username,
+      exportedAt: Date.now(),
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
+    return `${window.location.origin}/?magic_login=${encodeURIComponent(encoded)}`;
+  }, [db, username]);
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -344,15 +359,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
             <div className="shrink-0 bg-white p-4 sm:p-8 rounded-[2rem] sm:rounded-[3rem] shadow-3xl border-8 sm:border-[12px] border-primary/10 hover:scale-105 transition-transform duration-700 relative group">
                <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2.5rem] pointer-events-none"></div>
-               <QRCodeSVG 
-                value={`${window.location.origin}/?magic_login=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify({ 
-                type: "shogun-auth-pair",
-                version: "1.0",
-                pair: ((db.user as any) as any)?._?.sea || {},
-                username: username,
-                exportedAt: Date.now()
-              })))))}`} 
-                size={180} 
+               <QRCodeSVG
+                value={magicLinkValue}
+                size={180}
                 level="H"
                 className="sm:w-[220px] sm:h-[220px]"
                 includeMargin={false}

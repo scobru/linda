@@ -50,6 +50,7 @@
 
   /* Signal-inspired Clean Light Palette */
   --color-base-100: #ffffff;
+  --color-base-100-rgb: 255, 255, 255;
   --color-base-200: #f6f6f6;
   --color-base-300: #ededed;
   --color-base-content: #1b1b1f;
@@ -85,6 +86,7 @@
 
   /* Signal-inspired Charcoal Gray Palette */
   --color-base-100: #1c1c1e;
+  --color-base-100-rgb: 28, 28, 30;
   --color-base-200: #2c2c2e;
   --color-base-300: #3a3a3c;
   --color-base-content: #f5f5f5;
@@ -140,6 +142,25 @@ body {
   letter-spacing: -0.015em;
 }
 
+/* Extra-tight tracking used by headings (not a Tailwind default) */
+.tracking-tightest {
+  letter-spacing: -0.06em;
+}
+
+/* Deep shadow used by profile QR card (not a Tailwind default) */
+.shadow-3xl {
+  box-shadow: 0 35px 60px -15px rgba(0, 0, 0, 0.45);
+}
+
+/* Hide scrollbars but keep the element scrollable */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Safe Area Utilities (notches / home indicator) ───────── */
 .pt-safe {
   padding-top: env(safe-area-inset-top);
@@ -183,7 +204,8 @@ body {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png");
+  /* Inline pattern: no third-party request (privacy) and works offline */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23888888' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M20 24h14a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H26l-6 5v-5a5 5 0 0 1-5-5v-8a5 5 0 0 1 5-5z'/%3E%3Ccircle cx='88' cy='30' r='9'/%3E%3Cpath d='M84 30l3 3 6-6'/%3E%3Cpath d='M30 84l6 6m0-6l-6 6'/%3E%3Ccircle cx='90' cy='90' r='4'/%3E%3Cpath d='M56 60c4-6 12-6 16 0'/%3E%3C/g%3E%3C/svg%3E");
   background-repeat: repeat;
   background-size: 380px;
   opacity: 0.035; /* Subtle background pattern */
@@ -305,6 +327,31 @@ body {
 
 .animate-slide-up {
   animation: slide-up 0.6s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* Indeterminate progress shimmer (upload overlay) */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* Floating background blobs (auth page) */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -40px) scale(1.08); }
+  66% { transform: translate(-20px, 25px) scale(0.95); }
+}
+
+.animate-blob {
+  animation: blob 12s ease-in-out infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
 }
 
 /* ── Signal-Style View Transitions ──────────────────────── */

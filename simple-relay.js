@@ -52,9 +52,20 @@ const server = http.createServer(async (req, res) => {
     // 3. TPRE ENDPOINT
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (parsedUrl.pathname === '/api/v1/tpre/reencrypt' && req.method === 'POST') {
+        const MAX_BODY_SIZE = 1024 * 1024; // 1 MB is plenty for a capsule + keys
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let aborted = false;
+        req.on('data', chunk => {
+            body += chunk;
+            if (body.length > MAX_BODY_SIZE && !aborted) {
+                aborted = true;
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: "Payload too large" }));
+                req.destroy();
+            }
+        });
         req.on('end', async () => {
+            if (aborted) return;
             try {
                 const { groupId, memberPub, capsuleB64 } = JSON.parse(body);
                 console.log(`[Relay] 📥 Request for Group: ${groupId?.substring(0, 8)} | Member: ${memberPub?.substring(0, 12)}...`);
@@ -101,8 +112,21 @@ const server = http.createServer(async (req, res) => {
 
     // Then try static files from current directory
     const isSystemFile = req.url.match(/\.(wasm|js|css|gif|png|jpg|jpeg|svg|json|mp3|ico)$/);
-    const staticPath = path.join(process.cwd(), parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname);
-    
+    let decodedPathname = parsedUrl.pathname;
+    try {
+        decodedPathname = decodeURIComponent(parsedUrl.pathname);
+    } catch (e) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        return res.end("Bad Request");
+    }
+    const staticPath = path.resolve(process.cwd(), '.' + (decodedPathname === '/' ? '/index.html' : decodedPathname));
+
+    // Never serve files outside the working directory (path traversal guard)
+    if (!staticPath.startsWith(path.resolve(process.cwd()) + path.sep) && staticPath !== path.resolve(process.cwd())) {
+        res.writeHead(403, { "Content-Type": "text/plain" });
+        return res.end("Forbidden");
+    }
+
     if (fs.existsSync(staticPath)) {
         const stats = fs.statSync(staticPath);
         if (stats.isFile()) {
@@ -114,6 +138,10 @@ const server = http.createServer(async (req, res) => {
                 '.json': 'application/json',
                 '.png': 'image/png',
                 '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.ico': 'image/x-icon',
+                '.html': 'text/html',
                 '.svg': 'image/svg+xml',
                 '.mp3': 'audio/mpeg'
             };

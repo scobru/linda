@@ -240,6 +240,9 @@ export const useMessaging = (
           const now = Date.now();
           const parsedTs = typeof data.ts === "string" ? parseInt(data.ts, 10) : Number(data.ts);
           if (isNaN(parsedTs) || parsedTs > now + 3600000) return;
+          // Ignore stale statuses replayed from the graph at startup,
+          // otherwise old "typing" events flash in the UI.
+          if (now - parsedTs > 4000) return;
 
           setTypingStatuses((prev) => ({ ...prev, [senderPubKey]: parsedTs }));
         }
