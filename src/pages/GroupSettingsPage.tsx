@@ -33,10 +33,6 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   const [isPublic, setIsPublic] = useState(false);
   const [publicName, setPublicName] = useState("");
 
-  useEffect(() => {
-    if (groupId) loadData();
-  }, [groupId]);
-
   const loadData = async () => {
     if (!groupId) return;
     setLoading(true);
@@ -72,6 +68,11 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (groupId) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId]);
 
   useEffect(() => {
     if (!groupId || !db.zen || !myRole || !['moderator', 'administrator'].includes(myRole)) return;

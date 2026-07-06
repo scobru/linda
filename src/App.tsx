@@ -228,7 +228,12 @@ const AppContent: React.FC<{
                 groupService,
                 showNotification,
                 saveContact: messaging.saveContact,
-                requestNotifications: () => Notification.requestPermission(),
+                requestNotifications: () => {
+                  // Notification is not defined on iOS Safari (non-PWA)
+                  if (typeof Notification !== "undefined") {
+                    Notification.requestPermission();
+                  }
+                },
               }}
             />
           }

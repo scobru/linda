@@ -156,7 +156,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
             onChange={handleProgressChange}
             className="range range-xs range-primary h-1 bg-white/10 rounded-full cursor-pointer appearance-none"
             style={{
-              background: `linear-gradient(to right, hsl(var(--p)) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.1) ${(currentTime / duration) * 100}%)`,
+              background: `linear-gradient(to right, hsl(var(--p)) ${duration > 0 ? (currentTime / duration) * 100 : 0}%, rgba(255,255,255,0.1) ${duration > 0 ? (currentTime / duration) * 100 : 0}%)`,
             }}
           />
         </div>

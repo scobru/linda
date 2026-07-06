@@ -26,6 +26,18 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
     return localStorage.getItem(`linda_avatar_${cleanPub}`);
   });
 
+  // Reset when the subject changes, otherwise the previous user's avatar
+  // keeps showing until the subscription below emits (React reuses the
+  // component instance when only `pub` changes).
+  useEffect(() => {
+    if (!pub) {
+      setAvatar(null);
+      return;
+    }
+    const cleanPub = DataBase.cleanPub(pub);
+    setAvatar(localStorage.getItem(`linda_avatar_${cleanPub}`));
+  }, [pub]);
+
   useEffect(() => {
     if (!pub || !db) return;
 
