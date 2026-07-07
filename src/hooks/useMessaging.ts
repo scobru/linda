@@ -333,9 +333,9 @@ export const useMessaging = (
           }
 
           try {
-            // Pacing delay to allow GunDB sync to catch up on fragments
-            await new Promise(r => setTimeout(r, 2000));
-            
+            // Try to decrypt right away: in the common case the fragments are
+            // already synced and the message renders instantly. If sync is
+            // still catching up, the retry loop below waits with backoff.
             let plaintext = "";
             let retries = 10;
             let delay = 2000;
