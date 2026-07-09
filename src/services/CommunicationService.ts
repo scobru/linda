@@ -336,18 +336,21 @@ export class CommunicationService {
         try {
           // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
           const gunEpub = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 5000);
-            this.db.zen
-              .get(`~${pub}`)
-              .get("epub")
-              .once((data: any) => {
+            const node = this.db.zen.get(`~${pub}`).get("epub");
+            const timeout = setTimeout(() => {
+              try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+              resolve(null);
+            }, 5000);
+
+            node.on((data: any) => {
+              // Handle Zen-native signed format: { ":": value, "~": sig }
+              const val = (data && typeof data === "object") ? data[":"] : data;
+              if (val && typeof val === "string" && val.length > 20) {
                 clearTimeout(timeout);
-                // Handle Zen-native signed format: { ":": value, "~": sig }
-                const val = (data && typeof data === "object") ? data[":"] : data;
-                if (val && typeof val === "string" && val.length > 20)
-                  resolve(val);
-                else resolve(null);
-              });
+                try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+                resolve(val);
+              }
+            });
           });
           if (gunEpub) {
             console.log(
@@ -360,17 +363,23 @@ export class CommunicationService {
 
           // Method B: Bundle node (V7 format)
           const bundle = await new Promise<any>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 5000);
-            this.db.zen
-              .get(`~${pub}`)
-              .get("linda_bundle_v7")
-              .once((data: any) => {
-                clearTimeout(timeout);
-                // Handle Zen-native signed format or raw
-                if (data && data.epub) resolve(data);
-                else if (data && data[":"] && data[":"]["epub"]) resolve(data[":"]);
-                else resolve(null);
-              });
+            const node = this.db.zen.get(`~${pub}`).get("linda_bundle_v7");
+            const timeout = setTimeout(() => {
+              try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+              resolve(null);
+            }, 5000);
+
+            node.on((data: any) => {
+              // Handle Zen-native signed format or raw
+              if (data && typeof data === "object") {
+                const val = data[":"] || data;
+                if (val && typeof val.epub === "string" && val.epub.length > 20) {
+                  clearTimeout(timeout);
+                  try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+                  resolve(val);
+                }
+              }
+            });
           });
           if (
             bundle &&
@@ -387,18 +396,20 @@ export class CommunicationService {
 
           // Method C: Targeted Profile Fetch (Replacement for root node fetch)
           const profileEpub = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 5000);
-            this.db.zen
-              .get(`~${pub}`)
-              .get("profile")
-              .get("epub")
-              .once((data: any) => {
+            const node = this.db.zen.get(`~${pub}`).get("profile").get("epub");
+            const timeout = setTimeout(() => {
+              try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+              resolve(null);
+            }, 5000);
+
+            node.on((data: any) => {
+              const val = (data && typeof data === "object") ? data[":"] : data;
+              if (val && typeof val === "string" && val.length > 20) {
                 clearTimeout(timeout);
-                const val = (data && typeof data === "object") ? data[":"] : data;
-                if (val && typeof val === "string" && val.length > 20)
-                  resolve(val);
-                else resolve(null);
-              });
+                try { if (typeof node.off === 'function') node.off(); } catch (e) {}
+                resolve(val);
+              }
+            });
           });
           if (profileEpub) {
             console.log(
