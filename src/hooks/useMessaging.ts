@@ -323,7 +323,7 @@ export const useMessaging = (
             while (retries > 0) {
               try {
                 if (isP2P) {
-                  plaintext = (await communicationService!.decryptMessage(contactId, { type: data.type, body: data.body })) || "";
+                  plaintext = (await communicationService!.decryptMessage(contactId, { type: data.type, body: data.body }, data.senderEpub)) || "";
                 } else {
                   plaintext = await groupService.decryptGroupMessage(meta, data.body);
                 }
@@ -527,7 +527,7 @@ export const useMessaging = (
             const plaintextValue = await communicationService.decryptMessage(senderPubKeyRaw, {
               type: data.type,
               body: data.body,
-            });
+            }, data.senderEpub);
             
             if (userPub) saveProcessedKey(userPub, gunKey);
 
@@ -664,6 +664,7 @@ export const useMessaging = (
         await db.Set(`linda_rooms/${p2pGroup.id}/messages`, { 
             msgId, 
             sender: userPub, 
+            senderEpub: communicationService.myPair?.epub,
             body: pokeCipher.body, 
             timestamp: timestamp.toISOString(), 
             type: pokeCipher.type,
@@ -677,6 +678,7 @@ export const useMessaging = (
             
             await db.Set(`linda_v3_inbox_${recipient}`, {
                 sender: userPub,
+                senderEpub: communicationService.myPair?.epub,
                 type: pokeMsg.type,
                 body: pokeMsg.body,
                 timestamp: timestamp.toISOString(),

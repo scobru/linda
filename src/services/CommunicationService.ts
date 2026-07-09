@@ -19,7 +19,7 @@ export class CommunicationService {
   private epubCache: Map<string, string> = new Map();
   private secretCache: Map<string, any> = new Map(); // Memoized DH secrets
   private inboxCertCache: Map<string, string> = new Map(); // Memoized Zen certs
-  private myPair: any = null;
+  public myPair: any = null;
   private cryptoMutex: Promise<any> = Promise.resolve(); // Serialize all WebCrypto operations
   private pubkeyPromises: Map<string, Promise<string>> = new Map();
   private epubPromises: Map<string, Promise<string>> = new Map();
@@ -770,6 +770,7 @@ export class CommunicationService {
   async decryptMessage(
     senderUsernameOrPub: string,
     ciphertext: { type: number; body: string },
+    senderEpub?: string,
   ): Promise<string | undefined> {
     try {
       let pubKey = senderUsernameOrPub;
@@ -777,8 +778,8 @@ export class CommunicationService {
         pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
       }
 
-      const senderEpub = await this.getEpubFromPub(pubKey);
-      if (!senderEpub) {
+      const epub = senderEpub || await this.getEpubFromPub(pubKey);
+      if (!epub) {
         console.warn(
           `[CommunicationService] No epub found for ${pubKey.slice(0, 8)}. Cannot decrypt.`,
         );
@@ -802,10 +803,10 @@ export class CommunicationService {
         return "LEGACY_UNSUPPORTED";
       }
 
-      let secret = this.secretCache.get(senderEpub);
+      let secret = this.secretCache.get(epub);
       if (!secret) {
-        secret = await zenCrypto.secret(senderEpub, myPair, this.db.zen);
-        if (secret) this.secretCache.set(senderEpub, secret);
+        secret = await zenCrypto.secret(epub, myPair, this.db.zen);
+        if (secret) this.secretCache.set(epub, secret);
       }
 
       if (!secret) {
@@ -857,7 +858,7 @@ export class CommunicationService {
         };
 
         this.epubCache.delete(pubKey);
-        this.secretCache.delete(senderEpub);
+        this.secretCache.delete(epub);
         try {
           const freshEpub = await this.getEpubFromPub(pubKey);
           const freshSecret = await zenCrypto.secret(freshEpub, myPair, this.db.zen);
