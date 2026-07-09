@@ -1,16 +1,12 @@
-import { test, describe, before } from 'node:test';
-import assert from 'node:assert';
-import crypto from 'node:crypto';
+import { test, describe, beforeAll, assert } from 'vitest';
 import { generateSecureRandomInt, generateSecureRandomString } from './crypto.ts';
 
 describe('Crypto Utils', () => {
-  before(() => {
-    // Mock window.crypto for the test environment
+  beforeAll(() => {
+    // Mock window.crypto for the test environment using native globalThis.crypto
     if (typeof window === 'undefined') {
       (global as any).window = {
-        crypto: {
-          getRandomValues: (array: any) => crypto.getRandomValues(array)
-        }
+        crypto: globalThis.crypto
       };
     }
   });

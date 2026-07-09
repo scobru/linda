@@ -7,7 +7,6 @@ import http from 'http';
 const ZEN = (await import('zen')).default;
 const serve = (await import('zen/lib/serve.js')).default;
 const Store = (await import('zen/lib/rfs.js')).default;
-const umbral = await import('@nucypher/umbral-pre');
 
 const port = process.env.PORT || 8765;
 
@@ -47,51 +46,6 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         return res.end('Il Relay Zen è attivo! Connettiti tramite WebSocket a /zen');
-    }
-
-    // 3. TPRE ENDPOINT
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (parsedUrl.pathname === '/api/v1/tpre/reencrypt' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        req.on('end', async () => {
-            try {
-                const { groupId, memberPub, capsuleB64 } = JSON.parse(body);
-                console.log(`[Relay] 📥 Request for Group: ${groupId?.substring(0, 8)} | Member: ${memberPub?.substring(0, 12)}...`);
-
-                if (!groupId || !memberPub || !capsuleB64) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify({ error: "Missing required parameters" }));
-                }
-
-                const kfragNode = zen.get("linda_rooms").get(groupId).get("relay_kfrags").get(memberPub);
-                const kfragString = await waitForZenData(kfragNode);
-
-                if (!kfragString) {
-                    console.warn(`[Relay] ❌ Kfrag NOT FOUND for member ${memberPub?.substring(0, 8)}`);
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify({ error: "No relay kfrag found" }));
-                }
-
-                const kfragBytes = new Uint8Array(Buffer.from(kfragString, 'base64'));
-                const kfrag = umbral.KeyFrag.fromBytes(kfragBytes).skipVerification();
-
-                const capsuleBytes = new Uint8Array(Buffer.from(capsuleB64, 'base64'));
-                const capsule = umbral.Capsule.fromBytes(capsuleBytes);
-
-                const cfrag = umbral.reencrypt(capsule, kfrag);
-                const cfragB64 = Buffer.from(cfrag.toBytes()).toString('base64');
-
-                console.log(`[Relay] ✅ Re-encryption successful`);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ cfrag: cfragB64 }));
-            } catch (err) {
-                console.error(`[Relay] 💥 Error:`, err.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: err.message }));
-            }
-        });
-        return;
     }
 
     // 4. FALLBACK TO ZEN SERVE (Static files & zen.js)

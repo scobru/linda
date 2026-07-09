@@ -21,6 +21,7 @@ interface SidebarProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
   saveContact: (id: string) => void;
   requestNotifications: () => void;
+  blockedContacts: Set<string>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   showNotification,
   saveContact,
   requestNotifications,
+  blockedContacts,
 }) => {
   const smoothNavigate = useSmoothNavigate();
   const [showScanner, setShowScanner] = useState(false);
@@ -88,9 +90,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         pubKey = await communicationService.getPubKeyFromUsername(pubKey);
       }
 
-      saveContact(pubKey);
+      if (!blockedContacts.has(pubKey)) {
+        saveContact(pubKey);
+        showNotification(`Contact added via QR!`, "info");
+      } else {
+        showNotification(`Opening chat with blocked contact`, "info");
+      }
       smoothNavigate(`/chat/${pubKey}`, () => setRecipient(pubKey));
-      showNotification(`Contact added via QR!`, "info");
     } catch (err: any) {
       showNotification("Invalid QR Code", "error");
     }
@@ -138,7 +144,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           pubKey = await communicationService.getPubKeyFromUsername(name);
         }
 
-        saveContact(pubKey);
+        if (!blockedContacts.has(pubKey)) {
+          saveContact(pubKey);
+        } else {
+          showNotification(`Opening chat with blocked contact`, "info");
+        }
         smoothNavigate(`/chat/${pubKey}`, () => {
           setRecipient(pubKey);
           setShowSearch(false);

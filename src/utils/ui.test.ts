@@ -1,5 +1,4 @@
-import { test, describe } from 'node:test';
-import assert from 'node:assert';
+import { test, describe, assert } from 'vitest';
 import { formatUserName } from './ui.ts';
 
 describe('ui utils', () => {

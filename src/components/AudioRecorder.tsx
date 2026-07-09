@@ -9,7 +9,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<any>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {

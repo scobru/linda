@@ -21,6 +21,9 @@ export class CommunicationService {
   private inboxCertCache: Map<string, string> = new Map(); // Memoized Zen certs
   private myPair: any = null;
   private cryptoMutex: Promise<any> = Promise.resolve(); // Serialize all WebCrypto operations
+  private pubkeyPromises: Map<string, Promise<string>> = new Map();
+  private epubPromises: Map<string, Promise<string>> = new Map();
+  private inboxCertPromises: Map<string, Promise<string>> = new Map();
 
   constructor(db: DataBase) {
     this.db = db;
@@ -239,52 +242,64 @@ export class CommunicationService {
     const cached = this.pubkeyCache.get(query);
     if (cached) return cached;
 
-    console.log(`[CommunicationService] Resolving pubkey for: ${query}`);
-    
-    // Normalize unique handle search (e.g. "dev1234" -> "@dev1234")
-    const normalizedUnique = query.startsWith("@") ? query : `@${query}`;
-    const loginQuery = query.startsWith("@") ? query.slice(1) : query;
-    const lowerLoginQuery = loginQuery.toLowerCase();
+    const existing = this.pubkeyPromises.get(query);
+    if (existing) return existing;
 
-    // Iterate attempts to handle eventual consistency on slow relays
-    for (let i = 0; i < 6; i++) {
-      try {
-        // Strategy A: Check Custom Unique Usernames Index (@handle format)
-        const uniquePubKey = await this.db.Get(`linda_unique_usernames/${normalizedUnique}`);
-        if (uniquePubKey && typeof uniquePubKey === "string" && uniquePubKey.length >= 30) {
-          this.pubkeyCache.set(query, uniquePubKey);
-          return uniquePubKey;
-        }
+    const promise = (async () => {
+      console.log(`[CommunicationService] Resolving pubkey for: ${query}`);
+      
+      // Normalize unique handle search (e.g. "dev1234" -> "@dev1234")
+      const normalizedUnique = query.startsWith("@") ? query : `@${query}`;
+      const loginQuery = query.startsWith("@") ? query.slice(1) : query;
+      const lowerLoginQuery = loginQuery.toLowerCase();
 
-        // Strategy B: Check Global Usernames Index (used for login mapping)
-        const loginPubKey = await this.db.Get(`usernames/${lowerLoginQuery}`);
-        if (loginPubKey && typeof loginPubKey === "string" && loginPubKey.length >= 30) {
-          this.pubkeyCache.set(query, loginPubKey);
-          return loginPubKey;
-        }
+      // Iterate attempts to handle eventual consistency on slow relays
+      for (let i = 0; i < 6; i++) {
+        try {
+          // Strategy A: Check Custom Unique Usernames Index (@handle format)
+          const uniquePubKey = await this.db.Get(`linda_unique_usernames/${normalizedUnique}`);
+          if (uniquePubKey && typeof uniquePubKey === "string" && uniquePubKey.length >= 30) {
+            this.pubkeyCache.set(query, uniquePubKey);
+            return uniquePubKey;
+          }
 
-        // Strategy C: Check native Gun Alias node (~@name)
-        const data = (await this.db.Get(`~@${loginQuery}`)) as any;
-        if (data && typeof data === "object") {
-          const pubNode = Object.keys(data).find(
-            (k) => k.startsWith("~") && k !== "_" && k.length > 5,
-          );
-          if (pubNode) {
-            const pub = pubNode.slice(1);
-            if (pub.length >= 30) {
-              this.pubkeyCache.set(query, pub);
-              return pub;
+          // Strategy B: Check Global Usernames Index (used for login mapping)
+          const loginPubKey = await this.db.Get(`usernames/${lowerLoginQuery}`);
+          if (loginPubKey && typeof loginPubKey === "string" && loginPubKey.length >= 30) {
+            this.pubkeyCache.set(query, loginPubKey);
+            return loginPubKey;
+          }
+
+          // Strategy C: Check native Gun Alias node (~@name)
+          const data = (await this.db.Get(`~@${loginQuery}`)) as any;
+          if (data && typeof data === "object") {
+            const pubNode = Object.keys(data).find(
+              (k) => k.startsWith("~") && k !== "_" && k.length > 5,
+            );
+            if (pubNode) {
+              const pub = pubNode.slice(1);
+              if (pub.length >= 30) {
+                this.pubkeyCache.set(query, pub);
+                return pub;
+              }
             }
           }
+        } catch (e) {
+          console.warn(`[CommunicationService] Resolution attempt ${i + 1} failed for ${query}:`, e);
         }
-      } catch (e) {
-        console.warn(`[CommunicationService] Resolution attempt ${i + 1} failed for ${query}:`, e);
+        
+        // Jittered backoff (400ms, 800ms, 1.2s...)
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
       }
-      
-      // Jittered backoff (400ms, 800ms, 1.2s...)
-      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      throw new Error(`Citizen "${query}" not found.`);
+    })();
+
+    this.pubkeyPromises.set(query, promise);
+    try {
+      return await promise;
+    } finally {
+      this.pubkeyPromises.delete(query);
     }
-    throw new Error(`Citizen "${query}" not found.`);
   }
 
   /**
@@ -308,101 +323,113 @@ export class CommunicationService {
       return localCached;
     }
 
-    console.log(
-      `[CommunicationService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`,
-    );
+    const existing = this.epubPromises.get(pub);
+    if (existing) return existing;
 
-    // Attempt multiple paths and methods to find the epub
-    for (let i = 0; i < 5; i++) {
-      try {
-        // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
-        const gunEpub = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 5000);
-          this.db.zen
-            .get(`~${pub}`)
-            .get("epub")
-            .once((data: any) => {
-              clearTimeout(timeout);
-              // Handle Zen-native signed format: { ":": value, "~": sig }
-              const val = (data && typeof data === "object") ? data[":"] : data;
-              if (val && typeof val === "string" && val.length > 20)
-                resolve(val);
-              else resolve(null);
-            });
-        });
-        if (gunEpub) {
-          console.log(
-            `[CommunicationService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`,
+    const promise = (async () => {
+      console.log(
+        `[CommunicationService] Discovery: Fetching epub for: ${pub.slice(0, 8)}...`,
+      );
+
+      // Attempt multiple paths and methods to find the epub
+      for (let i = 0; i < 5; i++) {
+        try {
+          // Method A: Direct Gun node (bypassing db.Get abstraction for speed/reliability)
+          const gunEpub = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 5000);
+            this.db.zen
+              .get(`~${pub}`)
+              .get("epub")
+              .once((data: any) => {
+                clearTimeout(timeout);
+                // Handle Zen-native signed format: { ":": value, "~": sig }
+                const val = (data && typeof data === "object") ? data[":"] : data;
+                if (val && typeof val === "string" && val.length > 20)
+                  resolve(val);
+                else resolve(null);
+              });
+          });
+          if (gunEpub) {
+            console.log(
+              `[CommunicationService] Found epub via direct Gun node for: ${pub.slice(0, 8)}`,
+            );
+            this.epubCache.set(pub, gunEpub);
+            localStorage.setItem(`zen_epub_${pub}`, gunEpub);
+            return gunEpub;
+          }
+
+          // Method B: Bundle node (V7 format)
+          const bundle = await new Promise<any>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 5000);
+            this.db.zen
+              .get(`~${pub}`)
+              .get("linda_bundle_v7")
+              .once((data: any) => {
+                clearTimeout(timeout);
+                // Handle Zen-native signed format or raw
+                if (data && data.epub) resolve(data);
+                else if (data && data[":"] && data[":"]["epub"]) resolve(data[":"]);
+                else resolve(null);
+              });
+          });
+          if (
+            bundle &&
+            typeof bundle.epub === "string" &&
+            bundle.epub.length > 20
+          ) {
+            console.log(
+              `[CommunicationService] Found epub via bundle for: ${pub.slice(0, 8)}`,
+            );
+            this.epubCache.set(pub, bundle.epub);
+            localStorage.setItem(`zen_epub_${pub}`, bundle.epub);
+            return bundle.epub;
+          }
+
+          // Method C: Targeted Profile Fetch (Replacement for root node fetch)
+          const profileEpub = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 5000);
+            this.db.zen
+              .get(`~${pub}`)
+              .get("profile")
+              .get("epub")
+              .once((data: any) => {
+                clearTimeout(timeout);
+                const val = (data && typeof data === "object") ? data[":"] : data;
+                if (val && typeof val === "string" && val.length > 20)
+                  resolve(val);
+                else resolve(null);
+              });
+          });
+          if (profileEpub) {
+            console.log(
+              `[CommunicationService] Found epub via profile node for: ${pub.slice(0, 8)}`,
+            );
+            this.epubCache.set(pub, profileEpub);
+            localStorage.setItem(`zen_epub_${pub}`, profileEpub);
+            return profileEpub;
+          }
+        } catch (e: any) {
+          console.warn(
+            `[CommunicationService] Epub fetch attempt ${i + 1} for ${pub.slice(0, 8)} failed:`,
+            e?.message || e || "Unknown error",
           );
-          this.epubCache.set(pub, gunEpub);
-          localStorage.setItem(`zen_epub_${pub}`, gunEpub);
-          return gunEpub;
         }
 
-        // Method B: Bundle node (V7 format)
-        const bundle = await new Promise<any>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 5000);
-          this.db.zen
-            .get(`~${pub}`)
-            .get("linda_bundle_v7")
-            .once((data: any) => {
-              clearTimeout(timeout);
-              // Handle Zen-native signed format or raw
-              if (data && data.epub) resolve(data);
-              else if (data && data[":"] && data[":"]["epub"]) resolve(data[":"]);
-              else resolve(null);
-            });
-        });
-        if (
-          bundle &&
-          typeof bundle.epub === "string" &&
-          bundle.epub.length > 20
-        ) {
-          console.log(
-            `[CommunicationService] Found epub via bundle for: ${pub.slice(0, 8)}`,
-          );
-          this.epubCache.set(pub, bundle.epub);
-          localStorage.setItem(`zen_epub_${pub}`, bundle.epub);
-          return bundle.epub;
-        }
-
-        // Method C: Targeted Profile Fetch (Replacement for root node fetch)
-        const profileEpub = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 5000);
-          this.db.zen
-            .get(`~${pub}`)
-            .get("profile")
-            .get("epub")
-            .once((data: any) => {
-              clearTimeout(timeout);
-              const val = (data && typeof data === "object") ? data[":"] : data;
-              if (val && typeof val === "string" && val.length > 20)
-                resolve(val);
-              else resolve(null);
-            });
-        });
-        if (profileEpub) {
-          console.log(
-            `[CommunicationService] Found epub via profile node for: ${pub.slice(0, 8)}`,
-          );
-          this.epubCache.set(pub, profileEpub);
-          localStorage.setItem(`zen_epub_${pub}`, profileEpub);
-          return profileEpub;
-        }
-      } catch (e: any) {
-        console.warn(
-          `[CommunicationService] Epub fetch attempt ${i + 1} for ${pub.slice(0, 8)} failed:`,
-          e?.message || e || "Unknown error",
-        );
+        // Jittered exponential-ish backoff
+        const backoff = Math.min(5000, 1000 * (i + 1) + Math.random() * 500);
+        await new Promise((r) => setTimeout(r, backoff));
       }
+      throw new Error(
+        `Could not find Zen epub for ${pub.slice(0, 8)} after 5 attempts.`,
+      );
+    })();
 
-      // Jittered exponential-ish backoff
-      const backoff = Math.min(5000, 1000 * (i + 1) + Math.random() * 500);
-      await new Promise((r) => setTimeout(r, backoff));
+    this.epubPromises.set(pub, promise);
+    try {
+      return await promise;
+    } finally {
+      this.epubPromises.delete(pub);
     }
-    throw new Error(
-      `Could not find Zen epub for ${pub.slice(0, 8)} after 5 attempts.`,
-    );
   }
 
   /**
@@ -542,122 +569,134 @@ export class CommunicationService {
     const cached = this.inboxCertCache.get(pub);
     if (cached) return cached;
 
-    const myPub = this.db.getUserPub();
-    console.log(
-      `[CommunicationService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`,
-    );
+    const existing = this.inboxCertPromises.get(pub);
+    if (existing) return existing;
 
-    // Helper: validate that a cert's policy actually covers linda_inbox_v13
-    const validateCert = async (
-      cert: string,
-      label: string,
-    ): Promise<boolean> => {
-      try {
-        const verified = await zenCrypto.verify(cert, pub, this.db.zen);
-        if (!verified || !verified.c) {
+    const promise = (async () => {
+      const myPub = this.db.getUserPub();
+      console.log(
+        `[CommunicationService] Discovery: Fetching inbox certificate for: ${pub.slice(0, 8)}...`,
+      );
+
+      // Helper: validate that a cert's policy actually covers linda_inbox_v13
+      const validateCert = async (
+        cert: string,
+        label: string,
+      ): Promise<boolean> => {
+        try {
+          const verified = await zenCrypto.verify(cert, pub, this.db.zen);
+          if (!verified || !verified.c) {
+            console.warn(
+              `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed Zen verify`,
+            );
+            return false;
+          }
+          const policyStr = JSON.stringify(verified.c);
+          // Accept policies that explicitly mention v13 OR have a global wildcard "*"
+          if (
+            policyStr.includes("linda_inbox_v13") ||
+            policyStr.includes('"*"')
+          ) {
+            return true;
+          }
+          // Wildcard-only policies ("*") are now accepted above if they match the string.
           console.warn(
-            `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} failed Zen verify`,
+            `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} has incompatible policy: ${policyStr.substring(0, 80)}`,
+          );
+          return false;
+        } catch (e) {
+          console.warn(
+            `[CommunicationService] ${label} cert validation error for ${pub.slice(0, 8)}:`,
+            e,
           );
           return false;
         }
-        const policyStr = JSON.stringify(verified.c);
-        // Accept policies that explicitly mention v13 OR have a global wildcard "*"
-        if (
-          policyStr.includes("linda_inbox_v13") ||
-          policyStr.includes('"*"')
-        ) {
-          return true;
-        }
-        // Wildcard-only policies ("*") are now accepted above if they match the string.
-        console.warn(
-          `[CommunicationService] ${label} cert for ${pub.slice(0, 8)} has incompatible policy: ${policyStr.substring(0, 80)}`,
-        );
-        return false;
-      } catch (e) {
-        console.warn(
-          `[CommunicationService] ${label} cert validation error for ${pub.slice(0, 8)}:`,
-          e,
-        );
-        return false;
-      }
-    };
+      };
 
-    for (let i = 0; i < 10; i++) {
-      try {
-        // Method 1: Specific certificate issued for ME — still needs policy validation
-        if (myPub) {
-          const specificCert = await new Promise<string | null>((resolve) => {
+      for (let i = 0; i < 10; i++) {
+        try {
+          // Method 1: Specific certificate issued for ME — still needs policy validation
+          if (myPub) {
+            const specificCert = await new Promise<string | null>((resolve) => {
+              const timeout = setTimeout(() => resolve(null), 3000);
+              this.db.zen
+                .get(`~${pub}`)
+                .get("certs")
+                .get(myPub)
+                .once((data: any) => {
+                  clearTimeout(timeout);
+                  if (data && typeof data === "string") resolve(data);
+                  else resolve(null);
+                });
+            });
+            if (specificCert && (await validateCert(specificCert, "specific"))) {
+              console.log(
+                `[CommunicationService] Found valid specific certificate for ${pub.slice(0, 8)}`,
+              );
+              this.inboxCertCache.set(pub, specificCert);
+              return specificCert;
+            }
+          }
+
+          // Method 2: Public certificate v13 (latest) — validated
+          const v13Cert = await new Promise<string | null>((resolve) => {
             const timeout = setTimeout(() => resolve(null), 3000);
             this.db.zen
               .get(`~${pub}`)
-              .get("certs")
-              .get(myPub)
+              .get("inbox_cert_v13")
               .once((data: any) => {
                 clearTimeout(timeout);
                 if (data && typeof data === "string") resolve(data);
                 else resolve(null);
               });
           });
-          if (specificCert && (await validateCert(specificCert, "specific"))) {
+          if (v13Cert && (await validateCert(v13Cert, "v13"))) {
             console.log(
-              `[CommunicationService] Found valid specific certificate for ${pub.slice(0, 8)}`,
+              `[CommunicationService] Found valid v13 certificate for ${pub.slice(0, 8)}`,
             );
-            this.inboxCertCache.set(pub, specificCert);
-            return specificCert;
+            this.inboxCertCache.set(pub, v13Cert);
+            return v13Cert;
           }
-        }
 
-        // Method 2: Public certificate v13 (latest) — validated
-        const v13Cert = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 3000);
-          this.db.zen
-            .get(`~${pub}`)
-            .get("inbox_cert_v13")
-            .once((data: any) => {
-              clearTimeout(timeout);
-              if (data && typeof data === "string") resolve(data);
-              else resolve(null);
-            });
-        });
-        if (v13Cert && (await validateCert(v13Cert, "v13"))) {
-          console.log(
-            `[CommunicationService] Found valid v13 certificate for ${pub.slice(0, 8)}`,
-          );
-          this.inboxCertCache.set(pub, v13Cert);
-          return v13Cert;
-        }
+          // Method 3: Public certificate in bundle v8 — validated
+          const bundleCert = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 3000);
+            this.db.zen
+              .get(`~${pub}`)
+              .get("linda_bundle_v8")
+              .get("inbox_cert")
+              .once((data: any) => {
+                clearTimeout(timeout);
+                if (data && typeof data === "string") resolve(data);
+                else resolve(null);
+              });
+          });
+          if (bundleCert && (await validateCert(bundleCert, "bundle_v8"))) {
+            console.log(
+              `[CommunicationService] Found valid bundle v8 certificate for ${pub.slice(0, 8)}`,
+            );
+            this.inboxCertCache.set(pub, bundleCert);
+            return bundleCert;
+          }
 
-        // Method 3: Public certificate in bundle v8 — validated
-        const bundleCert = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 3000);
-          this.db.zen
-            .get(`~${pub}`)
-            .get("linda_bundle_v8")
-            .get("inbox_cert")
-            .once((data: any) => {
-              clearTimeout(timeout);
-              if (data && typeof data === "string") resolve(data);
-              else resolve(null);
-            });
-        });
-        if (bundleCert && (await validateCert(bundleCert, "bundle_v8"))) {
-          console.log(
-            `[CommunicationService] Found valid bundle v8 certificate for ${pub.slice(0, 8)}`,
-          );
-          this.inboxCertCache.set(pub, bundleCert);
-          return bundleCert;
-        }
+          // Skip v9/v8/root — they never have signal_inbox_v12 policies and will always fail validation
+        } catch (e) {}
 
-        // Skip v9/v8/root — they never have signal_inbox_v12 policies and will always fail validation
-      } catch (e) {}
+        const backoff = Math.min(3000, 500 * (i + 1) + Math.random() * 500);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
 
-      const backoff = Math.min(3000, 500 * (i + 1) + Math.random() * 500);
-      await new Promise((r) => setTimeout(r, backoff));
+      throw new Error(
+        `Could not find valid Zen inbox certificate for ${pub.slice(0, 8)} after multiple attempts.`,
+      );
+    })();
+
+    this.inboxCertPromises.set(pub, promise);
+    try {
+      return await promise;
+    } finally {
+      this.inboxCertPromises.delete(pub);
     }
-
-    throw new Error(
-      `Could not find valid Zen inbox certificate for ${pub.slice(0, 8)} after multiple attempts.`,
-    );
   }
 
   /**

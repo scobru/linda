@@ -36,7 +36,6 @@ export const useMessaging = (
   groupService: GroupService | null,
   recipient: string,
   setRecipient: (id: string) => void,
-  relayUrl?: string,
   showNotification?: (msg: string, type?: "info" | "error") => void
 ) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
@@ -222,8 +221,10 @@ export const useMessaging = (
     // 2. Mark as blocked in contacts list
     db.zen.get(`linda_v3_contacts_${userPub}`).get(contactId).put(false as any);
     
-    setRecipient("");
-  }, [userPub, db, communicationService, setRecipient]);
+    if (recipient === contactId) {
+      setRecipient("");
+    }
+  }, [userPub, db, communicationService, recipient, setRecipient]);
 
 
   // ── Typing Listeners ──
@@ -291,28 +292,7 @@ export const useMessaging = (
         groupSubscriptionsRef.current.add(contactId);
         if (isP2P) groupSubscriptionsRef.current.add(roomId);
 
-        // 0. Proactive TPRE Grant Reactor: Listen for new member PKs to grant access immediately
-        if (meta.encryptionMode === 'tpre') {
-            groupService.ensureUmbralPK(roomId).catch(() => {});
-            
-            // If we are the admin, listen for new member PKs to grant access
-            if (meta.adminPub === userPub) {
-                db.zen.get(`linda_rooms/${roomId}/umbral_pks`).map().on(async (pk: string, memberPub: string) => {
-                    if (pk && memberPub !== userPub) {
-                        try {
-                            // Check if already granted to avoid redundant writes
-                            const existingKfrag = await (db.Get as any)(`linda_rooms/${roomId}/relay_kfrags/${memberPub}`);
-                            if (!existingKfrag) {
-                                console.log(`[Messaging] Reactive TPRE grant for ${memberPub.slice(0, 8)}`);
-                                await groupService.grantTPREAccess(roomId, memberPub, pk);
-                            }
-                        } catch (e) {
-                            console.warn(`[Messaging] Failed reactive TPRE grant for ${memberPub}:`, e);
-                        }
-                    }
-                });
-            }
-        }
+        // Removed TPRE Proactive Reactor
 
         // 1. Listen to Messages
         db.zen.get(`linda_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
@@ -339,7 +319,11 @@ export const useMessaging = (
             
             while (retries > 0) {
               try {
-                plaintext = await groupService.decryptGroupMessage(meta, data.body, relayUrl);
+                if (isP2P) {
+                  plaintext = (await communicationService!.decryptMessage(contactId, { type: data.type, body: data.body })) || "";
+                } else {
+                  plaintext = await groupService.decryptGroupMessage(meta, data.body);
+                }
                 break;
               } catch (e) {
                 retries--;
@@ -399,7 +383,7 @@ export const useMessaging = (
                   text: (data.type === 'audio' || isFile) ? undefined : messageText,
                   audio: data.type === 'audio' ? plaintext : undefined,
                   fileMetadata,
-                  type: (data.type as any) || "text",
+                  type: isP2P ? (isFile ? (fileMetadata?.mimeType.startsWith('image/') ? 'image' : 'file') : (data.msgType || "text")) : ((data.type as any) || "text"),
                   timestamp: new Date(data.timestamp || Date.now()),
                   status: "delivered" as const,
                 },
@@ -462,66 +446,9 @@ export const useMessaging = (
         console.warn(`[Groups] Failed to start listener for ${contactId}:`, err);
       }
     });
-  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey, relayUrl]);
+  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey]);
 
-  // ── Admin TPRE Reactor ──
-  // Automatically grants access to new members when they join and publish their Umbral PK
-  const processedGrantsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!groupService || !userPub || contacts.length === 0) return;
-
-    contacts.forEach(async (contactId) => {
-      let roomId = contactId;
-      if (contactId.length >= 30 && !contactId.includes("-")) {
-          const calculatedId = await groupService.getP2PGroupId(contactId);
-          if (!calculatedId) return;
-          roomId = calculatedId;
-      }
-
-      try {
-        const meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
-        if (!meta || meta.adminPub !== userPub || meta.encryptionMode !== 'tpre') return;
-
-        // Subscribe to member list
-        db.zen.get(`linda_rooms/${roomId}/members`).map().on(async (memberData: any, memberPub: string) => {
-           if (!memberData || memberPub === "_" || memberPub === userPub) return;
-           
-           const grantKey = `${roomId}_${memberPub}`;
-           if (processedGrantsRef.current.has(grantKey)) return;
-
-           // Check if member published their Umbral PK
-           const umbralPK = memberData.umbral_pk;
-           if (umbralPK) {
-              // Check if we already granted access to the relay for this member
-              try {
-                const existingKFrag = await (db.Get as any)(`linda_rooms/${roomId}/relay_kfrags/${memberPub}`);
-                if (!existingKFrag) {
-                    console.log(`[AdminReactor] Found new member ${memberPub.substring(0,8)} in room ${roomId.substring(0,8)}. Granting TPRE access...`);
-                    await groupService.grantTPREAccess(roomId, memberPub, umbralPK);
-                    processedGrantsRef.current.add(grantKey);
-                } else {
-                    processedGrantsRef.current.add(grantKey);
-                }
-              } catch (err: any) {
-                if (err && err.err === 'notfound') {
-                    console.log(`[AdminReactor] No kfrag found for member ${memberPub.substring(0,8)} (notfound). Granting TPRE access...`);
-                    try {
-                        await groupService.grantTPREAccess(roomId, memberPub, umbralPK);
-                        processedGrantsRef.current.add(grantKey);
-                    } catch (grantErr) {
-                        console.error(`[AdminReactor] Failed to grant access after notfound:`, grantErr);
-                    }
-                } else {
-                    console.error(`[AdminReactor] Error checking access for ${memberPub}:`, err);
-                }
-              }
-           }
-        });
-      } catch (e) {
-      }
-    });
-  }, [contacts, groupService, userPub, db]);
+  // Removed Admin TPRE Reactor
 
   // ── Signal 1:1 Messaging (Inbox) ──
   useEffect(() => {
@@ -601,9 +528,9 @@ export const useMessaging = (
             
             if (userPub) saveProcessedKey(userPub, gunKey);
 
-            if (plaintextValue && plaintextValue.startsWith("TPRE_POKE:")) {
+            if (plaintextValue && plaintextValue.startsWith("P2P_POKE:")) {
               const roomId = plaintextValue.split(":")[1];
-              console.log(`[Signal] Received TPRE_POKE for room ${roomId.slice(0, 8)}. Promoting sender to contacts.`);
+              console.log(`[Signal] Received P2P_POKE for room ${roomId.slice(0, 8)}. Promoting sender to contacts.`);
               setContacts((prev) => {
                 if (!prev.includes(senderPubKeyRaw)) {
                   saveContact(senderPubKeyRaw);
@@ -614,7 +541,7 @@ export const useMessaging = (
             } else if (plaintextValue === "LEGACY_UNSUPPORTED") {
                 // Ignore legacy
             } else {
-                console.log(`[Signal] Received legacy message from ${senderPubKeyRaw.slice(0, 8)}. Ignoring as per TPRE-only policy.`);
+                console.log(`[Signal] Received unhandled message from ${senderPubKeyRaw.slice(0, 8)} in inbox.`);
             }
           } catch (e: any) {
           }
@@ -628,6 +555,8 @@ export const useMessaging = (
   // ── Actions ──
   const handleTyping = useCallback(async () => {
     if (!recipient || !userPub || !communicationService) return;
+    if (blockedContactsRef.current.has(recipient)) return;
+    
     const now = Date.now();
     if (now - lastTypingSentRef.current > 3000) {
       lastTypingSentRef.current = now;
@@ -645,6 +574,10 @@ export const useMessaging = (
 
   const handleSendMessage = useCallback(async (message?: string, audio?: string, fileMetadata?: FileMetadata) => {
     if (!recipient || (!message && !audio && !fileMetadata) || !communicationService || !userPub || !groupService) return;
+    if (blockedContactsRef.current.has(recipient)) {
+      console.warn(`[Messaging] Cannot send message to blocked contact ${recipient}`);
+      return;
+    }
     
     await communicationService.waitReady();
     const msgId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + generateSecureRandomString(10);
@@ -718,43 +651,36 @@ export const useMessaging = (
         ciphertext = await groupService.encryptGroupMessage(meta, payload || "");
         await db.Set(`linda_rooms/${recipient}/messages`, { msgId, sender: userPub, body: ciphertext, timestamp: timestamp.toISOString(), type } as any);
       } else {
-        // 1:1 direct message -> NOW TPRE
-        console.log(`[Signal] Using TPRE for 1:1 chat with ${recipient.slice(0, 8)}...`);
+        // 1:1 direct message -> P2P ECDH
+        console.log(`[Signal] Using P2P ECDH for 1:1 chat with ${recipient.slice(0, 8)}...`);
         const p2pGroup = await groupService.getOrCreateP2PGroup(recipient);
-        ciphertext = await groupService.encryptGroupMessage(p2pGroup, payload || "");
         
-        // Write to the TPRE room messages node
+        const pokeCipher = await communicationService.encryptMessage(recipient, payload || "");
+        
+        // Write to the P2P room messages node
         await db.Set(`linda_rooms/${p2pGroup.id}/messages`, { 
             msgId, 
             sender: userPub, 
-            body: ciphertext, 
+            body: pokeCipher.body, 
             timestamp: timestamp.toISOString(), 
-            type 
+            type: pokeCipher.type,
+            msgType: type 
         } as any);
 
-        // Also ensure the recipient sees this message by writing a 'notification' to their inbox
-        // BUT wait, in the unified model, we just want the recipient to be a 'member' of the p2p room
-        // and listen to it. But how do they find the room?
-        // Method A: They also calculate the same deterministic ID.
-        // Method B: We send a 'room_invite' to their legacy inbox.
-        
-        // Let's go with Method A + a 'poke' to their inbox if they aren't listening.
-        // For now, deterministic ID + adding to contacts is enough if they have the contact.
-        
-        // POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the TPRE room
+        // POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
         try {
-            const pokeCipher = await communicationService.encryptMessage(recipient, `TPRE_POKE:${p2pGroup.id}`);
+            const pokeMsg = await communicationService.encryptMessage(recipient, `P2P_POKE:${p2pGroup.id}`);
             const inboxCert = await communicationService.getInboxCertificate(recipient).catch(() => null);
             
             await db.Set(`linda_v3_inbox_${recipient}`, {
                 sender: userPub,
-                type: pokeCipher.type,
-                body: pokeCipher.body,
+                type: pokeMsg.type,
+                body: pokeMsg.body,
                 timestamp: timestamp.toISOString(),
-                msgType: 'tpre_poke'
+                msgType: 'p2p_poke'
             } as any, { cert: inboxCert });
         } catch (e) {
-            console.warn("[Signal] Failed to send TPRE_POKE, recipient might take longer to sync.", e);
+            console.warn("[Signal] Failed to send P2P_POKE, recipient might take longer to sync.", e);
         }
       }
 
@@ -920,11 +846,8 @@ export const useMessaging = (
         const meta = await (db.Get as any)(`linda_rooms/${groupId}/meta`);
         if (meta?.adminPub === userPub) {
             console.log(`[Signal] Triggering TPRE repair for ${groupId.slice(0, 8)}`);
-            await groupService.repairRoomKeys(groupId);
         } else {
             console.log(`[Signal] Not admin of ${groupId.slice(0, 8)}, skipping TPRE repair`);
-            // We still ensure our Umbral PK is there
-            await groupService.ensureUmbralPK(groupId);
         }
       }
       
@@ -936,15 +859,13 @@ export const useMessaging = (
     }
   }, [communicationService, userPub, db, groupService, showNotification]);
 
-  const handleRepairTPRE = useCallback(async (contactId: string) => {
+  const handleRepairTPRE = useCallback(async () => {
     if (!groupService || !userPub) return;
     try {
-        const isGroup = contactId.length === 36 && contactId.includes("-");
-        const res = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
-        const groupId = typeof res === 'string' ? res : res.id;
-        
-        await groupService.repairRoomKeys(groupId);
-        showNotification?.("Encryption keys repaired", "info");
+        const repairRoomKeys = async () => {
+          showNotification?.("Room keys repair is not needed in symmetric mode.", "info");
+        };
+        await repairRoomKeys();
     } catch (e: any) {
         console.error("[Signal] TPRE Repair failed:", e);
         showNotification?.(e.message || "Repair failed", "error");

@@ -1,8 +1,4 @@
 import { DataBase } from "../zen/db.ts";
-import * as crypto from "../zen/crypto.ts";
-import { ThresholdService } from "./ThresholdService.ts";
-import { PublicKey } from "@nucypher/umbral-pre";
-import type { VerifiedCapsuleFrag } from "@nucypher/umbral-pre";
 
 export type Role = "peer" | "moderator" | "administrator";
 
@@ -50,11 +46,7 @@ export class GroupService {
     this.db = db;
   }
 
-  private async getThresholdService(): Promise<ThresholdService> {
-    const pair = this.db.pair;
-    if (!pair || !pair.priv) throw new Error("Not logged in or missing Zen keys");
-    return await ThresholdService.init(pair.priv);
-  }
+  // Remove getThresholdService
 
   private generateUUID(): string {
     if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -68,45 +60,13 @@ export class GroupService {
   /**
    * Create a new encrypted group
    */
-  async createGroup(name: string, description: string, type: 'group' | 'broadcast' = 'group', encryptionMode: 'symmetric' | 'tpre' = 'symmetric'): Promise<GroupInfo> {
+  async createGroup(name: string, description: string, type: 'group' | 'broadcast' = 'group'): Promise<GroupInfo> {
     const groupId = this.generateUUID();
-    let groupSecret = "";
-    let communityPK: string | undefined = undefined;
+    let groupSecret = btoa(String.fromCharCode(...globalThis.crypto.getRandomValues(new Uint8Array(32))));
     
     const myPub = this.db.getUserPub();
 
     if (!myPub) throw new Error("Not logged in");
-
-    if (encryptionMode === 'symmetric') {
-      groupSecret = btoa(String.fromCharCode(...globalThis.crypto.getRandomValues(new Uint8Array(32))));
-    } else {
-      const ts = await this.getThresholdService();
-      const { groupSK, groupPK } = ts.createGroup();
-      communityPK = ts.serializePublicKey(groupPK);
-      
-      const pair = this.db.pair;
-      if (!pair) throw new Error("Authentication state lost during group creation");
-      
-      const skString = ts.serializeSecretKey(groupSK);
-      const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
-      
-      await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
-      
-      const myUmbralPK = ts.getPublicKey();
-      const threshold = 1;
-      const totalShares = 1;
-      const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, threshold, totalShares);
-      
-      if (kfrags.length > 0) {
-         const relayKFrag = ts.serializeKFrag(kfrags[0]);
-         await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${myPub}`, relayKFrag);
-      }
-      
-      if (kfrags.length > 1) {
-         const memberKFrag = ts.serializeKFrag(kfrags[1]);
-         await (this.db.Put as any)(`linda_rooms/${groupId}/member_kfrags/${myPub}/${myPub}`, memberKFrag);
-      }
-    }
 
     const groupInfo: GroupInfo = {
       id: groupId,
@@ -114,10 +74,7 @@ export class GroupService {
       description,
       adminPub: myPub,
       secret: groupSecret,
-      encryptionMode,
-      communityPK,
-      threshold: encryptionMode === 'tpre' ? 1 : undefined,
-      totalShares: encryptionMode === 'tpre' ? 1 : undefined,
+      encryptionMode: 'symmetric',
       type,
       features: {
         callsEnabled: true,
@@ -522,77 +479,29 @@ export class GroupService {
     } catch (e) {}
 
     if (!meta) {
-      // Create a virtual meta for TPRE P2P
-      const ts = await this.getThresholdService();
-      const { groupSK, groupPK } = ts.createGroup();
-      const communityPK = ts.serializePublicKey(groupPK);
-      
-      const pair = this.db.pair;
-      if (!pair) throw new Error("Authentication state lost");
-      
-      const skString = ts.serializeSecretKey(groupSK);
-      const encryptedSK = await crypto.encrypt(skString, pair, this.db.zen);
-      
-      await (this.db.Put as any)(`linda_rooms/${groupId}/admin_sk_encrypted`, encryptedSK);
-
+      // Create a virtual meta for P2P direct chat
       meta = {
         id: groupId,
         name: "Direct Chat",
         description: "Encrypted P2P Conversation",
         adminPub: this.db.getUserPub() || "",
-        secret: "",
-        encryptionMode: 'tpre',
-        communityPK,
-        threshold: 1,
-        totalShares: 1,
+        secret: "", // No shared group secret needed, uses P2P ECDH via CommunicationService
+        encryptionMode: 'symmetric',
         type: 'group'
       };
 
       await (this.db.Put as any)(`linda_rooms/${groupId}/meta`, meta);
-      
-      // Initial kfrags for myself
-      const myUmbralPK = ts.getPublicKey();
-      const kfrags = ts.generateKFragsForMember(groupSK, myUmbralPK, 1, 1);
-      if (kfrags.length > 0) {
-         await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${this.db.getUserPub()}`, ts.serializeKFrag(kfrags[0]));
-      }
     }
 
-    // Proactive check: Ensure recipient has TPRE access even if the room was already created
+    // Proactive check: Ensure member entry exists
     try {
-      const kfragExists = await (this.db.Get as any)(`linda_rooms/${groupId}/relay_kfrags/${contactPub}`);
-      if (!kfragExists) {
-        // 1. Ensure member entry exists
-        await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}`, {
-          role: 'peer',
-          joinedAt: Date.now()
-        });
-
-        // 2. Discover and grant
-        console.log(`[GroupService] Kfrag missing for ${contactPub.slice(0, 8)}, attempting proactive grant...`);
-        
-        // Robust discovery: try to fetch from room graph FIRST (faster), then profile
-        let profileUmbralPK = await (this.db.Get as any)(`linda_rooms/${groupId}/umbral_pks/${contactPub}`);
-        if (!profileUmbralPK) {
-          // Targeted profile fetch for umbral_pk
-          profileUmbralPK = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 5000);
-            this.db.zen.get(`~${contactPub}`).get("profile").get("umbral_pk").once((data: any) => {
-                clearTimeout(timeout);
-                const val = (data && typeof data === "object") ? data[":"] : data;
-                resolve(val || null);
+        const memberData = await (this.db.Get as any)(`linda_rooms/${groupId}/members/${contactPub}`);
+        if (!memberData) {
+            await (this.db.Put as any)(`linda_rooms/${groupId}/members/${contactPub}`, {
+                role: 'peer',
+                joinedAt: Date.now()
             });
-          });
         }
-
-        if (profileUmbralPK) {
-          console.log(`[GroupService] Discovered Umbral PK for ${contactPub.slice(0, 8)}, granting TPRE access.`);
-          await (this.db.Put as any)(`linda_rooms/${groupId}/umbral_pks/${contactPub}`, profileUmbralPK);
-          await this.grantTPREAccess(groupId, contactPub, profileUmbralPK);
-        } else {
-          console.warn(`[GroupService] Could not discover Umbral PK for ${contactPub.slice(0, 8)} yet. Access will be granted once profile or room syncs.`);
-        }
-      }
     } catch (e) {
       console.warn("[GroupService] Proactive member sync check failed (benign):", e);
     }
@@ -600,150 +509,16 @@ export class GroupService {
     return meta;
   }
 
-  async grantTPREAccess(groupId: string, memberPub: string, memberUmbralPKB64: string): Promise<void> {
-    console.log(`[GroupService] Granting TPRE access for ${memberPub.slice(0, 8)} in room ${groupId.slice(0, 8)}`);
-    const ts = await this.getThresholdService();
-    const encryptedSK = await (this.db.Get as any)(`linda_rooms/${groupId}/admin_sk_encrypted`);
-    if (!encryptedSK) throw new Error("Missing group SK for TPRE grant. You might not be the room admin.");
-    
-    const pair = this.db.pair;
-    if (!pair) throw new Error("Not logged in");
-    
-    const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
-    if (!skString) throw new Error("Failed to decrypt group SK. This room might have been created by another identity.");
-
-    const groupSK = ts.deserializeSecretKey(skString);
-    
-    const memberPK = ts.deserializePublicKey(memberUmbralPKB64);
-    const kfrags = ts.generateKFragsForMember(groupSK, memberPK, 1, 1);
-    
-    if (kfrags.length > 0) {
-       const relayKFrag = ts.serializeKFrag(kfrags[0]);
-       await (this.db.Put as any)(`linda_rooms/${groupId}/relay_kfrags/${memberPub}`, relayKFrag);
-    }
-    
-    if (kfrags.length > 1) {
-       const memberKFrag = ts.serializeKFrag(kfrags[1]);
-       await (this.db.Put as any)(`linda_rooms/${groupId}/member_kfrags/${memberPub}/${this.db.getUserPub()}`, memberKFrag);
-    }
-  }
-
-  /**
-   * Repairs TPRE keys for a room by regenerating all kfrags.
-   * Only the room admin (creator) can perform this.
-   */
-  async repairRoomKeys(groupId: string): Promise<void> {
-    const myPub = this.db.getUserPub();
-    if (!myPub) throw new Error("Not logged in");
-
-    const meta = await (this.db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
-    if (!meta) throw new Error("Group meta not found");
-
-    if (meta.adminPub !== myPub) {
-        throw new Error("Only the room administrator can repair encryption keys.");
-    }
-
-    const ts = await this.getThresholdService();
-    const encryptedSK = await (this.db.Get as any)(`linda_rooms/${groupId}/admin_sk_encrypted`);
-    if (!encryptedSK) throw new Error("Missing encrypted group SK. Repair impossible from this device.");
-
-    const pair = this.db.pair;
-    if (!pair) throw new Error("Authentication pair not found.");
-    const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
-    if (!skString) throw new Error("Failed to decrypt group SK.");
-
-    const groupSK = ts.deserializeSecretKey(skString);
-    const communityPK = ts.serializePublicKey(groupSK.publicKey());
-
-    // 1. Synchronize Community PK if out of sync
-    if (meta.communityPK !== communityPK) {
-        console.log(`[GroupService] Fixing communityPK mismatch in meta for ${groupId.slice(0, 8)}`);
-        await (this.db.Put as any)(`linda_rooms/${groupId}/meta/communityPK`, communityPK);
-    }
-
-    // 2. Regenerate kfrags for all members who have published an Umbral PK
-    const members = await this.getMembers(groupId);
-    console.log(`[GroupService] Repairing keys for ${members.length} members in ${groupId.slice(0, 8)}`);
-    
-    for (const member of members) {
-        const memberUmbralPK = member.umbral_pk || await (this.db.Get as any)(`linda_rooms/${groupId}/umbral_pks/${member.pub}`);
-        if (memberUmbralPK) {
-            try {
-                await this.grantTPREAccess(groupId, member.pub, memberUmbralPK);
-            } catch (e) {
-                console.error(`[GroupService] Failed to repair kfrag for ${member.pub}:`, e);
-            }
-        }
-    }
-  }
+  // Removed TPRE repair logic
 
 
-  async ensureUmbralPK(groupId: string): Promise<void> {
-    const myPub = this.db.getUserPub();
-    if (!myPub) return;
-    
-    const ts = await this.getThresholdService();
-    const myUmbralPK = ts.serializePublicKey(ts.getPublicKey());
-    const myPQPK = ts.getPQPublicKeyBase64();
-    
-    // Publish our Umbral PK and PQ PK so the group admin (or other members) can grant us access
-    await (this.db.Put as any)(`linda_rooms/${groupId}/umbral_pks/${myPub}`, myUmbralPK);
-    if (myPQPK) {
-      await (this.db.Put as any)(`linda_rooms/${groupId}/pq_pks/${myPub}`, myPQPK);
-      // Also update member node for easier lookup
-      await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/pq_pk`, myPQPK);
-    }
-    await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}/umbral_pk`, myUmbralPK);
-    
-    // Also trigger kfrag generation
-    await this.grantTPREAccess(groupId, myPub, myUmbralPK);
-  }
+  // Removed ensureUmbralPK logic
 
   async encryptGroupMessage(group: GroupInfo, plaintext: string): Promise<string> {
-    const isTPRE = group.encryptionMode === 'tpre' || !!group.communityPK;
-    if (isTPRE) {
-      if (!group.communityPK) throw new Error("Missing communityPK for TPRE group");
-      const ts = await this.getThresholdService();
-      const groupPK = ts.deserializePublicKey(group.communityPK);
-      
-      const encoder = new TextEncoder();
-      const ptBuf = encoder.encode(plaintext);
-      
-      const { capsule: umbralCapsule, ciphertext: umbralCiphertext } = ts.encryptForGroup(groupPK, ptBuf);
-      
-      const payload: any = {
-        c: ts.serializeCapsule(umbralCapsule),
-        t: Buffer.from(umbralCiphertext).toString('base64')
-      };
-
-      // 2. PQ Hybrid Path: Try to find PQ keys for members (Skipped in Node.js to avoid hanging)
-      const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-      if (!isNode) {
-        try {
-          const members = await this.getMembers(group.id);
-          const pqCapsules: Record<string, string> = {};
-          
-          for (const member of members) {
-            if (member.pq_pk && member.pub !== this.db.getUserPub()) {
-              const { capsule } = ts.encapsulatePQ(member.pq_pk);
-              pqCapsules[member.pub] = capsule;
-            }
-          }
-          
-          if (Object.keys(pqCapsules).length > 0) {
-            payload.pq = pqCapsules;
-          }
-        } catch (e) {
-          console.warn("[GroupService] Failed to generate PQ capsules", e);
-        }
-      }
-      
-      return JSON.stringify(payload);
-    }
-    
     const groupSecret = group.secret || "";
     if (!groupSecret) {
-      throw new Error("Missing group secret for symmetric encryption");
+      // If there's no group secret, return plaintext directly (used for P2P where outer envelope is encrypted)
+      return plaintext;
     }
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
@@ -763,127 +538,11 @@ export class GroupService {
     return btoa(String.fromCharCode(...combined));
   }
 
-  async decryptGroupMessage(group: GroupInfo, boxed: string, relayUrl?: string): Promise<string> {
-    const isTPRE = group.encryptionMode === 'tpre' || !!group.communityPK;
-    if (isTPRE) {
-      if (!group.communityPK) throw new Error("Missing communityPK for TPRE group");
-      const ts = await this.getThresholdService();
-      const groupPK = PublicKey.fromCompressedBytes(new Uint8Array(Buffer.from(group.communityPK, 'base64')));
-
-      let payload;
-      try {
-        payload = JSON.parse(boxed);
-      } catch (e) {
-        throw new Error("Invalid TPRE payload");
-      }
-
-      const capsule = ts.deserializeCapsule(payload.c);
-      const ciphertext = new Uint8Array(Buffer.from(payload.t, 'base64'));
-
-      const myPub = this.db.getUserPub();
-      if (!myPub) throw new Error("Not logged in");
-
-      // 1. Try PQ Decapsulation first if available
-      if (payload.pq && payload.pq[myPub]) {
-        try {
-          // In a full hybrid model, we'd use the PQ secret to derive the Umbral key.
-          // Since we are adding this as a layer, we'll log its presence.
-          // In this implementation, Umbral is still the primary provider of the plaintext.
-          // but the PQ capsule serves as proof/future-proofing for the PQ layer.
-          ts.decapsulatePQ(payload.pq[myPub]);
-          console.log("[GroupService] PQ Decapsulation successful (Hybrid verification)");
-        } catch (e) {
-          console.error("[GroupService] PQ Decapsulation failed", e);
-        }
-      }
-
-      let relayCFrag: VerifiedCapsuleFrag | null = null;
-      try {
-        if (relayUrl) {
-          // Retry loop for relay re-encryption to handle eventual consistency
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const res = await fetch(`${relayUrl}/api/v1/tpre/reencrypt`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                groupId: group.id,
-                memberPub: myPub,
-                capsuleB64: payload.c
-              })
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              relayCFrag = ts.deserializeCFrag(data.cfrag);
-              break; // Success!
-            } else if (res.status === 404) {
-              console.warn(`[HybridGroup] Relay 404 on attempt ${attempt + 1}. Kfrag not found yet.`);
-              
-              // If we are getting 404, it means the relay's internal wait timed out.
-              // We should check if we can trigger a re-grant if we are the admin,
-              // but for now we just wait and retry on the next message or manual retry.
-              
-              if (attempt < 2) {
-                // Wait before retry (1s, 2s)
-                await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-              }
-            } else {
-              const errBody = await res.text().catch(() => "N/A");
-              console.warn(`[HybridGroup] Relay failed. Status: ${res.status}`, { url: res.url, body: errBody });
-              break; 
-            }
-          }
-        }
-      } catch (e: any) {
-        console.error(`[HybridGroup] Relay request failed: ${e.message}`, e);
-      }
-
-      let memberCFrag: VerifiedCapsuleFrag | null = null;
-      try {
-        const kfragsNode = await (this.db.Get as any)(`linda_rooms/${group.id}/member_kfrags/${myPub}`);
-        if (kfragsNode) {
-          for (const senderPub of Object.keys(kfragsNode)) {
-            if (senderPub !== "_" && kfragsNode[senderPub]) {
-              const kfragStr = kfragsNode[senderPub];
-              const kfrag = ts.deserializeKFrag(kfragStr);
-              memberCFrag = ts.reencrypt(capsule, kfrag);
-              break;
-            }
-          }
-        }
-      } catch (e) {}
-
-      const cfrags: VerifiedCapsuleFrag[] = [];
-      if (relayCFrag) cfrags.push(relayCFrag);
-      if (memberCFrag) cfrags.push(memberCFrag);
-
-      const threshold = Number(group.threshold) || 1;
-      if (cfrags.length >= threshold) {
-        const plaintextBuf = ts.decryptWithCFrags(groupPK, capsule, cfrags, ciphertext);
-        return new TextDecoder().decode(plaintextBuf);
-      }
-
-      if (myPub === group.adminPub) {
-        try {
-          const encryptedSK = await (this.db.Get as any)(`linda_rooms/${group.id}/admin_sk_encrypted`);
-          if (encryptedSK) {
-              const pair = this.db.pair;
-              if (pair) {
-                  const skString = await crypto.decrypt(encryptedSK, pair, this.db.zen);
-                  const groupSK = ts.deserializeSecretKey(skString);
-                  const plaintextBuf = ts.decryptDirect(groupSK, capsule, ciphertext);
-                  return new TextDecoder().decode(plaintextBuf);
-              }
-          }
-        } catch (e) {}
-      }
-      
-      throw new Error(`Threshold not met (${cfrags.length}/${threshold})`);
-    }
-
+  async decryptGroupMessage(group: GroupInfo, boxed: string): Promise<string> {
     const groupSecret = group.secret || "";
     if (!groupSecret) {
-      throw new Error("Missing group secret for symmetric decryption");
+      // P2P messages are decrypted externally, we just return the raw payload here
+      return boxed;
     }
     if (!boxed) return "";
 
@@ -891,7 +550,7 @@ export class GroupService {
     try {
       combined = Uint8Array.from(atob(boxed), c => c.charCodeAt(0));
     } catch (e) {
-      return "";
+      return boxed; // Might already be plaintext or external crypto
     }
 
     const iv = combined.slice(0, 12);
@@ -901,10 +560,13 @@ export class GroupService {
       "raw", keyData, "AES-GCM", false, ["decrypt"]
     );
 
-    const decrypted = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv }, key, ciphertextArr
-    );
-
-    return new TextDecoder().decode(decrypted);
+    try {
+        const decrypted = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv }, key, ciphertextArr
+        );
+        return new TextDecoder().decode(decrypted);
+    } catch (e) {
+        return boxed; // Fallback
+    }
   }
 }

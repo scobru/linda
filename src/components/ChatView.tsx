@@ -54,6 +54,7 @@ interface ChatViewProps {
   acceptContact: (id: string) => Promise<void>;
   blockContact: (id: string) => Promise<void>;
   showNotification: (msg: string, type?: "info" | "error") => void;
+  blockedContacts: Set<string>;
 }
 
 const MessageText = React.memo(
@@ -121,6 +122,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   showNotification,
   currentMessages,
   handleRepairTPRE,
+  blockedContacts,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +179,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (recipient.length === 36 && recipient.includes("-")) return true; // Groups are trusted by join
     return trustedContacts.has(recipient);
   }, [recipient, trustedContacts, isContactsLoading]);
+
+  const isBlocked = useMemo(() => {
+    if (!recipient) return false;
+    return blockedContacts.has(recipient);
+  }, [recipient, blockedContacts]);
   useEffect(() => {
     const checkPerms = async () => {
       // If looks like a group UUID
@@ -975,43 +982,76 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Input Area - Signal Minimalism Style */}
       <div className="p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/5 backdrop-blur-md border-t border-base-content/5 shrink-0 z-20 flex items-center justify-center">
         {!isTrusted ? (
-          <div className="flex flex-col items-center gap-6 p-8 bg-base-300 rounded-[2rem] border border-base-content/5 w-full max-w-5xl">
-            <div className="text-center space-y-2">
-              <h4 className="text-lg font-black text-primary uppercase tracking-tighter">
-                Unknown Contact
-              </h4>
-              <p className="text-xs opacity-60 font-bold max-w-xs leading-relaxed">
-                Questa persona sta cercando di scriverti. Vuoi accettare la
-                conversazione?
-              </p>
+          isBlocked ? (
+            <div className="flex flex-col items-center gap-6 p-8 bg-base-300 rounded-[2rem] border border-base-content/5 w-full max-w-5xl">
+              <div className="text-center space-y-2">
+                <h4 className="text-lg font-black text-error uppercase tracking-tighter">
+                  Contatto Bloccato
+                </h4>
+                <p className="text-xs opacity-60 font-bold max-w-xs leading-relaxed">
+                  Hai bloccato questo contatto. Sbloccalo per poter inviare messaggi.
+                </p>
+              </div>
+              <div className="flex gap-3 w-full max-w-sm">
+                <button
+                  onClick={async () => {
+                    setIsAccepting(true);
+                    try {
+                      await acceptContact(recipient);
+                    } finally {
+                      setIsAccepting(false);
+                    }
+                  }}
+                  disabled={isAccepting}
+                  className="btn btn-primary flex-1 rounded-2xl shadow-lg h-12"
+                >
+                  {isAccepting ? (
+                    <span className="loading loading-spinner"></span>
+                  ) : (
+                    "Sblocca"
+                  )}
+                </button>
+              </div>
             </div>
-            <div className="flex gap-3 w-full max-w-sm">
-              <button
-                onClick={async () => {
-                  setIsAccepting(true);
-                  try {
-                    await acceptContact(recipient);
-                  } finally {
-                    setIsAccepting(false);
-                  }
-                }}
-                disabled={isAccepting}
-                className="btn btn-primary flex-1 rounded-2xl shadow-lg h-12"
-              >
-                {isAccepting ? (
-                  <span className="loading loading-spinner"></span>
-                ) : (
-                  "Accetta"
-                )}
-              </button>
-              <button
-                onClick={() => blockContact(recipient)}
-                className="btn btn-ghost bg-white/5 flex-1 rounded-2xl h-12"
-              >
-                Blocca
-              </button>
+          ) : (
+            <div className="flex flex-col items-center gap-6 p-8 bg-base-300 rounded-[2rem] border border-base-content/5 w-full max-w-5xl">
+              <div className="text-center space-y-2">
+                <h4 className="text-lg font-black text-primary uppercase tracking-tighter">
+                  Unknown Contact
+                </h4>
+                <p className="text-xs opacity-60 font-bold max-w-xs leading-relaxed">
+                  Questa persona sta cercando di scriverti. Vuoi accettare la
+                  conversazione?
+                </p>
+              </div>
+              <div className="flex gap-3 w-full max-w-sm">
+                <button
+                  onClick={async () => {
+                    setIsAccepting(true);
+                    try {
+                      await acceptContact(recipient);
+                    } finally {
+                      setIsAccepting(false);
+                    }
+                  }}
+                  disabled={isAccepting}
+                  className="btn btn-primary flex-1 rounded-2xl shadow-lg h-12"
+                >
+                  {isAccepting ? (
+                    <span className="loading loading-spinner"></span>
+                  ) : (
+                    "Accetta"
+                  )}
+                </button>
+                <button
+                  onClick={() => blockContact(recipient)}
+                  className="btn btn-ghost bg-white/5 flex-1 rounded-2xl h-12"
+                >
+                  Blocca
+                </button>
+              </div>
             </div>
-          </div>
+          )
         ) : !canSendMessage ? (
           <div className="flex items-center justify-center p-5 bg-base-300 rounded-2xl border border-base-content/5 italic opacity-40 text-xs w-full font-bold">
             Solo gli amministratori possono inviare messaggi

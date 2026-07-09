@@ -3,7 +3,6 @@ import { DataBase } from '../zen/db';
 import { CommunicationService } from "../services/CommunicationService";
 import { GroupService } from "../services/GroupService";
 import { generateRandomHandle } from '../utils/names';
-import { ThresholdService } from '../services/ThresholdService';
 
 export const useCommunicationInit = (
   db: DataBase, 
@@ -70,16 +69,7 @@ export const useCommunicationInit = (
           const gService = new GroupService(db);
           setGroupService(gService);
           
-          // Publish PQ/Umbral Identity to profile for discovery
-          try {
-            const ts = await ThresholdService.init(db.pair!.priv);
-            const myUmbralPK = ts.getPublicKeyBase64();
-            const myPQPK = ts.getPQPublicKeyBase64();
-            await db.userPut('profile/umbral_pk', myUmbralPK);
-            if (myPQPK) await db.userPut('profile/pq_pk', myPQPK);
-          } catch (e) {
-            console.warn("[useCommunicationInit] Failed to publish PQ identity to profile", e);
-          }
+          // Removed PQ Identity publish
 
           showNotification(`Welcome, ${username}! Secure session ready.`);
         } catch (e) {

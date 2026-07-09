@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -6,6 +6,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import ZEN from "zen";
+// @ts-ignore
 import "zen/lib/yson.js";
 
 // Services & DB
@@ -44,6 +45,13 @@ const AppContent: React.FC<{
   const location = useLocation();
   const [recipient, setRecipient] = useState("");
   const [message, setMessage] = useState("");
+
+  const navigateToRecipient = useCallback(
+    (id: string) => {
+      smoothNavigate(id ? `/chat/${id}` : "/", () => setRecipient(id));
+    },
+    [smoothNavigate, setRecipient],
+  );
 
   // 1. Auth & Notifications
   const { isProcessingMagicLink, notification, showNotification } =
@@ -84,8 +92,7 @@ const AppContent: React.FC<{
     communicationService,
     groupService,
     recipient,
-    setRecipient,
-    "https://delay.scobrudot.dev",
+    navigateToRecipient,
     showNotification,
   );
 
@@ -181,9 +188,7 @@ const AppContent: React.FC<{
   const commonChatProps = {
     ...messaging,
     db,
-    setRecipient: (id: string) => {
-      smoothNavigate(id ? `/chat/${id}` : "/", () => setRecipient(id));
-    },
+    setRecipient: navigateToRecipient,
     communicationService,
     groupService,
     userPub: userPub || "",
@@ -202,7 +207,7 @@ const AppContent: React.FC<{
     setShowGroupSettings: (id: string | null) =>
       smoothNavigate(id ? `/chat/${id}/settings` : "/"),
     handleFixSync: () => messaging.handleFixSync(recipient),
-    handleRepairTPRE: (id: string) => messaging.handleRepairTPRE(id),
+    handleRepairTPRE: () => messaging.handleRepairTPRE(),
     handleClearChat: messaging.handleClearChat,
   };
 
@@ -218,9 +223,7 @@ const AppContent: React.FC<{
                 userNick,
                 username: username || "",
                 contacts: messaging.contacts,
-                setRecipient: (id: string) => {
-                  smoothNavigate(id ? `/chat/${id}` : "/", () => setRecipient(id));
-                },
+                setRecipient: navigateToRecipient,
                 contactProfiles,
                 unreadCounts: messaging.unreadCounts,
                 handleDeleteContact,
@@ -229,6 +232,7 @@ const AppContent: React.FC<{
                 showNotification,
                 saveContact: messaging.saveContact,
                 requestNotifications: () => Notification.requestPermission(),
+                blockedContacts: messaging.blockedContacts,
               }}
             />
           }

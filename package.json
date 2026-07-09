@@ -15,8 +15,6 @@
   },
   "dependencies": {
     "@hyperswarm/secret-stream": "^6.9.1",
-    "@noble/post-quantum": "^0.6.1",
-    "@nucypher/umbral-pre": "^0.10.0",
     "axios": "^1.13.6",
     "buffer": "^6.0.3",
     "compact-encoding": "^2.19.2",
@@ -41,7 +39,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@tailwindcss/vite": "^4.2.2",
-    "@types/node": "^24.10.1",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/socket.io-client": "^1.4.36",

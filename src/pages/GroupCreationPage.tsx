@@ -32,7 +32,7 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
 
     setLoading(true);
     try {
-      const group = await groupService.createGroup(name, description, groupType, encryptionMode);
+      const group = await groupService.createGroup(name, description, groupType);
       showNotification(`Group "${group.name}" created!`, "info");
       onCreated(group.id);
       // Navigation is handled inside onCreated callback in App.tsx
