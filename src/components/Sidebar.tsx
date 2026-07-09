@@ -289,7 +289,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
               >
                 <div className="avatar">
-                  <div className={`w-12 h-12 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm flex items-center justify-center ${({ isActive }: any) => isActive ? 'bg-white/20' : 'bg-primary/10'}`}>
+                  <div className="w-12 h-12 rounded-full border border-base-content/5 bg-base-300 overflow-hidden shadow-sm flex items-center justify-center">
                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                        </svg>
@@ -365,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Floating Action Buttons */}
-      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-6 lg:absolute lg:bottom-8 lg:right-8 flex flex-col gap-4 z-50 animate-slideUp">
+      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-6 lg:absolute lg:bottom-8 lg:right-8 flex flex-col gap-4 z-50 animate-slide-up">
         <button
           onClick={() => setShowScanner(true)}
           className="btn btn-circle bg-base-300 hover:bg-base-content/10 border-none shadow-2xl h-12 w-12 group transition-all"
@@ -379,7 +379,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
         <button
           onClick={() => setShowSearch(true)}
-          className="btn btn-circle btn-primary shadow-2full h-14 w-14 transition-all hover:scale-105"
+          className="btn btn-circle btn-primary shadow-2xl h-14 w-14 transition-all hover:scale-105"
           title="Nuova chat o gruppo"
           aria-label="Nuova chat o gruppo"
         >

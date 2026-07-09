@@ -18,7 +18,6 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [groupType, setGroupType] = useState<'group' | 'broadcast'>('group');
-  const [encryptionMode, setEncryptionMode] = useState<'symmetric' | 'tpre'>('symmetric');
   const [inviteCode, setInviteCode] = useState("");
   const [joinByName, setJoinByName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -171,32 +170,6 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
                 </label>
               </div>
 
-              <div className="form-control w-full mt-4">
-                <label className="label py-0 mb-1.5">
-                  <span className="label-text font-black text-primary opacity-90 uppercase tracking-[0.2em] text-[10px]">Encryption Mode</span>
-                </label>
-                <div className="bg-base-300/30 p-1.5 rounded-[1.5rem] flex gap-1.5 border border-base-content/5">
-                  <button
-                    type="button"
-                    className={`flex-1 py-3 rounded-[1.25rem] transition-all font-black text-[10px] tracking-wide ${encryptionMode === 'symmetric' ? 'bg-primary text-primary-content shadow-xl shadow-primary/30' : 'opacity-40 hover:opacity-100'}`}
-                    onClick={() => setEncryptionMode('symmetric')}
-                  >
-                    Standard
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex-1 py-3 rounded-[1.25rem] transition-all font-black text-[10px] tracking-wide ${encryptionMode === 'tpre' ? 'bg-secondary text-secondary-content shadow-xl shadow-secondary/30' : 'opacity-40 hover:opacity-100'}`}
-                    onClick={() => setEncryptionMode('tpre')}
-                  >
-                    TPRE (Advanced)
-                  </button>
-                </div>
-                <label className="label mt-1.5 px-1">
-                  <span className="label-text-alt opacity-40 font-medium italic text-[10px]">
-                    {encryptionMode === 'symmetric' ? "Faster, symmetric keys shared directly with members." : "Threshold Proxy Re-Encryption. Secure, decentralized proxy routing."}
-                  </span>
-                </label>
-              </div>
 
               <div className="flex flex-col sm:flex-row gap-4 pt-6">
                 <button type="submit" className="btn btn-primary grow h-14 rounded-full shadow-2xl shadow-primary/40 font-black text-lg tracking-tight transition-transform active:scale-95" disabled={loading}>

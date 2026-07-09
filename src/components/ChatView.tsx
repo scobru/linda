@@ -42,7 +42,6 @@ interface ChatViewProps {
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
   handleRegenerateCertificate: () => void;
-  handleRepairTPRE: (id: string) => void;
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
@@ -91,7 +90,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   recipient,
   db,
   setRecipient,
-  communicationService,
   groupService,
   contactProfiles,
   typingStatuses,
@@ -121,7 +119,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   blockContact,
   showNotification,
   currentMessages,
-  handleRepairTPRE,
   blockedContacts,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -253,20 +250,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setUploadMeta({ name: file.name, size: file.size });
 
     try {
-      // Initiate Wormhole transfer
-      if (
-        communicationService &&
-        (recipient.startsWith("@") || recipient.length < 30)
-      ) {
-        try {
-        } catch (err) {
-          console.warn(
-            "[ChatView] Could not resolve pubkey for file transfer:",
-            err,
-          );
-        }
-      }
-
       // Initiate Wormhole transfer with fallback logic
       if (wormholeService) {
         const relays = [
@@ -423,7 +406,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Upload Overlay */}
       {isUploading && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md animate-fadeIn">
-          <div className="bg-base-200/80 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-base-content/10 shadow-2full flex flex-col items-center gap-6 max-w-sm mx-4 text-center">
+          <div className="bg-base-200/80 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-base-content/10 shadow-2xl flex flex-col items-center gap-6 max-w-sm mx-4 text-center">
             <div className="relative">
               <div className="w-20 h-20 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
               <div className="absolute inset-0 flex items-center justify-center">
@@ -492,7 +475,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <UserAvatar
               pub={recipient}
               db={db}
-              isGroup={recipient.includes("-")}
+              isGroup={recipient.length === 36 && recipient.includes("-")}
               className="w-12 h-12"
             />
             {typingStatuses[recipient] && (
@@ -607,14 +590,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   Elimina cronologia
                 </button>
               </li>
-              <li>
-                <button
-                  onClick={() => handleRepairTPRE(recipient)}
-                  className="py-3"
-                >
-                  Ripristina Crittografia (TPRE)
-                </button>
-              </li>
+
               <li>
                 <button
                   onClick={() => {
@@ -722,7 +698,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       >
         <div className="max-w-3xl mx-auto w-full p-6 space-y-8">
           {filteredMessages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center opacity-10 gap-4">
+            <div className="min-h-[50vh] flex flex-col items-center justify-center opacity-10 gap-4">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -883,17 +859,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           >
                             RIPRISTINA SINCRONIA
                           </button>
-                          {msg.text?.includes("validation failed") && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRepairTPRE(recipient);
-                              }}
-                              className="btn btn-xs btn-warning btn-outline rounded-full scale-90"
-                            >
-                              RIPARA CHIAVI (TPRE)
-                            </button>
-                          )}
                         </div>
                       )}
 

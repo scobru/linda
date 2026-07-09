@@ -86,8 +86,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
       <button
         onMouseDown={startRecording}
         onMouseUp={stopRecording}
+        onMouseLeave={stopRecording}
         onTouchStart={startRecording as any}
         onTouchEnd={stopRecording as any}
+        onTouchCancel={stopRecording as any}
         className={`btn btn-circle h-11 w-11 transition-all active:scale-95 border-0 ${isRecording ? 'btn-error scale-125 z-[60]' : 'btn-ghost bg-base-content/5 hover:bg-base-content/10'}`}
         disabled={loading}
         title="Hold to record audio"

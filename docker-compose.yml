@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.relay
-    container_name: linda-tpre-relay
+    container_name: linda-relay
     ports:
       - "8765:8765"
     volumes:

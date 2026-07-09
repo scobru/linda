@@ -241,6 +241,9 @@ export const useMessaging = (
           const now = Date.now();
           const parsedTs = typeof data.ts === "string" ? parseInt(data.ts, 10) : Number(data.ts);
           if (isNaN(parsedTs) || parsedTs > now + 3600000) return;
+          // Ignore stale statuses replayed from the graph at startup,
+          // otherwise old "typing" events flash in the UI.
+          if (now - parsedTs > 4000) return;
 
           setTypingStatuses((prev) => ({ ...prev, [senderPubKey]: parsedTs }));
         }
@@ -310,9 +313,9 @@ export const useMessaging = (
           }
 
           try {
-            // Pacing delay to allow GunDB sync to catch up on fragments
-            await new Promise(r => setTimeout(r, 2000));
-            
+            // Try to decrypt right away: in the common case the fragments are
+            // already synced and the message renders instantly. If sync is
+            // still catching up, the retry loop below waits with backoff.
             let plaintext = "";
             let retries = 10;
             let delay = 2000;
@@ -836,20 +839,7 @@ export const useMessaging = (
         timestamp: new Date().toISOString() 
       } as any);
 
-      // 2. TPRE Repair (if group or p2p group exists)
-      if (groupService) {
-        const isGroup = contactId.length === 36 && contactId.includes("-");
-        const res = isGroup ? contactId : await groupService.getOrCreateP2PGroup(contactId);
-        const groupId = typeof res === 'string' ? res : res.id;
-        
-        // Only admin can repair
-        const meta = await (db.Get as any)(`linda_rooms/${groupId}/meta`);
-        if (meta?.adminPub === userPub) {
-            console.log(`[Signal] Triggering TPRE repair for ${groupId.slice(0, 8)}`);
-        } else {
-            console.log(`[Signal] Not admin of ${groupId.slice(0, 8)}, skipping TPRE repair`);
-        }
-      }
+
       
       setContactErrors(prev => ({ ...prev, [contactId]: false }));
       showNotification?.("Synchronization repaired", "info");
@@ -859,18 +849,7 @@ export const useMessaging = (
     }
   }, [communicationService, userPub, db, groupService, showNotification]);
 
-  const handleRepairTPRE = useCallback(async () => {
-    if (!groupService || !userPub) return;
-    try {
-        const repairRoomKeys = async () => {
-          showNotification?.("Room keys repair is not needed in symmetric mode.", "info");
-        };
-        await repairRoomKeys();
-    } catch (e: any) {
-        console.error("[Signal] TPRE Repair failed:", e);
-        showNotification?.(e.message || "Repair failed", "error");
-    }
-  }, [groupService, userPub, showNotification]);
+
 
 
   const currentMessages = useMemo(() => {
@@ -937,7 +916,6 @@ export const useMessaging = (
     handleTyping,
     handleSendMessage,
     handleFixSync,
-    handleRepairTPRE,
     handleClearChat,
     handleDeleteMessage,
     saveContact,

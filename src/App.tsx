@@ -12,6 +12,7 @@ import "zen/lib/yson.js";
 // Services & DB
 import { DataBase } from "./zen/db";
 import { type Role } from "./services/GroupService";
+import { startConnectionWatchdog } from "./utils/connectionHealth";
 
 // Pages & Components
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
@@ -207,7 +208,6 @@ const AppContent: React.FC<{
     setShowGroupSettings: (id: string | null) =>
       smoothNavigate(id ? `/chat/${id}/settings` : "/"),
     handleFixSync: () => messaging.handleFixSync(recipient),
-    handleRepairTPRE: () => messaging.handleRepairTPRE(),
     handleClearChat: messaging.handleClearChat,
   };
 
@@ -231,7 +231,12 @@ const AppContent: React.FC<{
                 groupService,
                 showNotification,
                 saveContact: messaging.saveContact,
-                requestNotifications: () => Notification.requestPermission(),
+                requestNotifications: () => {
+                  // Notification is not defined on iOS Safari (non-PWA)
+                  if (typeof Notification !== "undefined") {
+                    Notification.requestPermission();
+                  }
+                },
                 blockedContacts: messaging.blockedContacts,
               }}
             />
@@ -317,6 +322,7 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem("linda-theme") || "linda";
     document.documentElement.dataset.theme = savedTheme;
 
+    let stopWatchdog: (() => void) | null = null;
     const initZen = async () => {
       try {
         const relays = [
@@ -337,6 +343,10 @@ const App: React.FC = () => {
         const db = new DataBase(zen);
         setDbInstance(db);
 
+        // Keep relay sockets alive across sleep/network changes so live
+        // subscriptions don't require a page refresh to resume.
+        stopWatchdog = startConnectionWatchdog(zen);
+
         const restored = await db.restoreSession();
         if (restored.success) {
           setAuthState({
@@ -352,6 +362,9 @@ const App: React.FC = () => {
       }
     };
     initZen();
+    return () => {
+      stopWatchdog?.();
+    };
   }, []);
 
   if (initializing || !dbInstance)

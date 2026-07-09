@@ -5,7 +5,7 @@
 ## 🚀 Key Features
 
 -   **P2P Messaging**: Instant messaging with Zen-native authenticated writes. No central database; your data lives on the decentralized graph.
--   **TPRE Encryption**: Threshold Proxy Re-Encryption for all chats (1:1 and Groups). High security delegated decryption.
+-   **Symmetric E2E Encryption**: Direct, authenticated symmetric encryption for all chats (1:1 and Groups).
 -   **Unique Handles (@username)**: Claim a human-readable unique identifier mapped to your public key via a decentralized discovery index.
 -   **P2P File Transfers**: Send images and files of any size directly to peers using WebRTC Data Channels.
 -   **Wormhole Integration**: Async file transfers via temporary binary relays.
@@ -15,14 +15,13 @@
 
 ### Core Services
 -   **`CommunicationService`**: Handles Zen signaling, user authentication, and deterministic room discovery.
--   **`GroupService`**: The core encryption engine. Manages TPRE logic for all conversations.
--   **`ThresholdService`**: Wraps the NuCypher Umbral TPRE implementation.
+-   **`GroupService`**: The core encryption engine. Manages symmetric E2EE keys and logic for all conversations.
 -   **`FileTransferService`**: Manages WebRTC connections for secure file exchange.
 
 ### Technological Stack
 -   **Frontend**: React + TypeScript + Vite.
 -   **Database**: [Zen](https://github.com/akaoio/zen) (Decentralized/P2P).
--   **Encryption**: **NuCypher Umbral TPRE** (Unified Model).
+-   **Encryption**: Symmetric E2EE (AES-GCM).
 -   **Styling**: Tailwind CSS + DaisyUI (Premium Glassmorphic Design).
 
 ## 🔒 Security & Documentation

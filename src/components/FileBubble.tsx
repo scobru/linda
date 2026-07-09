@@ -22,15 +22,20 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
   wormholeStatus,
   blob
 }) => {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (blob && metadata.mimeType.startsWith('image/')) {
+    if (blob) {
       const url = URL.createObjectURL(blob);
-      setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
+      setBlobUrl(url);
+      return () => {
+        URL.revokeObjectURL(url);
+        setBlobUrl(null);
+      };
     }
-  }, [blob, metadata.mimeType]);
+  }, [blob]);
+
+  const previewUrl = metadata.mimeType.startsWith('image/') ? blobUrl : null;
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -103,9 +108,9 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
         </div>
       )}
 
-      {(status === 'completed' || (metadata.method === 'wormhole' && wormholeStatus === 'downloaded')) && blob && (
-        <a 
-          href={URL.createObjectURL(blob)} 
+      {(status === 'completed' || (metadata.method === 'wormhole' && wormholeStatus === 'downloaded')) && blobUrl && (
+        <a
+          href={blobUrl}
           download={metadata.name}
           className="btn btn-sm btn-success gap-2 mt-1 no-animation"
         >
