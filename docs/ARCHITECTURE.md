@@ -1,67 +1,63 @@
-# State of the Art: Unified Cryptography via Threshold Proxy Re-Encryption (TPRE)
+# Architecture: Zen-Native Symmetric E2EE
 
-## 🎯 Objective Achieved
-Linda has moved beyond the symmetric key exchange model to adopt a **Threshold Proxy Re-Encryption (TPRE)** system based on the **Umbral** (NuCypher) library. This system enables an asynchronous P2P experience where the infrastructure (Relay) facilitates decryption for recipients without ever having access to the keys or plaintext content.
+## Overview
+Linda uses [Zen](https://github.com/akaoio/zen)'s native cryptography end to end: one keypair per user, direct peer-to-peer ECDH, and AES-GCM payloads — in the style of Keet/Holepunch. The previous Threshold Proxy Re-Encryption (Umbral) and post-quantum (ML-KEM) layers have been removed; relays now only sync the encrypted graph and never participate in cryptography.
 
-## 🏗️ Implemented Architecture (Unified TPRE)
+## Identity
 
-### Unified Model
-Unlike traditional systems, Linda no longer distinguishes between 1:1 and Group chats at the cryptographic level.
-- **Everything is a Group**: Even private chats are TPRE rooms with a threshold (2-of-N).
-- **Deterministic IDs**: For 1:1 chats, the room ID (`p2p_...`) is calculated deterministically from the public keys of the two participants, eliminating the need for central matching databases.
+Each user has a **single secp256k1 keypair** from `zen.pair()`:
 
-### The Role of the Relay (Proxy)
-The Relay acts as a **semi-trusted Proxy**:
-1. **KFrag Reception**: The group Admin (or P2P chat initiator) generates delegation key fragments (**kfrags**) and sends them to the Relay.
-2. **Blind Transformation**: When a recipient requests a message, the Relay uses the kfrag to transform the original ciphertext into an "intermediate product" (**cfrag**).
-3. **Local Decryption**: The recipient downloads the cfrag and combines it with their private key to obtain the original plaintext.
+```
+{ pub, priv, address }
+```
 
-## 🔄 Messaging Flow
+The same key signs and performs ECDH. There is **no separate `epub`/`epriv`** as in Gun SEA. For backward compatibility with peers still reading the `epub` field from the graph, `CommunicationService.publishBundle` publishes `pair.pub` under that name.
 
-1. **Initialization**: User A creates a TPRE room and generates kfrags for User B.
-2. **Signaling**: User A sends a `TPRE_POKE` (encrypted notification via SEA/Zen) to User B to inform them of the new room.
-3. **Encryption**: User A encrypts the message with the room's **Community Public Key (CPK)**.
-4. **Synchronization**: User B downloads the ciphertext and requests the transformation from the Relay. The Relay performs the re-keying, and User B decrypts locally.
+Keys are derived deterministically from username+password (`generatePairFromSeed`), so login requires no auth server.
 
-## 🚀 Operational Advantages
+## Unified Room Model
 
-### 1. Native Multi-Device
-A user can authorize their additional devices as group members, allowing history synchronization via the relay without re-exposing master keys.
+- **Everything is a room**: 1:1 chats and groups both live under `linda_rooms/<id>`.
+- **Deterministic P2P IDs**: for 1:1 chats the room ID is `p2p_<pubA>_<pubB>` with the two public keys sorted — two users who know each other's keys already know where to meet on the graph, no matching database needed.
 
-### 2. Forward Secrecy and Revocation
-Member removal is now instantaneous at the relay level: by deleting the kfrag associated with the removed member, the relay stops generating transformations for them, making new messages undecipherable.
+## Message Flow (1:1)
 
-### 3. Ease of Discovery
-Thanks to deterministic IDs, two Linda users who know each other's public keys already know "where to meet" on the Zen graph to start communicating via TPRE.
+1. **Resolve**: username/@handle → `pub` via decentralized indices (`linda_unique_usernames`, `usernames`, Gun alias nodes).
+2. **Derive**: `zen.secret(peerPub, myPair)` — direct ECDH on the peer's `pub`. Shared secrets are memoized per pub.
+3. **Encrypt**: `zen.encrypt(msg, secret)` — AES-GCM, output is base62 `ct.iv.s` (dot-separated). Bodies starting with `SEA{` are old Gun SEA ciphertexts and are rejected as `LEGACY_UNSUPPORTED`.
+4. **Deliver**: ciphertext is written to the deterministic P2P room, plus an encrypted `P2P_POKE` to the recipient's inbox (`linda_v3_inbox_<pub>`) so their client knows to subscribe to the room.
+5. **Decrypt**: the recipient derives the same secret from the sender's `pub` and decrypts locally.
+
+## Message Flow (Groups)
+
+- The admin generates a group secret (`meta.secret`, base64 AES-GCM key) shared with members via invites.
+- `GroupService.encryptGroupMessage`/`decryptGroupMessage` use WebCrypto AES-GCM (12-byte IV prepended to the ciphertext).
+- P2P rooms reuse the same pipeline with an empty `secret`: the payload is already encrypted by the ECDH envelope above.
+
+## Role of the Relay
+
+The relay is a **blind sync node**: it replicates the encrypted graph and enforces authenticated writes (Zen signed puts), but holds no keys and performs no transformations. Wildcard (`*`) certificates are explicitly unsupported in Zen-native; peer write access to inboxes uses specific per-peer certificates.
 
 ---
 
-## 🆔 Identity & Discovery
+## Identity & Discovery
 
-Linda implements a sophisticated decentralized identity system to map cryptographic keys to human-readable names.
+Linda maps cryptographic keys to human-readable names through a decentralized identity system.
 
 ### Unique Handles (@username)
-Users can claim a unique handle which is stored in a global decentralized index (`signal_unique_usernames`). This handle acts as a discoverable pointer to the user's public key.
+Users can claim a unique handle stored in a global decentralized index (`linda_unique_usernames`). The handle acts as a discoverable pointer to the user's public key.
 
 ### Multi-path Profile Resolution
-To ensure eventual consistency and high availability of contact metadata across different network conditions and relay states, Linda's `useProfile` hook employs a multi-path resolution strategy:
+To ensure eventual consistency across network conditions and relay states, the `useProfile` hook resolves identity over multiple paths:
 
-1.  **Primary Path**: `~${pub}/profile/nickname` (App-specific display name).
-2.  **Unique Handle**: `~${pub}/profile/uniqueUsername` (Verified handle).
-3.  **Communication Bundle**: `~${pub}/signal_bundle_v7/username` (Signals from `CommunicationService`).
-4.  **Global Index**: `signal_aliases/${pub}/alias` (Searchable alias registry).
-5.  **Legacy Fallback**: `~${pub}/alias` (Backward compatibility).
+1.  **Primary Path**: `~${pub}/profile/nickname` (app-specific display name).
+2.  **Unique Handle**: `~${pub}/profile/uniqueUsername` (verified handle).
+3.  **Communication Bundle**: `~${pub}/linda_bundle_v7/username` (published by `CommunicationService`).
+4.  **Global Index**: `linda_aliases/${pub}/alias` (searchable alias registry).
+5.  **Legacy Fallback**: `~${pub}/alias` (backward compatibility).
 
-This reactive resolution ensures that the UI updates instantly as soon as any of these paths yield a valid identity, falling back to a truncated public key only as a last resort.
-
----
-
-## ✅ Technical Roadmap Completed
-- [x] **Research**: Integration of the NuCypher Umbral library (WASM/JS).
-- [x] **ThresholdService**: Implementation of the core service for key, ciphertext, and kfrag management.
-- [x] **Relay Update**: Shogun Relay now supports partial transform share computation.
-- [x] **Migration**: Deactivation of legacy SEA logic for message transport in favor of the TPRE tunnel.
+The UI updates reactively as soon as any path yields a valid identity, falling back to a truncated public key only as a last resort.
 
 ---
 
-> "Infrastructure is the blind postman who transforms locks without ever having the key." (The Principle of Proxy Re-Encryption in Linda)
+> "Two peers who know each other's keys already share a meeting point and a secret — the network in between only carries noise."
