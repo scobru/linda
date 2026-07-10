@@ -790,9 +790,9 @@ export class CommunicationService {
         return undefined;
       }
 
-      // LEGACY GUARD: If it doesn't look like a SEA ciphertext, don't try to decrypt it with SEA
-      // SEA strings usually start with SEA{"ct":...}
-      if (!ciphertext.body.startsWith('SEA{"')) {
+      // LEGACY GUARD: old Gun SEA ciphertexts start with SEA{"ct":...} and
+      // can't be decrypted by Zen-native (which outputs base62 "ct.iv.s").
+      if (ciphertext.body.startsWith('SEA{')) {
         // Return a special indicator for legacy messages to avoid heal loops
         return "LEGACY_UNSUPPORTED";
       }
