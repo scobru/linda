@@ -662,10 +662,9 @@ export const useMessaging = (
         
         // Write to the P2P room messages node
         await db.Set(`linda_rooms/${p2pGroup.id}/messages`, { 
-            msgId, 
-            sender: userPub, 
-            senderEpub: communicationService.myPair?.epub,
-            body: pokeCipher.body, 
+            msgId,
+            sender: userPub,
+            body: pokeCipher.body,
             timestamp: timestamp.toISOString(), 
             type: pokeCipher.type,
             msgType: type 
@@ -678,7 +677,6 @@ export const useMessaging = (
             
             await db.Set(`linda_v3_inbox_${recipient}`, {
                 sender: userPub,
-                senderEpub: communicationService.myPair?.epub,
                 type: pokeMsg.type,
                 body: pokeMsg.body,
                 timestamp: timestamp.toISOString(),

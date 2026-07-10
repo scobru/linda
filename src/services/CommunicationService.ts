@@ -111,7 +111,7 @@ export class CommunicationService {
     uniqueUsername?: string,
   ): Promise<void> {
     const pair = this.myPair || this.db.pair;
-    if (!pair || !pair.epub) {
+    if (!pair || !pair.pub) {
       console.warn(
         "[CommunicationService] User keys not available yet, deferring bundle publish.",
       );
@@ -119,9 +119,10 @@ export class CommunicationService {
     }
 
     try {
-      // 1. Primary path: user node root 'epub'
-      // This is the most important field for E2E encryption.
-      await this.db.userPut("epub", pair.epub);
+      // Zen-native uses a single pub/priv keypair for both signing and ECDH
+      // (no separate 'epub' like Gun SEA). Publish 'pub' under the legacy
+      // 'epub' field name so any code/peers still reading it keep working.
+      await this.db.userPut("epub", pair.pub);
 
       // 2. Secondary path: individual fields for maximum GunDB verification reliability
       await new Promise((r) => setTimeout(r, 300));
@@ -129,7 +130,7 @@ export class CommunicationService {
       console.log(
         "[CommunicationService] Publishing secondary linda_bundle_v7 metadata...",
       );
-      await this.db.userPut("linda_bundle_v7/epub", pair.epub);
+      await this.db.userPut("linda_bundle_v7/epub", pair.pub);
       await this.db.userPut("linda_bundle_v7/username", username);
       if (uniqueUsername) {
         await this.db.userPut("linda_bundle_v7/uniqueUsername", uniqueUsername);
@@ -737,14 +738,15 @@ export class CommunicationService {
             pubKey = await this.getPubKeyFromUsername(recipientUsernameOrPub);
           }
 
-          const recipientEpub = await this.getEpubFromPub(pubKey);
+          // Zen-native ECDH uses the peer's 'pub' directly (single keypair,
+          // no separate 'epub' like Gun SEA) — no discovery round-trip needed.
           const myPair = (this.db.user as any)?._?.sea;
           if (!myPair) throw new Error("User not logged in");
 
-          let secret = this.secretCache.get(recipientEpub);
+          let secret = this.secretCache.get(pubKey);
           if (!secret) {
-            secret = await zenCrypto.secret(recipientEpub, myPair, this.db.zen);
-            if (secret) this.secretCache.set(recipientEpub, secret);
+            secret = await zenCrypto.secret(pubKey, myPair, this.db.zen);
+            if (secret) this.secretCache.set(pubKey, secret);
           }
 
           if (!secret) throw new Error("DH Derivation failed");
@@ -770,20 +772,12 @@ export class CommunicationService {
   async decryptMessage(
     senderUsernameOrPub: string,
     ciphertext: { type: number; body: string },
-    senderEpub?: string,
+    _senderEpub?: string, // unused: Zen-native has no separate epub, kept for call-site compat
   ): Promise<string | undefined> {
     try {
       let pubKey = senderUsernameOrPub;
       if (pubKey.length < 30 || pubKey.startsWith("@")) {
         pubKey = await this.getPubKeyFromUsername(senderUsernameOrPub);
-      }
-
-      const epub = senderEpub || await this.getEpubFromPub(pubKey);
-      if (!epub) {
-        console.warn(
-          `[CommunicationService] No epub found for ${pubKey.slice(0, 8)}. Cannot decrypt.`,
-        );
-        return undefined;
       }
 
       const myPair = this.myPair || (this.db.user as any)?._?.sea;
@@ -803,10 +797,12 @@ export class CommunicationService {
         return "LEGACY_UNSUPPORTED";
       }
 
-      let secret = this.secretCache.get(epub);
+      // Zen-native ECDH uses the sender's 'pub' directly (single keypair,
+      // no separate 'epub' like Gun SEA) — no discovery round-trip needed.
+      let secret = this.secretCache.get(pubKey);
       if (!secret) {
-        secret = await zenCrypto.secret(epub, myPair, this.db.zen);
-        if (secret) this.secretCache.set(epub, secret);
+        secret = await zenCrypto.secret(pubKey, myPair, this.db.zen);
+        if (secret) this.secretCache.set(pubKey, secret);
       }
 
       if (!secret) {
@@ -836,56 +832,6 @@ export class CommunicationService {
           decryptErr.message,
         );
         decrypted = undefined;
-      }
-
-      // If decryption fails, try a one-time "silent heal" by refreshing the epub
-      if (decrypted === undefined || decrypted === null) {
-        console.log(
-          `[CommunicationService] Decryption failed for ${pubKey.slice(0, 8)}. Attempting one-time EPUB refresh...`,
-        );
-
-        // Anti-flap guard: if we already refreshed this sender in the last 10s, don't loop
-        const lastRefresh = (this as any)._lastRefreshMap?.[pubKey] || 0;
-        if (Date.now() - lastRefresh < 10000) {
-          console.warn(
-            `[CommunicationService] Skipping redundant EPUB refresh for ${pubKey.slice(0, 8)} (anti-flap).`,
-          );
-          return undefined;
-        }
-        (this as any)._lastRefreshMap = {
-          ...((this as any)._lastRefreshMap || {}),
-          [pubKey]: Date.now(),
-        };
-
-        this.epubCache.delete(pubKey);
-        this.secretCache.delete(epub);
-        try {
-          const freshEpub = await this.getEpubFromPub(pubKey);
-          const freshSecret = await zenCrypto.secret(freshEpub, myPair, this.db.zen);
-          if (freshSecret) this.secretCache.set(freshEpub, freshSecret);
-          else throw new Error("Fresh secret derivation failed");
-
-          decrypted = await Promise.race([
-            zenCrypto.decrypt(ciphertext.body, freshSecret, this.db.zen),
-            new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error("Zen decrypt fresh retry timeout")),
-                3000,
-              ),
-            ),
-          ]);
-
-          if (decrypted) {
-            console.log(
-              `[CommunicationService] Silent heal SUCCESS for ${pubKey.slice(0, 8)}`,
-            );
-          }
-        } catch (e: any) {
-          console.warn(
-            `[CommunicationService] One-time refresh failed for ${pubKey.slice(0, 8)}:`,
-            e.message,
-          );
-        }
       }
 
       if (decrypted === undefined || decrypted === null) {
