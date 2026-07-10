@@ -341,7 +341,12 @@ export const useMessaging = (
             }
             
             if (userPub) saveProcessedKey(userPub, gunKey);
-            
+
+            if (plaintext === "LEGACY_UNSUPPORTED") {
+              console.warn(`[Messaging] Skipping undecryptable/legacy message ${gunKey.slice(0, 8)}`);
+              return;
+            }
+
             const cleanSender = data.sender.startsWith('~') ? data.sender.slice(1) : data.sender;
             const isMe = cleanSender === userPub;
             const remoteMsgId = data.msgId || gunKey;
