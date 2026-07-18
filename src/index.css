@@ -161,6 +161,136 @@ body {
   display: none;
 }
 
+/* ── Premium Settings & Profile UI ────────────────────────── */
+.premium-card-container {
+  background-color: var(--color-base-200);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1.25rem;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.premium-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem;
+  transition: background-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+  position: relative;
+  text-decoration: none;
+}
+
+.premium-card-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.premium-card-row-interactive {
+  cursor: pointer;
+}
+
+.premium-card-row-interactive:active {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.premium-row-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.premium-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.premium-row-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.premium-row-title {
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-base-content);
+  letter-spacing: -0.015em;
+}
+
+.premium-row-desc {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: rgba(248, 250, 252, 0.5);
+  margin-top: 0.2rem;
+  line-height: 1.35;
+}
+
+.premium-section-title {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-base-content);
+  margin-top: 2rem;
+  margin-bottom: 0.6rem;
+  letter-spacing: -0.02em;
+}
+
+.chevron-arrow {
+  color: rgba(248, 250, 252, 0.3);
+  font-family: monospace;
+  font-size: 1.1rem;
+  margin-left: 0.5rem;
+  transition: transform 0.2s ease;
+}
+
+.premium-card-row-interactive:hover .chevron-arrow {
+  transform: translateX(2px);
+  color: var(--color-base-content);
+}
+
+.ios-switch {
+  appearance: none;
+  width: 3.2rem;
+  height: 1.8rem;
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+  outline: none;
+  flex-shrink: 0;
+}
+
+.ios-switch::before {
+  content: "";
+  position: absolute;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background-color: #ffffff;
+  top: 0.15rem;
+  left: 0.15rem;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.ios-switch:checked {
+  background-color: var(--color-primary);
+}
+
+.ios-switch:checked::before {
+  transform: translateX(1.4rem);
+}
+
 /* ── Safe Area Utilities (notches / home indicator) ───────── */
 .pt-safe {
   padding-top: env(safe-area-inset-top);

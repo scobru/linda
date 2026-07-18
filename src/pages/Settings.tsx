@@ -19,14 +19,14 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
     localStorage.setItem("linda-theme", theme);
     document.documentElement.dataset.theme = theme;
     setCurrentTheme(theme);
-    const themeName = theme === "linda" ? "Dark" : theme === "linda-light" ? "Light" : "Gray";
-    showNotification(`Theme set to ${themeName}`, "info");
+    const themeName = theme === "linda" ? "Scuro" : theme === "linda-light" ? "Chiaro" : "Grigio";
+    showNotification(`Tema impostato su ${themeName}`, "info");
   };
 
   const handleReset = () => {
     if (
       window.confirm(
-        "Are you sure you want to clear all cache, localStorage, and sessionStorage? This will log you out."
+        "Sei sicuro di voler cancellare tutta la cache, localStorage e sessionStorage? Verrai disconnesso."
       )
     ) {
       localStorage.clear();
@@ -39,7 +39,7 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
     if (typeof window !== "undefined" && "Notification" in window) {
       Notification.requestPermission().then((permission) => {
         showNotification(
-          `Notifications are now ${permission}`,
+          `Notifiche impostate su: ${permission}`,
           permission === "granted" ? "info" : "error"
         );
       });
@@ -47,86 +47,99 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
   };
 
   return (
-    <div className="p-6 sm:p-12 lg:p-16 max-w-5xl mx-auto space-y-10 animate-fadeIn h-full overflow-y-auto">
+    <div className="p-6 sm:p-12 lg:p-16 max-w-2xl mx-auto space-y-10 animate-fadeIn h-full overflow-y-auto pb-24 scrollbar-hide">
       <div className="flex items-center gap-6 relative z-10">
         <button 
           className="btn btn-ghost btn-circle bg-base-200 border border-base-content/5 active:scale-90 transition-all flex items-center justify-center p-0" 
           onClick={() => navigate("/")}
-          aria-label="Go back"
+          aria-label="Torna indietro"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 opacity-60">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <h1 className="text-3xl font-black tracking-tight">Settings</h1>
+        <h1 className="text-4xl font-black tracking-tight text-base-content">Impostazioni</h1>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:gap-8">
-        <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-          <div className="card-body p-6 sm:p-8 gap-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Notifications</h3>
-                <p className="text-sm opacity-70">Stay updated with new messages and group activity.</p>
-              </div>
-              <button className="btn btn-primary btn-outline btn-sm sm:btn-md rounded-xl px-6" onClick={handleEnableNotifications}>
-                Enable Access
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-          <div className="card-body p-6 sm:p-8 gap-6">
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Data & Management</h3>
-              <p className="text-sm opacity-70 mb-6">Manage how the application stores data locally.</p>
-              
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-base-300 rounded-2xl border border-base-content/5 gap-4">
-                  <div>
-                    <div className="text-sm font-bold">Hard Reset</div>
-                    <div className="text-[11px] opacity-50 mt-1">Clears all local storage, keys, and session data.</div>
-                  </div>
-                  <button className="btn btn-error btn-outline btn-sm px-6 rounded-xl" onClick={handleReset}>
-                    Reset Session
-                  </button>
+      <div className="space-y-8">
+        {/* Notifiche */}
+        <div>
+          <h2 className="premium-section-title">Notifiche</h2>
+          <div className="premium-card-container">
+            <div className="premium-card-row">
+              <div className="premium-row-left">
+                <div className="premium-row-icon bg-primary/10 text-primary">🔔</div>
+                <div className="premium-row-info">
+                  <div className="premium-row-title">Notifiche Push</div>
+                  <div className="premium-row-desc">Rimani aggiornato sui nuovi messaggi e attività.</div>
                 </div>
               </div>
+              <button className="btn btn-primary btn-sm rounded-xl px-5 font-bold transition-all active:scale-95" onClick={handleEnableNotifications}>
+                Abilita
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="card bg-base-200 border border-base-content/5 overflow-hidden rounded-2xl">
-          <div className="card-body p-6 sm:p-8 gap-6">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1.5 text-primary">Appearance</h3>
-            <div className="grid grid-cols-3 gap-2 p-1 bg-base-300 rounded-2xl border border-base-content/5">
-              <button 
-                className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
-                onClick={() => setTheme("linda")}
-              >
-                Dark
+        {/* Gestione Dati */}
+        <div>
+          <h2 className="premium-section-title">Dati e Gestione</h2>
+          <div className="premium-card-container">
+            <div className="premium-card-row">
+              <div className="premium-row-left">
+                <div className="premium-row-icon bg-error/10 text-error">⚙️</div>
+                <div className="premium-row-info">
+                  <div className="premium-row-title">Ripristino Totale</div>
+                  <div className="premium-row-desc">Svuota memoria locale, chiavi e sessioni.</div>
+                </div>
+              </div>
+              <button className="btn btn-error btn-outline btn-sm px-5 rounded-xl font-bold transition-all active:scale-95" onClick={handleReset}>
+                Ripristina
               </button>
-              <button 
-                className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda-gray" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
-                onClick={() => setTheme("linda-gray")}
-              >
-                Gray
-              </button>
-              <button 
-                className={`btn btn-sm sm:btn-md rounded-xl transition-all ${currentTheme === "linda-light" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
-                onClick={() => setTheme("linda-light")}
-              >
-                Light
-              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Aspetto */}
+        <div>
+          <h2 className="premium-section-title">Aspetto</h2>
+          <div className="premium-card-container">
+            <div className="premium-card-row flex-col items-stretch gap-4 p-5">
+              <div className="flex items-center gap-4">
+                <div className="premium-row-icon bg-info/10 text-info">🎨</div>
+                <div className="premium-row-info">
+                  <div className="premium-row-title">Tema dell'applicazione</div>
+                  <div className="premium-row-desc">Personalizza lo stile visivo di Linda.</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 p-1 bg-base-300 rounded-2xl border border-base-content/5 mt-2">
+                <button 
+                  className={`btn btn-sm rounded-xl transition-all font-bold ${currentTheme === "linda" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
+                  onClick={() => setTheme("linda")}
+                >
+                  Scuro
+                </button>
+                <button 
+                  className={`btn btn-sm rounded-xl transition-all font-bold ${currentTheme === "linda-gray" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
+                  onClick={() => setTheme("linda-gray")}
+                >
+                  Grigio
+                </button>
+                <button 
+                  className={`btn btn-sm rounded-xl transition-all font-bold ${currentTheme === "linda-light" ? "btn-primary shadow-lg" : "btn-ghost opacity-60"}`}
+                  onClick={() => setTheme("linda-light")}
+                >
+                  Chiaro
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex justify-center p-8 opacity-20 hover:opacity-100 transition-opacity">
-        <button className="btn btn-ghost btn-xs" onClick={() => logout()}>
-          Sign out session
+      <div className="flex justify-center pt-8">
+        <button className="btn btn-ghost text-error/60 hover:text-error transition-all font-bold text-sm" onClick={() => logout()}>
+          Disconnetti sessione
         </button>
       </div>
     </div>
