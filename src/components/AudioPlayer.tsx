@@ -17,14 +17,40 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
     // Some browsers return Infinity or 0 for duration of certain blobs
     // until we seek to the end or start playing.
     if (!isFinite(audio.duration) || audio.duration === 0) {
-      audio.currentTime = 1e101;
-      audio.ontimeupdate = () => {
-        audio.ontimeupdate = null;
+      let resolved = false;
+      
+      const resetAudio = () => {
+        if (resolved) return;
+        resolved = true;
+        
+        audio.removeEventListener("timeupdate", onTimeUpdateForDuration);
+        audio.removeEventListener("seeked", onSeekedForDuration);
+        
         if (isFinite(audio.duration)) {
           setDuration(audio.duration);
         }
         audio.currentTime = 0;
       };
+
+      const onTimeUpdateForDuration = () => {
+        resetAudio();
+      };
+
+      const onSeekedForDuration = () => {
+        resetAudio();
+      };
+
+      audio.addEventListener("timeupdate", onTimeUpdateForDuration);
+      audio.addEventListener("seeked", onSeekedForDuration);
+      
+      // Set to a large finite number (e.g. 24 hours/86400 seconds) instead of 1e101,
+      // which some browser engines (like Safari or older Chrome) reject as invalid or overflow.
+      audio.currentTime = 86400;
+
+      // Fallback timeout to ensure we definitely reset the playhead to 0
+      setTimeout(() => {
+        resetAudio();
+      }, 500);
     } else {
       setDuration(audio.duration);
     }
