@@ -368,7 +368,8 @@ export const useMessaging = (
                 return prev;
               }
 
-              const isFile = data.type === 'file' || data.type === 'image';
+              const actualType = isP2P ? (data.msgType || "text") : (data.type || "text");
+              const isFile = actualType === 'file' || actualType === 'image';
               let fileMetadata: FileMetadata | undefined;
               let messageText: string | undefined = plaintext;
 
@@ -381,6 +382,10 @@ export const useMessaging = (
                 }
               }
 
+              const resolvedType = isP2P 
+                ? (isFile ? (fileMetadata?.mimeType.startsWith('image/') ? 'image' : 'file') : (data.msgType || "text")) 
+                : ((data.type as any) || "text");
+
               const updatedMessages = [
                 ...groupMsgs,
                 {
@@ -388,10 +393,10 @@ export const useMessaging = (
                   gunKey: gunKey,
                   sender: isMe ? "Me" : data.sender,
                   senderPub: data.sender,
-                  text: (data.type === 'audio' || isFile) ? undefined : messageText,
-                  audio: data.type === 'audio' ? plaintext : undefined,
+                  text: (resolvedType === 'audio' || isFile) ? undefined : messageText,
+                  audio: resolvedType === 'audio' ? plaintext : undefined,
                   fileMetadata,
-                  type: isP2P ? (isFile ? (fileMetadata?.mimeType.startsWith('image/') ? 'image' : 'file') : (data.msgType || "text")) : ((data.type as any) || "text"),
+                  type: resolvedType,
                   timestamp: new Date(data.timestamp || Date.now()),
                   status: "delivered" as const,
                 },
