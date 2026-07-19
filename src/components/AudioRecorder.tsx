@@ -40,6 +40,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
 
       mediaRecorder.onstop = () => {
         const finalBlob = new Blob(chunksRef.current, { type: mimeType });
+        if (finalBlob.size < 500) {
+          console.warn("[AudioRecorder] Recording too short or empty, ignoring.");
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64String = reader.result as string;
@@ -49,7 +55,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
         stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(100);
       setIsRecording(true);
       setRecordingTime(0);
       timerRef.current = setInterval(() => {

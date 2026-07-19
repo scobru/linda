@@ -10,48 +10,48 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // Web Audio API fallback for WebM blobs recorded via MediaRecorder
+  // Chrome/Firefox do not include duration in header of MediaRecorder WebM blobs,
+  // making HTML5 audio element return 0 or Infinity. decodeAudioData calculates exact duration.
+  useEffect(() => {
+    if (!src) return;
+
+    let isMounted = true;
+
+    fetch(src)
+      .then((res) => res.arrayBuffer())
+      .then((arrayBuffer) => {
+        if (!isMounted) return;
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        ctx.decodeAudioData(
+          arrayBuffer,
+          (buffer) => {
+            if (isMounted && buffer && isFinite(buffer.duration) && buffer.duration > 0) {
+              setDuration(buffer.duration);
+            }
+            try {
+              ctx.close();
+            } catch (e) {}
+          },
+          () => {
+            try {
+              ctx.close();
+            } catch (e) {}
+          }
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [src]);
+
   const onLoadedMetadata = () => {
     const audio = audioRef.current;
-    if (!audio) return;
-    
-    // Some browsers return Infinity or 0 for duration of certain blobs
-    // until we seek to the end or start playing.
-    if (!isFinite(audio.duration) || audio.duration === 0) {
-      let resolved = false;
-      
-      const resetAudio = () => {
-        if (resolved) return;
-        resolved = true;
-        
-        audio.removeEventListener("timeupdate", onTimeUpdateForDuration);
-        audio.removeEventListener("seeked", onSeekedForDuration);
-        
-        if (isFinite(audio.duration)) {
-          setDuration(audio.duration);
-        }
-        audio.currentTime = 0;
-      };
-
-      const onTimeUpdateForDuration = () => {
-        resetAudio();
-      };
-
-      const onSeekedForDuration = () => {
-        resetAudio();
-      };
-
-      audio.addEventListener("timeupdate", onTimeUpdateForDuration);
-      audio.addEventListener("seeked", onSeekedForDuration);
-      
-      // Set to a large finite number (e.g. 24 hours/86400 seconds) instead of 1e101,
-      // which some browser engines (like Safari or older Chrome) reject as invalid or overflow.
-      audio.currentTime = 86400;
-
-      // Fallback timeout to ensure we definitely reset the playhead to 0
-      setTimeout(() => {
-        resetAudio();
-      }, 500);
-    } else {
+    if (audio && isFinite(audio.duration) && audio.duration > 0) {
       setDuration(audio.duration);
     }
   };
@@ -69,32 +69,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
       setDuration(audio.duration);
     }
   };
-
-  // Polling fallback for duration
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const checkDuration = () => {
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-        return true;
-      }
-      return false;
-    };
-
-    if (!checkDuration()) {
-      const interval = setInterval(() => {
-        if (checkDuration()) clearInterval(interval);
-      }, 500);
-      
-      const timeout = setTimeout(() => clearInterval(interval), 5000);
-      return () => {
-        clearInterval(interval);
-        clearTimeout(timeout);
-      };
-    }
-  }, [src]);
 
   const onTimeUpdate = () => {
     if (audioRef.current) {
