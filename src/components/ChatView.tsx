@@ -723,6 +723,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           {filteredMessages.map((msg, i) => {
             const isMe = msg.sender === "Me";
+            const isGroupChat = recipient.length === 36 && recipient.includes("-");
             const isGroupMsg =
               !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg
@@ -739,22 +740,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 key={msg.id || i}
                 className={`chat ${isMe ? "chat-end" : "chat-start"} group/chat relative mb-4`}
               >
-                <div className="chat-image avatar">
-                  <UserAvatar
-                    pub={msg.sender === "Me" ? userPub : msg.sender}
-                    db={db}
-                    isGroup={
-                      !isMe &&
-                      msg.sender.length === 36 &&
-                      msg.sender.includes("-")
-                    }
-                    className="w-13 h-13"
-                  />
-                </div>
+                {isGroupChat && (
+                  <div className="chat-image avatar">
+                    <UserAvatar
+                      pub={msg.sender === "Me" ? userPub : msg.sender}
+                      db={db}
+                      isGroup={false}
+                      className="w-11 h-11"
+                    />
+                  </div>
+                )}
 
-                <div className="chat-header opacity-50 text-[12px] font-extrabold uppercase tracking-widest mb-1 mx-2">
-                  {!isMe && <span>{msgNick}</span>}
-                </div>
+                {isGroupChat && !isMe && (
+                  <div className="chat-header opacity-50 text-[12px] font-extrabold uppercase tracking-widest mb-1 mx-2">
+                    <span>{msgNick}</span>
+                  </div>
+                )}
 
                 <div
                   className={`chat-bubble min-h-[44px] flex items-center relative group p-3.5 sm:px-5 sm:py-3 rounded-2xl cursor-pointer select-none touch-manipulation max-w-[78vw] sm:max-w-md overflow-hidden ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? "ring-2 ring-primary/40 brightness-110" : ""}`}
