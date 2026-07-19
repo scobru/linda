@@ -91,9 +91,21 @@ export const useProfile = (
           const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {
             setContactProfiles((prev) => {
               const existing = prev[id] || {};
-              // Merge updates
-              const next = { ...existing, ...updates };
-              // Avoid redundant state updates if nothing changed
+              const cleanUpdates: typeof updates = {};
+              
+              if (updates.nickname && typeof updates.nickname === "string" && updates.nickname.trim()) {
+                cleanUpdates.nickname = updates.nickname.trim();
+              }
+              if (updates.avatar && typeof updates.avatar === "string" && updates.avatar.trim()) {
+                cleanUpdates.avatar = updates.avatar.trim();
+              }
+              if (updates.uniqueUsername && typeof updates.uniqueUsername === "string" && updates.uniqueUsername.trim()) {
+                cleanUpdates.uniqueUsername = updates.uniqueUsername.trim();
+              }
+
+              if (Object.keys(cleanUpdates).length === 0) return prev;
+
+              const next = { ...existing, ...cleanUpdates };
               if (JSON.stringify(existing) === JSON.stringify(next)) return prev;
               return { ...prev, [id]: next };
             });
@@ -102,7 +114,11 @@ export const useProfile = (
           if (isGroup) {
             db.On(`linda_rooms/${cleanId}/meta`, (data: any) => {
               if (data && typeof data === "object") {
-                updateProfile(cleanId, { nickname: data.name, avatar: data.avatar });
+                const name = typeof data.name === "string" ? data.name.trim() : "";
+                const avatar = typeof data.avatar === "string" ? data.avatar.trim() : "";
+                if (name || avatar) {
+                  updateProfile(cleanId, { ...(name ? { nickname: name } : {}), ...(avatar ? { avatar } : {}) });
+                }
               }
             });
           } else {
@@ -137,14 +153,14 @@ export const useProfile = (
                 db.Get(path, 4000, true).then(data => {
                   if (!data) return;
                   
-                  // Handle if data is an object with a string property
                   let resolvedString = "";
-                  if (typeof data === "string") resolvedString = data;
+                  if (typeof data === "string") resolvedString = data.trim();
                   else if (typeof data === "object") {
-                    resolvedString = data.nickname || data.alias || data.name || data.username || data.uniqueUsername || "";
+                    const raw = data.nickname || data.alias || data.name || data.username || data.uniqueUsername || "";
+                    if (typeof raw === "string") resolvedString = raw.trim();
                   }
 
-                  if (resolvedString) {
+                  if (resolvedString && !resolvedString.startsWith("{")) {
                     if (path.includes("avatar")) updateProfile(cleanId, { avatar: resolvedString });
                     else if (path.includes("uniqueUsername")) updateProfile(cleanId, { uniqueUsername: resolvedString });
                     else updateProfile(cleanId, { nickname: resolvedString });
@@ -171,11 +187,16 @@ export const useProfile = (
 
               reactivePaths.forEach(({ path, field }) => {
                 db.On(path, (data: any) => {
+                  let val = "";
                   if (typeof data === "string") {
-                    updateProfile(cleanId, { [field]: data });
+                    val = data.trim();
                   } else if (data && typeof data === "object") {
-                    const val = data.nickname || data.alias || data.name || data.avatar;
-                    if (typeof val === "string") updateProfile(cleanId, { [field]: val });
+                    const found = data[field] || data.nickname || data.alias || data.name || data.avatar || data.username;
+                    if (typeof found === "string") val = found.trim();
+                  }
+
+                  if (val && !val.startsWith("{")) {
+                    updateProfile(cleanId, { [field]: val } as any);
                   }
                 });
               });

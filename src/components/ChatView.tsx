@@ -130,6 +130,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
     null,
   );
@@ -1028,85 +1029,144 @@ export const ChatView: React.FC<ChatViewProps> = ({
               onChange={handleFileSelect}
               className="hidden"
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={recipient.length === 36 && recipient.includes("-")}
-              className={`btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-12 w-12 min-h-0 border-none ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
-              aria-label="Allega file o immagine"
-              title={
-                recipient.length === 36 && recipient.includes("-")
-                  ? "Il trasferimento file non è ancora supportato nei gruppi"
-                  : "Allega file"
-              }
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2.5}
-                stroke="currentColor"
-                className="w-6 h-6 opacity-70"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 4.5v15m7.5-7.5h-15"
-                />
-              </svg>
-            </button>
 
-            <div className="flex-1 relative flex items-center">
-              <textarea
-                className="textarea textarea-md w-full min-h-[48px] max-h-48 py-3.5 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-5 text-[16px] text-base placeholder:opacity-50 resize-none leading-normal"
-                placeholder="Scrivi un messaggio..."
-                aria-label="Messaggio"
-                rows={1}
-                value={message}
-                onChange={(e) => {
-                  setMessage(e.target.value);
-                  handleTyping();
+            {isRecordingAudio ? (
+              <AudioRecorder
+                onRecordingComplete={(base64) => {
+                  handleSendMessage(undefined, base64);
+                  setIsRecordingAudio(false);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                onCancel={() => setIsRecordingAudio(false)}
+              />
+            ) : (
+              <>
+                <div className="dropdown dropdown-top z-30">
+                  <button
+                    tabIndex={0}
+                    className="btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-12 w-12 min-h-0 border-none shrink-0"
+                    aria-label="Altre opzioni allegati e vocali"
+                    title="Opzioni allegati e vocali"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2.2}
+                      stroke="currentColor"
+                      className="w-6 h-6 opacity-70"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                      />
+                    </svg>
+                  </button>
+                  <ul
+                    tabIndex={0}
+                    className="dropdown-content mb-2 z-50 menu p-2 shadow-2xl bg-base-300 border border-base-content/10 rounded-2xl w-56 font-bold text-base"
+                  >
+                    <li>
+                      <button
+                        onClick={(e) => {
+                          (e.currentTarget.closest(".dropdown") as HTMLElement)?.blur();
+                          fileInputRef.current?.click();
+                        }}
+                        disabled={recipient.length === 36 && recipient.includes("-")}
+                        className="py-3 flex items-center gap-3"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                          stroke="currentColor"
+                          className="w-5 h-5 text-primary"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94a3 3 0 114.243 4.243L8.567 18.312a1.5 1.5 0 11-2.122-2.122l8.954-8.955"
+                          />
+                        </svg>
+                        <span>Allega file</span>
+                      </button>
+                    </li>
+                    <li>
+                      <button
+                        onClick={(e) => {
+                          (e.currentTarget.closest(".dropdown") as HTMLElement)?.blur();
+                          setIsRecordingAudio(true);
+                        }}
+                        className="py-3 flex items-center gap-3 text-error"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                          stroke="currentColor"
+                          className="w-5 h-5"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                          />
+                        </svg>
+                        <span>Messaggio vocale</span>
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex-1 relative flex items-center">
+                  <textarea
+                    className="textarea textarea-md w-full min-h-[48px] max-h-48 py-3.5 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-5 text-[16px] text-base placeholder:opacity-50 resize-none leading-normal"
+                    placeholder="Scrivi un messaggio..."
+                    aria-label="Messaggio"
+                    rows={1}
+                    value={message}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      handleTyping();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        if (message.trim()) {
+                          e.preventDefault();
+                          handleSendMessage(message);
+                          setMessage("");
+                        } else {
+                          e.preventDefault();
+                        }
+                      }
+                    }}
+                  />
+                </div>
+
+                <button
+                  className={`btn btn-circle h-12 w-12 shrink-0 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-25"}`}
+                  onClick={() => {
                     if (message.trim()) {
-                      e.preventDefault();
                       handleSendMessage(message);
                       setMessage("");
-                    } else {
-                      e.preventDefault();
                     }
-                  }
-                }}
-              />
-            </div>
-
-            <AudioRecorder
-              onRecordingComplete={(base64) =>
-                handleSendMessage(undefined, base64)
-              }
-              loading={!canSendMessage}
-            />
-
-            <button
-              className={`btn btn-circle h-12 w-12 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-25"}`}
-              onClick={() => {
-                if (message.trim()) {
-                  handleSendMessage(message);
-                  setMessage("");
-                }
-              }}
-              disabled={!message.trim()}
-              aria-label="Invia messaggio"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="w-6 h-6"
-              >
-                <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-              </svg>
-            </button>
+                  }}
+                  disabled={!message.trim()}
+                  aria-label="Invia messaggio"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="w-6 h-6"
+                  >
+                    <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

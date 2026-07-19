@@ -49,6 +49,8 @@ export const truncatePub = (pub: any): string => {
 
 export const getDisplayName = (id: string, profile?: { nickname?: string, uniqueUsername?: string }): string => {
   if (!id) return "Unknown";
-  const name = profile?.nickname || profile?.uniqueUsername || id;
+  const nick = profile?.nickname?.trim();
+  const handle = profile?.uniqueUsername?.trim();
+  const name = (nick && nick.length > 0) ? nick : (handle && handle.length > 0) ? handle : id;
   return truncatePub(name);
 };
