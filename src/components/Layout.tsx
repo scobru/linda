@@ -45,7 +45,7 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
       </div>
       <div className="drawer-side z-30">
         <label htmlFor="my-drawer" aria-label="close sidebar" className="drawer-overlay"></label>
-        <div className="h-full w-[85vw] max-w-[320px] lg:max-w-none lg:w-96 transition-all">
+        <div className="h-full w-[88vw] max-w-[360px] lg:max-w-none lg:w-[410px] transition-all">
           <Sidebar {...sidebarProps} />
         </div>
       </div>

@@ -74,7 +74,7 @@ const MessageText = React.memo(
             href={part}
             target="_blank"
             rel="noopener noreferrer"
-            className={`hover:brightness-125 transition-all text-[14px] font-black underline ${isMe ? "text-primary-content" : "text-primary drop-shadow-md brightness-125"}`}
+            className={`hover:brightness-125 transition-all text-[16px] font-black underline ${isMe ? "text-primary-content" : "text-primary drop-shadow-md brightness-125"}`}
             onClick={(e) => e.stopPropagation()}
           >
             {shortenLink(part)}
@@ -380,21 +380,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return (
       <div className="flex flex-col h-full items-center justify-center bg-transparent bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
         <div className="avatar">
-          <div className="w-20 h-20 rounded-full bg-primary/5 flex items-center justify-center border border-primary/10 shadow-inner">
+          <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-lg">
             <img
               src="/logo.svg"
               alt="Linda Logo"
-              className="w-10 h-10 opacity-40 grayscale"
+              className="w-12 h-12 opacity-60 grayscale"
             />
           </div>
         </div>
-        <div className="max-w-xs">
-          <h2 className="text-2xl font-bold text-primary mb-2">
+        <div className="max-w-sm">
+          <h2 className="text-3xl font-black text-primary mb-3">
             Linda Messenger
           </h2>
-          <p className="opacity-40 text-[13px] leading-relaxed">
-            Select a contact to start an encrypted conversation. Your messages
-            are stored locally.
+          <p className="opacity-60 text-base leading-relaxed font-medium">
+            Seleziona un contatto per avviare una conversazione crittografata. I tuoi messaggi sono salvati in locale.
           </p>
         </div>
       </div>
@@ -446,11 +445,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* Header - Signal Minimalism Style */}
-      <div className="navbar bg-white/5 backdrop-blur-md border-b border-base-content/5 min-h-16 pt-safe shrink-0 px-6 gap-4 z-10 sticky top-0">
+      <div className="navbar bg-white/5 backdrop-blur-md border-b border-base-content/5 min-h-20 pt-safe shrink-0 px-6 gap-4 z-10 sticky top-0">
         <div className="flex-none lg:hidden">
           <button
             onClick={() => setRecipient("")}
-            className="btn btn-ghost btn-circle btn-sm"
+            className="btn btn-ghost btn-circle btn-md"
             aria-label="Torna ai contatti"
           >
             <svg
@@ -459,7 +458,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               viewBox="0 0 24 24"
               strokeWidth={2.5}
               stroke="currentColor"
-              className="w-5 h-5"
+              className="w-6 h-6"
             >
               <path
                 strokeLinecap="round"
@@ -470,21 +469,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </button>
         </div>
 
-        <div className="flex-1 flex items-center gap-3 min-w-0">
+        <div className="flex-1 flex items-center gap-3.5 min-w-0">
           <div className="relative">
             <UserAvatar
               pub={recipient}
               db={db}
               isGroup={recipient.length === 36 && recipient.includes("-")}
-              className="w-12 h-12"
+              className="w-14 h-14"
             />
             {typingStatuses[recipient] && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-base-200 animate-pulse" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-success rounded-full border-2 border-base-200 animate-pulse" />
             )}
           </div>
 
           <div className="flex flex-col min-w-0">
-            <h3 className="text-[16px] font-bold tracking-tight truncate leading-tight">
+            <h3 className="text-[19px] font-black tracking-tight truncate leading-tight">
               {(() => {
                 const isGroup =
                   recipient.length === 36 && recipient.includes("-");
@@ -495,7 +494,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 return getDisplayName(recipient, profile);
               })()}
             </h3>
-            <span className="text-[13px] opacity-60">
+            <span className="text-sm opacity-70 font-medium">
               {typingStatuses[recipient]
                 ? "sta scrivendo..."
                 : "ultimo accesso di recente"}
@@ -503,13 +502,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        <div className="flex-none flex items-center gap-1.5">
+        <div className="flex-none flex items-center gap-2">
           <button
             onClick={() => {
               setIsSearchOpen(!isSearchOpen);
               if (isSearchOpen) setSearchQuery("");
             }}
-            className={`btn btn-ghost btn-circle btn-sm ${isSearchOpen ? "text-primary" : "opacity-60"}`}
+            className={`btn btn-ghost btn-circle btn-md ${isSearchOpen ? "text-primary opacity-100" : "opacity-70"}`}
             aria-label={isSearchOpen ? "Chiudi ricerca" : "Cerca nei messaggi"}
           >
             <svg
@@ -518,7 +517,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               viewBox="0 0 24 24"
               strokeWidth={2.5}
               stroke="currentColor"
-              className="w-5 h-5"
+              className="w-6 h-6"
             >
               <path
                 strokeLinecap="round"
@@ -531,16 +530,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {recipient.length === 36 && (
             <button
               onClick={() => setShowGroupSettings(recipient)}
-              className="btn btn-ghost btn-circle btn-sm"
+              className="btn btn-ghost btn-circle btn-md"
               aria-label="Impostazioni gruppo"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
-                strokeWidth={2}
+                strokeWidth={2.2}
                 stroke="currentColor"
-                className="w-5 h-5 opacity-60"
+                className="w-6 h-6 opacity-70"
               >
                 <path
                   strokeLinecap="round"
@@ -553,7 +552,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="dropdown dropdown-end">
             <button
               tabIndex={0}
-              className="btn btn-ghost btn-circle btn-sm"
+              className="btn btn-ghost btn-circle btn-md"
               aria-label="Altre opzioni"
             >
               <svg
@@ -562,7 +561,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 viewBox="0 0 24 24"
                 strokeWidth={2.5}
                 stroke="currentColor"
-                className="w-5 h-5 opacity-60"
+                className="w-6 h-6 opacity-70"
               >
                 <path
                   strokeLinecap="round"
@@ -573,7 +572,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </button>
             <ul
               tabIndex={0}
-              className="dropdown-content mt-2 z-[50] menu p-2 shadow-2xl bg-base-300 border border-base-content/5 rounded-2xl w-56 font-bold"
+              className="dropdown-content mt-2 z-[50] menu p-2.5 shadow-2xl bg-base-300 border border-base-content/10 rounded-2xl w-60 font-bold text-base"
             >
               <li>
                 <button
@@ -748,16 +747,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       msg.sender.length === 36 &&
                       msg.sender.includes("-")
                     }
-                    className="w-12 h-12"
+                    className="w-13 h-13"
                   />
                 </div>
 
-                <div className="chat-header opacity-40 text-[9px] font-bold uppercase tracking-widest mb-1 mx-2">
+                <div className="chat-header opacity-50 text-[12px] font-extrabold uppercase tracking-widest mb-1 mx-2">
                   {!isMe && <span>{msgNick}</span>}
                 </div>
 
                 <div
-                  className={`chat-bubble min-h-[40px] flex items-center relative group p-3 sm:px-4 sm:py-2.5 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? "ring-2 ring-primary/40 brightness-110" : ""}`}
+                  className={`chat-bubble min-h-[44px] flex items-center relative group p-3.5 sm:px-5 sm:py-3 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? "ring-2 ring-primary/40 brightness-110" : ""}`}
                   onClick={(e) => handleMessageClick(e, msg.id)}
                   onContextMenu={(e) => handleLongPress(e, msg.id)}
                 >
@@ -830,7 +829,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       }}
                     />
                   ) : (
-                    <div className="py-0.5 leading-relaxed text-[15px]">
+                    <div className="py-0.5 leading-relaxed text-[16px] text-base font-normal">
                       <div className="break-words whitespace-pre-wrap">
                         <MessageText text={msg.text} isMe={isMe} />
                       </div>
@@ -840,7 +839,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           {msg.tags.map((tag) => (
                             <span
                               key={tag}
-                              className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${isMe ? "bg-white/20 text-white" : "bg-primary/20 text-primary"}`}
+                              className={`text-xs font-bold px-2 py-0.5 rounded-md ${isMe ? "bg-white/20 text-white" : "bg-primary/20 text-primary"}`}
                             >
                               #{tag}
                             </span>
@@ -864,7 +863,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                       {/* Telegram-style meta (time + status) inside bubble */}
                       <div
-                        className={`flex items-center justify-end gap-1 mt-1 -mb-1 ml-4 float-right select-none opacity-60 text-[11px] ${isMe ? "text-primary-content" : "text-base-content"}`}
+                        className={`flex items-center justify-end gap-1 mt-1 -mb-1 ml-4 float-right select-none opacity-70 text-xs font-medium ${isMe ? "text-primary-content" : "text-base-content"}`}
                       >
                         <span>
                           {msg.timestamp.toLocaleTimeString([], {
@@ -1022,7 +1021,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             Solo gli amministratori possono inviare messaggi
           </div>
         ) : (
-          <div className="flex items-center gap-2 w-full max-w-3xl mx-auto">
+          <div className="flex items-center gap-3 w-full max-w-3xl mx-auto">
             <input
               type="file"
               ref={fileInputRef}
@@ -1032,7 +1031,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={recipient.length === 36 && recipient.includes("-")}
-              className={`btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-11 w-11 min-h-0 border-none ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
+              className={`btn btn-ghost btn-circle bg-base-content/5 hover:bg-base-content/10 h-12 w-12 min-h-0 border-none ${recipient.length === 36 && recipient.includes("-") ? "opacity-20 cursor-not-allowed" : ""}`}
               aria-label="Allega file o immagine"
               title={
                 recipient.length === 36 && recipient.includes("-")
@@ -1046,7 +1045,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 viewBox="0 0 24 24"
                 strokeWidth={2.5}
                 stroke="currentColor"
-                className="w-5 h-5 opacity-60"
+                className="w-6 h-6 opacity-70"
               >
                 <path
                   strokeLinecap="round"
@@ -1058,7 +1057,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
             <div className="flex-1 relative flex items-center">
               <textarea
-                className="textarea textarea-sm w-full min-h-[44px] max-h-48 py-3 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-4 text-[15px] placeholder:opacity-50 resize-none leading-tight"
+                className="textarea textarea-md w-full min-h-[48px] max-h-48 py-3.5 bg-base-300/50 border-none focus:ring-0 focus:outline-none rounded-2xl px-5 text-[16px] text-base placeholder:opacity-50 resize-none leading-normal"
                 placeholder="Scrivi un messaggio..."
                 aria-label="Messaggio"
                 rows={1}
@@ -1089,7 +1088,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
 
             <button
-              className={`btn btn-circle btn-sm h-11 w-11 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-20"}`}
+              className={`btn btn-circle h-12 w-12 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-25"}`}
               onClick={() => {
                 if (message.trim()) {
                   handleSendMessage(message);
@@ -1103,7 +1102,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
                 fill="currentColor"
-                className="w-5 h-5"
+                className="w-6 h-6"
               >
                 <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
               </svg>
