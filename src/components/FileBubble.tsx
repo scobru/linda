@@ -46,24 +46,29 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
   const isImage = metadata.mimeType.startsWith('image/');
 
   return (
-    <div className={`flex flex-col gap-2 max-w-sm rounded-2xl p-3 ${isMe ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content'} shadow-lg border border-white/5`}>
+    <div className={`flex flex-col gap-2 w-full max-w-[240px] xs:max-w-[280px] sm:max-w-sm rounded-2xl p-3 ${isMe ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content'} shadow-lg border border-white/5 overflow-hidden`}>
       {isImage && (previewUrl || isMe) ? (
-        <div className="relative rounded-lg overflow-hidden bg-black/20 min-h-[100px] flex items-center justify-center">
-            {previewUrl ? (
-                <img src={previewUrl} alt={metadata.name} className="max-w-full h-auto object-cover" />
-            ) : isMe ? (
-                 <div className="text-xs opacity-50 italic">Image Sent</div>
-            ) : (
-                <div className="loading loading-spinner loading-md text-primary"></div>
-            )}
+        <div className="flex flex-col gap-1.5 w-full">
+          <div className="relative rounded-lg overflow-hidden bg-black/20 min-h-[100px] flex items-center justify-center w-full">
+              {previewUrl ? (
+                  <img src={previewUrl} alt={metadata.name} className="max-w-full max-h-72 h-auto object-cover rounded-lg" />
+              ) : isMe ? (
+                   <div className="text-xs opacity-50 italic">Image Sent</div>
+              ) : (
+                  <div className="loading loading-spinner loading-md text-primary"></div>
+              )}
+          </div>
+          <div className="font-bold text-xs truncate max-w-full opacity-80 px-1" title={metadata.name}>
+            {metadata.name}
+          </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-black/20 flex items-center justify-center flex-shrink-0">
+        <div className="flex items-center gap-3 w-full min-w-0">
+          <div className="w-11 h-11 rounded-xl bg-black/20 flex items-center justify-center flex-shrink-0">
             {isImage ? '🖼️' : '📄'}
           </div>
-          <div className="flex-1 overflow-hidden">
-            <div className="font-bold text-sm truncate">{metadata.name}</div>
+          <div className="flex-1 overflow-hidden min-w-0">
+            <div className="font-bold text-sm truncate max-w-full" title={metadata.name}>{metadata.name}</div>
             <div className="text-xs opacity-70">{formatSize(metadata.size)}</div>
           </div>
         </div>

@@ -757,7 +757,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
 
                 <div
-                  className={`chat-bubble min-h-[44px] flex items-center relative group p-3.5 sm:px-5 sm:py-3 rounded-2xl cursor-pointer select-none touch-manipulation ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? "ring-2 ring-primary/40 brightness-110" : ""}`}
+                  className={`chat-bubble min-h-[44px] flex items-center relative group p-3.5 sm:px-5 sm:py-3 rounded-2xl cursor-pointer select-none touch-manipulation max-w-[78vw] sm:max-w-md overflow-hidden ${isMe ? "bg-primary text-primary-content rounded-tr-sm" : "bg-secondary text-base-content rounded-tl-sm"} ${selectedMessageId === msg.id ? "ring-2 ring-primary/40 brightness-110" : ""}`}
                   onClick={(e) => handleMessageClick(e, msg.id)}
                   onContextMenu={(e) => handleLongPress(e, msg.id)}
                 >
