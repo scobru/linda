@@ -312,9 +312,21 @@ export class GroupService {
     await (this.db.Put as any)(`linda_v3_contacts_${memberPub}/${groupId}`, null);
   }
 
-  async leaveGroup(groupId: string): Promise<void> {
+  async leaveGroup(groupId: string, force: boolean = false): Promise<void> {
     const myPub = this.db.getUserPub();
     if (!myPub) throw new Error("Not logged in");
+
+    if (!force) {
+      const myRole = await this.getMemberRole(groupId, myPub);
+      if (myRole === 'administrator') {
+        const members = await this.getMembers(groupId);
+        const adminCount = members.filter(m => m.role === 'administrator').length;
+        if (adminCount <= 1) {
+          throw new Error("LAST_ADMIN_WARNING");
+        }
+      }
+    }
+
     await (this.db.Put as any)(`linda_rooms/${groupId}/members/${myPub}`, null);
     await (this.db.Put as any)(`linda_v3_contacts_${myPub}/${groupId}`, null);
   }

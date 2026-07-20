@@ -27,13 +27,13 @@ export const Layout: React.FC<LayoutProps> = ({ sidebarProps }) => {
         {/* Mobile Header: Hidden since Sidebar in main area has its own header */}
         {/* We only show a global Layout navbar if we are on a route that doesn't provide its own back button or header, but currently all pages (Chat, Profile, Settings) provide their own. */}
 
-        <main className="flex-1 overflow-hidden relative flex flex-col">
+        <main className="flex-1 w-full overflow-hidden relative flex flex-col">
           {isRoot ? (
-            <div className="h-full">
-              <div className="lg:hidden h-full">
+            <div className="h-full w-full flex flex-col flex-1">
+              <div className="lg:hidden h-full w-full">
                 <Sidebar {...sidebarProps} />
               </div>
-              <div className="hidden lg:flex h-full">
+              <div className="hidden lg:flex h-full w-full flex-1 flex-col">
                 <Outlet />
               </div>
             </div>

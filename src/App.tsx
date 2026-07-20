@@ -163,7 +163,7 @@ const AppContent: React.FC<{
     if (!window.confirm("Delete conversation?")) return;
     try {
       if (contactKey.length === 36 && contactKey.includes("-")) {
-        if (groupService) await groupService.leaveGroup(contactKey);
+        if (groupService) await groupService.leaveGroup(contactKey, true);
       } else {
         await messaging.blockContact(contactKey);
       }

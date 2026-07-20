@@ -201,13 +201,31 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   };
 
   const handleLeaveGroup = async () => {
-    if (!groupId || !window.confirm("Are you sure you want to leave this group?")) return;
+    if (!groupId) return;
+
     try {
-      await groupService.leaveGroup(groupId);
+      await groupService.leaveGroup(groupId, false);
       showNotification("You left the group", "info");
       navigate("/");
     } catch (e: any) {
-      showNotification(e.message || "Failed to leave group", "error");
+      if (e.message === "LAST_ADMIN_WARNING") {
+        const confirmForce = window.confirm(
+          "⚠️ WARNING: You are the ONLY administrator of this group.\n\n" +
+          "If you leave now, the group will remain without any administrators and you will lose admin privileges permanently (even if you rejoin).\n\n" +
+          "Do you still want to leave the group?"
+        );
+        if (confirmForce) {
+          try {
+            await groupService.leaveGroup(groupId, true);
+            showNotification("You left the group", "info");
+            navigate("/");
+          } catch (err: any) {
+            showNotification(err.message || "Failed to leave group", "error");
+          }
+        }
+      } else {
+        showNotification(e.message || "Failed to leave group", "error");
+      }
     }
   };
 

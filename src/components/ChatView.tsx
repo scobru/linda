@@ -379,7 +379,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   if (!recipient) {
     return (
-      <div className="flex flex-col h-full items-center justify-center bg-transparent bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
+      <div className="flex flex-col h-full w-full flex-1 items-center justify-center bg-transparent bg-doodle text-center p-8 gap-6 animate-fadeIn font-narrow">
         <div className="avatar">
           <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-lg">
             <img
