@@ -541,7 +541,17 @@ export const useMessaging = (
             
             if (userPub) saveProcessedKey(userPub, gunKey);
 
-            if (plaintextValue && plaintextValue.startsWith("P2P_POKE:")) {
+            if (plaintextValue && plaintextValue.startsWith("DELETE:")) {
+              const deletedMsgId = plaintextValue.split(":")[1];
+              console.log(`[Signal] Received DELETE signal for msg ${deletedMsgId} from ${senderPubKeyRaw.slice(0, 8)}`);
+              setDeletedMessages((prev) => {
+                const contactDeletions = new Set(prev[senderPubKeyRaw] || []);
+                contactDeletions.add(deletedMsgId);
+                const next = { ...prev, [senderPubKeyRaw]: contactDeletions };
+                if (userPub) saveDeletedMessages(userPub, next);
+                return next;
+              });
+            } else if (plaintextValue && plaintextValue.startsWith("P2P_POKE:")) {
               const roomId = plaintextValue.split(":")[1];
               console.log(`[Signal] Received P2P_POKE for room ${roomId.slice(0, 8)}. Promoting sender to contacts.`);
               setContacts((prev) => {
@@ -752,14 +762,20 @@ export const useMessaging = (
           // Private chat deletion protocol
           console.log(`[Signal] Deleting private message ${messageId}...`);
 
-          // 0. Physical deletion from GunDB if we have the gunKey
-          // We look for the message in our current state to find its Gun node key
+          // 0. Physical deletion from Zen node if we have the gunKey or room ID
           const msgs = messages[recipient] || [];
           const msgToDelete = msgs.find(m => m.id === messageId);
-          if (msgToDelete?.gunKey && db.zen) {
-            const path = `linda_v3_inbox_${userPub}`;
-            console.log(`[Signal] Nullifying GunDB node at ${path}/${msgToDelete.gunKey}`);
-            db.zen.get(path).get(msgToDelete.gunKey).put(null as any);
+          if (groupService && db.zen) {
+            try {
+              const p2pGroup = await groupService.getOrCreateP2PGroup(recipient);
+              if (msgToDelete?.gunKey) {
+                const path = `linda_rooms/${p2pGroup.id}/messages`;
+                console.log(`[Signal] Nullifying node at ${path}/${msgToDelete.gunKey}`);
+                db.zen.get(path).get(msgToDelete.gunKey).put(null as any);
+              }
+            } catch (e) {
+              console.warn("[Signal] Failed to nullify P2P room message node:", e);
+            }
           }
 
           // 1. Mark as deleted locally
@@ -775,20 +791,21 @@ export const useMessaging = (
           if (communicationService) {
             const cipher = await communicationService.encryptMessage(
               recipient,
-              ` Linda:DELETE:${messageId}`,
+              `DELETE:${messageId}`,
             );
             const pub =
               recipient.length < 30
                 ? await communicationService.getPubKeyFromUsername(recipient)
                 : recipient;
 
-            db.zen.get(`linda_v3_inbox_${pub}`).set({
+            const inboxCert = await communicationService.getInboxCertificate(pub).catch(() => null);
+            await db.Set(`linda_v3_inbox_${pub}`, {
               sender: userPub,
               type: cipher.type,
               body: cipher.body,
               timestamp: new Date().toISOString(),
               msgType: "text", // Protocol message
-            } as any);
+            } as any, { cert: inboxCert });
           }
         }
       } catch (err: any) {
