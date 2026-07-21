@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { DataBase } from '../zen/db';
-import { type AuthResult } from '../zen/types';
+import { DataBase } from 'linda-core';
+import { type AuthResult } from 'linda-core';
 
 interface AuthPageProps {
   db: DataBase;

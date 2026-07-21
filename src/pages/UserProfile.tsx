@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { DataBase } from "../zen/db";
-import { truncatePub } from "../utils/names";
+import { DataBase } from 'linda-core';
+import { truncatePub } from 'linda-core';
 import { UserAvatar } from "../components/UserAvatar";
 import { QRCodeSVG } from "qrcode.react";
 

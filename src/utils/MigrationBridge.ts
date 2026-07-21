@@ -1,4 +1,4 @@
-import { GroupService, type GroupInfo } from "../services/GroupService";
+import { GroupService, type GroupInfo } from 'linda-core';
 
 /**
  * MigrationBridge

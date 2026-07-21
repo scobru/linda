@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { DataBase } from "../zen/db";
-import { CommunicationService } from "../services/CommunicationService";
-import { FileTransferService } from "../services/FileTransferService";
+import { DataBase } from 'linda-core';
+import { CommunicationService } from 'linda-core';
+import { FileTransferService } from 'linda-core';
 
 export const useSignalingListener = (
   db: DataBase,

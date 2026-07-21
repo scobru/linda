@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { DataBase } from "../zen/db";
-import { CommunicationService } from "../services/CommunicationService";
-import { GroupService, type GroupInfo } from "../services/GroupService";
-import { generateSecureRandomString } from "../utils/crypto";
+import { DataBase } from 'linda-core';
+import { CommunicationService } from 'linda-core';
+import { GroupService, type GroupInfo } from 'linda-core';
+import { generateSecureRandomString } from 'linda-core';
 
 export interface FileMetadata {
   name: string;

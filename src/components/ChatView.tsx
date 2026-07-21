@@ -4,13 +4,13 @@ import { AudioRecorder } from "./AudioRecorder";
 import { AudioPlayer } from "./AudioPlayer";
 import { FileBubble } from "./FileBubble";
 import type { Message, FileMetadata } from "../hooks/useMessaging";
-import { type CommunicationService } from "../services/CommunicationService";
-import { type GroupService } from "../services/GroupService";
-import { type WormholeService } from "../services/WormholeService";
+import { type CommunicationService } from 'linda-core';
+import { type GroupService } from 'linda-core';
+import { type WormholeService } from 'linda-core';
 import { shortenLink } from "../utils/ui";
 import { UserAvatar } from "./UserAvatar";
-import { DataBase } from "../zen/db";
-import { getDisplayName, truncatePub } from "../utils/names";
+import { DataBase } from 'linda-core';
+import { getDisplayName, truncatePub } from 'linda-core';
 
 interface ChatViewProps {
   recipient: string;

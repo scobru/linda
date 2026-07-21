@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { DataBase } from "../zen/db";
-import { FileTransferService } from "../services/FileTransferService";
-import { CommunicationService } from "../services/CommunicationService";
+import { DataBase } from 'linda-core';
+import { FileTransferService } from 'linda-core';
+import { CommunicationService } from 'linda-core';
 
 export const useFileTransfer = (
   db: DataBase,

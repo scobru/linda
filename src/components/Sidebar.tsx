@@ -2,11 +2,11 @@ import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useSmoothNavigate } from "../hooks/useSmoothNavigate";
 import { UserAvatar } from "./UserAvatar";
-import { CommunicationService } from "../services/CommunicationService";
-import { GroupService } from "../services/GroupService";
+import { CommunicationService } from 'linda-core';
+import { GroupService } from 'linda-core';
 import { QrScannerModal } from "./QrScannerModal";
-import { DataBase } from "../zen/db";
-import { getDisplayName } from "../utils/names";
+import { DataBase } from 'linda-core';
+import { getDisplayName } from 'linda-core';
 
 interface SidebarProps {
   userPub: string | null;

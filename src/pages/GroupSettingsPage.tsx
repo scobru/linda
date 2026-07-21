@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { GroupService, type GroupMember, type GroupInfo, type Role } from "../services/GroupService";
-import { DataBase } from "../zen/db";
+import { GroupService, type GroupMember, type GroupInfo, type Role } from 'linda-core';
+import { DataBase } from 'linda-core';
 import { UserAvatar } from "../components/UserAvatar";
 
 interface GroupSettingsPageProps {

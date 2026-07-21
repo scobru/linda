@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GroupService } from "../services/GroupService";
+import { GroupService } from 'linda-core';
 
 interface GroupCreationPageProps {
   groupService: GroupService;

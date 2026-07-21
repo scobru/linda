@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { type CallStatus } from "../services/CallingService";
+import { type CallStatus } from 'linda-core';
 
 interface CallingOverlayProps {
   status: CallStatus;

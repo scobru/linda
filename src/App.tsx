@@ -5,7 +5,7 @@ import {
   Route,
   useLocation,
 } from "react-router-dom";
-import ZEN from "zen";
+import ZEN from 'linda-core';
 // @ts-ignore
 import "zen/lib/yson.js";
 

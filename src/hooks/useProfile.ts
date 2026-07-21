@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { DataBase } from "../zen/db";
-import { CommunicationService } from "../services/CommunicationService";
+import { DataBase } from 'linda-core';
+import { CommunicationService } from 'linda-core';
 
 export const useProfile = (
   db: DataBase,

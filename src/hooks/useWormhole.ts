@@ -1,6 +1,6 @@
 import { useMemo, useState, useRef } from "react";
-import { WormholeService } from "../services/WormholeService";
-import { DataBase } from "../zen/db";
+import { WormholeService } from 'linda-core';
+import { DataBase } from 'linda-core';
 
 export const useWormhole = (
   db: DataBase, 

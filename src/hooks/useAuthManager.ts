@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { DataBase } from "../zen/db";
+import { DataBase } from 'linda-core';
 
 export interface Notification {
   msg: string;

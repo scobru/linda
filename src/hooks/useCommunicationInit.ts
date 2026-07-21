@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { DataBase } from '../zen/db';
-import { CommunicationService } from "../services/CommunicationService";
-import { GroupService } from "../services/GroupService";
-import { generateRandomHandle } from '../utils/names';
+import { DataBase } from 'linda-core';
+import { CommunicationService } from 'linda-core';
+import { GroupService } from 'linda-core';
+import { generateRandomHandle } from 'linda-core';
 
 export const useCommunicationInit = (
   db: DataBase, 

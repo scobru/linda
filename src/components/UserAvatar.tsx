@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { DataBase } from "../zen/db";
+import { DataBase } from 'linda-core';
 import { getDiceBearAvatar } from "../utils/avatar";
 
 interface UserAvatarProps {
