@@ -5,13 +5,11 @@ import {
   Route,
   useLocation,
 } from "react-router-dom";
-import ZEN from 'linda-core';
+// @ts-ignore
+import ZEN from 'zen';
+import { DataBase, type Role } from 'linda-core';
 // @ts-ignore
 import "zen/lib/yson.js";
-
-// Services & DB
-import { DataBase } from "./zen/db";
-import { type Role } from "./services/GroupService";
 import { startConnectionWatchdog } from "./utils/connectionHealth";
 
 // Pages & Components

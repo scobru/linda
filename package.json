@@ -20,7 +20,7 @@
     "compact-encoding": "^2.19.2",
     "dotenv": "^17.4.2",
     "html5-qrcode": "^2.3.8",
-    "linda-core": "file:../linda-core",
+    "linda-core": "https://github.com/scobru/linda-core",
     "process": "^0.11.10",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
