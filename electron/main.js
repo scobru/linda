@@ -23,8 +23,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#000000', // OLED black — matches Linda's design
     title: 'Linda',
-    // Use a custom icon when available
-    // icon: path.join(__dirname, '../public/logo.png'),
+    icon: path.join(__dirname, 'resources/icon.png'),
     webPreferences: {
       // Security: disable Node integration in renderer
       nodeIntegration: false,
