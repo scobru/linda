@@ -6,6 +6,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v1.0.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -161,5 +166,6 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
