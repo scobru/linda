@@ -19,6 +19,7 @@
     "target": [
       { "target": "dmg", "arch": ["x64", "arm64"] }
     ],
+    "identity": null,
     "category": "public.app-category.social-networking",
     "darkModeSupport": true
   },

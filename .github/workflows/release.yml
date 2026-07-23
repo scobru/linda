@@ -34,6 +34,17 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Enable Developer Mode on Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
       - name: Install dependencies
         run: npm ci
 
@@ -44,12 +55,19 @@ jobs:
         run: npm run electron:build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload Desktop Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist-electron/*.*
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/*.zip
+          if-no-files-found: error
 
   build-android:
     name: Build Android APK
@@ -127,9 +145,9 @@ jobs:
       - name: Rename and Organize Assets
         run: |
           mkdir -p ./final-release
-          find ./release-assets/windows -maxdepth 2 -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp {} ./final-release/ 2>/dev/null || true
-          find ./release-assets/macos -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} ./final-release/ 2>/dev/null || true
-          find ./release-assets/linux -maxdepth 2 -type f \( -name "*.AppImage" -o -name "*.deb" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/windows -maxdepth 2 -type f \( -iname "*.exe" -o -iname "*.msi" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/macos -maxdepth 2 -type f \( -iname "*.dmg" -o -iname "*.zip" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/linux -maxdepth 2 -type f \( -iname "*.AppImage" -o -iname "*.deb" \) -exec cp {} ./final-release/ 2>/dev/null || true
           if [ -f "./release-assets/android/app-debug.apk" ]; then
             cp ./release-assets/android/app-debug.apk ./final-release/Linda-Android.apk
           fi
