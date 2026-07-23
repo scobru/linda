@@ -145,9 +145,9 @@ jobs:
       - name: Rename and Organize Assets
         run: |
           mkdir -p ./final-release
-          find ./release-assets/windows -maxdepth 2 -type f \( -iname "*.exe" -o -iname "*.msi" \) -exec cp {} ./final-release/ 2>/dev/null || true
-          find ./release-assets/macos -maxdepth 2 -type f \( -iname "*.dmg" -o -iname "*.zip" \) -exec cp {} ./final-release/ 2>/dev/null || true
-          find ./release-assets/linux -maxdepth 2 -type f \( -iname "*.AppImage" -o -iname "*.deb" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/windows -maxdepth 2 -type f \( -iname "*.exe" -o -iname "*.msi" \) -exec cp {} ./final-release/ \;
+          find ./release-assets/macos -maxdepth 2 -type f \( -iname "*.dmg" -o -iname "*.zip" \) -exec cp {} ./final-release/ \;
+          find ./release-assets/linux -maxdepth 2 -type f \( -iname "*.AppImage" -o -iname "*.deb" \) -exec cp {} ./final-release/ \;
           if [ -f "./release-assets/android/app-debug.apk" ]; then
             cp ./release-assets/android/app-debug.apk ./final-release/Linda-Android.apk
           fi
