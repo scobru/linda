@@ -48,7 +48,7 @@ export const useProfile = (
       ];
 
       tryPaths.forEach(path => {
-        db.Get(path, 5000).then(data => {
+        db.Get(path, 5000).then((data: any) => {
           if (typeof data === "string" && data) {
             setUserNick(data);
             localStorage.setItem("linda_alias", data);
@@ -150,7 +150,7 @@ export const useProfile = (
 
               // Rapid fire safeGet for nickname fallback
               for (const path of tryPaths) {
-                db.Get(path, 4000, true).then(data => {
+                db.Get(path, 4000, true).then((data: any) => {
                   if (!data) return;
                   
                   let resolvedString = "";

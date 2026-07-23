@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { requestNotificationPermission } from "../utils/notifications";
 
 interface SettingsProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
@@ -36,14 +37,12 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
   };
 
   const handleEnableNotifications = () => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      Notification.requestPermission().then((permission) => {
-        showNotification(
-          `Notifiche impostate su: ${permission}`,
-          permission === "granted" ? "info" : "error"
-        );
-      });
-    }
+    requestNotificationPermission().then((permission) => {
+      showNotification(
+        `Notifiche impostate su: ${permission}`,
+        permission === "granted" ? "info" : "error"
+      );
+    });
   };
 
   return (

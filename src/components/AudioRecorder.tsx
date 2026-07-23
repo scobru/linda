@@ -25,11 +25,19 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplet
         }
         streamRef.current = stream;
 
-        const mimeType = ['audio/webm', 'audio/ogg', 'audio/mp4'].find(type => 
-          MediaRecorder.isTypeSupported(type)
-        ) || 'audio/webm';
+        const supportedTypes = [
+          'audio/webm;codecs=opus',
+          'audio/webm',
+          'audio/aac',
+          'audio/mp4',
+          'audio/ogg',
+        ];
+        const mimeType = supportedTypes.find(type => 
+          typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)
+        ) || '';
 
-        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+        const recorderOptions = mimeType ? { mimeType } : undefined;
+        const mediaRecorder = new MediaRecorder(stream, recorderOptions);
         mediaRecorderRef.current = mediaRecorder;
         chunksRef.current = [];
 

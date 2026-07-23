@@ -3,6 +3,7 @@ import { DataBase } from 'linda-core';
 import { CommunicationService } from 'linda-core';
 import { GroupService, type GroupInfo } from 'linda-core';
 import { generateSecureRandomString } from 'linda-core';
+import { sendAppNotification } from '../utils/notifications';
 
 export interface FileMetadata {
   name: string;
@@ -418,13 +419,7 @@ export const useMessaging = (
                 data: `/chat/${contactId}`
               };
 
-              if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-                 navigator.serviceWorker.ready.then(registration => {
-                   registration.showNotification(title, options);
-                 });
-              } else if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-                 new Notification(title, options);
-              }
+              sendAppNotification(title, options);
             }
           } catch (e) {
             console.warn(`[Groups] Failed to decrypt message in ${contactId} (${roomId}):`, e);

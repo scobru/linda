@@ -55,7 +55,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
 
       // Load mutes for all members in parallel
       const muteEntries = await Promise.all(
-        m.map(async (member) => [
+        m.map(async (member: any) => [
           member.pub,
           await groupService.isMuted(groupId, member.pub),
         ] as [string, boolean])

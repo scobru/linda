@@ -52,8 +52,10 @@ export const useCommunicationInit = (
               await db.Put(`linda_unique_usernames/${uniqueName}`, pub);
             }
           }
-          setUserUniqueUsername(uniqueName);
-          localStorage.setItem("linda_user_unique_username", uniqueName);
+          if (uniqueName) {
+            setUserUniqueUsername(uniqueName);
+            localStorage.setItem("linda_user_unique_username", uniqueName);
+          }
 
           const service = new CommunicationService(db);
           await service.initSession(username, uniqueName);

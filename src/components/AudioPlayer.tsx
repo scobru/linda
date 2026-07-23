@@ -18,31 +18,48 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
 
     let isMounted = true;
 
-    fetch(src)
-      .then((res) => res.arrayBuffer())
-      .then((arrayBuffer) => {
-        if (!isMounted) return;
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return;
-        const ctx = new AudioCtx();
-        ctx.decodeAudioData(
-          arrayBuffer,
-          (buffer) => {
-            if (isMounted && buffer && isFinite(buffer.duration) && buffer.duration > 0) {
-              setDuration(buffer.duration);
-            }
-            try {
-              ctx.close();
-            } catch (e) {}
-          },
-          () => {
-            try {
-              ctx.close();
-            } catch (e) {}
+    const getBuffer = async (): Promise<ArrayBuffer | null> => {
+      try {
+        if (src.startsWith("data:")) {
+          const parts = src.split(",");
+          if (parts.length < 2) return null;
+          const binaryStr = atob(parts[1]);
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
           }
-        );
-      })
-      .catch(() => {});
+          return bytes.buffer;
+        }
+        const res = await fetch(src);
+        return await res.arrayBuffer();
+      } catch (e) {
+        return null;
+      }
+    };
+
+    getBuffer().then((arrayBuffer) => {
+      if (!isMounted || !arrayBuffer) return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      ctx.decodeAudioData(
+        arrayBuffer,
+        (buffer) => {
+          if (isMounted && buffer && isFinite(buffer.duration) && buffer.duration > 0) {
+            setDuration(buffer.duration);
+          }
+          try {
+            ctx.close();
+          } catch (e) {}
+        },
+        () => {
+          try {
+            ctx.close();
+          } catch (e) {}
+        }
+      );
+    });
 
     return () => {
       isMounted = false;

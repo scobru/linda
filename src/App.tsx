@@ -325,10 +325,6 @@ const App: React.FC = () => {
       try {
         const relays = [
           "https://delay.scobrudot.dev/zen",
-          "https://delay.up.railway.app/zen",
-          "https://zen.akao.io:8420/zen",
-          "https://zen0.akao.io:8420/zen",
-          "https://zen1.akao.io:8420/zen",
         ];
         const zen = new ZEN({
           peers: relays,
@@ -401,3 +397,5 @@ const App: React.FC = () => {
 };
 
 export default App;
+// trigger HMR reload
+

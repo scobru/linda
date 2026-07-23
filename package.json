@@ -1,8 +1,9 @@
 {
-  "name": "client",
+  "name": "linda",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -11,9 +12,20 @@
     "relay": "node simple-relay.js",
     "bot": "npx tsx bot-runner.ts",
     "bot:gemini": "npx tsx bot-runner-gemini.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "android": "npm run build && npx cap sync android && npx cap open android",
+    "build:android": "npm run build && npx cap sync android",
+    "cap:sync": "npx cap sync",
+    "electron:dev": "node electron/dev.js",
+    "electron:preview": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder --config .electron-builder.json"
   },
   "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/camera": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/local-notifications": "^7.0.7",
+    "@capacitor/network": "^7.0.0",
     "@hyperswarm/secret-stream": "^6.9.1",
     "axios": "^1.13.6",
     "buffer": "^6.0.3",
@@ -35,9 +47,10 @@
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
     "webrtc-adapter": "^9.0.4",
-    "zen": "https://github.com/akaoio/zen"
+    "zen": "https://github.com/scobru/zen"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
     "@eslint/js": "^9.39.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.13.3",
@@ -46,7 +59,10 @@
     "@types/socket.io-client": "^1.4.36",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
     "daisyui": "^5.5.19",
+    "electron": "^36.4.0",
+    "electron-builder": "^25.1.8",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

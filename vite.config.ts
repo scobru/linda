@@ -11,6 +11,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
+  // base './' is required for Capacitor (Android WebView) and Electron (file:// protocol)
+  // so all assets are resolved with relative paths from index.html
+  base: './',
   plugins: [
     react(),
     tailwindcss(),
@@ -57,6 +60,8 @@ export default defineConfig({
   ],
   assetsInclude: ['**/*.wasm'],
   server: {
+    port: process.env.PORT ? parseInt(process.env.PORT) : 5173,
+    strictPort: true,
     watch: {
       ignored: ['**/radata/**'],
     },
@@ -79,7 +84,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    exclude: ['shogun-core', 'zen', 'shogun-button-react', '@nucypher/umbral-pre'],
+    exclude: ['linda-core', 'shogun-core', 'zen', 'shogun-button-react', '@nucypher/umbral-pre'],
     include: ['sodium-javascript', 'sodium-universal', 'buffer']
   }
 })

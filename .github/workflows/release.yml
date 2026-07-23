@@ -1,0 +1,146 @@
+name: Release CI/CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: Linda-Windows
+          - os: macos-latest
+            artifact_name: Linda-macOS
+          - os: ubuntu-latest
+            artifact_name: Linda-Linux
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Build Electron Desktop Package
+        run: npm run electron:build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Desktop Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist-electron/*.*
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web & Sync Capacitor
+        run: npm run build:android
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleDebug
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Linda-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-desktop, build-android]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Linda-Windows
+          path: ./release-assets/windows
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Linda-macOS
+          path: ./release-assets/macos
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Linda-Linux
+          path: ./release-assets/linux
+
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Linda-Android-APK
+          path: ./release-assets/android
+
+      - name: Rename and Organize Assets
+        run: |
+          mkdir -p ./final-release
+          find ./release-assets/windows -maxdepth 2 -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/macos -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          find ./release-assets/linux -maxdepth 2 -type f \( -name "*.AppImage" -o -name "*.deb" \) -exec cp {} ./final-release/ 2>/dev/null || true
+          if [ -f "./release-assets/android/app-debug.apk" ]; then
+            cp ./release-assets/android/app-debug.apk ./final-release/Linda-Android.apk
+          fi
+          ls -la ./final-release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./final-release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

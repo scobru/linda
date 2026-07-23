@@ -1,0 +1,46 @@
+{
+  "appId": "com.shogun.linda",
+  "productName": "Linda",
+  "copyright": "Copyright © 2025 Shogun Ecosystem",
+
+  "directories": {
+    "buildResources": "electron/resources",
+    "output": "dist-electron"
+  },
+
+  "files": [
+    "dist/**/*",
+    "electron/main.js",
+    "electron/preload.js"
+  ],
+
+  "mac": {
+    "target": [
+      { "target": "dmg", "arch": ["x64", "arm64"] }
+    ],
+    "category": "public.app-category.social-networking",
+    "darkModeSupport": true
+  },
+
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ]
+  },
+
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] }
+    ],
+    "category": "Network"
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+
+  "publish": null
+}
