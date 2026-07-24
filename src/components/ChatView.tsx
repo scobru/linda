@@ -383,7 +383,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="avatar">
           <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-lg">
             <img
-              src="/logo.svg"
+              src="./logo.svg"
               alt="Linda Logo"
               className="w-12 h-12 opacity-60 grayscale"
             />

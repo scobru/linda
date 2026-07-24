@@ -412,8 +412,8 @@ export const useMessaging = (
               const title = isP2P ? `Message from ${data.sender.slice(0, 8)}` : `New message in ${meta.name}`;
               const options = {
                 body: plaintext.substring(0, 50),
-                icon: meta.avatar || "/logo.svg",
-                badge: "/logo.svg",
+                icon: meta.avatar || "./logo.svg",
+                badge: "./logo.svg",
                 tag: contactId,
                 renotify: true,
                 data: `/chat/${contactId}`
