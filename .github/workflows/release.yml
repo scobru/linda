@@ -6,6 +6,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v1.0.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -116,6 +121,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve and validate tag
+        id: tag
+        run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag resolved (inputs.tag_name and github.ref_name both empty)."
+            exit 1
+          fi
+          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -161,5 +176,6 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          tag_name: ${{ steps.tag.outputs.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
