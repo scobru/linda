@@ -20,7 +20,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
       <div className="loader-glow mb-12">
         <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-3xl glass-panel flex items-center justify-center p-6 sm:p-8 transform hover:scale-105 transition-transform duration-500">
           <img
-            src="/logo.svg"
+            src="./logo.svg"
             alt="Linda Logo"
             className="w-full h-full object-contain drop-shadow-2xl"
           />

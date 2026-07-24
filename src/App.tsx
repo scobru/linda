@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   BrowserRouter,
+  HashRouter,
   Routes,
   Route,
   useLocation,
@@ -370,8 +371,10 @@ const App: React.FC = () => {
       />
     );
 
+  const Router = window.location.protocol === "file:" ? HashRouter : BrowserRouter;
+
   return (
-    <BrowserRouter>
+    <Router>
       {!authState.isLoggedIn ? (
         <AuthPage
           db={dbInstance}
@@ -392,7 +395,7 @@ const App: React.FC = () => {
           }
         />
       )}
-    </BrowserRouter>
+    </Router>
   );
 };
 
