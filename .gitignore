@@ -33,3 +33,7 @@ dist-ssr
 
 # GunDB data
 radata/
+
+# Pix Agent
+.pi/
+.pi-lens/
