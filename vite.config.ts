@@ -11,9 +11,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
-  // base './' is required for Capacitor (Android WebView) and Electron (file:// protocol)
-  // so all assets are resolved with relative paths from index.html
-  base: './',
+  // base configuration: '/' for Web deployments (enabling deep link routing like /chat/:id),
+  // set VITE_BASE_PATH=./ for Capacitor (Android) and Electron (file:// protocol).
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     react(),
     tailwindcss(),

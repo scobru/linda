@@ -1,7 +1,7 @@
 {
   "name": "linda",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Linda - P2P Encrypted Messenger",
   "author": "Shogun Ecosystem",
   "type": "module",
@@ -15,12 +15,12 @@
     "bot": "npx tsx bot-runner.ts",
     "bot:gemini": "npx tsx bot-runner-gemini.ts",
     "test": "vitest",
-    "android": "npm run build && npx cap sync android && npx cap open android",
-    "build:android": "npm run build && npx cap sync android",
+    "android": "VITE_BASE_PATH=./ npm run build && npx cap sync android && npx cap open android",
+    "build:android": "VITE_BASE_PATH=./ npm run build && npx cap sync android",
     "cap:sync": "npx cap sync",
     "electron:dev": "node electron/dev.js",
-    "electron:preview": "npm run build && electron .",
-    "electron:build": "npm run build && electron-builder --config .electron-builder.json"
+    "electron:preview": "VITE_BASE_PATH=./ npm run build && electron .",
+    "electron:build": "VITE_BASE_PATH=./ npm run build && electron-builder --config .electron-builder.json"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

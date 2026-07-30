@@ -59,7 +59,9 @@ export const useMessaging = (
   const [contactErrors, setContactErrors] = useState<Record<string, boolean>>({});
   const [deletedMessages, setDeletedMessages] = useState<Record<string, Set<string>>>({});
   const [pinnedMessages, setPinnedMessages] = useState<Record<string, Set<string>>>({});
+  const [clearedChats, setClearedChats] = useState<Record<string, number>>({});
   
+  const clearedChatsRef = useRef<Record<string, number>>({});
   const processedRef = useRef<Set<string>>(new Set());
   const blockedContactsRef = useRef<Set<string>>(new Set());
   const lastTypingSentRef = useRef<number>(0);
@@ -72,6 +74,11 @@ export const useMessaging = (
   // that would otherwise capture a stale snapshot from the render they were
   // created in (BUG #4 fix).
   const messagesRef = useRef<Record<string, Message[]>>({});
+
+  // Synchronize clearedChatsRef for callbacks inside Gun listeners
+  useEffect(() => {
+    clearedChatsRef.current = clearedChats;
+  }, [clearedChats]);
 
   // Every Zen chain we hold a live .on() for, so it can be .off()'d and rebuilt
   // when the app comes back to the foreground.
@@ -142,16 +149,44 @@ export const useMessaging = (
     [],
   );
 
+  const saveClearedChats = useCallback(
+    (user: string, cleared: Record<string, number>) => {
+      try {
+        localStorage.setItem(`cleared_chats_${user}`, JSON.stringify(cleared));
+      } catch (e) {
+        console.warn("[Messaging] Could not persist cleared chats", e);
+      }
+    },
+    [],
+  );
+
+  const loadClearedChats = useCallback((user: string) => {
+    try {
+      const raw = localStorage.getItem(`cleared_chats_${user}`);
+      if (raw) {
+        setClearedChats(JSON.parse(raw));
+      }
+    } catch (e) {
+      console.warn("Failed to load saved cleared chats", e);
+    }
+  }, []);
+
   const loadSavedMessages = useCallback((user: string) => {
     try {
+      const rawCleared = localStorage.getItem(`cleared_chats_${user}`);
+      const clearedMap: Record<string, number> = rawCleared ? JSON.parse(rawCleared) : {};
+
       const raw = localStorage.getItem(`chat_messages_${user}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         for (const contact in parsed) {
-          parsed[contact] = parsed[contact].map((m: any) => ({
-            ...m,
-            timestamp: new Date(m.timestamp),
-          }));
+          const clearedAt = clearedMap[contact] || 0;
+          parsed[contact] = parsed[contact]
+            .map((m: any) => ({
+              ...m,
+              timestamp: new Date(m.timestamp),
+            }))
+            .filter((m: any) => m.timestamp.getTime() > clearedAt);
         }
         setMessages(parsed);
         setContacts(Object.keys(parsed));
@@ -224,6 +259,7 @@ export const useMessaging = (
     // resume to re-arm the listener, and reloading would clobber live state.
     if (!didLoadLocalRef.current) {
       didLoadLocalRef.current = true;
+      loadClearedChats(userPub);
       loadSavedMessages(userPub);
       loadSavedDeletedMessages(userPub);
       loadProcessedKeys(userPub);
@@ -274,6 +310,13 @@ export const useMessaging = (
         setIsContactsLoading(false);
     });
   }, [userPub, db, loadSavedMessages, loadProcessedKeys, trackChain, resumeTick]);
+
+  // Auto-subscribe to recipient if opened directly via deep link URL (/chat/:id)
+  useEffect(() => {
+    if (recipient && userPub && !contacts.includes(recipient)) {
+      saveContact(recipient);
+    }
+  }, [recipient, userPub, contacts, saveContact]);
 
   // ── Listener Re-arm on Resume ──
   // Zen's mesh re-sends `get` for souls still in root.next when a socket
@@ -451,6 +494,13 @@ export const useMessaging = (
         trackChain(db.zen.get(`linda_rooms/${roomId}/messages`)).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           
+          const msgTs = new Date(data.timestamp || Date.now()).getTime();
+          const clearedAt = clearedChatsRef.current[contactId] || 0;
+          if (msgTs <= clearedAt) {
+            if (userPub) saveProcessedKey(userPub, gunKey);
+            return;
+          }
+
           if (processedRef.current.has(gunKey)) return;
           if (userPub) {
             processedRef.current.add(gunKey);
@@ -987,18 +1037,37 @@ export const useMessaging = (
   const handleClearChat = useCallback(async (contactId: string) => {
     if (!userPub || !db.zen) return;
     const msgs = messages[contactId] || [];
+    const now = Date.now();
     
-    // 1. Clear from GunDB
+    // 1. Record clearedAt timestamp persistently
+    setClearedChats((prev) => {
+      const next = { ...prev, [contactId]: now };
+      saveClearedChats(userPub, next);
+      return next;
+    });
+
+    // 2. Clear from GunDB
     const isGroup = contactId.length === 36 && contactId.includes("-");
-    const path = isGroup ? `linda_rooms/${contactId}/messages` : `linda_v3_inbox_${userPub}`;
+    let roomId = contactId;
+    if (!isGroup && groupService) {
+      const calculatedId = await groupService.getP2PGroupId(contactId);
+      if (calculatedId) roomId = calculatedId;
+    }
+    const path = `linda_rooms/${roomId}/messages`;
     
     msgs.forEach(m => {
       if (m.gunKey) {
-        db.zen.get(path).get(m.gunKey).put(null as any);
+        try {
+          db.zen.get(path).get(m.gunKey).put(null as any);
+        } catch (e) {}
       }
     });
 
-    // 2. Clear from local state and Storage
+    try {
+      db.zen.get(`linda_v3_inbox_${userPub}`).get(contactId).put(null as any);
+    } catch (e) {}
+
+    // 3. Clear from local state and Storage
     setMessages(prev => {
       const next = { ...prev };
       delete next[contactId];
@@ -1007,7 +1076,7 @@ export const useMessaging = (
     });
     
     setContacts(prev => prev.filter(c => c !== contactId));
-  }, [userPub, db, messages, saveMessages]);
+  }, [userPub, db, messages, saveMessages, saveClearedChats, groupService]);
 
   const handleFixSync = useCallback(async (contactId: string) => {
     if (!communicationService || !userPub) return;
