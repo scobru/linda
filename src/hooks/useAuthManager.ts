@@ -80,14 +80,8 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
           showNotification("Authenticating...", "info");
           db.logout();
           await db.loginWithPair(finalUsername, pair);
-
-          const gun = db.zen || (window as any).gun;
-          for (let i = 0; i < 30; i++) {
-            if (gun && gun.user().is) {
-              break;
-            }
-            await new Promise((r) => setTimeout(r, 100));
-          }
+          // Zen-native: loginWithPair sets _pair / _pub synchronously —
+          // no Gun singleton user().is to poll here.
 
           showNotification(`Welcome back, ${displayName}!`, "info");
           return true;

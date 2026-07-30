@@ -59,7 +59,7 @@ const AppContent: React.FC<{
 
   // 2. Base Services Initialization
   const { communicationService, groupService, isLoading, userUniqueUsername } =
-    useCommunicationInit(db, isLoggedIn, userPub, showNotification);
+    useCommunicationInit(db, isLoggedIn, username, showNotification);
 
   // 3. P2P Signal & File Transfer
   const {

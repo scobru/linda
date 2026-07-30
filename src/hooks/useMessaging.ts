@@ -30,6 +30,17 @@ export interface Message {
   status: "sending" | "sent" | "delivered" | "read";
 }
 
+// localStorage caps. Chat history holds base64 audio/images inline, and the
+// persisted "processed keys" set only ever grew, so a long-lived account would
+// eventually throw QuotaExceededError from inside a .on() handler — which
+// aborted message processing entirely.
+const MAX_PERSISTED_MESSAGES_PER_CHAT = 300;
+const MAX_PROCESSED_KEYS = 5000;
+
+// Minimum gap between listener re-arms so a burst of visibility/online events
+// doesn't tear down and rebuild every room subscription repeatedly.
+const RESUBSCRIBE_THROTTLE_MS = 10_000;
+
 export const useMessaging = (
   db: DataBase,
   userPub: string | null,
@@ -57,14 +68,58 @@ export const useMessaging = (
   const messageQueueRef = useRef<Record<string, Promise<void>>>({});
   const unreadCountsCache = useRef<Record<string, number>>({});
   const lastMessagesRef = useRef<Record<string, Message[]>>({});
+  // Always-current mirror of `messages` state for use inside .on() closures
+  // that would otherwise capture a stale snapshot from the render they were
+  // created in (BUG #4 fix).
+  const messagesRef = useRef<Record<string, Message[]>>({});
+
+  // Every Zen chain we hold a live .on() for, so it can be .off()'d and rebuilt
+  // when the app comes back to the foreground.
+  const liveChainsRef = useRef<any[]>([]);
+  const lastResubscribeRef = useRef(0);
+  const didLoadLocalRef = useRef(false);
+  const [resumeTick, setResumeTick] = useState(0);
+
+  const trackChain = useCallback((chain: any) => {
+    liveChainsRef.current.push(chain);
+    return chain;
+  }, []);
 
   useEffect(() => {
     recipientRef.current = recipient;
   }, [recipient]);
 
+  // Keep messagesRef in sync so Signal inbox listeners read current state.
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Persist a capped view of the history: in-memory state keeps everything,
+  // only the localStorage copy is trimmed.
   const saveMessages = useCallback(
     (user: string, msgs: Record<string, Message[]>) => {
-      localStorage.setItem(`chat_messages_${user}`, JSON.stringify(msgs));
+      const capped: Record<string, Message[]> = {};
+      for (const contact in msgs) {
+        capped[contact] = msgs[contact].slice(-MAX_PERSISTED_MESSAGES_PER_CHAT);
+      }
+      try {
+        localStorage.setItem(`chat_messages_${user}`, JSON.stringify(capped));
+      } catch (e) {
+        // Almost certainly QuotaExceededError: inline base64 media dominates
+        // the payload, so drop it and keep a short tail of each conversation.
+        console.warn("[Messaging] Chat history persist failed, retrying without inline media", e);
+        const slim: Record<string, Message[]> = {};
+        for (const contact in capped) {
+          slim[contact] = capped[contact]
+            .slice(-50)
+            .map((m) => (m.audio ? { ...m, audio: undefined } : m));
+        }
+        try {
+          localStorage.setItem(`chat_messages_${user}`, JSON.stringify(slim));
+        } catch (e2) {
+          console.error("[Messaging] Could not persist chat history at all", e2);
+        }
+      }
     },
     [],
   );
@@ -75,10 +130,14 @@ export const useMessaging = (
       for (const contact in deleted) {
         serializable[contact] = Array.from(deleted[contact]);
       }
-      localStorage.setItem(
-        `deleted_messages_${user}`,
-        JSON.stringify(serializable),
-      );
+      try {
+        localStorage.setItem(
+          `deleted_messages_${user}`,
+          JSON.stringify(serializable),
+        );
+      } catch (e) {
+        console.warn("[Messaging] Could not persist deleted messages", e);
+      }
     },
     [],
   );
@@ -120,10 +179,21 @@ export const useMessaging = (
 
   const saveProcessedKey = useCallback((user: string, key: string) => {
     processedRef.current.add(key);
-    localStorage.setItem(
-      `processed_keys_${user}`,
-      JSON.stringify(Array.from(processedRef.current)),
-    );
+    // Set iteration is insertion-ordered, so keeping the tail drops the oldest
+    // keys first. Without a cap this array grew for the lifetime of the account.
+    if (processedRef.current.size > MAX_PROCESSED_KEYS) {
+      processedRef.current = new Set(
+        Array.from(processedRef.current).slice(-MAX_PROCESSED_KEYS),
+      );
+    }
+    try {
+      localStorage.setItem(
+        `processed_keys_${user}`,
+        JSON.stringify(Array.from(processedRef.current)),
+      );
+    } catch (e) {
+      console.warn("[Messaging] Could not persist processed keys", e);
+    }
   }, []);
 
   const loadProcessedKeys = useCallback((user: string) => {
@@ -150,12 +220,16 @@ export const useMessaging = (
   // ── Initialization Logic ──
   useEffect(() => {
     if (!userPub) return;
-    loadSavedMessages(userPub);
-    loadSavedDeletedMessages(userPub);
-    loadProcessedKeys(userPub);
+    // Only hydrate from localStorage on first mount: this effect also re-runs on
+    // resume to re-arm the listener, and reloading would clobber live state.
+    if (!didLoadLocalRef.current) {
+      didLoadLocalRef.current = true;
+      loadSavedMessages(userPub);
+      loadSavedDeletedMessages(userPub);
+      loadProcessedKeys(userPub);
+    }
 
-    db.zen
-      .get(`linda_v3_contacts_${userPub}`)
+    trackChain(db.zen.get(`linda_v3_contacts_${userPub}`))
       .map()
       .on((data: any, contactId: string) => {
         if (data === true) {
@@ -199,7 +273,58 @@ export const useMessaging = (
     db.zen.get(`linda_v3_contacts_${userPub}`).once(() => {
         setIsContactsLoading(false);
     });
-  }, [userPub, db, loadSavedMessages, loadProcessedKeys]);
+  }, [userPub, db, loadSavedMessages, loadProcessedKeys, trackChain, resumeTick]);
+
+  // ── Listener Re-arm on Resume ──
+  // Zen's mesh re-sends `get` for souls still in root.next when a socket
+  // reconnects, but a subscription whose chain went stale (backgrounded tab,
+  // killed socket, OS freeze on Android) never emits again. On resume we tear
+  // every live chain down with .off() — which also clears it from root.next —
+  // then bump resumeTick so each subscription effect rebuilds from scratch.
+  useEffect(() => {
+    const rearm = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastResubscribeRef.current < RESUBSCRIBE_THROTTLE_MS) return;
+      lastResubscribeRef.current = now;
+
+      console.log(`[Messaging] Resume detected, re-arming ${liveChainsRef.current.length} listeners`);
+      for (const chain of liveChainsRef.current) {
+        try {
+          chain.off?.();
+        } catch (e) {
+          console.warn("[Messaging] Failed to detach a chain on resume:", e);
+        }
+      }
+      liveChainsRef.current = [];
+      groupSubscriptionsRef.current.clear();
+      setResumeTick((t) => t + 1);
+    };
+
+    document.addEventListener("visibilitychange", rearm);
+    window.addEventListener("online", rearm);
+    window.addEventListener("pageshow", rearm);
+    return () => {
+      document.removeEventListener("visibilitychange", rearm);
+      window.removeEventListener("online", rearm);
+      window.removeEventListener("pageshow", rearm);
+    };
+  }, []);
+
+  // Detach everything on unmount (logout) so stale handlers don't fire against
+  // the next session's state.
+  useEffect(
+    () => () => {
+      for (const chain of liveChainsRef.current) {
+        try {
+          chain.off?.();
+        } catch (e) {}
+      }
+      liveChainsRef.current = [];
+      groupSubscriptionsRef.current.clear();
+    },
+    [],
+  );
 
   const acceptContact = useCallback(async (contactId: string) => {
     if (!userPub || !db.zen || !communicationService) return;
@@ -232,8 +357,7 @@ export const useMessaging = (
   useEffect(() => {
     if (!userPub) return;
 
-    db.zen
-      .get(`linda_v2_typing_${userPub}`)
+    trackChain(db.zen.get(`linda_v2_typing_${userPub}`))
       .map()
       .on((data: any, senderPubKey: string) => {
         if (blockedContactsRef.current.has(senderPubKey)) return;
@@ -267,9 +391,9 @@ export const useMessaging = (
 
     return () => {
       clearInterval(interval);
-      // Gun listeners cleanup isn't straightforward without .off(), but .map().on() is usually fine
+      // The chain itself is detached by the resume/unmount handlers above.
     };
-  }, [userPub, db]);
+  }, [userPub, db, trackChain, resumeTick]);
 
   // ── Unified Messaging Listener (Groups & TPRE P2P) ──
   useEffect(() => {
@@ -289,9 +413,34 @@ export const useMessaging = (
             roomId = calculatedId;
         }
 
-        // We use roomId to find the metadata, but we'll store messages under contactId
-        const meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as (GroupInfo & { encryptionMode?: string });
-        if (!meta || (meta as any).err) return;
+        // We use roomId to find the metadata, but we'll store messages under contactId.
+        // P2P rooms use ECDH encryption — their meta (if any) is irrelevant for
+        // decryption, so we skip the retry loop and fall back immediately to a
+        // synthetic shell. Without this, a cold P2P contact would wait up to 15s
+        // (1+2+3+4+5s) before getting a listener (BUG #6 fix).
+        // For real groups the meta IS needed for the symmetric key, so we retry.
+        let meta: GroupInfo & { encryptionMode?: string };
+        if (isP2P) {
+          // Fast path: try once with a real wait window, then synthesize.
+          const fetchedMeta = await (db.Get as any)(`linda_rooms/${roomId}/meta`, 6000, true, 2000) as GroupInfo;
+          meta = fetchedMeta || {
+            id: roomId,
+            name: "Direct Chat",
+            description: "Encrypted P2P Conversation",
+            adminPub: userPub || "",
+            secret: "",
+            encryptionMode: "symmetric",
+            type: "group",
+          };
+        } else {
+          // Group: meta holds the symmetric secret — retry up to 5 times.
+          meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as GroupInfo;
+          for (let i = 0; i < 5 && (!meta || (meta as any).err); i++) {
+            await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+            meta = await (db.Get as any)(`linda_rooms/${roomId}/meta`) as GroupInfo;
+          }
+          if (!meta || (meta as any).err) return;
+        }
 
         groupSubscriptionsRef.current.add(contactId);
         if (isP2P) groupSubscriptionsRef.current.add(roomId);
@@ -299,7 +448,7 @@ export const useMessaging = (
         // Removed TPRE Proactive Reactor
 
         // 1. Listen to Messages
-        db.zen.get(`linda_rooms/${roomId}/messages`).map().on(async (data: any, gunKey: string) => {
+        trackChain(db.zen.get(`linda_rooms/${roomId}/messages`)).map().on(async (data: any, gunKey: string) => {
           if (!data || typeof data !== "object" || !data.body || !data.sender) return;
           
           if (processedRef.current.has(gunKey)) return;
@@ -317,30 +466,39 @@ export const useMessaging = (
             // Try to decrypt right away: in the common case the fragments are
             // already synced and the message renders instantly. If sync is
             // still catching up, the retry loop below waits with backoff.
+            // decryptMessage resolves to `undefined` instead of throwing when
+            // it can't decrypt, so a falsy result must retry as well — the old
+            // loop broke out on the first pass and stored an empty message.
             let plaintext = "";
-            let retries = 10;
-            let delay = 2000;
-            
+            let retries = 5;
+            let delay = 1000;
+
             while (retries > 0) {
               try {
-                if (isP2P) {
-                  plaintext = (await communicationService!.decryptMessage(contactId, { type: data.type, body: data.body }, data.senderEpub)) || "";
-                } else {
-                  plaintext = await groupService.decryptGroupMessage(meta, data.body);
+                const decrypted = isP2P
+                  ? await communicationService!.decryptMessage(contactId, { type: data.type, body: data.body }, data.senderEpub)
+                  : await groupService.decryptGroupMessage(meta, data.body);
+                if (decrypted) {
+                  plaintext = decrypted;
+                  break;
                 }
-                break;
               } catch (e) {
-                retries--;
-                if (retries === 0) {
-                  if (userPub) processedRef.current.delete(gunKey);
-                  throw e;
-                }
-                console.warn(`[Messaging] Decryption failed for ${gunKey.slice(0, 8)}, retrying in ${delay}ms... (${retries} left)`);
-                await new Promise(r => setTimeout(r, delay));
-                delay += 1000; // Linear backoff
+                console.warn(`[Messaging] Decryption threw for ${gunKey.slice(0, 8)}:`, e);
               }
+
+              retries--;
+              if (retries === 0) {
+                // Don't mark it processed: the fragments may still arrive, and
+                // any later emission on this node gets another chance.
+                console.warn(`[Messaging] Could not decrypt ${gunKey.slice(0, 8)} yet, leaving it unprocessed`);
+                processedRef.current.delete(gunKey);
+                return;
+              }
+              console.warn(`[Messaging] Decryption failed for ${gunKey.slice(0, 8)}, retrying in ${delay}ms... (${retries} left)`);
+              await new Promise(r => setTimeout(r, delay));
+              delay += 1000; // Linear backoff
             }
-            
+
             if (userPub) saveProcessedKey(userPub, gunKey);
 
             if (plaintext === "LEGACY_UNSUPPORTED") {
@@ -428,7 +586,7 @@ export const useMessaging = (
         });
 
         // 2. Listen to Deletions
-        db.zen.get(`linda_rooms/${roomId}/deleted_messages`).map().on((data: any, msgId: string) => {
+        trackChain(db.zen.get(`linda_rooms/${roomId}/deleted_messages`)).map().on((data: any, msgId: string) => {
           if (data) {
             setDeletedMessages((prev) => {
               const groupDeletions = new Set(prev[contactId] || []);
@@ -441,7 +599,7 @@ export const useMessaging = (
         });
 
         // 3. Listen to Pins
-        db.zen.get(`linda_rooms/${roomId}/pins`).map().on((ts: any, msgId: string) => {
+        trackChain(db.zen.get(`linda_rooms/${roomId}/pins`)).map().on((ts: any, msgId: string) => {
           setPinnedMessages(prev => {
             const groupPins = new Set(prev[contactId] || []);
             if (ts) groupPins.add(msgId);
@@ -454,7 +612,7 @@ export const useMessaging = (
         console.warn(`[Groups] Failed to start listener for ${contactId}:`, err);
       }
     });
-  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey]);
+  }, [contacts, groupService, db, userPub, saveMessages, saveProcessedKey, trackChain, resumeTick]);
 
   // Removed Admin TPRE Reactor
 
@@ -464,7 +622,7 @@ export const useMessaging = (
     const sessionStartTime = Date.now();
     console.log(`[Signal] Listener started at ${sessionStartTime}`);
 
-    db.zen.get(`linda_v3_inbox_${userPub}`).map().on(async (data: any, gunKey: string) => {
+    trackChain(db.zen.get(`linda_v3_inbox_${userPub}`)).map().on(async (data: any, gunKey: string) => {
       // 1. Strict Data Validation (Avoid GunDB type errors and malformed nodes)
       if (!data || typeof data !== "object") {
         if (data !== null) console.warn(`[Signal] Skipping non-object inbox data at ${gunKey}:`, data);
@@ -489,12 +647,14 @@ export const useMessaging = (
       // Skip self-messages in inbox to prevent duplication in My Cloud
       // When we send to ourselves, the optimistic update in handleSendMessage already added the message.
       // The inbox listener firing again would create a duplicate.
+      // Use messagesRef (always current) instead of the `messages` closure which
+      // was captured at listener-creation time and is always stale (BUG #4 fix).
       const cleanSenderInbox = senderPubKeyRaw.startsWith('~') ? senderPubKeyRaw.slice(1) : senderPubKeyRaw;
       if (cleanSenderInbox === userPub) {
         const selfMsgId = data.msgId;
         if (selfMsgId) {
           // Check if we already have this message from the optimistic update
-          const existingMsgs = messages[userPub] || [];
+          const existingMsgs = messagesRef.current[userPub] || [];
           if (existingMsgs.some(m => m.id === selfMsgId)) {
             console.log(`[Signal] Skipping self-message ${selfMsgId} (already in local state via optimistic update)`);
             if (userPub) saveProcessedKey(userPub, gunKey);
@@ -568,7 +728,7 @@ export const useMessaging = (
         }
       });
     });
-  }, [userPub, communicationService, db, saveMessages, saveProcessedKey, setRecipient]);
+  }, [userPub, communicationService, db, saveMessages, saveProcessedKey, setRecipient, trackChain, resumeTick]);
 
   // ── Actions ──
   const handleTyping = useCallback(async () => {
@@ -688,15 +848,20 @@ export const useMessaging = (
         // POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
         try {
             const pokeMsg = await communicationService.encryptMessage(recipient, `P2P_POKE:${p2pGroup.id}`);
-            const inboxCert = await communicationService.getInboxCertificate(recipient).catch(() => null);
-            
+
+            // No certificate here: linda_v3_inbox_* is a public root node, not
+            // user-space (~pub/...), so writes need no authorization. Fetching one
+            // blocked the poke for up to ~115s (10 attempts x 3 lookups x 3s
+            // timeouts) whenever the peer had published no cert — and the poke is
+            // what makes an unknown sender appear in the recipient's contact list,
+            // which is what starts their room listener.
             await db.Set(`linda_v3_inbox_${recipient}`, {
                 sender: userPub,
                 type: pokeMsg.type,
                 body: pokeMsg.body,
                 timestamp: timestamp.toISOString(),
                 msgType: 'p2p_poke'
-            } as any, { cert: inboxCert });
+            } as any);
         } catch (e) {
             console.warn("[Signal] Failed to send P2P_POKE, recipient might take longer to sync.", e);
         }
@@ -793,14 +958,14 @@ export const useMessaging = (
                 ? await communicationService.getPubKeyFromUsername(recipient)
                 : recipient;
 
-            const inboxCert = await communicationService.getInboxCertificate(pub).catch(() => null);
+            // Public root node — no certificate required (see P2P_POKE above).
             await db.Set(`linda_v3_inbox_${pub}`, {
               sender: userPub,
               type: cipher.type,
               body: cipher.body,
               timestamp: new Date().toISOString(),
               msgType: "text", // Protocol message
-            } as any, { cert: inboxCert });
+            } as any);
           }
         }
       } catch (err: any) {

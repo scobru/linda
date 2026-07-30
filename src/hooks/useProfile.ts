@@ -27,7 +27,23 @@ export const useProfile = (
   // Persist contact profiles to cache whenever they change
   useEffect(() => {
     if (Object.keys(contactProfiles).length > 0) {
-      localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(contactProfiles));
+      try {
+        localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(contactProfiles));
+      } catch (e) {
+        // Avatars are inline base64, so this cache can hit the quota. Retry
+        // without them: an uncaught throw here would take down the render.
+        console.warn("[useProfile] Profile cache write failed, retrying without avatars", e);
+        const slim: typeof contactProfiles = {};
+        for (const id in contactProfiles) {
+          const { avatar, ...rest } = contactProfiles[id];
+          slim[id] = rest;
+        }
+        try {
+          localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(slim));
+        } catch (e2) {
+          console.error("[useProfile] Could not persist profile cache", e2);
+        }
+      }
     }
   }, [contactProfiles]);
 

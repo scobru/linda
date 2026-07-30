@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DataBase } from 'linda-core';
 import { CommunicationService } from 'linda-core';
 import { FileTransferService } from 'linda-core';
@@ -11,14 +11,20 @@ export const useSignalingListener = (
   fileTransferServiceInst: FileTransferService | null
 ) => {
   const processedSignalsRef = useRef<Set<string>>(new Set());
+  const chainsRef = useRef<any[]>([]);
+  const lastRearmRef = useRef(0);
+  const [resumeTick, setResumeTick] = useState(0);
 
   useEffect(() => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst || !communicationService) return;
 
-    const inboxSoul = `~${userPub}/linda_inbox_v13`;
-    console.log(`[Signaling] Starting listener on ${inboxSoul}`);
+    // Two routes for the same envelope format:
+    //  - public: written by peers with no certificate (the normal case)
+    //  - legacy user-space: kept so already-deployed clients still reach us
+    const publicSoul = `linda_v3_signals_${userPub}`;
+    const legacySoul = `~${userPub}/linda_inbox_v13`;
 
-    db.zen.get(inboxSoul).map().on(async (data: any, gunKey: string) => {
+    const handleSignal = (isLegacy: boolean) => async (data: any, gunKey: string) => {
       if (!data || typeof data !== "object" || processedSignalsRef.current.has(gunKey)) return;
       if (!data.sender || !data.body || data.type === undefined) return;
 
@@ -60,13 +66,50 @@ export const useSignalingListener = (
 
         const cleanupDelay = trimmed.startsWith(" Linda:SIGNAL:") ? 60000 : 20000;
         setTimeout(() => {
-          if (userPub) db.zen.user(userPub).get("linda_inbox_v13").get(gunKey).put(null as any);
+          if (!userPub) return;
+          if (isLegacy) db.zen.user(userPub).get("linda_inbox_v13").get(gunKey).put(null as any);
+          else db.zen.get(publicSoul).get(gunKey).put(null as any);
         }, cleanupDelay);
       } catch (e) {
         console.warn(`[Signaling] Failed to process signal on ${gunKey}:`, e);
       }
-    });
-  }, [isLoggedIn, userPub, db, fileTransferServiceInst, communicationService]);
+    };
+
+    console.log(`[Signaling] Starting listeners on ${publicSoul} and ${legacySoul}`);
+    const publicChain = db.zen.get(publicSoul);
+    const legacyChain = db.zen.get(legacySoul);
+    chainsRef.current.push(publicChain, legacyChain);
+    publicChain.map().on(handleSignal(false));
+    legacyChain.map().on(handleSignal(true));
+  }, [isLoggedIn, userPub, db, fileTransferServiceInst, communicationService, resumeTick]);
+
+  // Re-arm on resume: a chain whose socket died while backgrounded never emits
+  // again, so signalling (calls, file transfer) stayed dead until a reload.
+  useEffect(() => {
+    const rearm = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastRearmRef.current < 10_000) return;
+      lastRearmRef.current = now;
+
+      for (const chain of chainsRef.current) {
+        try {
+          chain.off?.();
+        } catch (e) {}
+      }
+      chainsRef.current = [];
+      setResumeTick((t) => t + 1);
+    };
+
+    document.addEventListener("visibilitychange", rearm);
+    window.addEventListener("online", rearm);
+    window.addEventListener("pageshow", rearm);
+    return () => {
+      document.removeEventListener("visibilitychange", rearm);
+      window.removeEventListener("online", rearm);
+      window.removeEventListener("pageshow", rearm);
+    };
+  }, []);
 
   // Sync Kick
   useEffect(() => {

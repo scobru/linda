@@ -31,38 +31,39 @@ export const useFileTransfer = (
     if (fileTransferServiceInst && communicationService && userPub) {
       const sendUnifiedSignal = async (toPub: string, signal: any, prefix: string) => {
         try {
-          db.zen.get(`~${toPub}`).once(() => {});
-          let cert;
-          for (let i = 0; i < 3; i++) {
-            try {
-              cert = await communicationService.getInboxCertificate(toPub);
-              if (cert) break;
-            } catch (e) {
-              if (i === 2) throw e;
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-          }
           const payload = prefix + JSON.stringify(signal);
           const cipher = await communicationService.encryptMessage(toPub, payload);
           const signalKey = `${userPub.substring(0, 8)}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const envelope = {
+            sender: userPub,
+            type: cipher.type,
+            body: cipher.body,
+            timestamp: new Date().toISOString(),
+          } as any;
 
-          const targetInbox = db.zen.user(toPub).get(`linda_inbox_v13`);
+          // Primary route: public root node, same model as linda_v3_inbox_*.
+          // The old user-space route (~toPub/linda_inbox_v13) needs a write
+          // certificate, and Zen-native forbids wildcard certs — so peers who
+          // hadn't explicitly accepted each other could never be signalled,
+          // breaking WebRTC file transfer and call setup between them.
+          // The payload is ECDH-encrypted either way.
+          db.zen.get(`linda_v3_signals_${toPub}`).get(signalKey).put(envelope);
 
-          const putOptions = toPub === userPub ? {} : { opt: { cert: cert } };
-          targetInbox.get(signalKey).put(
-            {
-              sender: userPub,
-              type: cipher.type,
-              body: cipher.body,
-              timestamp: new Date().toISOString(),
-            } as any,
-            (ack: any) => {
-              if (ack.err && typeof ack.err === "string" && ack.err.includes("Certificate")) {
-                 communicationService.clearCertCache(toPub);
-              }
-            },
-            putOptions as any
-          );
+          // Legacy route, best effort: only when a certificate is already
+          // cached, so we never block on a lookup that usually fails.
+          const cert = communicationService.getCachedInboxCertificate(toPub);
+          if (cert || toPub === userPub) {
+            const putOptions = toPub === userPub ? {} : { opt: { cert } };
+            db.zen.user(toPub).get(`linda_inbox_v13`).get(signalKey).put(
+              envelope,
+              (ack: any) => {
+                if (ack.err && typeof ack.err === "string" && ack.err.includes("Certificate")) {
+                  communicationService.clearCertCache(toPub);
+                }
+              },
+              putOptions as any
+            );
+          }
         } catch (e: any) {
           console.warn("[FileTransfer] Failed to send signal:", e.message);
         }

@@ -27,9 +27,12 @@ export const useCommunicationInit = (
           // We reduce attempts and timeout to prevent long UI blocking.
           if (!userUniqueUsername) {
             console.log(`[useCommunicationInit] Syncing unique handle for ${username}...`);
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 3; i++) {
               try {
-                uniqueName = (await db.userGet('profile/uniqueUsername', 5000)) as string;
+                // 2s wait instead of Zen's 99ms default: the handle exists for
+                // any account that has logged in before, so an empty answer here
+                // is nearly always "not synced yet", not "not set".
+                uniqueName = (await db.userGet('profile/uniqueUsername', 5000, 2000)) as string;
                 if (uniqueName && typeof uniqueName === 'string' && uniqueName.startsWith('@')) break;
               } catch (e: any) {
                 if (e && e.err !== 'notfound') console.warn("[useCommunicationInit] Sync attempt failed:", e);
