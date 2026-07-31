@@ -347,10 +347,40 @@ export const useMessaging = (
     document.addEventListener("visibilitychange", rearm);
     window.addEventListener("online", rearm);
     window.addEventListener("pageshow", rearm);
+
+    // Capacitor native resume — the authoritative lifecycle signal on Android.
+    // Web events (visibilitychange, pageshow) are unreliable inside Capacitor's
+    // WebView after a long background period, so this is what actually triggers
+    // the listener rebuild on mobile.
+    let capacitorListenerHandle: { remove: () => Promise<void> } | null = null;
+    if (typeof window !== "undefined" && (window as any).Capacitor) {
+      import("@capacitor/app").then(({ App }) => {
+        App.addListener("appStateChange", (state: { isActive: boolean }) => {
+          if (state.isActive) {
+            console.log("[Messaging] Capacitor appStateChange → active, re-arming listeners");
+            // Force rearm even if visibilityState is stale (Android WebView quirk)
+            const now = Date.now();
+            if (now - lastResubscribeRef.current < RESUBSCRIBE_THROTTLE_MS) return;
+            lastResubscribeRef.current = now;
+
+            for (const chain of liveChainsRef.current) {
+              try { chain.off?.(); } catch {}
+            }
+            liveChainsRef.current = [];
+            groupSubscriptionsRef.current.clear();
+            setResumeTick((t) => t + 1);
+          }
+        }).then((handle: any) => {
+          capacitorListenerHandle = handle;
+        });
+      }).catch(() => { /* not on Capacitor */ });
+    }
+
     return () => {
       document.removeEventListener("visibilitychange", rearm);
       window.removeEventListener("online", rearm);
       window.removeEventListener("pageshow", rearm);
+      capacitorListenerHandle?.remove();
     };
   }, []);
 

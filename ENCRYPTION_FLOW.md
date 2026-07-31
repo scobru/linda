@@ -1,44 +1,73 @@
-# Flusso di Crittografia Linda (Zen-Native)
+# 🛡️ Flusso di Crittografia Linda (Zen-Native)
 
-Linda usa la crittografia nativa di [Zen](https://github.com/akaoio/zen): una singola coppia di chiavi per utente e ECDH diretto tra peer, senza layer intermedi (stile Keet/Holepunch). I precedenti layer TPRE (Umbral) e post-quantum (ML-KEM) sono stati rimossi.
+Questo documento descrive in dettaglio la logica crittografica utilizzata dall'applicazione **Linda** e dalla sua libreria core **[`linda-core`](../linda-core/README.md)**. Per la documentazione architetturale completa in inglese, consultare [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
-## 1. Identità (chiave unica)
+---
 
-Ogni utente ha **una sola coppia di chiavi** secp256k1 generata da `zen.pair()`:
+## 1. Identità e Coppia di Chiavi Unica
 
+Ogni utente in Linda possiede **una sola coppia di chiavi secp256k1** generata da `zen.pair()`:
+
+```json
+{
+  "pub": "<chiave_pubblica_secp256k1>",
+  "priv": "<chiave_privata_secp256k1>",
+  "address": "<indirizzo_zen>"
+}
 ```
-{ pub, priv, address }
-```
 
-La stessa chiave serve sia per la firma sia per lo scambio ECDH. **Non esiste una `epub`/`epriv` separata** come in Gun SEA: qualunque codice che legge `pair.epub` ottiene `undefined`. Per compatibilità con i peer che leggono ancora il campo `epub` dal grafo, `publishBundle` pubblica `pair.pub` sotto quel nome.
+- **Chiave Unificata**: La stessa chiave viene usata sia per firmare i nodi del grafo P2P Zen sia per effettuare lo scambio di chiavi Diffie-Hellman (ECDH).
+- **Compatibilità**: Non esiste una coppia di chiavi di scambio separata (`epub`/`epriv`). Per garantire retrocompatibilità con client legacy che cercano il campo `epub`, `CommunicationService.publishBundle` pubblica `pair.pub` sotto il nome `epub`.
+- **Generazione Deterministica**: Tramite `generatePairFromSeed(username, password)`, l'utente può ripristinare la propria identità senza dipendere da server d'autenticazione centralizzati.
 
-Le chiavi sono derivabili deterministicamente da username+password (`generatePairFromSeed`), quindi il login non richiede alcun server di autenticazione.
+---
 
-## 2. Chat 1:1 (P2P ECDH)
+## 2. Communication Service e Chat 1:1 (ECDH P2P)
 
-1. **Risoluzione**: username/@handle → `pub` del contatto tramite gli indici decentralizzati (`linda_unique_usernames`, `usernames`, alias Gun).
-2. **Segreto condiviso**: `zen.secret(peerPub, myPair)` — ECDH diretto sulla `pub` del peer. Nessun round-trip di discovery per chiavi di scambio separate.
-3. **Cifratura**: `zen.encrypt(msg, secret)` — AES-GCM. Output in formato base62 `ct.iv.s` (tre segmenti separati da punto). **Non** è il formato Gun SEA `SEA{"ct":...}`: i messaggi che iniziano con `SEA{` sono legacy e vengono scartati come `LEGACY_UNSUPPORTED`.
-4. **Trasporto**: il ciphertext viene scritto nella room P2P deterministica `linda_rooms/p2p_<pubA>_<pubB>` (pub ordinate) più un "poke" nell'inbox del destinatario (`linda_v3_inbox_<pub>`) per notificarlo.
-5. **Decifratura**: il destinatario deriva lo stesso segreto con `zen.secret(senderPub, myPair)` e decifra localmente.
+Il flusso di comunicazione 1:1 segue questi passaggi:
 
-I segreti DH sono memoizzati per `pub` (cache in `CommunicationService`).
+1. **Risoluzione Identità**: Mappatura del nome utente o handle (`@username`) sulla chiave `pub` del destinatario tramite l'indice decentralizzato `linda_unique_usernames`.
+2. **Derivazione Segreto Condiviso**: `zen.secret(peerPub, myPair)` esegue l'ECDH sulla chiave pubblica del peer. I segreti sono salvati nella cache in memoria di `CommunicationService`.
+3. **Cifratura AES-GCM**: `zen.encrypt(messaggio, segreto)` cifra il testo. L'output è in formato base62 a tre segmenti separati da punti (`ciphertext.iv.tag`). Messaggi con formato legacy Gun SEA (`SEA{...}`) vengono scartati.
+4. **Instradamento Room e Inbox Poke**:
+   - Il messaggio cifrato viene scritto nella stanza P2P deterministica:
+     `linda_rooms/p2p_<pubMinimo>_<pubMassimo>`
+   - Un avviso cifrato ("poke") viene inviato all'inbox del destinatario (`linda_v3_inbox_<peerPub>`) per notificare il client di iscriversi alla stanza.
+5. **Decifratura**: Il destinatario calcola lo stesso segreto tramite `zen.secret(senderPub, myPair)` e decifra il messaggio in locale.
 
-## 3. Gruppi (chiave simmetrica condivisa)
+---
 
-- L'admin genera un segreto di gruppo (`meta.secret`, chiave AES-GCM in base64).
-- I membri lo ricevono tramite invito e cifrano/decifrano localmente (`encryptGroupMessage`/`decryptGroupMessage` in `GroupService`, WebCrypto AES-GCM con IV 12 byte prefissato al ciphertext).
-- Le room P2P riusano la stessa infrastruttura con `secret` vuoto: il payload viaggia già cifrato dall'envelope ECDH del punto 2.
+## 3. Group Service e Chat di Gruppo
 
-## 4. Stream e File
+Nelle chat di gruppo la cifratura è gestita da `GroupService`:
 
-- **File**: WebRTC Data Channels diretti tra peer, o Wormhole per trasferimenti asincroni.
-- **Segnalazione**: i segnali di coordinamento viaggiano cifrati sul canale ECDH.
+- **Segreto di Gruppo**: L'amministratore del gruppo genera una chiave AES-GCM a 256-bit (`meta.secret`).
+- **Distribuzione Inviti**: Il segreto viene inviato ai membri tramite messaggi 1:1 cifrati con ECDH.
+- **Cifratura dei Messaggi**: I messaggi di gruppo vengono cifrati e decifrati in locale con la chiave del gruppo usando WebCrypto AES-GCM (con IV a 12 byte prefissato al ciphertext).
 
-| Layer | Tecnologia | Scopo |
-| :--- | :--- | :--- |
-| **Persistenza** | Zen (grafo P2P) | Storage decentralizzato e sync. |
-| **Identità** | Coppia unica secp256k1 | Firma + ECDH con la stessa chiave. |
-| **Chat 1:1** | `zen.secret` + `zen.encrypt` (AES-GCM) | E2EE diretto tra peer. |
-| **Gruppi** | Chiave simmetrica condivisa (AES-GCM) | E2EE di gruppo. |
-| **File** | WebRTC / Wormhole | Trasferimenti diretti cifrati. |
+---
+
+## 4. Trasferimento Dati e Chiamate
+
+| Modulo | Descrizione |
+| :--- | :--- |
+| **`CallingService`** | Segnalazione WebRTC su stanze Zen per chiamate audio/video P2P. |
+| **`FileTransferService`** | Trasferimento file P2P diretto a blocchi cifrati su WebRTC DataChannels. |
+| **`WormholeService`** | Trasferimento file asincrono cifrato tramite relay temporanei Wormhole. |
+
+---
+
+## 5. Nodi Relay Ciechi (Blind Relays)
+
+I server di relay non conoscono le chiavi private e non partecipano ad alcuna operazione di cifratura o decifratura:
+- Sincronizzano il grafo cifrato in modalità P2P.
+- Verificano l'autenticità delle firme dei nodi.
+- Utilizzano certificati Zen dedicati per permettere la scrittura cifrata nelle inbox dei destinatari.
+
+---
+
+## 📚 Riferimenti
+
+- [Documentazione Architetturale Completa (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md)
+- [Libreria Core `linda-core`](../linda-core/README.md)
+- [Design System (`DESIGN.md`)](./DESIGN.md)

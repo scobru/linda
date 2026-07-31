@@ -25,6 +25,20 @@
  * revived by clearing the give-up flags and redialing.
  */
 
+// Capacitor native app lifecycle — fires reliably on Android unlike the web
+// visibility/pageshow events which the WebView may swallow after a long sleep.
+let _capacitorAppPlugin: any = null;
+async function getCapacitorApp() {
+  if (_capacitorAppPlugin) return _capacitorAppPlugin;
+  try {
+    if (typeof window !== "undefined" && (window as any).Capacitor) {
+      const mod = await import("@capacitor/app");
+      _capacitorAppPlugin = mod.App;
+    }
+  } catch { /* not on Capacitor */ }
+  return _capacitorAppPlugin;
+}
+
 const CHECK_INTERVAL_MS = 30_000;
 // Zen keepalives ping every 30s; an OPEN wire silent for 75s (two missed
 // pongs plus margin) is considered half-open.
@@ -128,10 +142,27 @@ export function startConnectionWatchdog(zen: any): () => void {
   window.addEventListener("online", onWake);
   window.addEventListener("pageshow", onWake);
 
+  // Capacitor native resume — the single most reliable signal on Android.
+  // The dynamic import above may not have resolved yet, so we set up the
+  // listener asynchronously and store the handle for cleanup.
+  let capacitorListenerHandle: { remove: () => Promise<void> } | null = null;
+  getCapacitorApp().then((CapApp: any) => {
+    if (!CapApp) return;
+    CapApp.addListener("appStateChange", (state: { isActive: boolean }) => {
+      if (state.isActive) {
+        console.log("[ConnHealth] Capacitor appStateChange → active, checking relays");
+        checkNow();
+      }
+    }).then((handle: any) => {
+      capacitorListenerHandle = handle;
+    });
+  });
+
   return () => {
     clearInterval(interval);
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("online", onWake);
     window.removeEventListener("pageshow", onWake);
+    capacitorListenerHandle?.remove();
   };
 }
