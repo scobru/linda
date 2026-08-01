@@ -135,7 +135,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             });
             showNotification(`Joined group via invite: ${groupInfo.name}`, "info");
             return;
-          } catch (ge) {}
+          } catch (ge: any) {
+            if (ge && ge.message && ge.message.includes("GROUP_FULL_LIMIT_50")) {
+              showNotification("Impossibile entrare: il gruppo ha raggiunto il limite massimo di 50 membri", "error");
+              return;
+            }
+            // Otherwise ignore and fall through to pubkey resolution
+          }
         }
 
         // 3. Resolve as a pubkey/username for 1:1 chat

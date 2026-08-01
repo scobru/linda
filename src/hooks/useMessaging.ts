@@ -798,6 +798,16 @@ export const useMessaging = (
               });
             } else if (plaintextValue === "LEGACY_UNSUPPORTED") {
                 // Ignore legacy
+            } else if (plaintextValue && plaintextValue.startsWith("{")) {
+              try {
+                const parsed = JSON.parse(plaintextValue);
+                if (data.type === 'GROUP_KEY_ROTATION' || parsed.type === 'GROUP_KEY_ROTATION') {
+                  groupService?.setLocalSecret(parsed.groupId, parsed.newSecret);
+                  console.log(`[Signal] Processed GROUP_KEY_ROTATION for room ${parsed.groupId.slice(0, 8)}`);
+                }
+              } catch (e) {
+                console.log(`[Signal] Received unhandled JSON message from ${senderPubKeyRaw.slice(0, 8)} in inbox.`);
+              }
             } else {
                 console.log(`[Signal] Received unhandled message from ${senderPubKeyRaw.slice(0, 8)} in inbox.`);
             }

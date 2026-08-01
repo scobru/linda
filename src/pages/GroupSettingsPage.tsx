@@ -237,7 +237,12 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
       navigator.clipboard.writeText(invite);
       showNotification("Invite link copied to clipboard", "info");
     } catch (e: any) {
-      showNotification(e.message || "Failed to generate invite", "error");
+      console.error(e);
+      if (e instanceof Error && e.message.includes('GROUP_FULL_LIMIT_50')) {
+        alert("Cannot generate invite: Group size limit (50) reached.");
+      } else {
+        alert("Failed to generate invite");
+      }
     }
   };
 
