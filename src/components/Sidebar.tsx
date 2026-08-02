@@ -115,6 +115,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const publicGroup = await groupService.getPublicGroup(name);
         if (publicGroup) {
           const groupInfo = await groupService.joinPublicGroup(name);
+          if (communicationService && groupInfo.adminPub) {
+            await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
+              type: 'GROUP_JOIN_REQUEST',
+              groupId: groupInfo.id
+            }), 'GROUP_JOIN_REQUEST');
+          }
           smoothNavigate(`/chat/${groupInfo.id}`, () => {
             setRecipient(groupInfo.id);
             setShowSearch(false);
@@ -128,6 +134,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (name.length > 50 && !name.startsWith("@")) {
           try {
             const groupInfo = await groupService.joinGroup(name);
+            if (communicationService && groupInfo.adminPub) {
+              await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
+                type: 'GROUP_JOIN_REQUEST',
+                groupId: groupInfo.id
+              }), 'GROUP_JOIN_REQUEST');
+            }
             smoothNavigate(`/chat/${groupInfo.id}`, () => {
               setRecipient(groupInfo.id);
               setShowSearch(false);

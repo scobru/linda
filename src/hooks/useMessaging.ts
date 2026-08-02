@@ -804,6 +804,22 @@ export const useMessaging = (
                 if (data.type === 'GROUP_KEY_ROTATION' || parsed.type === 'GROUP_KEY_ROTATION') {
                   groupService?.setLocalSecret(parsed.groupId, parsed.newSecret);
                   console.log(`[Signal] Processed GROUP_KEY_ROTATION for room ${parsed.groupId.slice(0, 8)}`);
+                } else if (data.type === 'GROUP_JOIN_REQUEST' || parsed.type === 'GROUP_JOIN_REQUEST') {
+                  const role = await groupService?.getMemberRole(parsed.groupId, senderPubKeyRaw);
+                  if (role) {
+                    const secret = groupService?.getLocalSecret(parsed.groupId);
+                    if (secret) {
+                      await communicationService?.sendMessage(senderPubKeyRaw, JSON.stringify({
+                        type: 'GROUP_KEY_DISTRIBUTION',
+                        groupId: parsed.groupId,
+                        secret: secret
+                      }), 'GROUP_KEY_DISTRIBUTION');
+                      console.log(`[Signal] Sent GROUP_KEY_DISTRIBUTION to ${senderPubKeyRaw.slice(0, 8)}`);
+                    }
+                  }
+                } else if (data.type === 'GROUP_KEY_DISTRIBUTION' || parsed.type === 'GROUP_KEY_DISTRIBUTION') {
+                  groupService?.setLocalSecret(parsed.groupId, parsed.secret);
+                  console.log(`[Signal] Received GROUP_KEY_DISTRIBUTION for room ${parsed.groupId.slice(0, 8)}`);
                 }
               } catch (e) {
                 console.log(`[Signal] Received unhandled JSON message from ${senderPubKeyRaw.slice(0, 8)} in inbox.`);

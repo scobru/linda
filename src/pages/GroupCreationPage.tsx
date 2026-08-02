@@ -1,15 +1,17 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GroupService } from 'linda-core';
+import { GroupService, CommunicationService } from 'linda-core';
 
 interface GroupCreationPageProps {
   groupService: GroupService;
+  communicationService: CommunicationService | null;
   onCreated: (groupId: string) => void;
   showNotification: (msg: string, type?: "info" | "error") => void;
 }
 
 export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
   groupService,
+  communicationService,
   onCreated,
   showNotification,
 }) => {
@@ -52,6 +54,15 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
     setLoading(true);
     try {
       const groupInfo = await groupService.joinGroup(inviteCode.trim());
+      
+      // Request group secret securely via P2P
+      if (communicationService && groupInfo.adminPub) {
+        await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
+          type: 'GROUP_JOIN_REQUEST',
+          groupId: groupInfo.id
+        }), 'GROUP_JOIN_REQUEST');
+      }
+
       showNotification(`Joined group: ${groupInfo.name}`, "info");
       onCreated(groupInfo.id);
       // Navigation is handled inside onCreated callback in App.tsx

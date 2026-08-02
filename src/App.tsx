@@ -281,6 +281,7 @@ const AppContent: React.FC<{
             element={
               <GroupCreationPage
                 groupService={groupService!}
+                communicationService={communicationService}
                 onCreated={(id) => {
                   smoothNavigate(`/chat/${id}`, () => {
                     messaging.saveContact(id);
