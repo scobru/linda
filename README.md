@@ -1,4 +1,4 @@
-# 🛡️ Shogun Linda (Signal)
+# Linda
 
 **Linda** is a high-performance, decentralized, end-to-end encrypted messaging platform. It leverages **[Zen](https://github.com/scobru/zen)** for peer-to-peer data graph synchronization and **WebRTC** for direct, high-speed file transfers and audio/video calling.
 
