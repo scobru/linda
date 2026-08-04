@@ -604,6 +604,12 @@ export const useMessaging = (
 							roomSecret,
 							"messages",
 						);
+				if (!messagesChain) {
+					console.warn(
+						`[Groups] No room chain for ${contactId} messages (secret not synced?), skipping listener`,
+					);
+					return;
+				}
 				trackChain(messagesChain)
 					.map()
 					.on(async (data: any, gunKey: string) => {
@@ -804,38 +810,46 @@ export const useMessaging = (
 							roomSecret,
 							"deleted_messages",
 						);
-				trackChain(delChain)
-					.map()
-					.on((data: any, msgId: string) => {
-						if (data) {
-							setDeletedMessages((prev) => {
-								const groupDeletions = new Set(prev[contactId] || []);
-								groupDeletions.add(msgId);
-								const next = { ...prev, [contactId]: groupDeletions };
-								if (userPub) saveDeletedMessages(userPub, next);
-								return next;
-							});
-						}
-					});
-
-				// 3. Listen to Pins
-				const pinsChain = isP2P
-					? db.zen.get(`linda_rooms/${roomId}/pins`)
-					: await communicationService!.getRoomChain(
-							roomId,
-							roomSecret,
-							"pins",
-						);
-				trackChain(pinsChain)
-					.map()
-					.on((ts: any, msgId: string) => {
-						setPinnedMessages((prev) => {
-							const groupPins = new Set(prev[contactId] || []);
-							if (ts) groupPins.add(msgId);
-							else groupPins.delete(msgId);
-							return { ...prev, [contactId]: groupPins };
+				if (!delChain) {
+					console.warn(
+						`[Groups] No room chain for ${contactId} deleted_messages, skipping`,
+					);
+				} else {
+					trackChain(delChain)
+						.map()
+						.on((data: any, msgId: string) => {
+							if (data) {
+								setDeletedMessages((prev) => {
+									const groupDeletions = new Set(prev[contactId] || []);
+									groupDeletions.add(msgId);
+									const next = { ...prev, [contactId]: groupDeletions };
+									if (userPub) saveDeletedMessages(userPub, next);
+									return next;
+								});
+							}
 						});
-					});
+
+					// 3. Listen to Pins
+					const pinsChain = isP2P
+						? db.zen.get(`linda_rooms/${roomId}/pins`)
+						: await communicationService!.getRoomChain(
+								roomId,
+								roomSecret,
+								"pins",
+							);
+					if (pinsChain) {
+						trackChain(pinsChain)
+							.map()
+							.on((ts: any, msgId: string) => {
+								setPinnedMessages((prev) => {
+									const groupPins = new Set(prev[contactId] || []);
+									if (ts) groupPins.add(msgId);
+									else groupPins.delete(msgId);
+									return { ...prev, [contactId]: groupPins };
+								});
+							});
+					}
+				}
 			} catch (err) {
 				console.warn(
 					`[Groups] Failed to start listener for ${contactId}:`,
