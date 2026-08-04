@@ -3,6 +3,7 @@ import { DataBase } from "linda-core";
 import { CommunicationService } from "linda-core";
 import { GroupService, type GroupInfo } from "linda-core";
 import { generateSecureRandomString } from "linda-core";
+import { DECRYPT_FAILED, LEGACY_UNSUPPORTED } from "linda-core";
 import { sendAppNotification } from "../utils/notifications";
 
 export interface FileMetadata {
@@ -686,7 +687,10 @@ export const useMessaging = (
 
 							if (userPub) saveProcessedKey(userPub, gunKey);
 
-							if (plaintext === "LEGACY_UNSUPPORTED") {
+							if (
+								plaintext === LEGACY_UNSUPPORTED ||
+								plaintext === DECRYPT_FAILED
+							) {
 								console.warn(
 									`[Messaging] Skipping undecryptable/legacy message ${gunKey.slice(0, 8)}`,
 								);
@@ -999,8 +1003,11 @@ export const useMessaging = (
 								}
 								return prev;
 							});
-						} else if (plaintextValue === "LEGACY_UNSUPPORTED") {
-							// Ignore legacy
+						} else if (
+							plaintextValue === LEGACY_UNSUPPORTED ||
+							plaintextValue === DECRYPT_FAILED
+						) {
+							// Ignore legacy / permanently undecryptable signals
 						} else if (plaintextValue && plaintextValue.startsWith("{")) {
 							try {
 								const parsed = JSON.parse(plaintextValue);

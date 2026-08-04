@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DataBase } from 'linda-core';
 import { CommunicationService } from 'linda-core';
 import { FileTransferService } from 'linda-core';
+import { DECRYPT_FAILED, LEGACY_UNSUPPORTED } from 'linda-core';
 
 export const useSignalingListener = (
   db: DataBase,
@@ -41,6 +42,7 @@ export const useSignalingListener = (
           body: data.body,
         });
         if (!plaintext || typeof plaintext !== "string") return;
+        if (plaintext === LEGACY_UNSUPPORTED || plaintext === DECRYPT_FAILED) return;
 
         const trimmed = plaintext.trim();
         if (trimmed === "PING_HEAL") {
