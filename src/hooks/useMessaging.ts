@@ -99,10 +99,24 @@ export const useMessaging = (
 	const lastResubscribeRef = useRef(0);
 	const didLoadLocalRef = useRef(false);
 	const [resumeTick, setResumeTick] = useState(0);
+	// Bumped when a room secret finally lands, so the group effect re-runs and
+	// subscribes the rooms it had to skip for a missing secret.
+	const [groupKeyTick, setGroupKeyTick] = useState(0);
+	// Rooms we already asked the admin a key for, to keep the retry to one
+	// request per room per session.
+	const keyRequestedRef = useRef<Set<string>>(new Set());
 
 	const trackChain = useCallback((chain: any) => {
 		liveChainsRef.current.push(chain);
 		return chain;
+	}, []);
+
+	// A room secret just landed: forget that the room was skipped and bump the
+	// tick so the group effect attaches the listener it couldn't build before.
+	const rearmRoom = useCallback((groupId: string) => {
+		groupSubscriptionsRef.current.delete(groupId);
+		keyRequestedRef.current.delete(groupId);
+		setGroupKeyTick((t) => t + 1);
 	}, []);
 
 	useEffect(() => {
@@ -591,13 +605,45 @@ export const useMessaging = (
 					if (!meta || (meta as any).err) return;
 				}
 
+				// 1. Listen to Messages
+				const roomSecret = isP2P ? "" : groupService.getLocalSecret(roomId);
+				if (!isP2P && !roomSecret) {
+					// Without the secret the room chain can't be derived, so the room
+					// stays silent forever (public-group joins used to land here and
+					// never recover). Ask the admin once; the GROUP_KEY_DISTRIBUTION
+					// handler bumps groupKeyTick, which re-runs this effect and
+					// subscribes for real. Deliberately not marked as subscribed.
+					const adminPub = (meta as GroupInfo)?.adminPub;
+					console.warn(
+						`[Groups] No room secret for ${contactId}, requesting it from the admin`,
+					);
+					if (
+						adminPub &&
+						adminPub !== userPub &&
+						!keyRequestedRef.current.has(roomId)
+					) {
+						keyRequestedRef.current.add(roomId);
+						try {
+							await communicationService!.sendMessage(
+								adminPub,
+								JSON.stringify({
+									type: "GROUP_JOIN_REQUEST",
+									groupId: roomId,
+								}),
+								"GROUP_JOIN_REQUEST",
+							);
+						} catch (e) {
+							console.warn("[Groups] Group key request failed:", e);
+						}
+					}
+					return;
+				}
+
 				groupSubscriptionsRef.current.add(contactId);
 				if (isP2P) groupSubscriptionsRef.current.add(roomId);
 
 				// Removed TPRE Proactive Reactor
 
-				// 1. Listen to Messages
-				const roomSecret = isP2P ? "" : groupService.getLocalSecret(roomId);
 				const messagesChain = isP2P
 					? db.zen.get(`linda_rooms/${roomId}/messages`)
 					: await communicationService!.getRoomChain(
@@ -870,6 +916,7 @@ export const useMessaging = (
 		saveProcessedKey,
 		trackChain,
 		resumeTick,
+		groupKeyTick,
 	]);
 
 	// Removed Admin TPRE Reactor
@@ -1019,6 +1066,7 @@ export const useMessaging = (
 										parsed.groupId,
 										parsed.newSecret,
 									);
+									rearmRoom(parsed.groupId);
 									console.log(
 										`[Signal] Processed GROUP_KEY_ROTATION for room ${parsed.groupId.slice(0, 8)}`,
 									);
@@ -1052,6 +1100,7 @@ export const useMessaging = (
 									parsed.type === "GROUP_KEY_DISTRIBUTION"
 								) {
 									groupService?.setLocalSecret(parsed.groupId, parsed.secret);
+									rearmRoom(parsed.groupId);
 									console.log(
 										`[Signal] Received GROUP_KEY_DISTRIBUTION for room ${parsed.groupId.slice(0, 8)}`,
 									);
@@ -1090,6 +1139,7 @@ export const useMessaging = (
 		saveProcessedKey,
 		setRecipient,
 		trackChain,
+		rearmRoom,
 		resumeTick,
 	]);
 

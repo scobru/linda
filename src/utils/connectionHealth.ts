@@ -63,8 +63,30 @@ function tombVariants(url: string): string[] {
   ];
 }
 
+// The packaged Zen export is a wrapper object (`_opt`, `_graphInstance`), not
+// the graph chain, so `zen._` is undefined on it and the watchdog disabled
+// itself on every start. The root — and its `opt.peers` table — is reachable
+// through `back(-1)`.
+function resolveRootOpt(zen: any): any {
+  const candidates = [
+    () => zen?._?.opt,
+    () => zen?.back?.(-1)?._?.opt,
+    () => zen?._graphInstance?.back?.(-1)?._?.opt,
+    () => zen?._graphInstance?._?.opt,
+  ];
+  for (const get of candidates) {
+    try {
+      const opt = get();
+      if (opt && typeof opt === "object") return opt;
+    } catch {
+      /* try the next accessor */
+    }
+  }
+  return null;
+}
+
 export function startConnectionWatchdog(zen: any): () => void {
-  const opt = zen?._?.opt;
+  const opt = resolveRootOpt(zen);
   if (!opt) {
     console.warn("[ConnHealth] Zen root opt not reachable, watchdog disabled");
     return () => {};

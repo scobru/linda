@@ -83,6 +83,16 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
     setLoading(true);
     try {
       const groupInfo = await groupService.joinPublicGroup(joinByName.trim());
+
+      // Same handshake as handleJoin: without it the room secret never arrives,
+      // so the room chain can't be derived and the group stays unreadable.
+      if (communicationService && groupInfo.adminPub) {
+        await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
+          type: 'GROUP_JOIN_REQUEST',
+          groupId: groupInfo.id
+        }), 'GROUP_JOIN_REQUEST');
+      }
+
       showNotification(`Joined public group: ${groupInfo.name}`, "info");
       onCreated(groupInfo.id);
     } catch (err: any) {
