@@ -614,14 +614,27 @@ export const useMessaging = (
 					// handler bumps groupKeyTick, which re-runs this effect and
 					// subscribes for real. Deliberately not marked as subscribed.
 					const adminPub = (meta as GroupInfo)?.adminPub;
-					console.warn(
-						`[Groups] No room secret for ${contactId}, requesting it from the admin`,
-					);
-					if (
+					if (adminPub && adminPub === userPub) {
+						// We *are* the admin, so there is nobody to ask. This happens when
+						// the local secret is gone (cleared storage, other device, or a
+						// pub change after a legacy-seed login orphans the per-pub key).
+						// Log it once instead of failing silently forever.
+						if (!keyRequestedRef.current.has(roomId)) {
+							keyRequestedRef.current.add(roomId);
+							console.warn(
+								`[Groups] No room secret for ${contactId} and we are the admin — the key is unrecoverable on this device.`,
+							);
+						}
+					} else if (
 						adminPub &&
 						adminPub !== userPub &&
 						!keyRequestedRef.current.has(roomId)
 					) {
+						// Log inside the guard: this effect re-runs on every tick, and an
+						// unguarded warn here floods the console once per room per render.
+						console.warn(
+							`[Groups] No room secret for ${contactId}, requesting it from the admin`,
+						);
 						keyRequestedRef.current.add(roomId);
 						try {
 							await communicationService!.sendMessage(
