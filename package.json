@@ -1,7 +1,7 @@
 {
   "name": "linda",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Linda - P2P Encrypted Messenger",
   "author": "Shogun Ecosystem",
   "type": "module",
