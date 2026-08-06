@@ -1,90 +1,110 @@
 # Linda
 
-**Linda** is a high-performance, decentralized, end-to-end encrypted messaging platform. It leverages **[Zen](https://github.com/scobru/zen)** for peer-to-peer data graph synchronization and **WebRTC** for direct, high-speed file transfers and audio/video calling.
+**Linda** is a decentralised, end-to-end encrypted messaging platform. It uses
+**[Zen](https://github.com/scobru/zen)** for peer-to-peer graph synchronisation
+and **WebRTC** for direct file transfers and audio/video calls.
 
-The core communication and cryptographic capabilities of Linda are powered by the **[`linda-core`](../linda-core/README.md)** library.
+There is no application server and no user database. Your keypair is your
+account, and relays replicate ciphertext they cannot read. The cryptography and
+messaging services live in the **[`linda-core`](https://github.com/scobru/linda-core)**
+library.
 
 ---
 
 ## 🚀 Key Features
 
-- 💬 **P2P 1:1 Messaging**: Instant messaging powered by native Zen authenticated writes and ECDH key derivation. No central servers or user databases.
-- 👥 **Group Encrypted Conversations**: Shared AES-GCM encryption key generation and invite-based key exchange managed via `GroupService`.
-- 🏷️ **Unique Handles (`@username`)**: Claim human-readable unique handles mapped directly to public keys in a decentralized graph index.
-- 📁 **P2P File Transfers & Wormhole**: High-speed direct file transfers via WebRTC DataChannels with async fallback via temporary binary relay streams (`WormholeService`).
-- 📞 **P2P Audio & Video Calls**: WebRTC session orchestration and ICE signaling over P2P graph rooms (`CallingService`).
-- 🔐 **Self-Custodial Identity**: Your keypair (`secp256k1`) is your identity. Multi-path profile resolution guarantees eventual consistency across devices.
+- 💬 **P2P 1:1 messaging** — Zen authenticated writes with ECDH-derived keys.
+- 👥 **Encrypted group conversations** — shared AES-GCM key, invite-based key
+  exchange, encrypted key escrow so members survive a cleared browser profile.
+- 🏷️ **Unique handles (`@username`)** — human-readable names mapped to public
+  keys in a decentralised graph index.
+- 📁 **P2P file transfer and Wormhole** — WebRTC DataChannels for online peers,
+  with an encrypted temporary relay as the async fallback.
+- 📞 **P2P audio and video calls** — WebRTC sessions with ICE signalling carried
+  over Zen graph rooms.
+- 🔐 **Self-custodial identity** — a `secp256k1` keypair derived deterministically
+  from your credentials. No recovery path, by design.
+- 🖥️ **Web, Desktop, and Android** from one codebase.
 
 ---
 
-## 🏗️ Technical Architecture & Stack
+## 🏗️ Architecture at a Glance
 
-### Core Service Layer (`linda-core`)
-- **`CommunicationService`**: Handles identity bundles, 1:1 signaling, room routing (`p2p_<pubA>_<pubB>`), and inbox pokes.
-- **`GroupService`**: Group creation, symmetric AES-GCM encryption engine, and member key management.
-- **`CallingService`**: Real-time WebRTC audio/video call signaling.
-- **`FileTransferService`**: WebRTC DataChannel chunked file streams.
-- **`WormholeService`**: Temporary encrypted binary relay stream fallback.
+### Core service layer (`linda-core`)
 
-### Technology Stack
-- **Frontend**: React 19 + TypeScript + Vite.
-- **Desktop & Mobile**: Electron (Desktop) + Capacitor (Android / iOS).
-- **Core Library**: [`linda-core`](../linda-core/README.md).
-- **Database**: [Zen P2P Graph Database](https://github.com/scobru/zen).
-- **Styling & UI**: Tailwind CSS + DaisyUI (OLED Glassmorphic Design System in [`DESIGN.md`](./DESIGN.md)).
+| Service | Responsibility |
+| :--- | :--- |
+| `CommunicationService` | Identity bundles, 1:1 signalling, room routing, inbox pokes and certificates. |
+| `GroupService` | Group lifecycle, AES-GCM encryption, member roles, key distribution and escrow. |
+| `CallingService` | WebRTC audio/video call signalling. |
+| `FileTransferService` | Chunked file streams over WebRTC DataChannels. |
+| `WormholeService` | Encrypted binary relay fallback for offline delivery. |
 
----
+### Stack
 
-## 📚 Documentation Index
-
-- 🏛️ **[System Architecture (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md)**: Full architecture breakdown, identity derivation, and message flows.
-- 🛡️ **[Flusso di Crittografia (`ENCRYPTION_FLOW.md`)](./ENCRYPTION_FLOW.md)**: Guida completa in italiano alla crittografia Zen-native (1:1 ECDH, gruppi, inboxes e relay).
-- 📦 **[Linda Core Library (`linda-core/README.md`)](../linda-core/README.md)**: Documentation for the underlying core npm package.
-- 🎨 **[Design System (`DESIGN.md`)](./DESIGN.md)**: Visual identity, typography, OLED color palette, and component specs.
-- 📖 **[Documentation Directory (`docs/README.md`)](./docs/README.md)**: Central entry point for all developer guides and feature specifications.
+- **Frontend**: React 19 + TypeScript + Vite
+- **Desktop / Mobile**: Electron + Capacitor
+- **Database**: [Zen P2P graph](https://github.com/scobru/zen)
+- **UI**: Tailwind CSS + DaisyUI, OLED glassmorphic system described in [`DESIGN.md`](./DESIGN.md)
 
 ---
 
-## 🛠️ Development Setup
+## 🛠️ Quickstart
 
-### Prerequisites
-- Node.js (v18+)
-- Yarn
+```bash
+git clone https://github.com/scobru/linda.git
+cd linda
+npm install
+cp .env.example .env.local   # optional: needed for Wormhole transfers
+npm run dev                  # http://localhost:5173
+```
 
-### Quickstart
+Run your own blind relay instead of the default public one:
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/scobru/linda.git
-   cd linda
-   ```
+```bash
+npm run relay        # node simple-relay.js on :8765
+# or
+docker compose up -d
+```
 
-2. **Install dependencies**:
-   ```bash
-   yarn install
-   ```
+Build for other targets:
 
-3. **Start the development server**:
-   ```bash
-   yarn dev
-   ```
+```bash
+npm run electron:dev     # desktop shell
+npm run android          # web build + cap sync + Android Studio
+npm run build            # static web bundle in dist/
+```
 
-4. **Run relay node locally (optional)**:
-   ```bash
-   yarn relay
-   ```
+Full setup, environment variables, and platform notes:
+**[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)**.
 
-5. **Build for Android / Desktop**:
-   ```bash
-   # Android
-   yarn android
+---
 
-   # Electron
-   yarn electron:dev
-   ```
+## 📚 Documentation
+
+| Document | Contents |
+| :--- | :--- |
+| [docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md) | Install, configure, run, build, and known caveats. |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Identity model, room routing, message flows, client composition. |
+| [docs/DATA_MODEL.md](./docs/DATA_MODEL.md) | Every graph path Linda reads and writes. |
+| [docs/SECURITY.md](./docs/SECURITY.md) | Threat model, guarantees, and explicit limitations. |
+| [ENCRYPTION_FLOW.md](./ENCRYPTION_FLOW.md) | Cryptographic detail, in Italian. |
+| [DESIGN.md](./DESIGN.md) | Colour, typography, motion, and component specification. |
+| [docs/README.md](./docs/README.md) | Documentation index. |
+
+---
+
+## ✅ Project Status
+
+Version `1.0.10`. Type check is clean and the test suite passes, but coverage is
+limited to utility modules — messaging, group, and crypto flows are verified
+manually. Before trusting Linda with anything sensitive, read
+[docs/SECURITY.md](./docs/SECURITY.md): in particular, the identity keypair is
+only as strong as the password it is derived from, and message metadata is
+visible to relay operators.
 
 ---
 
 ## 📄 License
 
-This project is part of the **Shogun Ecosystem**. MIT Licensed.
+Part of the **Shogun Ecosystem**. MIT licensed.

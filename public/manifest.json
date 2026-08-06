@@ -1,7 +1,7 @@
 {
   "name": "Linda | Shogun-eco",
   "short_name": "Linda",
-  "description": "Linda — End-to-End Encrypted Secure Messenger powered by GunDB and Signal Protocol",
+  "description": "Linda — End-to-End Encrypted Secure Messenger powered by the Zen P2P graph",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

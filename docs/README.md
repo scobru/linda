@@ -1,24 +1,41 @@
-# 📖 Linda Documentation Directory
+# 📖 Linda Documentation
 
-Welcome to the central documentation repository for **Linda** and **`linda-core`**.
+Central index for **Linda** and **`linda-core`**.
 
-## 📑 Core Documentation
+## Start here
+
+- 🚀 **[Getting Started (`GETTING_STARTED.md`)](./GETTING_STARTED.md)**
+  Prerequisites, install, environment variables, scripts, relay hosting,
+  platform builds, and current caveats.
+
+## Reference
 
 - 🏛️ **[System Architecture (`ARCHITECTURE.md`)](./ARCHITECTURE.md)**
-  Comprehensive overview of Linda's peer-to-peer architecture, single-keypair identity model, room routing, 1:1 and group message flows, and blind relay nodes.
+  Single-keypair identity, deterministic room routing, 1:1 and group message
+  flows, client hook composition, and blind relay behaviour.
 
-- 🛡️ **[Flusso di Crittografia (`../ENCRYPTION_FLOW.md`)](../ENCRYPTION_FLOW.md)**
-  Documento dettagliato in italiano sulla cifratura Zen-native, derivazione ECDH, payload AES-GCM e gestione dei certificati inbox.
+- 🗺️ **[Data Model (`DATA_MODEL.md`)](./DATA_MODEL.md)**
+  Every graph namespace Linda uses, what lives at each path, and the rules for
+  adding new ones.
 
-- 📦 **[Linda Core Library (`../../linda-core/README.md`)](../../linda-core/README.md)**
-  Documentation for the standalone `linda-core` package, containing API references for `CommunicationService`, `GroupService`, `CallingService`, `FileTransferService`, and `WormholeService`.
+- 🛡️ **[Security Model (`SECURITY.md`)](./SECURITY.md)**
+  What is protected, what is not, and where the implementation currently falls
+  short of the design.
+
+- 🔐 **[Flusso di Crittografia (`../ENCRYPTION_FLOW.md`)](../ENCRYPTION_FLOW.md)**
+  Documento dettagliato in italiano sulla cifratura Zen-native, derivazione
+  ECDH, payload AES-GCM e gestione dei certificati inbox.
 
 - 🎨 **[Design System (`../DESIGN.md`)](../DESIGN.md)**
-  Specification of the OLED dark-mode design system, Signal Blue color palette, Inter Tight typography, glassmorphic UI components, and motion parameters.
+  OLED dark-mode palette, Inter Tight typography, glassmorphic components, and
+  motion parameters.
 
----
+- 📦 **[`linda-core`](https://github.com/scobru/linda-core)**
+  API reference for `CommunicationService`, `GroupService`, `CallingService`,
+  `FileTransferService`, and `WormholeService`.
 
-## 📋 Feature Specifications & Plans
+## Plans
 
 - 🚀 **[Spaces Feature Plan (`plans/20260707-spaces-app.md`)](./plans/20260707-spaces-app.md)**
-  Architectural design and implementation plan for Spaces (decentralized topic channels & community hubs).
+  Design and implementation plan for Spaces (decentralised topic channels and
+  community hubs).

@@ -1,6 +1,6 @@
 # 🛡️ Flusso di Crittografia Linda (Zen-Native)
 
-Questo documento descrive in dettaglio la logica crittografica utilizzata dall'applicazione **Linda** e dalla sua libreria core **[`linda-core`](../linda-core/README.md)**. Per la documentazione architetturale completa in inglese, consultare [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+Questo documento descrive in dettaglio la logica crittografica utilizzata dall'applicazione **Linda** e dalla sua libreria core **[`linda-core`](https://github.com/scobru/linda-core)**. Per la documentazione architetturale completa in inglese, consultare [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
 ---
 
@@ -69,5 +69,5 @@ I server di relay non conoscono le chiavi private e non partecipano ad alcuna op
 ## 📚 Riferimenti
 
 - [Documentazione Architetturale Completa (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md)
-- [Libreria Core `linda-core`](../linda-core/README.md)
+- [Libreria Core `linda-core`](https://github.com/scobru/linda-core)
 - [Design System (`DESIGN.md`)](./DESIGN.md)
