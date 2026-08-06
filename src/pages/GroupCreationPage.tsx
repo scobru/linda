@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GroupService, CommunicationService } from 'linda-core';
+import { requestGroupSecret } from "../utils/inboxSignal";
 
 interface GroupCreationPageProps {
   groupService: GroupService;
@@ -56,12 +57,7 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
       const groupInfo = await groupService.joinGroup(inviteCode.trim());
       
       // Request group secret securely via P2P
-      if (communicationService && groupInfo.adminPub) {
-        await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
-          type: 'GROUP_JOIN_REQUEST',
-          groupId: groupInfo.id
-        }), 'GROUP_JOIN_REQUEST');
-      }
+      await requestGroupSecret(communicationService, groupInfo.adminPub, groupInfo.id);
 
       showNotification(`Joined group: ${groupInfo.name}`, "info");
       onCreated(groupInfo.id);
@@ -86,12 +82,7 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
 
       // Same handshake as handleJoin: without it the room secret never arrives,
       // so the room chain can't be derived and the group stays unreadable.
-      if (communicationService && groupInfo.adminPub) {
-        await communicationService.sendMessage(groupInfo.adminPub, JSON.stringify({
-          type: 'GROUP_JOIN_REQUEST',
-          groupId: groupInfo.id
-        }), 'GROUP_JOIN_REQUEST');
-      }
+      await requestGroupSecret(communicationService, groupInfo.adminPub, groupInfo.id);
 
       showNotification(`Joined public group: ${groupInfo.name}`, "info");
       onCreated(groupInfo.id);

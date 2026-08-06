@@ -5,6 +5,7 @@ import { GroupService, type GroupInfo } from "linda-core";
 import { generateSecureRandomString } from "linda-core";
 import { DECRYPT_FAILED, LEGACY_UNSUPPORTED } from "linda-core";
 import { sendAppNotification } from "../utils/notifications";
+import { requestGroupSecret } from "../utils/inboxSignal";
 
 export interface FileMetadata {
 	name: string;
@@ -643,18 +644,7 @@ export const useMessaging = (
 							`[Groups] No room secret for ${contactId}, requesting it from the admin`,
 						);
 						keyRequestedRef.current.add(roomId);
-						try {
-							await communicationService!.sendMessage(
-								adminPub,
-								JSON.stringify({
-									type: "GROUP_JOIN_REQUEST",
-									groupId: roomId,
-								}),
-								"GROUP_JOIN_REQUEST",
-							);
-						} catch (e) {
-							console.warn("[Groups] Group key request failed:", e);
-						}
+						await requestGroupSecret(communicationService, adminPub, roomId);
 					}
 					return;
 				}
