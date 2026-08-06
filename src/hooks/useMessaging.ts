@@ -1272,11 +1272,15 @@ export const useMessaging = (
 						meta,
 						payload || "",
 					);
+					const groupSecret = groupService.getLocalSecret(
+						recipient,
+						meta?.secret,
+					);
 					// ponytail: cert-gated room write — only holders of the room secret
 					// (group members) can write to the room's message node.
 					await communicationService.certifiedRoomWrite(
 						recipient,
-						groupService.getLocalSecret(recipient),
+						groupSecret,
 						"messages",
 						{
 							msgId,
@@ -1285,6 +1289,7 @@ export const useMessaging = (
 							timestamp: timestamp.toISOString(),
 							type,
 						} as any,
+						msgId,
 					);
 				} else {
 					// 1:1 direct message -> P2P ECDH
