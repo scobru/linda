@@ -606,7 +606,13 @@ export const useMessaging = (
 				}
 
 				// 1. Listen to Messages
-				const roomSecret = isP2P ? "" : groupService.getLocalSecret(roomId);
+				// A missing local secret is not proof the key is lost: it also happens
+				// after a storage wipe or on a fresh device, where the encrypted escrow
+				// in our own user space still has it.
+				const roomSecret = isP2P
+					? ""
+					: groupService.getLocalSecret(roomId) ||
+						(await groupService.recoverSecret(roomId));
 				if (!isP2P && !roomSecret) {
 					// Without the secret the room chain can't be derived, so the room
 					// stays silent forever (public-group joins used to land here and
@@ -615,10 +621,11 @@ export const useMessaging = (
 					// subscribes for real. Deliberately not marked as subscribed.
 					const adminPub = (meta as GroupInfo)?.adminPub;
 					if (adminPub && adminPub === userPub) {
-						// We *are* the admin, so there is nobody to ask. This happens when
-						// the local secret is gone (cleared storage, other device, or a
-						// pub change after a legacy-seed login orphans the per-pub key).
-						// Log it once instead of failing silently forever.
+						// We *are* the admin, so there is nobody to ask, and the escrow
+						// lookup above already came back empty. That leaves a group created
+						// before escrow existed, or a pub change after a legacy-seed login
+						// orphaning the per-pub key. Log it once instead of failing
+						// silently forever.
 						if (!keyRequestedRef.current.has(roomId)) {
 							keyRequestedRef.current.add(roomId);
 							console.warn(
@@ -1092,7 +1099,9 @@ export const useMessaging = (
 										senderPubKeyRaw,
 									);
 									if (role) {
-										const secret = groupService?.getLocalSecret(parsed.groupId);
+										const secret =
+											groupService?.getLocalSecret(parsed.groupId) ||
+											(await groupService?.recoverSecret(parsed.groupId));
 										if (secret) {
 											await communicationService?.sendMessage(
 												senderPubKeyRaw,
@@ -1285,10 +1294,9 @@ export const useMessaging = (
 						meta,
 						payload || "",
 					);
-					const groupSecret = groupService.getLocalSecret(
-						recipient,
-						meta?.secret,
-					);
+					const groupSecret =
+						groupService.getLocalSecret(recipient, meta?.secret) ||
+						(await groupService.recoverSecret(recipient));
 					// ponytail: cert-gated room write — only holders of the room secret
 					// (group members) can write to the room's message node.
 					await communicationService.certifiedRoomWrite(
