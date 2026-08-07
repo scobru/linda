@@ -182,7 +182,7 @@ async function startLindaAIBot() {
         if (!meta) return;
 
         try {
-            const decrypted = await groupService.decryptGroupMessage(meta, data.body, "https://delay.scobrudot.dev");
+            const decrypted = await groupService.decryptGroupMessage(meta, data.body, data.sender);
             console.log(`[Bot] Messaggio ricevuto: ${decrypted}`);
 
             const cleanMsg = decrypted.trim();

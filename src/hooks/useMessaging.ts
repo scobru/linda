@@ -712,7 +712,7 @@ export const useMessaging = (
 												{ type: data.type, body: data.body },
 												data.senderEpub,
 											)
-										: await groupService.decryptGroupMessage(meta, data.body);
+										: await groupService.decryptGroupMessage(meta, data.body, data.sender);
 									if (decrypted) {
 										plaintext = decrypted;
 										break;

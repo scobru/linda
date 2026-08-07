@@ -41,13 +41,11 @@ export const useFileTransfer = (
             timestamp: new Date().toISOString(),
           } as any;
 
-          // Primary route: public root node, same model as linda_v3_inbox_*.
-          // The old user-space route (~toPub/linda_inbox_v13) needs a write
-          // certificate, and Zen-native forbids wildcard certs — so peers who
-          // hadn't explicitly accepted each other could never be signalled,
-          // breaking WebRTC file transfer and call setup between them.
+          // Primary route: use ZEN ephemeral push messaging (DAM protocol).
+          // This avoids writing volatile signaling data to the graph, 
+          // improving privacy and keeping the relay storage clean.
           // The payload is ECDH-encrypted either way.
-          db.zen.get(`linda_v3_signals_${toPub}`).get(signalKey).put(envelope);
+          db.zen.push(toPub, envelope);
 
           // Legacy route, best effort: only when a certificate is already
           // cached, so we never block on a lookup that usually fails.

@@ -19,10 +19,8 @@ export const useSignalingListener = (
   useEffect(() => {
     if (!isLoggedIn || !userPub || !fileTransferServiceInst || !communicationService) return;
 
-    // Two routes for the same envelope format:
-    //  - public: written by peers with no certificate (the normal case)
+    //  - ephemeral push (DAM): modern route, no graph persistence
     //  - legacy user-space: kept so already-deployed clients still reach us
-    const publicSoul = `linda_v3_signals_${userPub}`;
     const legacySoul = `~${userPub}/linda_inbox_v13`;
 
     const handleSignal = (isLegacy: boolean) => async (data: any, gunKey: string) => {
@@ -70,19 +68,32 @@ export const useSignalingListener = (
         setTimeout(() => {
           if (!userPub) return;
           if (isLegacy) db.zen.user(userPub).get("linda_inbox_v13").get(gunKey).put(null as any);
-          else db.zen.get(publicSoul).get(gunKey).put(null as any);
         }, cleanupDelay);
       } catch (e) {
         console.warn(`[Signaling] Failed to process signal on ${gunKey}:`, e);
       }
     };
 
-    console.log(`[Signaling] Starting listeners on ${publicSoul} and ${legacySoul}`);
-    const publicChain = db.zen.get(publicSoul);
+    console.log(`[Signaling] Starting listeners (push & legacy ${legacySoul})`);
+    
+    // Modern Ephemeral Push Listener (DAM protocol)
+    let offRelay: (() => void) | undefined;
+    if (db.zen._?.opt?.mesh?.onRelay) {
+      offRelay = db.zen._.opt.mesh.onRelay((payload: any) => {
+        handleSignal(false)(payload, "push_" + Date.now() + "_" + Math.random().toString(36).substring(7));
+      });
+      chainsRef.current.push({ off: offRelay });
+    }
+
+    // Legacy Graph Listener
     const legacyChain = db.zen.get(legacySoul);
-    chainsRef.current.push(publicChain, legacyChain);
-    publicChain.map().on(handleSignal(false));
+    chainsRef.current.push(legacyChain);
     legacyChain.map().on(handleSignal(true));
+    
+    return () => {
+      if (offRelay) offRelay();
+      legacyChain.off?.();
+    };
   }, [isLoggedIn, userPub, db, fileTransferServiceInst, communicationService, resumeTick]);
 
   // Re-arm on resume: a chain whose socket died while backgrounded never emits

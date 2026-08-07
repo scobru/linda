@@ -132,7 +132,7 @@ async function startLindaBot() {
         if (!meta) return;
 
         try {
-            const decrypted = await groupService.decryptGroupMessage(meta, data.body, "https://delay.scobrudot.dev");
+            const decrypted = await groupService.decryptGroupMessage(meta, data.body, data.sender);
             console.log(`[Bot] Messaggio ricevuto (${msgId.slice(0, 8)}): ${decrypted}`);
 
             const cleanMsg = decrypted.trim().toLowerCase();
