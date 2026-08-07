@@ -17,7 +17,8 @@ release-assets
 final-release
 dist-ssr
 *.local
-
+radata
+radata_storge
 .env
 
 # Editor directories and files
