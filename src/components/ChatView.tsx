@@ -8,6 +8,7 @@ import { type CommunicationService } from 'linda-core';
 import { type GroupService } from 'linda-core';
 import { type WormholeService } from 'linda-core';
 import { shortenLink } from "../utils/ui";
+import { isGroupId } from "../utils/groupPath";
 import { UserAvatar } from "./UserAvatar";
 import { DataBase } from 'linda-core';
 import { getDisplayName, truncatePub } from 'linda-core';
@@ -174,7 +175,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const isTrusted = useMemo(() => {
     if (isContactsLoading) return true;
     if (!recipient) return true;
-    if (recipient.length === 36 && recipient.includes("-")) return true; // Groups are trusted by join
+    if (isGroupId(recipient)) return true; // Groups are trusted by join
     return trustedContacts.has(recipient);
   }, [recipient, trustedContacts, isContactsLoading]);
 
@@ -185,7 +186,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => {
     const checkPerms = async () => {
       // If looks like a group UUID
-      if (groupService && recipient.length === 36 && recipient.includes("-")) {
+      if (groupService && isGroupId(recipient)) {
         const can = await groupService.canPerform(recipient, "send_message");
         setCanSendMessage(can);
       } else {
@@ -475,7 +476,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <UserAvatar
               pub={recipient}
               db={db}
-              isGroup={(recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!")}
+              isGroup={isGroupId(recipient)}
               className="w-14 h-14"
             />
             {typingStatuses[recipient] && (
@@ -486,8 +487,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex flex-col min-w-0">
             <h3 className="text-[19px] font-black tracking-tight truncate leading-tight">
               {(() => {
-                const isGroup =
-                  (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
+                const isGroup = isGroupId(recipient);
                 const cleanId = isGroup
                   ? recipient
                   : DataBase.cleanPub(recipient);
@@ -528,7 +528,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </svg>
           </button>
 
-          {recipient.length === 36 && (
+          {isGroupId(recipient) && (
             <button
               onClick={() => setShowGroupSettings(recipient)}
               className="btn btn-ghost btn-circle btn-md"
@@ -723,7 +723,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           {filteredMessages.map((msg, i) => {
             const isMe = msg.sender === "Me";
-            const isGroupChat = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
+            const isGroupChat = isGroupId(recipient);
             const isGroupMsg =
               !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg
@@ -899,7 +899,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div
                     className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
                   >
-                    {recipient.length === 36 && recipient.includes("-") && (
+                    {isGroupId(recipient) && (
                       <>
                         {["moderator", "administrator"].includes(
                           myRole || "",
@@ -1073,7 +1073,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           (e.currentTarget.closest(".dropdown") as HTMLElement)?.blur();
                           fileInputRef.current?.click();
                         }}
-                        disabled={recipient.length === 36 && recipient.includes("-")}
+                        disabled={isGroupId(recipient)}
                         className="py-3 flex items-center gap-3"
                       >
                         <svg

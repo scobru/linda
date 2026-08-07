@@ -6,6 +6,7 @@ import { generateSecureRandomString } from "linda-core";
 import { DECRYPT_FAILED, LEGACY_UNSUPPORTED } from "linda-core";
 import { sendAppNotification } from "../utils/notifications";
 import { requestGroupSecret } from "../utils/inboxSignal";
+import { groupPath, isGroupId } from '../utils/groupPath.js';
 
 export interface FileMetadata {
 	name: string;
@@ -578,7 +579,7 @@ export const useMessaging = (
 				if (isP2P) {
 					// Fast path: try once with a real wait window, then synthesize.
 					const fetchedMeta = (await (db.Get as any)(
-						`linda_rooms/${roomId}/meta`,
+						`${groupPath(roomId)}/meta`,
 						6000,
 						true,
 						2000,
@@ -595,12 +596,12 @@ export const useMessaging = (
 				} else {
 					// Group: meta holds the symmetric secret — retry up to 5 times.
 					meta = (await (db.Get as any)(
-						`linda_rooms/${roomId}/meta`,
+						`${groupPath(roomId)}/meta`,
 					)) as GroupInfo;
 					for (let i = 0; i < 5 && (!meta || (meta as any).err); i++) {
 						await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
 						meta = (await (db.Get as any)(
-							`linda_rooms/${roomId}/meta`,
+							`${groupPath(roomId)}/meta`,
 						)) as GroupInfo;
 					}
 					if (!meta || (meta as any).err) return;
@@ -655,7 +656,7 @@ export const useMessaging = (
 				// Removed TPRE Proactive Reactor
 
 				const messagesChain = isP2P
-					? db.zen.get(`linda_rooms/${roomId}/messages`)
+					? db.zen.get(`${groupPath(roomId)}/messages`)
 					: await communicationService!.getRoomChain(
 							roomId,
 							roomSecret,
@@ -864,7 +865,7 @@ export const useMessaging = (
 
 				// 2. Listen to Deletions
 				const delChain = isP2P
-					? db.zen.get(`linda_rooms/${roomId}/deleted_messages`)
+					? db.zen.get(`${groupPath(roomId)}/deleted_messages`)
 					: await communicationService!.getRoomChain(
 							roomId,
 							roomSecret,
@@ -891,7 +892,7 @@ export const useMessaging = (
 
 					// 3. Listen to Pins
 					const pinsChain = isP2P
-						? db.zen.get(`linda_rooms/${roomId}/pins`)
+						? db.zen.get(`${groupPath(roomId)}/pins`)
 						: await communicationService!.getRoomChain(
 								roomId,
 								roomSecret,
@@ -1164,7 +1165,7 @@ export const useMessaging = (
 		if (now - lastTypingSentRef.current > 3000) {
 			lastTypingSentRef.current = now;
 			try {
-				const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
+				const isGroup = isGroupId(recipient);
 				let path = `linda_v2_typing_${recipient}`;
 				if (!isGroup) {
 					const pub =
@@ -1260,7 +1261,7 @@ export const useMessaging = (
 			});
 
 			try {
-				const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
+				const isGroup = isGroupId(recipient);
 				let ciphertext: any;
 				const payload =
 					audio || (fileMetadata ? JSON.stringify(fileMetadata) : message);
@@ -1278,7 +1279,7 @@ export const useMessaging = (
 
 					const myRole = await groupService.getMemberRole(recipient, userPub);
 					if (!myRole) throw new Error("Not a member");
-					const meta = await (db.Get as any)(`linda_rooms/${recipient}/meta`);
+					const meta = await (db.Get as any)(`${groupPath(recipient)}/meta`);
 					if (!meta) throw new Error("Group metadata not found");
 					ciphertext = await groupService.encryptGroupMessage(
 						meta,
@@ -1315,7 +1316,7 @@ export const useMessaging = (
 					);
 
 					// Write to the P2P room messages node
-					await db.Set(`linda_rooms/${p2pGroup.id}/messages`, {
+					await db.Set(`${groupPath(p2pGroup.id)}/messages`, {
 						msgId,
 						sender: userPub,
 						body: pokeCipher.body,
@@ -1397,7 +1398,7 @@ export const useMessaging = (
 		async (messageId: string, senderPub?: string) => {
 			if (!userPub || !recipient) return;
 
-			const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
+			const isGroup = isGroupId(recipient);
 
 			try {
 				if (isGroup) {
@@ -1439,7 +1440,7 @@ export const useMessaging = (
 							const p2pGroup =
 								await groupService.getOrCreateP2PGroup(recipient);
 							if (msgToDelete?.gunKey) {
-								const path = `linda_rooms/${p2pGroup.id}/messages`;
+								const path = `${groupPath(p2pGroup.id)}/messages`;
 								console.log(
 									`[Signal] Nullifying node at ${path}/${msgToDelete.gunKey}`,
 								);
@@ -1516,13 +1517,13 @@ export const useMessaging = (
 			});
 
 			// 2. Clear from GunDB
-			const isGroup = (contactId.length === 36 && contactId.includes("-")) || contactId.startsWith("!");
+			const isGroup = isGroupId(contactId);
 			let roomId = contactId;
 			if (!isGroup && groupService) {
 				const calculatedId = await groupService.getP2PGroupId(contactId);
 				if (calculatedId) roomId = calculatedId;
 			}
-			const path = `linda_rooms/${roomId}/messages`;
+			const path = `${groupPath(roomId)}/messages`;
 
 			msgs.forEach((m) => {
 				if (m.gunKey) {

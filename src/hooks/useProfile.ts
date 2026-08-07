@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { DataBase } from 'linda-core';
 import { CommunicationService } from 'linda-core';
+import { groupPath, isGroupId } from '../utils/groupPath.js';
 
 export const useProfile = (
   db: DataBase,
@@ -101,7 +102,7 @@ export const useProfile = (
       subscribedProfilesRef.current.add(contactId);
 
       try {
-          const isGroup = (contactId.length === 36 && contactId.includes("-")) || contactId.startsWith("!");
+          const isGroup = isGroupId(contactId);
           const cleanId = isGroup ? contactId : DataBase.cleanPub(contactId);
           
           const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {
@@ -128,7 +129,7 @@ export const useProfile = (
           };
 
           if (isGroup) {
-            db.On(`linda_rooms/${cleanId}/meta`, (data: any) => {
+            db.On(`${groupPath(cleanId)}/meta`, (data: any) => {
               if (data && typeof data === "object") {
                 const name = typeof data.name === "string" ? data.name.trim() : "";
                 const avatar = typeof data.avatar === "string" ? data.avatar.trim() : "";

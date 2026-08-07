@@ -12,6 +12,7 @@ import { DataBase, type Role } from 'linda-core';
 // @ts-ignore
 import "zen/lib/yson.js";
 import { startConnectionWatchdog } from "./utils/connectionHealth";
+import { isGroupId } from "./utils/groupPath";
 
 // Pages & Components
 import { GroupSettingsPage } from "./pages/GroupSettingsPage";
@@ -107,12 +108,7 @@ const AppContent: React.FC<{
   // 7. Role Sync
   const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
-    if (
-      recipient &&
-      groupService &&
-      recipient.length === 36 &&
-      recipient.includes("-")
-    ) {
+    if (recipient && groupService && isGroupId(recipient)) {
       groupService.getMemberRole(recipient, userPub || "").then(setMyRole);
       return groupService.onMemberRoleChange(
         recipient,
@@ -161,7 +157,7 @@ const AppContent: React.FC<{
     e.stopPropagation();
     if (!window.confirm("Delete conversation?")) return;
     try {
-      if (contactKey.length === 36 && contactKey.includes("-")) {
+      if (isGroupId(contactKey)) {
         if (groupService) await groupService.leaveGroup(contactKey, true);
       } else {
         await messaging.blockContact(contactKey);

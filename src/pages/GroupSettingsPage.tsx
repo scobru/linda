@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { GroupService, type GroupMember, type GroupInfo, type Role } from 'linda-core';
 import { DataBase } from 'linda-core';
 import { UserAvatar } from "../components/UserAvatar";
+import { groupPath } from '../utils/groupPath.js';
 
 interface GroupSettingsPageProps {
   groupService: GroupService;
@@ -37,7 +38,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
     if (!groupId) return;
     setLoading(true);
     try {
-      const info = await (db.Get as any)(`linda_rooms/${groupId}/meta`) as GroupInfo;
+      const info = await (db.Get as any)(`${groupPath(groupId)}/meta`) as GroupInfo;
       setGroupInfo(info);
       setEditName(info.name);
       setEditDesc(info.description || "");
@@ -77,7 +78,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
   useEffect(() => {
     if (!groupId || !db.zen || !myRole || !['moderator', 'administrator'].includes(myRole)) return;
     
-    const reportsRef = db.zen.get(`linda_rooms/${groupId}/reports`);
+    const reportsRef = db.zen.get(`${groupPath(groupId)}/reports`);
     const handleReport = (data: any, id: string) => {
         if (!data || id === '_' || id === '>') return;
         setReports(prev => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { DataBase } from 'linda-core';
 import { getDiceBearAvatar } from "../utils/avatar";
+import { groupPath } from '../utils/groupPath.js';
 
 interface UserAvatarProps {
   pub: string;
@@ -45,7 +46,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
     
     // Define all possible paths for the avatar
     const paths = isGroup 
-      ? [`linda_rooms/${cleanPub}/meta/avatar`] 
+      ? [`${groupPath(cleanPub)}/meta/avatar`] 
       : [
           `~${cleanPub}/profile/avatar`, 
           `linda_public_profiles/${cleanPub}/avatar`

@@ -8,6 +8,7 @@ import { QrScannerModal } from "./QrScannerModal";
 import { DataBase } from 'linda-core';
 import { getDisplayName } from 'linda-core';
 import { requestGroupSecret } from "../utils/inboxSignal";
+import { isGroupId } from "../utils/groupPath";
 
 interface SidebarProps {
   userPub: string | null;
@@ -315,7 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {visibleContacts.map((id) => {
-            const isGroup = (id.length === 36 && id.includes("-")) || id.startsWith("!");
+            const isGroup = isGroupId(id);
             const cleanId = isGroup ? id : DataBase.cleanPub(id);
             const profile = contactProfiles[cleanId] || {};
             const unreadCount = unreadCounts[id] || 0;
