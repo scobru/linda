@@ -1164,7 +1164,7 @@ export const useMessaging = (
 		if (now - lastTypingSentRef.current > 3000) {
 			lastTypingSentRef.current = now;
 			try {
-				const isGroup = recipient.length === 36 && recipient.includes("-");
+				const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
 				let path = `linda_v2_typing_${recipient}`;
 				if (!isGroup) {
 					const pub =
@@ -1260,7 +1260,7 @@ export const useMessaging = (
 			});
 
 			try {
-				const isGroup = recipient.length === 36 && recipient.includes("-");
+				const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
 				let ciphertext: any;
 				const payload =
 					audio || (fileMetadata ? JSON.stringify(fileMetadata) : message);
@@ -1397,7 +1397,7 @@ export const useMessaging = (
 		async (messageId: string, senderPub?: string) => {
 			if (!userPub || !recipient) return;
 
-			const isGroup = recipient.length === 36 && recipient.includes("-");
+			const isGroup = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
 
 			try {
 				if (isGroup) {
@@ -1516,7 +1516,7 @@ export const useMessaging = (
 			});
 
 			// 2. Clear from GunDB
-			const isGroup = contactId.length === 36 && contactId.includes("-");
+			const isGroup = (contactId.length === 36 && contactId.includes("-")) || contactId.startsWith("!");
 			let roomId = contactId;
 			if (!isGroup && groupService) {
 				const calculatedId = await groupService.getP2PGroupId(contactId);

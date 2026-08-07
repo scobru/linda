@@ -101,7 +101,7 @@ export const useProfile = (
       subscribedProfilesRef.current.add(contactId);
 
       try {
-          const isGroup = contactId.length === 36 && contactId.includes("-");
+          const isGroup = (contactId.length === 36 && contactId.includes("-")) || contactId.startsWith("!");
           const cleanId = isGroup ? contactId : DataBase.cleanPub(contactId);
           
           const updateProfile = (id: string, updates: Partial<{ nickname: string; avatar: string; uniqueUsername: string }>) => {

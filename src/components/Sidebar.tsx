@@ -315,7 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {visibleContacts.map((id) => {
-            const isGroup = id.length === 36 && id.includes("-");
+            const isGroup = (id.length === 36 && id.includes("-")) || id.startsWith("!");
             const cleanId = isGroup ? id : DataBase.cleanPub(id);
             const profile = contactProfiles[cleanId] || {};
             const unreadCount = unreadCounts[id] || 0;

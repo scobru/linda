@@ -475,7 +475,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <UserAvatar
               pub={recipient}
               db={db}
-              isGroup={recipient.length === 36 && recipient.includes("-")}
+              isGroup={(recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!")}
               className="w-14 h-14"
             />
             {typingStatuses[recipient] && (
@@ -487,7 +487,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <h3 className="text-[19px] font-black tracking-tight truncate leading-tight">
               {(() => {
                 const isGroup =
-                  recipient.length === 36 && recipient.includes("-");
+                  (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
                 const cleanId = isGroup
                   ? recipient
                   : DataBase.cleanPub(recipient);
@@ -723,7 +723,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           {filteredMessages.map((msg, i) => {
             const isMe = msg.sender === "Me";
-            const isGroupChat = recipient.length === 36 && recipient.includes("-");
+            const isGroupChat = (recipient.length === 36 && recipient.includes("-")) || recipient.startsWith("!");
             const isGroupMsg =
               !isMe && msg.sender.length === 36 && msg.sender.includes("-");
             const cleanSender = isGroupMsg
