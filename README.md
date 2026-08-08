@@ -47,6 +47,7 @@ library.
 - **Database**: [Zen P2P graph](https://github.com/scobru/zen)
 - **UI**: Tailwind CSS + DaisyUI, OLED glassmorphic system described in [`DESIGN.md`](./DESIGN.md)
 
+
 ---
 
 ## 🛠️ Quickstart
