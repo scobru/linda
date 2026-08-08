@@ -129,6 +129,18 @@ export const useProfile = (
           };
 
           if (isGroup) {
+            // 1. Proactive Initial Fetch for Group metadata (name, avatar, description)
+            db.Get(`${groupPath(cleanId)}/meta`, 4000, true).then((data: any) => {
+              if (data && typeof data === "object") {
+                const name = typeof data.name === "string" ? data.name.trim() : "";
+                const avatar = typeof data.avatar === "string" ? data.avatar.trim() : "";
+                if (name || avatar) {
+                  updateProfile(cleanId, { ...(name ? { nickname: name } : {}), ...(avatar ? { avatar } : {}) });
+                }
+              }
+            });
+
+            // 2. Reactive Listener for Group metadata
             db.On(`${groupPath(cleanId)}/meta`, (data: any) => {
               if (data && typeof data === "object") {
                 const name = typeof data.name === "string" ? data.name.trim() : "";
@@ -145,7 +157,7 @@ export const useProfile = (
               if (resolved) cPub = DataBase.cleanPub(resolved);
             }
 
-          if (cPub) {
+            if (cPub) {
               // 1. Proactive Initial Fetch (speed up UI load)
               const tryPaths = [
                 `linda_pub_to_nickname/${cPub}`,

@@ -4,7 +4,7 @@
  */
 export function isGroupId(id: string): boolean {
   if (!id) return false;
-  return (id.length === 36 && id.includes("-")) || id.startsWith("!");
+  return (id.length === 36 && id.includes("-")) || id.startsWith("p2p_") || id.startsWith("!");
 }
 
 export function groupPath(groupId: string): string {

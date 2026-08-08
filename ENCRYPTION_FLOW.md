@@ -41,9 +41,11 @@ Il flusso di comunicazione 1:1 segue questi passaggi:
 
 Nelle chat di gruppo la cifratura è gestita da `GroupService`:
 
-- **Segreto di Gruppo**: L'amministratore del gruppo genera una chiave AES-GCM a 256-bit (`meta.secret`).
-- **Distribuzione Inviti**: Il segreto viene inviato ai membri tramite messaggi 1:1 cifrati con ECDH.
-- **Cifratura dei Messaggi**: I messaggi di gruppo vengono cifrati e decifrati in locale con la chiave del gruppo usando WebCrypto AES-GCM (con IV a 12 byte prefissato al ciphertext).
+- **Segreto di Gruppo**: L'amministratore del gruppo genera una chiave simmetrica a 256-bit (`meta.secret`).
+- **Distribuzione Inviti**: Il segreto viene inviato ai membri tramite messaggi 1:1 cifrati con ECDH o tramite token d'invito firmati/scambiati in modo sicuro.
+- **Firma e Cifratura dei Messaggi**: I messaggi di gruppo vengono prima firmati digitalmente con la coppia di chiavi secp256k1 del mittente (`zenCrypto.sign`), garantendo autenticità e non ripudio, e successivamente cifrati con la chiave simmetrica del gruppo (`zenCrypto.encrypt`).
+- **Decifratura e Verifica**: I membri del gruppo decifrano il payload (`zenCrypto.decrypt`) con il segreto di gruppo e convalidano la firma crittografica del mittente (`zenCrypto.verify`), garantendo l'integrità e l'origine di ciascun messaggio.
+- **Escrow e Resilienza Chiavi**: Ogni copia locale del segreto di gruppo viene salvata e custodita in escrow cifrato nello spazio utente (`linda_room_keys/<groupId>`) per sopravvivere a cancellazioni dei dati del browser o ripristini di sessione.
 
 ---
 

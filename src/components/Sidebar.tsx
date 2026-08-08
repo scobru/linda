@@ -94,20 +94,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       if (!blockedContacts.has(pubKey)) {
         saveContact(pubKey);
-        showNotification(`Contact added via QR!`, "info");
+        showNotification(`Contatto aggiunto tramite QR!`, "info");
       } else {
-        showNotification(`Opening chat with blocked contact`, "info");
+        showNotification(`Apertura chat con contatto bloccato`, "info");
       }
       smoothNavigate(`/chat/${pubKey}`, () => setRecipient(pubKey));
     } catch (err: any) {
-      showNotification("Invalid QR Code", "error");
+      showNotification("Codice QR non valido", "error");
     }
   };
 
   const handleSearchSubmit = async (e: any) => {
     if (e.key === "Enter" && searchQuery.trim()) {
       if (!communicationService || !groupService) {
-        showNotification("Services not ready", "error");
+        showNotification("Servizi non ancora pronti", "error");
         return;
       }
       const name = searchQuery.trim();
@@ -123,7 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             setShowSearch(false);
             setSearchQuery("");
           });
-          showNotification(`Joined public group: ${groupInfo.name}`, "info");
+          showNotification(`Sei entrato nel gruppo pubblico: ${groupInfo.name}`, "info");
           return;
         }
 
@@ -137,7 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setShowSearch(false);
               setSearchQuery("");
             });
-            showNotification(`Joined group via invite: ${groupInfo.name}`, "info");
+            showNotification(`Sei entrato nel gruppo: ${groupInfo.name}`, "info");
             return;
           } catch (ge: any) {
             if (ge && ge.message && ge.message.includes("GROUP_FULL_LIMIT_50")) {
@@ -157,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (!blockedContacts.has(pubKey)) {
           saveContact(pubKey);
         } else {
-          showNotification(`Opening chat with blocked contact`, "info");
+          showNotification(`Apertura chat con contatto bloccato`, "info");
         }
         smoothNavigate(`/chat/${pubKey}`, () => {
           setRecipient(pubKey);
@@ -165,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           setSearchQuery("");
         });
       } catch (err: any) {
-        showNotification(`Could not resolve: ${name}`, "error");
+        showNotification(`Impossibile trovare: ${name}`, "error");
       }
     } else if (e.key === "Escape") {
       setShowSearch(false);

@@ -109,14 +109,18 @@ The full path inventory lives in [DATA_MODEL.md](./DATA_MODEL.md).
 5. **Decryption** — the recipient derives the identical secret from
    `zen.secret(senderPub, myPair)` and decrypts locally.
 
-### Group messaging (shared AES-GCM key)
+### Group messaging (shared AES-GCM key + ECDSA signatures)
 
-1. **Group secret** — the creator generates a 256-bit AES-GCM key.
+1. **Group secret** — the creator generates a 256-bit symmetric key (`meta.secret`).
 2. **Invite distribution** — the key reaches new members over encrypted 1:1
-   channels, never through the group room itself.
-3. **Group cryptography** — `GroupService` encrypts and decrypts payloads with
-   WebCrypto AES-GCM, prepending a 12-byte IV to the ciphertext.
-4. **Key durability** — every path that learns a secret also escrows it,
+   channels or signed invite tokens, never in the clear.
+3. **Group cryptography & signatures** — `GroupService.encryptGroupMessage` signs the
+   message with the sender's secp256k1 keypair (`zenCrypto.sign`), then encrypts the
+   signed envelope with the group's symmetric key (`zenCrypto.encrypt`).
+4. **Decryption & sender verification** — `GroupService.decryptGroupMessage` decrypts
+   the payload and verifies the sender's cryptographic ECDSA signature (`zenCrypto.verify`),
+   ensuring authenticity and preventing message impersonation.
+5. **Key durability** — every path that learns a secret also escrows it,
    encrypted to the owner's own keypair, at `linda_room_keys/<groupId>`, so a
    cleared browser profile does not lock a member out of their own group.
 

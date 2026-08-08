@@ -58,14 +58,15 @@ interface ChatViewProps {
 }
 
 const MessageText = React.memo(
-  ({ text, isMe }: { text?: string; isMe?: boolean }) => {
+  ({ text, isMe }: { text?: string | any; isMe?: boolean }) => {
+    const safeText = typeof text === "string" ? text : text ? JSON.stringify(text) : "";
     const urlRegex = useMemo(() => /(https?:\/\/[^\s]+|magnet:\?[^\s]+)/gi, []);
     const parts = useMemo(
-      () => (text ? text.split(urlRegex) : []),
-      [text, urlRegex],
+      () => (safeText ? safeText.split(urlRegex) : []),
+      [safeText, urlRegex],
     );
 
-    if (!text) return null;
+    if (!safeText) return null;
 
     return parts.map((part, i) => {
       if (part.match(urlRegex)) {
@@ -498,6 +499,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <span className="text-sm opacity-70 font-medium">
               {typingStatuses[recipient]
                 ? "sta scrivendo..."
+                : isGroupId(recipient)
+                ? "Gruppo crittografato"
                 : "ultimo accesso di recente"}
             </span>
           </div>
@@ -724,14 +727,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {filteredMessages.map((msg, i) => {
             const isMe = msg.sender === "Me";
             const isGroupChat = isGroupId(recipient);
-            const isGroupMsg =
-              !isMe && msg.sender.length === 36 && msg.sender.includes("-");
-            const cleanSender = isGroupMsg
-              ? msg.sender
-              : DataBase.cleanPub(msg.sender);
+            const cleanSender = DataBase.cleanPub(msg.sender);
             const profile = contactProfiles[cleanSender] || {};
             const msgNick = isMe
-              ? userNick || truncatePub(userPub) || truncatePub(username) || "?"
+              ? userNick || truncatePub(userPub) || truncatePub(username) || "Tu"
               : getDisplayName(msg.sender, profile);
             const isPinned = pinnedMessages[recipient]?.has(msg.id);
 
@@ -897,7 +896,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                   {/* Bubble Actions */}
                   <div
-                    className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
+                    className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
                   >
                     {isGroupId(recipient) && (
                       <>
@@ -907,7 +906,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <button
                             onClick={() => handlePinMessage(msg.id, !isPinned)}
                             className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                            title={isPinned ? "Unpin" : "Pin"}
+                            title={isPinned ? "Rimuovi pin" : "Fissa messaggio"}
+                            aria-label={isPinned ? "Rimuovi pin" : "Fissa messaggio"}
                           >
                             📌
                           </button>
@@ -915,7 +915,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <button
                           onClick={() => handleReportMessage(msg.id)}
                           className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
-                          title="Report"
+                          title="Segnala"
+                          aria-label="Segnala messaggio"
                         >
                           🚩
                         </button>
@@ -931,7 +932,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           handleDeleteMessage(msg.id, msg.senderPub)
                         }
                         className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
-                        title="Delete"
+                        title="Elimina"
+                        aria-label="Elimina messaggio"
                       >
                         🗑️
                       </button>
@@ -1073,7 +1075,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           (e.currentTarget.closest(".dropdown") as HTMLElement)?.blur();
                           fileInputRef.current?.click();
                         }}
-                        disabled={isGroupId(recipient)}
                         className="py-3 flex items-center gap-3"
                       >
                         <svg
