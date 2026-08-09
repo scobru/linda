@@ -3,7 +3,10 @@
   "private": true,
   "version": "1.0.13",
   "description": "Linda - P2P Encrypted Messenger",
-  "author": "Shogun Ecosystem",
+  "author": {
+    "name": "scobru",
+    "email": "scobru@users.noreply.github.com"
+  },
   "type": "module",
   "main": "electron/main.js",
   "scripts": {

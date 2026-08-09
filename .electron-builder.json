@@ -36,7 +36,9 @@
       { "target": "AppImage", "arch": ["x64"] },
       { "target": "deb", "arch": ["x64"] }
     ],
-    "category": "Network"
+    "category": "Network",
+    "maintainer": "scobru <scobru@users.noreply.github.com>",
+    "synopsis": "Linda - P2P Encrypted Messenger"
   },
 
   "nsis": {
