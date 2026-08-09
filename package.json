@@ -35,7 +35,7 @@
     "compact-encoding": "^2.19.2",
     "dotenv": "^17.4.2",
     "html5-qrcode": "^2.3.8",
-    "linda-core": "github:scobru/linda-core",
+    "linda-core": "git+https://github.com/scobru/linda-core.git",
     "process": "^0.11.10",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
@@ -50,7 +50,7 @@
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
     "webrtc-adapter": "^9.0.4",
-    "zen": "https://github.com/scobru/zen"
+    "zen": "git+https://github.com/scobru/zen.git"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",

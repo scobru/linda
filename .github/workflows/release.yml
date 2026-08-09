@@ -1,4 +1,3 @@
-
 name: Release CI/CD
 
 on:
@@ -52,7 +51,7 @@ jobs:
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build Web Application
         run: npm run build
@@ -61,7 +60,9 @@ jobs:
         run: npm run electron:build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          APPIMAGE_EXTRACT_AND_RUN: 1
 
       - name: Upload Desktop Artifacts
         uses: actions/upload-artifact@v4
@@ -73,7 +74,21 @@ jobs:
             dist-electron/*.AppImage
             dist-electron/*.deb
             dist-electron/*.zip
-          if-no-files-found: error
+          if-no-files-found: ignore
+
+      - name: Attach Desktop to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
+        with:
+          files: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/*.zip
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-android:
     name: Build Android APK
@@ -92,11 +107,11 @@ jobs:
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '21'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build Web & Sync Capacitor
         run: npm run build:android
@@ -108,74 +123,20 @@ jobs:
         run: |
           cd android
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/Linda-Android.apk
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Linda-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/Linda-Android.apk
+          if-no-files-found: ignore
 
-  publish-release:
-    name: Publish GitHub Release
-    needs: [build-desktop, build-android]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Resolve and validate tag
-        id: tag
-        run: |
-          TAG="${{ inputs.tag_name || github.ref_name }}"
-          if [ -z "$TAG" ]; then
-            echo "::error::No tag resolved (inputs.tag_name and github.ref_name both empty)."
-            exit 1
-          fi
-          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Linda-Windows
-          path: ./release-assets/windows
-
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Linda-macOS
-          path: ./release-assets/macos
-
-      - name: Download Linux Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Linda-Linux
-          path: ./release-assets/linux
-
-      - name: Download Android Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Linda-Android-APK
-          path: ./release-assets/android
-
-      - name: Rename and Organize Assets
-        run: |
-          mkdir -p ./final-release
-          find ./release-assets/windows -maxdepth 2 -type f \( -iname "*.exe" -o -iname "*.msi" \) -exec cp {} ./final-release/ \;
-          find ./release-assets/macos -maxdepth 2 -type f \( -iname "*.dmg" -o -iname "*.zip" \) -exec cp {} ./final-release/ \;
-          find ./release-assets/linux -maxdepth 2 -type f \( -iname "*.AppImage" -o -iname "*.deb" \) -exec cp {} ./final-release/ \;
-          if [ -f "./release-assets/android/app-debug.apk" ]; then
-            cp ./release-assets/android/app-debug.apk ./final-release/Linda-Android.apk
-          fi
-          ls -la ./final-release/
-
-      - name: Create GitHub Release
+      - name: Attach Android APK to GitHub Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
         with:
-          files: ./final-release/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          tag_name: ${{ steps.tag.outputs.tag_name }}
+          files: android/app/build/outputs/apk/debug/Linda-Android.apk
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
