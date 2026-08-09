@@ -11,6 +11,7 @@ lerna-debug.log*
 .vercel
 .claude
 node_modules
+package-lock.json
 dist
 dist-electron
 release-assets
