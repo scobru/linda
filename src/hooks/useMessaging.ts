@@ -113,6 +113,18 @@ export const useMessaging = (
 		return chain;
 	}, []);
 
+	// Attaches one handler across every epoch's room node. A key rotation moves
+	// the room to a new soul, so the current chain alone shows nothing written
+	// before the last kick — the handlers have to run on the old nodes too.
+	const attachAll = useCallback(
+		(chains: any[], handler: (data: any, key: string) => void) => {
+			for (const chain of chains) {
+				if (chain) trackChain(chain).map().on(handler);
+			}
+		},
+		[trackChain],
+	);
+
 	// A room secret just landed: forget that the room was skipped and bump the
 	// tick so the group effect attaches the listener it couldn't build before.
 	const rearmRoom = useCallback((groupId: string) => {
@@ -608,13 +620,17 @@ export const useMessaging = (
 				}
 
 				// 1. Listen to Messages
-				// A missing local secret is not proof the key is lost: it also happens
-				// after a storage wipe or on a fresh device, where the encrypted escrow
-				// in our own user space still has it.
+				// syncGroupKey covers all three ways the local key can be wrong: it can
+				// be missing (storage wipe, fresh device — the escrow still has it), or
+				// present but rotated out while we were offline, which no amount of
+				// reading localStorage can detect since a dead key is still well-formed.
 				const roomSecret = isP2P
 					? ""
-					: groupService.getLocalSecret(roomId) ||
-						(await groupService.recoverSecret(roomId));
+					: await groupService.syncGroupKey(roomId);
+				// Writes go to the current key; reads span every epoch we hold.
+				const roomSecrets = isP2P
+					? []
+					: groupService.getAllLocalSecrets(roomId).map((k) => k.secret);
 				if (!isP2P && !roomSecret) {
 					// Without the secret the room chain can't be derived, so the room
 					// stays silent forever (public-group joins used to land here and
@@ -655,22 +671,22 @@ export const useMessaging = (
 
 				// Removed TPRE Proactive Reactor
 
-				const messagesChain = isP2P
-					? db.zen.get(`${groupPath(roomId)}/messages`)
-					: await communicationService!.getRoomChain(
+				const messagesChains = isP2P
+					? [db.zen.get(`${groupPath(roomId)}/messages`)]
+					: await communicationService!.getRoomChains(
 							roomId,
-							roomSecret,
+							roomSecrets,
 							"messages",
 						);
-				if (!messagesChain) {
+				if (!messagesChains.length) {
 					console.warn(
 						`[Groups] No room chain for ${contactId} messages (secret not synced?), skipping listener`,
 					);
 					return;
 				}
-				trackChain(messagesChain)
-					.map()
-					.on(async (data: any, gunKey: string) => {
+				attachAll(
+					messagesChains,
+					async (data: any, gunKey: string) => {
 						if (!data || typeof data !== "object" || !data.body || !data.sender)
 							return;
 
@@ -864,51 +880,47 @@ export const useMessaging = (
 					});
 
 				// 2. Listen to Deletions
-				const delChain = isP2P
-					? db.zen.get(`${groupPath(roomId)}/deleted_messages`)
-					: await communicationService!.getRoomChain(
+				const delChains = isP2P
+					? [db.zen.get(`${groupPath(roomId)}/deleted_messages`)]
+					: await communicationService!.getRoomChains(
 							roomId,
-							roomSecret,
+							roomSecrets,
 							"deleted_messages",
 						);
-				if (!delChain) {
+				if (!delChains.length) {
 					console.warn(
 						`[Groups] No room chain for ${contactId} deleted_messages, skipping`,
 					);
 				} else {
-					trackChain(delChain)
-						.map()
-						.on((data: any, msgId: string) => {
-							if (data) {
-								setDeletedMessages((prev) => {
-									const groupDeletions = new Set(prev[contactId] || []);
-									groupDeletions.add(msgId);
-									const next = { ...prev, [contactId]: groupDeletions };
-									if (userPub) saveDeletedMessages(userPub, next);
-									return next;
-								});
-							}
-						});
+					attachAll(delChains, (data: any, msgId: string) => {
+						if (data) {
+							setDeletedMessages((prev) => {
+								const groupDeletions = new Set(prev[contactId] || []);
+								groupDeletions.add(msgId);
+								const next = { ...prev, [contactId]: groupDeletions };
+								if (userPub) saveDeletedMessages(userPub, next);
+								return next;
+							});
+						}
+					});
 
 					// 3. Listen to Pins
-					const pinsChain = isP2P
-						? db.zen.get(`${groupPath(roomId)}/pins`)
-						: await communicationService!.getRoomChain(
+					const pinsChains = isP2P
+						? [db.zen.get(`${groupPath(roomId)}/pins`)]
+						: await communicationService!.getRoomChains(
 								roomId,
-								roomSecret,
+								roomSecrets,
 								"pins",
 							);
-					if (pinsChain) {
-						trackChain(pinsChain)
-							.map()
-							.on((ts: any, msgId: string) => {
-								setPinnedMessages((prev) => {
-									const groupPins = new Set(prev[contactId] || []);
-									if (ts) groupPins.add(msgId);
-									else groupPins.delete(msgId);
-									return { ...prev, [contactId]: groupPins };
-								});
+					if (pinsChains.length) {
+						attachAll(pinsChains, (ts: any, msgId: string) => {
+							setPinnedMessages((prev) => {
+								const groupPins = new Set(prev[contactId] || []);
+								if (ts) groupPins.add(msgId);
+								else groupPins.delete(msgId);
+								return { ...prev, [contactId]: groupPins };
 							});
+						});
 					}
 				}
 			} catch (err) {
@@ -925,7 +937,7 @@ export const useMessaging = (
 		userPub,
 		saveMessages,
 		saveProcessedKey,
-		trackChain,
+		attachAll,
 		resumeTick,
 		groupKeyTick,
 	]);
@@ -1076,6 +1088,7 @@ export const useMessaging = (
 									groupService?.setLocalSecret(
 										parsed.groupId,
 										parsed.newSecret,
+										parsed.epoch,
 									);
 									rearmRoom(parsed.groupId);
 									console.log(
@@ -1090,9 +1103,11 @@ export const useMessaging = (
 										senderPubKeyRaw,
 									);
 									if (role) {
-										const secret =
-											groupService?.getLocalSecret(parsed.groupId) ||
-											(await groupService?.recoverSecret(parsed.groupId));
+										// Sync rather than read: answering with a key we were
+										// rotated off would hand the joiner a dead one.
+										const secret = await groupService?.syncGroupKey(
+											parsed.groupId,
+										);
 										if (secret) {
 											await communicationService?.sendMessage(
 												senderPubKeyRaw,
@@ -1100,6 +1115,7 @@ export const useMessaging = (
 													type: "GROUP_KEY_DISTRIBUTION",
 													groupId: parsed.groupId,
 													secret: secret,
+													epoch: groupService?.getLocalEpoch(parsed.groupId),
 												}),
 												"GROUP_KEY_DISTRIBUTION",
 											);
@@ -1112,7 +1128,11 @@ export const useMessaging = (
 									data.type === "GROUP_KEY_DISTRIBUTION" ||
 									parsed.type === "GROUP_KEY_DISTRIBUTION"
 								) {
-									groupService?.setLocalSecret(parsed.groupId, parsed.secret);
+									groupService?.setLocalSecret(
+										parsed.groupId,
+										parsed.secret,
+										parsed.epoch,
+									);
 									rearmRoom(parsed.groupId);
 									console.log(
 										`[Signal] Received GROUP_KEY_DISTRIBUTION for room ${parsed.groupId.slice(0, 8)}`,
@@ -1285,9 +1305,10 @@ export const useMessaging = (
 						meta,
 						payload || "",
 					);
-					const groupSecret =
-						groupService.getLocalSecret(recipient, meta?.secret) ||
-						(await groupService.recoverSecret(recipient));
+					// Sync rather than read: writing under a key we were rotated off
+					// puts the message in the previous epoch's room node, where no
+					// remaining member is listening.
+					const groupSecret = await groupService.syncGroupKey(recipient);
 					// ponytail: cert-gated room write — only holders of the room secret
 					// (group members) can write to the room's message node.
 					await communicationService.certifiedRoomWrite(
@@ -1412,18 +1433,25 @@ export const useMessaging = (
 					// ponytail: also nullify the actual message node via cert-gated write
 					// so a non-member/leaker (who only knows the room UUID) can't keep it.
 					try {
-						const secret = groupService.getLocalSecret(recipient);
+						// Across every epoch: the message may predate a rotation, and
+						// each epoch is a separate room node. Nullifying only the
+						// current one would leave the original copy alive.
+						const secrets = groupService
+							.getAllLocalSecrets(recipient)
+							.map((k) => k.secret);
 						const gunKey = messages[recipient]?.find(
 							(m) => m.id === messageId,
 						)?.gunKey;
-						if (secret && gunKey && communicationService) {
-							await communicationService.certifiedRoomWrite(
-								recipient,
-								secret,
-								"messages",
-								null,
-								gunKey,
-							);
+						if (gunKey && communicationService) {
+							for (const secret of secrets) {
+								await communicationService.certifiedRoomWrite(
+									recipient,
+									secret,
+									"messages",
+									null,
+									gunKey,
+								);
+							}
 						}
 					} catch (e) {
 						console.warn("[Signal] cert-gated group nullify failed:", e);
@@ -1540,8 +1568,10 @@ export const useMessaging = (
 			// so a leaker (room UUID only, no secret) can't keep messages alive.
 			if (isGroup && communicationService && groupService) {
 				try {
-					const secret = groupService.getLocalSecret(roomId);
-					if (secret) {
+					// Every epoch, for the same reason as single-message deletion: a
+					// rotation moved the room, and older messages are still under the
+					// node their own key derives.
+					for (const { secret } of groupService.getAllLocalSecrets(roomId)) {
 						for (const m of msgs) {
 							if (m.gunKey) {
 								await communicationService.certifiedRoomWrite(
