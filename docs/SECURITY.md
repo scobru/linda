@@ -38,19 +38,27 @@ section matters more than the guarantees section.
 - **Compromised delivery of the web app.** The static bundle is served from a
   host. Whoever controls that host controls the code that handles your keys.
   Desktop and Android builds narrow, but do not eliminate, this exposure.
-- **Forward secrecy.** 1:1 secrets are derived from long-term identity keys with
-  no ratchet. If a private key leaks, every past message that a relay or
-  observer archived becomes readable. Signal-style forward secrecy is not
-  implemented, despite what `public/manifest.json` currently claims.
-- **Group member removal.** Removing a member from group metadata does not
-  rotate the shared key by itself. Treat a departed member as retaining read
-  access until the key is rotated.
+- **Forward secrecy in 1:1 chats.** Those secrets are derived from long-term
+  identity keys with no ratchet. If a private key leaks, every past message that
+  a relay or observer archived becomes readable. Signal-style forward secrecy is
+  not implemented. Group chats are different: their key rotates on removal, so
+  the exposure there is bounded by the epoch rather than by the lifetime of the
+  identity.
+- **Group history from before you joined — and from after you left.** Kicking or
+  leaving rotates the group key, and the departing member is not given the new
+  one, so they lose access from that point on. What they already received stays
+  readable to them: rotation revokes future access, and cannot reach backwards
+  into messages already delivered. A kick that cannot rotate fails outright, so
+  it never silently leaves the old key in force; leaving a group rotates on a
+  best-effort basis, because failing to rotate must not trap someone in a group
+  they asked to leave.
 
 ## Implementation notes worth knowing
 
-- **`VITE_AUTH_TOKEN` falls back to the literal `shogun2025`** when unset. That
-  token gates the Wormhole file relay. Any deployment that has not set it is
-  running on a publicly known credential.
+- **`VITE_AUTH_TOKEN` is required for file transfer.** It gates the Wormhole
+  relay, and the client refuses to send when it is unset rather than fall back
+  to a token published in this repo. Deployments that relied on the old
+  `shogun2025` default must now set the variable explicitly.
 - **The relay list is hard-coded** to a single public relay in `src/App.tsx`.
   That is one operator with a full view of all traffic metadata for default
   installs, and one point of failure for availability.

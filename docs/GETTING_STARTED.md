@@ -32,7 +32,7 @@ Copy `.env.example` to `.env.local` and fill in what you need:
 | Variable | Used by | Effect if unset |
 | :--- | :--- | :--- |
 | `VITE_RELAY_URL` | Wormhole async file transfer | Wormhole uploads fail; direct WebRTC transfers still work. |
-| `VITE_AUTH_TOKEN` | Wormhole relay auth | Falls back to the literal `shogun2025`. |
+| `VITE_AUTH_TOKEN` | Wormhole relay auth | File transfer is disabled and reported as unconfigured; nothing falls back to a shared default. |
 | `RELAY_HOST` | `simple-relay.js` | Defaults to localhost behaviour. |
 | `GEMINI_API_KEY` | `npm run bot:gemini` | The Gemini bot cannot start. |
 | `VITE_BASE_PATH` | Build only | Defaults to `/`. Must be `./` for Electron and Capacitor. |

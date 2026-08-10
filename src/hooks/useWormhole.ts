@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef } from "react";
 import { WormholeService } from 'linda-core';
 import { DataBase } from 'linda-core';
+import { getRelayAuthToken } from "../utils/relayAuth";
 
 export const useWormhole = (
   db: DataBase, 
@@ -34,15 +35,19 @@ export const useWormhole = (
 
     // Cleanup logic
     const relays = ["http://localhost:8765"];
-    const authToken = import.meta.env.VITE_AUTH_TOKEN || "shogun2025";
-    (async () => {
-      for (const relayUrl of relays) {
-        try {
-          await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
-          break;
-        } catch (e) {}
-      }
-    })();
+    const authToken = getRelayAuthToken();
+    // No token, no cleanup: presenting a known credential is worse than
+    // leaving stale transfers on the relay.
+    if (authToken) {
+      (async () => {
+        for (const relayUrl of relays) {
+          try {
+            await service.cleanupStaleTransfers(relayUrl, authToken, 3600000);
+            break;
+          } catch (e) {}
+        }
+      })();
+    }
 
     return service;
   }, [isLoggedIn, db.zen]);

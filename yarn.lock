@@ -4574,7 +4574,7 @@ lightningcss@^1.21.0, lightningcss@1.32.0:
     lightningcss-win32-arm64-msvc "1.32.0"
     lightningcss-win32-x64-msvc "1.32.0"
 
-"linda-core@github:scobru/linda-core":
+"linda-core@git+https://github.com/scobru/linda-core.git":
   version "1.0.4"
   resolved "git+ssh://git@github.com/scobru/linda-core.git#e5dc71074abb93eb62ac6331aadfd6187302100b"
   dependencies:
@@ -7414,7 +7414,7 @@ yocto-queue@^0.1.0:
   resolved "https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz"
   integrity sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==
 
-"zen@https://github.com/scobru/zen":
+"zen@git+https://github.com/scobru/zen.git", "zen@https://github.com/scobru/zen":
   version "1.0.38"
   resolved "git+ssh://git@github.com/scobru/zen.git#28a3a31d2cb04f98a48d214a39ec8f8c7eed8b10"
 

@@ -9,6 +9,7 @@ import { type GroupService } from 'linda-core';
 import { type WormholeService } from 'linda-core';
 import { shortenLink } from "../utils/ui";
 import { isGroupId } from "../utils/groupPath";
+import { getRelayAuthToken } from "../utils/relayAuth";
 import { UserAvatar } from "./UserAvatar";
 import { DataBase } from 'linda-core';
 import { getDisplayName, truncatePub } from 'linda-core';
@@ -261,7 +262,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
           "https://relay.peer.ooo",
         ].filter(Boolean) as string[];
 
-        const authToken = import.meta.env.VITE_AUTH_TOKEN || "shogun2025";
+        const authToken = getRelayAuthToken();
+        if (!authToken) {
+          throw new Error(
+            "File transfer is not configured: set VITE_AUTH_TOKEN to the token your Wormhole relay expects.",
+          );
+        }
         let code: string | undefined;
         let lastError: any;
 
