@@ -1,0 +1,388 @@
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import {
+  View, Text, FlatList, Pressable, StyleSheet,
+  TextInput, Alert, ActionSheetIOS, Platform, Modal,
+  SafeAreaView,
+} from 'react-native'
+import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import * as FileSystem from 'expo-file-system'
+import * as Sharing from 'expo-sharing'
+import { RTCView } from 'react-native-webrtc'
+import { Ionicons } from '@expo/vector-icons'
+import type { RootStackParamList } from '../navigation'
+import { useSession } from '../hooks/useSession'
+import { useRoom } from '../hooks/useRoom'
+import { useCall } from '../hooks/useCall'
+import { downloadFile } from '../bare/room-proxy'
+import { listConnectedPeerIds } from '../bare/call-proxy'
+import { notifyOffline } from '../bare/zen-push'
+import type { ChatMessage } from '@core/rooms/room'
+import ChatBubble from '../components/ChatBubble'
+import MessageComposer from '../components/MessageComposer'
+import Avatar from '../components/Avatar'
+import { spacing, radii, typography, type ThemeColors } from '../theme'
+import { useTheme } from '../theme-context'
+
+type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
+
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '🎉', '💯', '🙏']
+
+export default function RoomChatScreen({ route, navigation }: Props) {
+  const { colors } = useTheme()
+  const styles = useMemo(() => createStyles(colors), [colors])
+  const { roomId, roomName } = route.params
+  const { session, identity, nicknames, avatars, refresh: refreshSession } = useSession()
+  const room = session?.getRoom(roomId)
+  const identityId = identity?.id || ''
+  const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const { remoteStreams, startCall } = useCall(room, identityId)
+
+  // Mirrors desktop's openRoom: stamp read on open, and again for each message that
+  // arrives while this screen is focused (mute the badge, not just a one-time clear).
+  useEffect(() => {
+    if (!session) return
+    session.markRoomRead(roomId).then(refreshSession)
+  }, [session, roomId])
+  useEffect(() => {
+    if (!room || !session) return
+    return room.onMessage(() => { void session.markRoomRead(roomId).then(refreshSession) })
+  }, [room, session, roomId])
+
+  const [writable, setWritable] = useState(false)
+  const [hasKey, setHasKey] = useState(false)
+  useEffect(() => {
+    if (!room) return
+    setWritable(room.writable)
+    setHasKey(room.hasKey)
+    void room.refreshState().then((s) => { setWritable(s.writable); setHasKey(s.hasKey) })
+    return room.onStateChange((s) => { setWritable(s.writable); setHasKey(s.hasKey) })
+  }, [room])
+
+  const [replyTo, setReplyTo] = useState<{ id: string; body: string; authorName: string } | null>(null)
+  const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showSearch, setShowSearch] = useState(false)
+  const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null)
+  const flatListRef = useRef<FlatList>(null)
+
+  // Custom header
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerRight}>
+          <Pressable onPress={() => startCall().catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
+            <Ionicons name="call-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
+          <Pressable onPress={() => setShowSearch(!showSearch)} style={styles.headerBtn}>
+            <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
+          <Pressable
+            onPress={() => navigation.navigate('Members', { roomId, roomName })}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
+          <Pressable
+            onPress={() => navigation.navigate('Invite', { roomId, roomName })}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="share-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
+        </View>
+      ),
+    })
+  }, [navigation, roomId, roomName, showSearch, startCall])
+
+  const getAuthorName = useCallback((authorId: string) => {
+    if (authorId === identityId) return 'You'
+    return nicknames.get(authorId) || authorId.slice(0, 8)
+  }, [identityId, nicknames])
+
+  const filteredMessages = searchQuery
+    ? messages.filter((m) => m.body.toLowerCase().includes(searchQuery.toLowerCase()))
+    : messages
+
+  // Best-effort: wakes room members who are offline on hyperswarm right now, via the ZEN relay
+  // (see zen-push.ts). Silently does nothing for members who never registered a ZEN pub.
+  const wakeOfflineMembers = useCallback(async () => {
+    if (!room || !session) return
+    try {
+      const [{ members }, connected] = await Promise.all([room.listMembers(), listConnectedPeerIds()])
+      const connectedSet = new Set(connected)
+      const offline = members.filter((m) => m.identityId !== identityId && !connectedSet.has(m.identityId))
+      await Promise.all(offline.map(async (m) => {
+        const zenPub = await session.getPeerZenPub(m.identityId)
+        if (zenPub) await notifyOffline(zenPub, roomId)
+      }))
+    } catch {
+      // Push wake-up is best-effort; message already sent over hyperswarm regardless.
+    }
+  }, [room, session, identityId, roomId])
+
+  const handleSend = useCallback(async (text: string) => {
+    await sendMessage(text, replyTo?.id)
+    setReplyTo(null)
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+    void wakeOfflineMembers()
+  }, [sendMessage, replyTo, wakeOfflineMembers])
+
+  const handleAttach = useCallback(async (name: string, mimeType: string, base64: string, thumbnail?: string) => {
+    await sendFile(name, mimeType, base64, thumbnail)
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+    void wakeOfflineMembers()
+  }, [sendFile, wakeOfflineMembers])
+
+  const handleFilePress = useCallback(async (message: ChatMessage) => {
+    if (!message.file || downloadingId) return
+    setDownloadingId(message.id)
+    try {
+      const base64 = await downloadFile(message.file.driveKey, message.file.path)
+      if (!base64) return Alert.alert('File unavailable', 'The peer sharing this file is offline.')
+      const dest = FileSystem.cacheDirectory + message.file.name
+      await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 })
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(dest)
+    } catch {
+      Alert.alert('Download failed', 'Could not fetch this file.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }, [downloadingId])
+
+  const handleEdit = useCallback(async (id: string, body: string) => {
+    await editMessage(id, body)
+    setEditingMessage(null)
+  }, [editMessage])
+
+  const handleLongPress = useCallback((message: ChatMessage) => {
+    setSelectedMessage(message)
+  }, [])
+
+  const handleAction = useCallback((action: string) => {
+    if (!selectedMessage) return
+
+    switch (action) {
+      case 'reply':
+        setReplyTo({
+          id: selectedMessage.id,
+          body: selectedMessage.body,
+          authorName: getAuthorName(selectedMessage.authorId),
+        })
+        break
+      case 'edit':
+        if (selectedMessage.authorId === identityId) {
+          setEditingMessage({ id: selectedMessage.id, body: selectedMessage.body })
+        }
+        break
+      case 'delete':
+        if (selectedMessage.authorId === identityId) {
+          Alert.alert('Delete message?', 'This cannot be undone.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => deleteMessage(selectedMessage.id) },
+          ])
+        }
+        break
+    }
+    setSelectedMessage(null)
+  }, [selectedMessage, identityId, getAuthorName, deleteMessage])
+
+  const getReplyPreview = useCallback((replyToId?: string) => {
+    if (!replyToId) return undefined
+    const msg = messages.find((m) => m.id === replyToId)
+    return msg ? msg.body.slice(0, 100) : undefined
+  }, [messages])
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      {/* Call area */}
+      {remoteStreams.size > 0 && (
+        <View style={styles.callArea}>
+          {[...remoteStreams.entries()].map(([peerId, stream]) => (
+            // react-native-webrtc's MediaStream (assigned to the global by registerGlobals) has .toURL(); the DOM MediaStream type call.ts is written against doesn't.
+            <RTCView key={peerId} streamURL={(stream as unknown as { toURL(): string }).toURL()} style={styles.callTile} objectFit="cover" />
+          ))}
+        </View>
+      )}
+
+      {/* Search bar */}
+      {showSearch && (
+        <View style={styles.searchBar}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search messages..."
+            placeholderTextColor={colors.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+          <Pressable onPress={() => { setShowSearch(false); setSearchQuery('') }}>
+            <Ionicons name="close" size={18} color={colors.textTertiary} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* Messages */}
+      <FlatList
+        ref={flatListRef}
+        data={filteredMessages}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <ChatBubble
+            message={item}
+            isSelf={item.authorId === identityId}
+            authorName={getAuthorName(item.authorId)}
+            replyPreview={getReplyPreview(item.replyTo)}
+            onLongPress={() => handleLongPress(item)}
+            onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
+            onFilePress={() => handleFilePress(item)}
+            fileDownloading={downloadingId === item.id}
+          />
+        )}
+        contentContainerStyle={styles.messageList}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.emptyCenter}>
+              <Text style={styles.emptyText}>Loading messages...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyCenter}>
+              <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
+              <Text style={styles.emptyText}>No messages yet. Say hello!</Text>
+            </View>
+          )
+        }
+      />
+
+      {/* Typing / seen-by status */}
+      {typingUsers.size > 0 ? (
+        <Text style={styles.statusBar}>{[...typingUsers].map(getAuthorName).join(', ')} typing…</Text>
+      ) : readBy.size > 0 ? (
+        <Text style={styles.statusBar}>Seen by {[...readBy].map(getAuthorName).join(', ')}</Text>
+      ) : null}
+
+      {/* Composer */}
+      <MessageComposer
+        onSend={handleSend}
+        onAttach={handleAttach}
+        onChangeText={notifyTyping}
+        replyTo={replyTo}
+        editingMessage={editingMessage}
+        onCancelReply={() => setReplyTo(null)}
+        onCancelEdit={() => setEditingMessage(null)}
+        onSubmitEdit={handleEdit}
+        disabled={!writable || !hasKey}
+      />
+
+      {/* Action sheet modal (cross-platform) */}
+      <Modal visible={!!selectedMessage} transparent animationType="fade">
+        <Pressable style={styles.actionOverlay} onPress={() => setSelectedMessage(null)}>
+          <View style={styles.actionSheet}>
+            <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('reply')}>
+              <Ionicons name="arrow-undo-outline" size={16} color={colors.textPrimary} />
+              <Text style={styles.actionText}>Reply</Text>
+            </Pressable>
+
+            {selectedMessage?.authorId === identityId && (
+              <>
+                <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('edit')}>
+                  <Ionicons name="pencil-outline" size={16} color={colors.textPrimary} />
+                  <Text style={styles.actionText}>Edit</Text>
+                </Pressable>
+                <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('delete')}>
+                  <Ionicons name="trash-outline" size={16} color={colors.error} />
+                  <Text style={[styles.actionText, styles.actionDestructive]}>Delete</Text>
+                </Pressable>
+              </>
+            )}
+
+            <View style={styles.reactionRow}>
+              {REACTION_EMOJIS.map((emoji) => (
+                <Pressable
+                  key={emoji}
+                  onPress={() => {
+                    if (selectedMessage) toggleReaction(selectedMessage.id, emoji)
+                    setSelectedMessage(null)
+                  }}
+                  style={styles.reactionBtn}
+                >
+                  <Text style={styles.reactionEmoji}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable style={[styles.actionItem, styles.actionCancel]} onPress={() => setSelectedMessage(null)}>
+              <Text style={styles.actionCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </SafeAreaView>
+  )
+}
+
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.bgPrimary },
+  headerRight: { flexDirection: 'row', gap: spacing.sm },
+  headerBtn: { padding: spacing.xs },
+  headerBtnText: { fontSize: 18 },
+  callArea: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
+    padding: spacing.sm, backgroundColor: colors.bgSecondary,
+  },
+  callTile: { width: 160, height: 120, borderRadius: radii.md, backgroundColor: '#000' },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.bgSecondary, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm, gap: spacing.sm,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  searchInput: {
+    flex: 1, backgroundColor: colors.inputBg,
+    borderRadius: radii.md, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm, color: colors.textPrimary,
+    fontSize: typography.md,
+  },
+  searchClose: { color: colors.textTertiary, fontSize: 18, padding: spacing.xs },
+  messageList: { paddingVertical: spacing.sm, flexGrow: 1 },
+  emptyCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  emptyEmoji: { fontSize: 48, opacity: 0.5 },
+  emptyText: { color: colors.textTertiary, fontSize: typography.md },
+  statusBar: {
+    color: colors.textTertiary, fontSize: typography.xs,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
+    backgroundColor: colors.bgSecondary,
+  },
+  actionOverlay: {
+    flex: 1, backgroundColor: colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  actionSheet: {
+    backgroundColor: colors.bgSecondary,
+    borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
+    paddingVertical: spacing.md,
+  },
+  actionItem: {
+    paddingVertical: spacing.md, paddingHorizontal: spacing.xxl,
+  },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actionText: { color: colors.textPrimary, fontSize: typography.md },
+  actionDestructive: { color: colors.error },
+  reactionRow: {
+    flexDirection: 'row', justifyContent: 'center',
+    gap: spacing.sm, paddingVertical: spacing.md,
+    borderTopWidth: 1, borderTopColor: colors.border,
+    marginTop: spacing.sm,
+  },
+  reactionBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: colors.bgTertiary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  reactionEmoji: { fontSize: 20 },
+  actionCancel: {
+    borderTopWidth: 1, borderTopColor: colors.border,
+    marginTop: spacing.sm, paddingTop: spacing.lg,
+  },
+  actionCancelText: { color: colors.textTertiary, fontSize: typography.md, textAlign: 'center' },
+})

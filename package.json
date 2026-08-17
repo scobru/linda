@@ -1,0 +1,69 @@
+{
+  "name": "linda-pear",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "mobile"
+  ],
+  "overrides": {
+    "react-native-bare-kit": "0.14.5",
+    "react-native": "0.79.6"
+  },
+  "main": "electron/main.cjs",
+  "pear": {
+    "name": "linda-pear",
+    "type": "desktop",
+    "gui": {
+      "backgroundColor": "#0b0f14",
+      "width": 960,
+      "height": 680
+    }
+  },
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node test.js",
+    "clean-storage": "node -e \"const fs=require('fs');fs.rmSync('./.dev-storage',{recursive:true,force:true});console.log('Storage cleaned.');\"",
+    "start": "node build.js && electron ./electron/main.cjs",
+    "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
+    "start:b": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/b electron ./electron/main.cjs",
+    "make": "node build.js && electron-forge make"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "P2P messaging and file sharing app on the Holepunch stack",
+  "dependencies": {
+    "@react-native/js-polyfills": "^0.79.6",
+    "autobase": "^7.28.1",
+    "b4a": "^1.8.1",
+    "bip39": "^3.1.0",
+    "compact-encoding": "^3.3.0",
+    "corestore": "^7.12.0",
+    "hyperbee": "^2.27.3",
+    "hypercore": "^11.35.1",
+    "hypercore-crypto": "^3.7.0",
+    "hyperdrive": "^13.3.3",
+    "hyperswarm": "^4.17.0",
+    "jsqr": "^1.4.0",
+    "protomux": "^3.11.0",
+    "qrcode": "^1.5.4",
+    "sodium-javascript": "^0.8.0",
+    "sodium-universal": "^5.0.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-msix": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@types/node": "^26.2.0",
+    "@types/qrcode": "^1.5.6",
+    "babel-plugin-module-resolver": "^5.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "upgrade": "pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno"
+}

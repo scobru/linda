@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Linda",
+    "slug": "linda-pear-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0b0f14"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.lindapear.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Linda needs camera access to scan QR invite codes"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0f14"
+      },
+      "package": "com.lindapear.mobile",
+      "permissions": [
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-bare-kit",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Linda needs camera access to scan QR invite codes"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 29
+          }
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}
