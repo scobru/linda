@@ -10,6 +10,7 @@ module.exports = {
       /^\/\.dev-storage\//,
       /^\/out\//,
       /^\/linda-pear-\d/,
+      /^\/mobile\//,
       /^\/build\.js$/,
       /^\/forge\.config\.cjs$/,
       /^\/tsconfig\.json$/,

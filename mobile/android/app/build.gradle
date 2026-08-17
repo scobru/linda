@@ -9,7 +9,13 @@ def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    // Expo CLI's own monorepo-root detection always resolves the effective bundling root to
+    // the outer linda-pear/ regardless of cwd/entry-file (confirmed by testing directly), but
+    // pointing Gradle's root there too triggers a false-positive Expo Router detection that
+    // then crashes on a hoisted/incompatible `typescript` version. Keep root correct (mobile/)
+    // and instead bridge the outer dir's mistaken lookup via linda-pear/index.js (see that file).
+    root = file("../../")
+    entryFile = file("../../index.js")
     reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
     hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
     codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()

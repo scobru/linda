@@ -9,6 +9,7 @@ mobile/worklet/dist/entry.flat.cjs
 
 # Pear local staging cache (mirrors what's already published at the `upgrade` link)
 linda-pear-1.0.0/
+by-arch/
 
 # Local dev identities / test corestore data — never share private key material
 .dev-storage/

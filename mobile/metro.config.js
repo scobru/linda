@@ -29,6 +29,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   // Map node: builtins to bare-* equivalents under Bare runtime
   const bareMap = {
     'node:fs': 'bare-fs',
+    'node:fs/promises': 'bare-fs/promises',
     'node:path': 'bare-path',
     'node:os': 'bare-os',
     'node:stream': 'bare-stream',
