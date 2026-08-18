@@ -71,7 +71,7 @@ export const useCommunicationInit = (
             localStorage.setItem("linda_alias", username);
           }
           
-          const gService = new GroupService(db);
+          const gService = new GroupService(db, service);
           setGroupService(gService);
           
           // Removed PQ Identity publish
