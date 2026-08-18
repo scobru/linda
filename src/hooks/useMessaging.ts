@@ -551,6 +551,20 @@ export const useMessaging = (
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
 				.put(true as any);
+
+			// Optimistic: the contacts listener mirrors this write back, but that
+			// round-trips through the relay — don't wait on it to reflect our own action.
+			setContacts((prev) =>
+				prev.includes(contactId) ? prev : [...prev, contactId],
+			);
+			setTrustedContacts((prev) => new Set(prev).add(contactId));
+			setBlockedContacts((prev) => {
+				if (!prev.has(contactId)) return prev;
+				const next = new Set(prev);
+				next.delete(contactId);
+				blockedContactsRef.current = next;
+				return next;
+			});
 		},
 		[userPub, db, communicationService],
 	);
@@ -568,6 +582,22 @@ export const useMessaging = (
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
 				.put(false as any);
+
+			// Optimistic: blockedContactsRef gates every incoming-message listener
+			// (room + inbox). Waiting on the listener to round-trip our own write
+			// left a window where the contact could still get through, and the
+			// "blocked" UI never showed until it eventually did.
+			setContacts((prev) => prev.filter((c) => c !== contactId));
+			setTrustedContacts((prev) => {
+				const next = new Set(prev);
+				next.delete(contactId);
+				return next;
+			});
+			setBlockedContacts((prev) => {
+				const next = new Set(prev).add(contactId);
+				blockedContactsRef.current = next;
+				return next;
+			});
 
 			if (recipient === contactId) {
 				setRecipient("");
