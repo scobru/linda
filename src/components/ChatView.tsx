@@ -51,6 +51,7 @@ interface ChatViewProps {
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
   transferBlobs: Record<string, Blob>;
+  setTransferBlobs: React.Dispatch<React.SetStateAction<Record<string, Blob>>>;
   wormholeService: WormholeService | null;
   wormholeStatuses: Record<string, string>;
   handleClearChat: (id: string) => void;
@@ -124,6 +125,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   setShowGroupSettings,
   transferProgress,
   transferBlobs,
+  setTransferBlobs,
   wormholeService,
   wormholeStatuses,
   handleClearChat,
@@ -317,6 +319,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
               meta.wormholeCode = code;
               meta.method = "wormhole";
               meta.status = "offered";
+              // Instant self-preview: we already hold the file locally,
+              // no need to round-trip it through the relay to see it.
+              if (file.type.startsWith("image/")) {
+                setTransferBlobs((prev) => ({ ...prev, [code!]: file }));
+              }
               handleSendMessage(undefined, undefined, meta);
               break;
             }

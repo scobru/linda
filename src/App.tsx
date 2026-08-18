@@ -207,6 +207,7 @@ const AppContent: React.FC<{
     myRole,
     transferProgress,
     transferBlobs,
+    setTransferBlobs,
     wormholeService: wormholeServiceInst,
     wormholeStatuses,
     showNotification,
