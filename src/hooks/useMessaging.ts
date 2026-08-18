@@ -85,6 +85,16 @@ export const useMessaging = (
 	const clearedChatsRef = useRef<Record<string, number>>({});
 	const processedRef = useRef<Set<string>>(new Set());
 	const blockedContactsRef = useRef<Set<string>>(new Set());
+	// Guards the contacts listener against replayed/reordered echoes of our
+	// own writes: Zen delivers a node's history to .on() as it resolves from
+	// cache vs relay, not strictly latest-write-wins-first, so a stale "true"
+	// from before we blocked someone can arrive *after* our "false". Any
+	// listener event that contradicts a local action within this window is
+	// dropped rather than applied.
+	const recentContactActionRef = useRef<
+		Map<string, { value: boolean | null; ts: number }>
+	>(new Map());
+	const CONTACT_ACTION_GUARD_MS = 8000;
 	const lastTypingSentRef = useRef<number>(0);
 	const recipientRef = useRef(recipient);
 	const groupSubscriptionsRef = useRef<Set<string>>(new Set());
@@ -340,6 +350,10 @@ export const useMessaging = (
 	const saveContact = useCallback(
 		(contactId: string) => {
 			if (!userPub || !db.zen) return;
+			recentContactActionRef.current.set(contactId, {
+				value: true,
+				ts: Date.now(),
+			});
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -351,6 +365,10 @@ export const useMessaging = (
 	const removeContact = useCallback(
 		(contactId: string) => {
 			if (!userPub || !db.zen) return;
+			recentContactActionRef.current.set(contactId, {
+				value: null,
+				ts: Date.now(),
+			});
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -375,6 +393,15 @@ export const useMessaging = (
 		trackChain(db.zen.get(`linda_v3_contacts_${userPub}`))
 			.map()
 			.on((data: any, contactId: string) => {
+				const recentAction = recentContactActionRef.current.get(contactId);
+				if (
+					recentAction &&
+					Date.now() - recentAction.ts < CONTACT_ACTION_GUARD_MS &&
+					recentAction.value !== data
+				) {
+					return;
+				}
+
 				const isSelfContact =
 					contactId === userPub ||
 					DataBase.cleanPub(contactId) === DataBase.cleanPub(userPub);
@@ -547,6 +574,10 @@ export const useMessaging = (
 			await communicationService.issueCertificate(contactId);
 
 			// 2. Add to trusted contacts in GunDB
+			recentContactActionRef.current.set(contactId, {
+				value: true,
+				ts: Date.now(),
+			});
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -578,6 +609,10 @@ export const useMessaging = (
 			await communicationService.revokeCertificate(contactId);
 
 			// 2. Mark as blocked in contacts list
+			recentContactActionRef.current.set(contactId, {
+				value: false,
+				ts: Date.now(),
+			});
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
