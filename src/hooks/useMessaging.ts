@@ -1493,7 +1493,7 @@ export const useMessaging = (
 							body: ciphertext,
 							timestamp: timestamp.toISOString(),
 							type,
-							replyTo,
+							...(replyTo ? { replyTo } : {}),
 						} as any,
 						msgId,
 					);
@@ -1517,7 +1517,7 @@ export const useMessaging = (
 						timestamp: timestamp.toISOString(),
 						type: pokeCipher.type,
 						msgType: type,
-						replyTo,
+						...(replyTo ? { replyTo } : {}),
 					} as any);
 
 					// POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
