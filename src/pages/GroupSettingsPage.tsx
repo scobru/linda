@@ -277,17 +277,6 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
     }
   };
 
-  const handleToggleFeature = async (feature: 'callsEnabled' | 'activityEnabled', enabled: boolean) => {
-    if (!groupId) return;
-    try {
-      await groupService.toggleFeature(groupId, feature, enabled);
-      showNotification("Funzionalità aggiornata", "info");
-      loadData();
-    } catch (e: any) {
-      showNotification(e.message || "Impossibile modificare l'impostazione", "error");
-    }
-  };
-
   const handleTogglePublic = async (enabled: boolean) => {
     if (!groupId) return;
     try {
@@ -463,40 +452,6 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
                      <p className="text-base opacity-80 leading-relaxed font-medium">{groupInfo?.description || 'Nessuna descrizione specificata.'}</p>
                   </div>
                 )}
-
-                <div className="card bg-base-200 border border-base-content/5 shadow-sm md:col-span-2 rounded-3xl">
-                  <div className="card-body p-8 sm:p-10">
-                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-6 text-primary">Funzionalità Avanzate</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="flex items-center justify-between p-6 bg-base-100/50 rounded-2xl border border-base-content/5 transition-all">
-                        <div className="min-w-0">
-                          <span className="text-sm font-bold block mb-0.5">Chiamate di Gruppo (P2P)</span>
-                          <span className="text-[11px] opacity-50">Abilita voce e video WebRTC</span>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          className="toggle toggle-primary toggle-lg"
-                          disabled={!['moderator', 'administrator'].includes(myRole)}
-                          checked={groupInfo?.features?.callsEnabled ?? true} 
-                          onChange={(e) => handleToggleFeature('callsEnabled', e.target.checked)}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between p-6 bg-base-100/50 rounded-2xl border border-base-content/5 transition-all">
-                        <div>
-                          <span className="text-sm font-bold block mb-0.5">Registro Attività</span>
-                          <span className="text-[11px] opacity-50">Traccia ingressi e uscite</span>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          className="toggle toggle-primary toggle-lg"
-                          disabled={!['moderator', 'administrator'].includes(myRole)}
-                          checked={groupInfo?.features?.activityEnabled ?? true} 
-                          onChange={(e) => handleToggleFeature('activityEnabled', e.target.checked)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
                 {myRole === 'administrator' && (
                   <div className="card bg-base-200 border border-base-content/5 shadow-sm md:col-span-2 rounded-3xl">

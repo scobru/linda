@@ -723,6 +723,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   Rigenera certificato
                 </button>
               </li>
+
+              {!isSelf && !isGroupId(recipient) && (
+                <li>
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Bloccare questo contatto? Non potrà più scriverti finché non lo sblocchi.",
+                        )
+                      )
+                        blockContact(recipient);
+                    }}
+                    className="text-error py-3"
+                  >
+                    Blocca contatto
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
         </div>
