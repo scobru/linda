@@ -1959,8 +1959,17 @@ export const useMessaging = (
 					console.warn(`[Groups] Failed to react to ${msgId}:`, e),
 				);
 		},
-		handleReportMessage: () => {
-			showNotification?.("Message reported", "info");
+		handleReportMessage: (msgId: string) => {
+			if (!recipient || !groupService) return;
+			groupService
+				.reportContent(recipient, msgId, "Reported from chat")
+				.then(() => showNotification?.("Message reported", "info"))
+				.catch((e) =>
+					showNotification?.(
+						"Failed to report message: " + (e.message || e),
+						"error",
+					),
+				);
 		},
 		handleRegenerateCertificate: async () => {
 			if (!communicationService) return;
