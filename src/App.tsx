@@ -140,10 +140,16 @@ const AppContent: React.FC<{
     msg?: string,
     audio?: string,
     fileMetadata?: any,
+    replyTo?: string,
   ) => {
     if (!recipient) return;
     try {
-      await messaging.handleSendMessage(msg || message, audio, fileMetadata);
+      await messaging.handleSendMessage(
+        msg || message,
+        audio,
+        fileMetadata,
+        replyTo,
+      );
       if (!audio && !fileMetadata) setMessage("");
     } catch (err: any) {
       showNotification(

@@ -1067,105 +1067,108 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </div>
                   )}
 
-                  {/* Bubble Actions */}
-                  <div
-                    className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
-                  >
-                    <div className="relative">
+                  {/* Bubble Actions: minimal text menu, appears on click */}
+                  {selectedMessageId === msg.id && (
+                    <div
+                      className={`absolute top-0 z-20 min-w-[150px] py-1.5 bg-base-300 rounded-xl shadow-2xl border border-base-content/10 ${isMe ? "right-full mr-2" : "left-full ml-2"}`}
+                    >
+                      <button
+                        onClick={() => {
+                          setReplyingTo(msg);
+                          setSelectedMessageId(null);
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
+                      >
+                        Rispondi
+                      </button>
+
                       <button
                         onClick={() =>
                           setReactionPickerFor(
                             reactionPickerFor === msg.id ? null : msg.id,
                           )
                         }
-                        className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                        title="Reagisci"
-                        aria-label="Reagisci al messaggio"
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
                       >
-                        😀
+                        Reagisci
                       </button>
-                      {reactionPickerFor === msg.id && (
-                        <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 flex gap-1 p-1.5 bg-base-300 rounded-full shadow-2xl border border-base-content/10 z-20">
-                          {QUICK_REACTIONS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => {
-                                handleReactMessage(msg.id, emoji);
-                                setReactionPickerFor(null);
-                              }}
-                              className={`btn btn-ghost btn-circle btn-xs text-base ${myReaction === emoji ? "bg-primary/20" : ""}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
 
-                    <button
-                      onClick={() => setReplyingTo(msg)}
-                      className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                      title="Rispondi"
-                      aria-label="Rispondi al messaggio"
-                    >
-                      ↩️
-                    </button>
-
-                    {isGroupId(recipient) && (
-                      <>
-                        {["moderator", "administrator"].includes(
+                      {isGroupId(recipient) &&
+                        ["moderator", "administrator"].includes(
                           myRole || "",
                         ) && (
                           <button
-                            onClick={() => handlePinMessage(msg.id, !isPinned)}
-                            className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                            title={isPinned ? "Rimuovi pin" : "Fissa messaggio"}
-                            aria-label={isPinned ? "Rimuovi pin" : "Fissa messaggio"}
+                            onClick={() => {
+                              handlePinMessage(msg.id, !isPinned);
+                              setSelectedMessageId(null);
+                            }}
+                            className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
                           >
-                            📌
+                            {isPinned ? "Rimuovi pin" : "Fissa"}
                           </button>
                         )}
+
+                      {isGroupId(recipient) && (
                         <button
-                          onClick={() => handleReportMessage(msg.id)}
-                          className="btn btn-ghost btn-circle btn-xs hover:text-warning transition-colors"
-                          title="Segnala"
-                          aria-label="Segnala messaggio"
+                          onClick={() => {
+                            handleReportMessage(msg.id);
+                            setSelectedMessageId(null);
+                          }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
                         >
-                          🚩
+                          Segnala
                         </button>
-                      </>
-                    )}
+                      )}
 
-                    {isMe && msg.type === "text" && (
-                      <button
-                        onClick={() => {
-                          setEditText(msg.text || "");
-                          setEditingMessageId(msg.id);
-                        }}
-                        className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
-                        title="Modifica"
-                        aria-label="Modifica messaggio"
-                      >
-                        ✏️
-                      </button>
-                    )}
+                      {isMe && msg.type === "text" && (
+                        <button
+                          onClick={() => {
+                            setEditText(msg.text || "");
+                            setEditingMessageId(msg.id);
+                            setSelectedMessageId(null);
+                          }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
+                        >
+                          Modifica
+                        </button>
+                      )}
 
-                    {(isMe ||
-                      ["moderator", "administrator"].includes(
-                        myRole || "",
-                      )) && (
-                      <button
-                        onClick={() =>
-                          handleDeleteMessage(msg.id, msg.senderPub)
-                        }
-                        className="btn btn-ghost btn-circle btn-xs hover:text-error transition-colors"
-                        title="Elimina"
-                        aria-label="Elimina messaggio"
-                      >
-                        🗑️
-                      </button>
-                    )}
-                  </div>
+                      {(isMe ||
+                        ["moderator", "administrator"].includes(
+                          myRole || "",
+                        )) && (
+                        <button
+                          onClick={() => {
+                            handleDeleteMessage(msg.id, msg.senderPub);
+                            setSelectedMessageId(null);
+                          }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-error/10 text-error transition-colors"
+                        >
+                          Elimina
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {reactionPickerFor === msg.id && (
+                    <div
+                      className={`absolute top-0 z-20 flex gap-1 p-1.5 bg-base-300 rounded-full shadow-2xl border border-base-content/10 ${isMe ? "right-full mr-2" : "left-full ml-2"}`}
+                    >
+                      {QUICK_REACTIONS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => {
+                            handleReactMessage(msg.id, emoji);
+                            setReactionPickerFor(null);
+                            setSelectedMessageId(null);
+                          }}
+                          className={`btn btn-ghost btn-circle btn-xs text-base ${myReaction === emoji ? "bg-primary/20" : ""}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {Object.keys(reactionCounts).length > 0 && (
