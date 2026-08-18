@@ -145,18 +145,34 @@ export const useMessaging = (
 	}, [recipient]);
 
 	// Mark incoming messages in the open chat as read, once each. The listener
-	// above (6. Read Receipts) turns this into the sender's "read" checkmark.
+	// above (6. Read Receipts) turns this into the sender's "read" checkmark;
+	// the local flip below is what actually clears our own unread badge —
+	// unreadCounts reads status off our own copy, not the sender's.
 	useEffect(() => {
 		if (!recipient || !groupService || !userPub) return;
 		if (document.visibilityState !== "visible") return;
 		const currentMsgs = messages[recipient] || [];
-		for (const m of currentMsgs) {
-			if (m.sender === "Me" || m.status === "read") continue;
+		const toMark = currentMsgs.filter((m) => {
+			if (m.sender === "Me" || m.status === "read") return false;
 			const key = `${recipient}:${m.id}`;
-			if (markedReadRef.current.has(key)) continue;
+			if (markedReadRef.current.has(key)) return false;
 			markedReadRef.current.add(key);
+			return true;
+		});
+		if (!toMark.length) return;
+
+		setMessages((prev) => {
+			const groupMsgs = prev[recipient] || [];
+			const toMarkIds = new Set(toMark.map((m) => m.id));
+			const updatedGroupMsgs = groupMsgs.map((m) =>
+				toMarkIds.has(m.id) ? { ...m, status: "read" as const } : m,
+			);
+			return { ...prev, [recipient]: updatedGroupMsgs };
+		});
+
+		for (const m of toMark) {
 			groupService.markMessageRead(recipient, m.id).catch(() => {
-				markedReadRef.current.delete(key);
+				markedReadRef.current.delete(`${recipient}:${m.id}`);
 			});
 		}
 	}, [recipient, messages, groupService, userPub]);
