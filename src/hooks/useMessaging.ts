@@ -88,13 +88,15 @@ export const useMessaging = (
 	// Guards the contacts listener against replayed/reordered echoes of our
 	// own writes: Zen delivers a node's history to .on() as it resolves from
 	// cache vs relay, not strictly latest-write-wins-first, so a stale "true"
-	// from before we blocked someone can arrive *after* our "false". Any
-	// listener event that contradicts a local action within this window is
-	// dropped rather than applied.
-	const recentContactActionRef = useRef<
-		Map<string, { value: boolean | null; ts: number }>
-	>(new Map());
-	const CONTACT_ACTION_GUARD_MS = 8000;
+	// from before we blocked someone can resurface later — and does, every
+	// time the listener re-attaches on tab-visibility resume (a session can
+	// hit that constantly). A short time window isn't enough insulation, so
+	// once we've made a local contact decision this session we keep
+	// overriding contradicting listener events for that id indefinitely,
+	// until we make a different local decision for it ourselves.
+	const recentContactActionRef = useRef<Map<string, boolean | null>>(
+		new Map(),
+	);
 	const lastTypingSentRef = useRef<number>(0);
 	const recipientRef = useRef(recipient);
 	const groupSubscriptionsRef = useRef<Set<string>>(new Set());
@@ -350,10 +352,7 @@ export const useMessaging = (
 	const saveContact = useCallback(
 		(contactId: string) => {
 			if (!userPub || !db.zen) return;
-			recentContactActionRef.current.set(contactId, {
-				value: true,
-				ts: Date.now(),
-			});
+			recentContactActionRef.current.set(contactId, true);
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -365,10 +364,7 @@ export const useMessaging = (
 	const removeContact = useCallback(
 		(contactId: string) => {
 			if (!userPub || !db.zen) return;
-			recentContactActionRef.current.set(contactId, {
-				value: null,
-				ts: Date.now(),
-			});
+			recentContactActionRef.current.set(contactId, null);
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -394,11 +390,7 @@ export const useMessaging = (
 			.map()
 			.on((data: any, contactId: string) => {
 				const recentAction = recentContactActionRef.current.get(contactId);
-				if (
-					recentAction &&
-					Date.now() - recentAction.ts < CONTACT_ACTION_GUARD_MS &&
-					recentAction.value !== data
-				) {
+				if (recentAction !== undefined && recentAction !== data) {
 					return;
 				}
 
@@ -574,10 +566,7 @@ export const useMessaging = (
 			await communicationService.issueCertificate(contactId);
 
 			// 2. Add to trusted contacts in GunDB
-			recentContactActionRef.current.set(contactId, {
-				value: true,
-				ts: Date.now(),
-			});
+			recentContactActionRef.current.set(contactId, true);
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
@@ -609,10 +598,7 @@ export const useMessaging = (
 			await communicationService.revokeCertificate(contactId);
 
 			// 2. Mark as blocked in contacts list
-			recentContactActionRef.current.set(contactId, {
-				value: false,
-				ts: Date.now(),
-			});
+			recentContactActionRef.current.set(contactId, false);
 			db.zen
 				.get(`linda_v3_contacts_${userPub}`)
 				.get(contactId)
