@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DataBase } from 'linda-core';
 import { CommunicationService } from 'linda-core';
 import { FileTransferService } from 'linda-core';
+import { CallingService } from 'linda-core';
 import { DECRYPT_FAILED, LEGACY_UNSUPPORTED } from 'linda-core';
 
 export const useSignalingListener = (
@@ -9,7 +10,8 @@ export const useSignalingListener = (
   isLoggedIn: boolean,
   userPub: string | null,
   communicationService: CommunicationService | null,
-  fileTransferServiceInst: FileTransferService | null
+  fileTransferServiceInst: FileTransferService | null,
+  callingServiceInst: CallingService | null = null
 ) => {
   const processedSignalsRef = useRef<Set<string>>(new Set());
   const chainsRef = useRef<any[]>([]);
@@ -55,6 +57,12 @@ export const useSignalingListener = (
             if (data.sender === userPub && isSameInstance) return;
             fileTransferServiceInst.handleIncomingSignal(data.sender, signal);
           }
+        } else if (trimmed.startsWith(" Linda:CALL:")) {
+          const signal = JSON.parse(trimmed.substring(" Linda:CALL:".length));
+          if (signal && callingServiceInst) {
+            if (data.sender === userPub) return;
+            callingServiceInst.handleIncomingSignal(data.sender, signal);
+          }
         } else if (trimmed.startsWith("{")) {
           try {
             const signal = JSON.parse(trimmed);
@@ -94,7 +102,7 @@ export const useSignalingListener = (
       if (offRelay) offRelay();
       legacyChain.off?.();
     };
-  }, [isLoggedIn, userPub, db, fileTransferServiceInst, communicationService, resumeTick]);
+  }, [isLoggedIn, userPub, db, fileTransferServiceInst, callingServiceInst, communicationService, resumeTick]);
 
   // Re-arm on resume: a chain whose socket died while backgrounded never emits
   // again, so signalling (calls, file transfer) stayed dead until a reload.

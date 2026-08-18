@@ -39,10 +39,12 @@ converge at different speeds and a blank name is worse than a stale one.
 | Path | Space | Contents |
 | :--- | :--- | :--- |
 | `linda_rooms/<roomId>/meta` | root | Room descriptor: type, title, member list, group `secret` for legacy rooms. |
-| `linda_rooms/<roomId>/messages` | root | Append-only message set. Values are ciphertext. |
+| `linda_rooms/<roomId>/messages` | root | Append-only message set. Body is ciphertext; `replyTo` (quoted message id, cleartext like `sender`/`timestamp`/`type`) rides alongside it when the message is a reply. |
 | `linda_rooms/<roomId>/deleted_messages` | root | Tombstones for messages hidden from the room. |
 | `linda_rooms/<roomId>/pins` | root | Pinned message ids. |
 | `linda_rooms/<roomId>/reactions/<messageId>::<pub>` | root | One reactor's emoji on one message, or `null` once cleared. One leaf per (message, member) pair so concurrent reactors never overwrite each other. |
+| `linda_rooms/<roomId>/edited_messages/<messageId>` | root | Latest ciphertext for a message the original sender edited, plus `editedAt`. Sender-only, checked against the original message's `senderPub`. |
+| `linda_rooms/<roomId>/read_receipts/<messageId>::<pub>` | root | Timestamp a reader saw a message. Any reader other than the sender flips the sender's local copy to `"read"`. |
 | `linda_room_keys/<roomId>` | root | Encrypted escrow of a room secret, readable only by the members who hold the wrapping key. |
 
 The 1:1 room id is derived, not negotiated: both peers sort their two public

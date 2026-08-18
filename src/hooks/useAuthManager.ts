@@ -65,6 +65,13 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
         let usernameToUse = "";
 
         if (parsed.type === "shogun-auth-pair" && parsed.pair) {
+          const MAGIC_LINK_TTL_MS = 5 * 60 * 1000;
+          if (
+            typeof parsed.exportedAt === "number" &&
+            Date.now() - parsed.exportedAt > MAGIC_LINK_TTL_MS
+          ) {
+            throw new Error("This device-sync link has expired. Generate a new one.");
+          }
           pair = parsed.pair;
           usernameToUse = parsed.username || "";
         }

@@ -37,12 +37,14 @@ interface ChatViewProps {
     msg?: string,
     audio?: string,
     fileMetadata?: FileMetadata,
+    replyTo?: string,
   ) => void;
   handleTyping: () => void;
   handleFixSync: () => void;
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
+  handleEditMessage: (msgId: string, newText: string) => void;
   messageReactions: Record<string, Record<string, Record<string, string>>>;
   handleReactMessage: (msgId: string, emoji: string) => void;
   handleRegenerateCertificate: () => void;
@@ -52,6 +54,8 @@ interface ChatViewProps {
   wormholeService: WormholeService | null;
   wormholeStatuses: Record<string, string>;
   handleClearChat: (id: string) => void;
+  onStartCall: (video: boolean) => void;
+  callStatus: string;
   trustedContacts: Set<string>;
   isContactsLoading: boolean;
   acceptContact: (id: string) => Promise<void>;
@@ -113,6 +117,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handlePinMessage,
   handleReportMessage,
   handleDeleteMessage,
+  handleEditMessage,
   messageReactions,
   handleReactMessage,
   handleRegenerateCertificate,
@@ -122,6 +127,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   wormholeService,
   wormholeStatuses,
   handleClearChat,
+  onStartCall,
+  callStatus,
   trustedContacts,
   isContactsLoading,
   acceptContact,
@@ -146,6 +153,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
     null,
   );
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(
+    null,
+  );
+  const [editText, setEditText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
   // Compute all unique tags in current chat
   const allTags = useMemo(() => {
@@ -554,6 +566,54 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
 
         <div className="flex-none flex items-center gap-2">
+          {!isSelf && !isGroupId(recipient) && (
+            <>
+              <button
+                onClick={() => onStartCall(false)}
+                disabled={callStatus !== "idle"}
+                className="btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
+                aria-label="Chiama"
+                title="Chiamata vocale"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                  stroke="currentColor"
+                  className="w-6 h-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => onStartCall(true)}
+                disabled={callStatus !== "idle"}
+                className="btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
+                aria-label="Videochiamata"
+                title="Videochiamata"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                  stroke="currentColor"
+                  className="w-6 h-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"
+                  />
+                </svg>
+              </button>
+            </>
+          )}
           <button
             onClick={() => {
               setIsSearchOpen(!isSearchOpen);
@@ -786,6 +846,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
               reactionCounts[emoji] = (reactionCounts[emoji] || 0) + 1;
             }
             const myReaction = reactionsForMsg[userPub];
+            const quotedMsg = msg.replyTo
+              ? currentMessages.find((m) => m.id === msg.replyTo)
+              : undefined;
 
             return (
               <div
@@ -884,9 +947,66 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     />
                   ) : (
                     <div className="py-0.5 leading-relaxed text-[16px] text-base font-normal">
-                      <div className="break-words whitespace-pre-wrap">
-                        <MessageText text={msg.text} isMe={isMe} />
-                      </div>
+                      {editingMessageId === msg.id ? (
+                        <div
+                          className="flex flex-col gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <textarea
+                            autoFocus
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            className="textarea textarea-sm w-full bg-base-100/20 text-inherit"
+                            rows={2}
+                          />
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => setEditingMessageId(null)}
+                              className="btn btn-xs btn-ghost"
+                            >
+                              Annulla
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (editText.trim()) {
+                                  handleEditMessage(msg.id, editText.trim());
+                                }
+                                setEditingMessageId(null);
+                              }}
+                              className="btn btn-xs btn-primary"
+                            >
+                              Salva
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {msg.replyTo && (
+                            <div
+                              className={`mb-1 pl-2 border-l-2 text-xs opacity-70 truncate max-w-[60vw] sm:max-w-xs ${isMe ? "border-primary-content/50" : "border-base-content/30"}`}
+                            >
+                              {quotedMsg
+                                ? quotedMsg.text ||
+                                  (quotedMsg.type === "audio"
+                                    ? "🎤 Audio"
+                                    : quotedMsg.type === "image"
+                                      ? "🖼️ Immagine"
+                                      : quotedMsg.type === "file"
+                                        ? "📎 File"
+                                        : "")
+                                : "Messaggio originale non disponibile"}
+                            </div>
+                          )}
+                          <div className="break-words whitespace-pre-wrap">
+                            <MessageText text={msg.text} isMe={isMe} />
+                          </div>
+                          {msg.editedAt && (
+                            <span className="text-[10px] opacity-50 italic">
+                              modificato
+                            </span>
+                          )}
+                        </>
+                      )}
 
                       {msg.tags && msg.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2 mb-1">
@@ -982,6 +1102,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       )}
                     </div>
 
+                    <button
+                      onClick={() => setReplyingTo(msg)}
+                      className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
+                      title="Rispondi"
+                      aria-label="Rispondi al messaggio"
+                    >
+                      ↩️
+                    </button>
+
                     {isGroupId(recipient) && (
                       <>
                         {["moderator", "administrator"].includes(
@@ -1005,6 +1134,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           🚩
                         </button>
                       </>
+                    )}
+
+                    {isMe && msg.type === "text" && (
+                      <button
+                        onClick={() => {
+                          setEditText(msg.text || "");
+                          setEditingMessageId(msg.id);
+                        }}
+                        className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
+                        title="Modifica"
+                        aria-label="Modifica messaggio"
+                      >
+                        ✏️
+                      </button>
                     )}
 
                     {(isMe ||
@@ -1125,13 +1268,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
             Solo gli amministratori possono inviare messaggi
           </div>
         ) : (
-          <div className="flex items-center gap-3 w-full max-w-3xl mx-auto">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              className="hidden"
-            />
+          <div className="flex flex-col gap-2 w-full max-w-3xl mx-auto">
+            {replyingTo && (
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-base-300/50 rounded-xl text-xs">
+                <div className="truncate opacity-70">
+                  Rispondi a:{" "}
+                  {replyingTo.text ||
+                    (replyingTo.type === "audio"
+                      ? "🎤 Audio"
+                      : replyingTo.type === "image"
+                        ? "🖼️ Immagine"
+                        : replyingTo.type === "file"
+                          ? "📎 File"
+                          : "messaggio")}
+                </div>
+                <button
+                  onClick={() => setReplyingTo(null)}
+                  className="btn btn-ghost btn-xs btn-circle"
+                  aria-label="Annulla risposta"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                className="hidden"
+              />
 
             {isRecordingAudio ? (
               <AudioRecorder
@@ -1237,8 +1403,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       if (e.key === "Enter" && !e.shiftKey) {
                         if (message.trim()) {
                           e.preventDefault();
-                          handleSendMessage(message);
+                          handleSendMessage(
+                            message,
+                            undefined,
+                            undefined,
+                            replyingTo?.id,
+                          );
                           setMessage("");
+                          setReplyingTo(null);
                         } else {
                           e.preventDefault();
                         }
@@ -1251,8 +1423,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   className={`btn btn-circle h-12 w-12 shrink-0 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-25"}`}
                   onClick={() => {
                     if (message.trim()) {
-                      handleSendMessage(message);
+                      handleSendMessage(
+                        message,
+                        undefined,
+                        undefined,
+                        replyingTo?.id,
+                      );
                       setMessage("");
+                      setReplyingTo(null);
                     }
                   }}
                   disabled={!message.trim()}
@@ -1269,6 +1447,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </button>
               </>
             )}
+            </div>
           </div>
         )}
       </div>

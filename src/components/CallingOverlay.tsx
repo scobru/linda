@@ -10,6 +10,8 @@ interface CallingOverlayProps {
   onReject: () => void;
   onEnd: () => void;
   video: boolean;
+  isScreenSharing: boolean;
+  onToggleScreenShare: () => void;
 }
 
 export const CallingOverlay: React.FC<CallingOverlayProps> = ({
@@ -20,7 +22,9 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
   onAccept,
   onReject,
   onEnd,
-  video
+  video,
+  isScreenSharing,
+  onToggleScreenShare
 }) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -115,14 +119,28 @@ export const CallingOverlay: React.FC<CallingOverlayProps> = ({
               </button>
             </>
           ) : (
-            <button
-              onClick={status === 'ended' ? onReject : onEnd}
-              className={`btn btn-circle btn-lg h-20 w-20 bg-error hover:bg-error/80 border-0 shadow-2xl shadow-error/40 text-white transition-all active:scale-90 ${status === 'ended' ? 'opacity-50 grayscale' : ''}`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8 rotate-[135deg]">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
-              </svg>
-            </button>
+            <>
+              {status === 'connected' && (
+                <button
+                  onClick={onToggleScreenShare}
+                  className={`btn btn-circle btn-lg h-16 w-16 border-0 shadow-xl text-white transition-transform active:scale-90 ${isScreenSharing ? 'bg-primary hover:bg-primary/80' : 'bg-white/10 hover:bg-white/20'}`}
+                  aria-label={isScreenSharing ? 'Interrompi condivisione schermo' : 'Condividi schermo'}
+                  title={isScreenSharing ? 'Interrompi condivisione schermo' : 'Condividi schermo'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={status === 'ended' ? onReject : onEnd}
+                className={`btn btn-circle btn-lg h-20 w-20 bg-error hover:bg-error/80 border-0 shadow-2xl shadow-error/40 text-white transition-all active:scale-90 ${status === 'ended' ? 'opacity-50 grayscale' : ''}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8 rotate-[135deg]">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                </svg>
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -31,6 +31,8 @@ export interface Message {
 	type: "text" | "audio" | "call_signal" | "file" | "image";
 	timestamp: Date;
 	status: "sending" | "sent" | "delivered" | "read";
+	editedAt?: number;
+	replyTo?: string;
 }
 
 // localStorage caps. Chat history holds base64 audio/images inline, and the
@@ -93,6 +95,7 @@ export const useMessaging = (
 	// that would otherwise capture a stale snapshot from the render they were
 	// created in (BUG #4 fix).
 	const messagesRef = useRef<Record<string, Message[]>>({});
+	const markedReadRef = useRef<Set<string>>(new Set());
 
 	// Synchronize clearedChatsRef for callbacks inside Gun listeners
 	useEffect(() => {
@@ -140,6 +143,23 @@ export const useMessaging = (
 	useEffect(() => {
 		recipientRef.current = recipient;
 	}, [recipient]);
+
+	// Mark incoming messages in the open chat as read, once each. The listener
+	// above (6. Read Receipts) turns this into the sender's "read" checkmark.
+	useEffect(() => {
+		if (!recipient || !groupService || !userPub) return;
+		if (document.visibilityState !== "visible") return;
+		const currentMsgs = messages[recipient] || [];
+		for (const m of currentMsgs) {
+			if (m.sender === "Me" || m.status === "read") continue;
+			const key = `${recipient}:${m.id}`;
+			if (markedReadRef.current.has(key)) continue;
+			markedReadRef.current.add(key);
+			groupService.markMessageRead(recipient, m.id).catch(() => {
+				markedReadRef.current.delete(key);
+			});
+		}
+	}, [recipient, messages, groupService, userPub]);
 
 	// Keep messagesRef in sync so Signal inbox listeners read current state.
 	useEffect(() => {
@@ -865,6 +885,7 @@ export const useMessaging = (
 										type: resolvedType,
 										timestamp: new Date(data.timestamp || Date.now()),
 										status: "delivered" as const,
+										replyTo: data.replyTo,
 									},
 								];
 
@@ -967,6 +988,81 @@ export const useMessaging = (
 								else delete forMsg[reactorPub];
 								groupReactions[msgId] = forMsg;
 								return { ...prev, [contactId]: groupReactions };
+							});
+						});
+					}
+
+					// 5. Listen to Edits. Value is {body: <ciphertext>, editedAt}.
+					const editChains = isP2P
+						? [db.zen.get(`${groupPath(roomId)}/edited_messages`)]
+						: await communicationService!.getRoomChains(
+								roomId,
+								roomSecrets,
+								"edited_messages",
+							);
+					if (editChains.length) {
+						attachAll(editChains, async (data: any, msgId: string) => {
+							if (!data || !data.body) return;
+							try {
+								const existing = messagesRef.current[contactId]?.find(
+									(m) => m.id === msgId,
+								);
+								if (!existing) return;
+								const decrypted = isP2P
+									? await communicationService!.decryptMessage(
+											contactId,
+											JSON.parse(data.body),
+										)
+									: await groupService.decryptGroupMessage(
+											meta,
+											data.body,
+											existing.senderPub,
+										);
+								if (!decrypted) return;
+								setMessages((prev) => {
+									const groupMsgs = prev[contactId] || [];
+									const updatedGroupMsgs = groupMsgs.map((m) =>
+										m.id === msgId
+											? { ...m, text: decrypted, editedAt: data.editedAt }
+											: m,
+									);
+									const updated = { ...prev, [contactId]: updatedGroupMsgs };
+									if (userPub) saveMessages(userPub, updated);
+									return updated;
+								});
+							} catch (e) {
+								console.warn(
+									`[Messaging] Failed to decrypt edit for ${msgId}:`,
+									e,
+								);
+							}
+						});
+					}
+
+					// 6. Listen to Read Receipts. Key is "<messageId>::<readerPub>".
+					// Any reader other than the sender flips the sender's copy to "read".
+					const receiptChains = isP2P
+						? [db.zen.get(`${groupPath(roomId)}/read_receipts`)]
+						: await communicationService!.getRoomChains(
+								roomId,
+								roomSecrets,
+								"read_receipts",
+							);
+					if (receiptChains.length) {
+						attachAll(receiptChains, (_data: any, key: string) => {
+							const sep = key.indexOf("::");
+							if (sep === -1) return;
+							const msgId = key.slice(0, sep);
+							const readerPub = key.slice(sep + 2);
+							if (readerPub === userPub) return;
+							setMessages((prev) => {
+								const groupMsgs = prev[contactId] || [];
+								const target = groupMsgs.find((m) => m.id === msgId);
+								if (!target || target.status === "read") return prev;
+								const updatedGroupMsgs = groupMsgs.map((m) =>
+									m.id === msgId ? { ...m, status: "read" as const } : m,
+								);
+								return { ...prev, [contactId]: updatedGroupMsgs };
 							});
 						});
 					}
@@ -1255,7 +1351,12 @@ export const useMessaging = (
 	}, [recipient, userPub, communicationService, db]);
 
 	const handleSendMessage = useCallback(
-		async (message?: string, audio?: string, fileMetadata?: FileMetadata) => {
+		async (
+			message?: string,
+			audio?: string,
+			fileMetadata?: FileMetadata,
+			replyTo?: string,
+		) => {
 			if (
 				!recipient ||
 				(!message && !audio && !fileMetadata) ||
@@ -1314,6 +1415,7 @@ export const useMessaging = (
 							type: type,
 							timestamp,
 							status: "sending" as const,
+							replyTo,
 						} as Message,
 					],
 				};
@@ -1375,6 +1477,7 @@ export const useMessaging = (
 							body: ciphertext,
 							timestamp: timestamp.toISOString(),
 							type,
+							replyTo,
 						} as any,
 						msgId,
 					);
@@ -1398,6 +1501,7 @@ export const useMessaging = (
 						timestamp: timestamp.toISOString(),
 						type: pokeCipher.type,
 						msgType: type,
+						replyTo,
 					} as any);
 
 					// POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
@@ -1781,6 +1885,42 @@ export const useMessaging = (
 		handlePinMessage: (msgId: string, pin: boolean) => {
 			if (!recipient || !groupService) return;
 			groupService.pinMessage(recipient, msgId, pin);
+		},
+		handleEditMessage: async (msgId: string, newText: string) => {
+			if (!recipient || !groupService || !communicationService || !userPub)
+				return;
+			const existing = messages[recipient]?.find((m) => m.id === msgId);
+			if (!existing || existing.senderPub !== userPub) return;
+
+			try {
+				const isGroup = isGroupId(recipient);
+				let newBody: string;
+				if (isGroup) {
+					const meta = await (db.Get as any)(`${groupPath(recipient)}/meta`);
+					if (!meta) throw new Error("Group metadata not found");
+					newBody = await groupService.encryptGroupMessage(meta, newText);
+				} else {
+					const cipher = await communicationService.encryptMessage(
+						recipient,
+						newText,
+					);
+					newBody = JSON.stringify(cipher);
+				}
+				await groupService.editMessage(recipient, msgId, userPub, newBody);
+				setMessages((prev) => {
+					const groupMsgs = prev[recipient] || [];
+					const updatedGroupMsgs = groupMsgs.map((m) =>
+						m.id === msgId
+							? { ...m, text: newText, editedAt: Date.now() }
+							: m,
+					);
+					const updated = { ...prev, [recipient]: updatedGroupMsgs };
+					saveMessages(userPub, updated);
+					return updated;
+				});
+			} catch (e) {
+				console.warn(`[Groups] Failed to edit message ${msgId}:`, e);
+			}
 		},
 		messageReactions,
 		handleReactMessage: (msgId: string, emoji: string) => {

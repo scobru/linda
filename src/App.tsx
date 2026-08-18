@@ -23,6 +23,7 @@ import AuthPage from "./pages/AuthPage";
 import { ChatView } from "./components/ChatView";
 import { Layout } from "./components/Layout";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { CallingOverlay } from "./components/CallingOverlay";
 
 // Hooks
 import { useCommunicationInit } from "./hooks/useCommunicationInit";
@@ -30,6 +31,7 @@ import { useMessaging } from "./hooks/useMessaging";
 import { useAuthManager } from "./hooks/useAuthManager";
 import { useSignalingListener } from "./hooks/useSignalingListener";
 import { useFileTransfer } from "./hooks/useFileTransfer";
+import { useCalling } from "./hooks/useCalling";
 import { useWormhole } from "./hooks/useWormhole";
 import { useProfile } from "./hooks/useProfile";
 import { useSmoothNavigate } from "./hooks/useSmoothNavigate";
@@ -76,6 +78,7 @@ const AppContent: React.FC<{
     setTransferProgress,
     setTransferBlobs,
   );
+  const calling = useCalling(db, isLoggedIn, userPub, communicationService);
 
   // 4. Signaling Listener
   useSignalingListener(
@@ -84,6 +87,7 @@ const AppContent: React.FC<{
     userPub,
     communicationService,
     fileTransferServiceInst,
+    calling.callingServiceInst,
   );
 
   // 5. Messaging Core
@@ -204,6 +208,8 @@ const AppContent: React.FC<{
       smoothNavigate(id ? `/chat/${id}/settings` : "/"),
     handleFixSync: () => messaging.handleFixSync(recipient),
     handleClearChat: messaging.handleClearChat,
+    onStartCall: (video: boolean) => calling.startCall(recipient, video),
+    callStatus: calling.callStatus,
   };
 
   return (
@@ -290,6 +296,23 @@ const AppContent: React.FC<{
           />
         </Route>
       </Routes>
+
+      <CallingOverlay
+        status={calling.callStatus}
+        localStream={calling.localStream}
+        remoteStream={calling.remoteStream}
+        recipientProfile={
+          contactProfiles[
+            calling.callPeer ? DataBase.cleanPub(calling.callPeer) : ""
+          ] || null
+        }
+        onAccept={calling.acceptCall}
+        onReject={calling.rejectCall}
+        onEnd={calling.endCall}
+        video={calling.callVideo}
+        isScreenSharing={calling.isScreenSharing}
+        onToggleScreenShare={calling.toggleScreenShare}
+      />
 
       {notification && (
         <div className="toast toast-top toast-end z-[100]">

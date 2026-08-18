@@ -50,7 +50,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   }, [db]);
 
-  // Stable Magic Link for the QR
+  // Regenerated every time the panel opens: exportedAt has to be fresh so
+  // the link expires shortly after, not once at first mount forever.
   const magicLinkValue = useMemo(() => {
     const pair = ((db.user as any) as any)?._?.sea || {};
     const sessionData = {
@@ -62,7 +63,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(sessionData))));
     return `${window.location.origin}/?magic_login=${encodeURIComponent(encoded)}`;
-  }, [db, username]);
+  }, [db, username, showSyncMobile]);
 
   const contactCount = useMemo(() => {
     try {
@@ -333,7 +334,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <div className="p-3 bg-error/10 rounded-xl border border-error/20 flex gap-3 items-start">
                 <span className="text-md">⚠️</span>
                 <div className="text-[10px] font-bold text-error uppercase tracking-wider leading-relaxed">
-                  <span className="font-black">Attenzione:</span> Il QR principale di sincronizzazione contiene le tue chiavi private. Non mostrarlo in pubblico.
+                  <span className="font-black">Attenzione:</span> Il QR principale di sincronizzazione contiene le tue chiavi private e scade dopo 5 minuti. Non mostrarlo in pubblico.
                 </div>
               </div>
 
