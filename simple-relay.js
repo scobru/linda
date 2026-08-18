@@ -9,6 +9,56 @@ const serve = (await import('zen/lib/serve.js')).default;
 const Store = (await import('zen/lib/rfs.js')).default;
 
 const port = process.env.PORT || 8765;
+const DEBUG = process.env.RELAY_DEBUG === '1';
+const STORE_DIR = path.resolve(process.cwd(), 'radata');
+
+// Off by default: only prune cached ciphertext once an operator opts in by
+// setting a retention window. Peers are expected to re-sync from elsewhere,
+// but auto-deleting data nobody asked to expire is the wrong default.
+const RETENTION_DAYS = process.env.RELAY_RETENTION_DAYS
+    ? Number(process.env.RELAY_RETENTION_DAYS)
+    : null;
+const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RELAY_RATE_LIMIT || 300); // HTTP reqs / IP / window
+const RATE_LIMIT_MAX_UPGRADES = Number(process.env.RELAY_UPGRADE_RATE_LIMIT || 30); // WS upgrades / IP / window
+
+/**
+ * Sliding-window rate limiter, one bucket per IP. In-memory and
+ * single-process — fine for one relay instance; swap for a shared store
+ * (Redis) if this ever runs behind a multi-process/multi-node deploy.
+ */
+function makeRateLimiter(maxRequests, windowMs) {
+    const buckets = new Map();
+
+    setInterval(() => {
+        const now = Date.now();
+        for (const [ip, bucket] of buckets) {
+            if (now - bucket.start > windowMs) buckets.delete(ip);
+        }
+    }, windowMs).unref();
+
+    return (ip) => {
+        const now = Date.now();
+        const bucket = buckets.get(ip);
+        if (!bucket || now - bucket.start > windowMs) {
+            buckets.set(ip, { start: now, count: 1 });
+            return true;
+        }
+        bucket.count++;
+        return bucket.count <= maxRequests;
+    };
+}
+
+const allowHttpRequest = makeRateLimiter(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS);
+const allowUpgrade = makeRateLimiter(RATE_LIMIT_MAX_UPGRADES, RATE_LIMIT_WINDOW_MS);
+
+function clientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) return forwarded.split(',')[0].trim();
+    return req.socket.remoteAddress || 'unknown';
+}
 
 /**
  * Helper to wait for data in ZenDB (for sync latency)
@@ -32,6 +82,12 @@ async function waitForZenData(pathNode, attempts = 15, delay = 1500) {
 }
 
 const server = http.createServer(async (req, res) => {
+    const ip = clientIp(req);
+    if (!allowHttpRequest(ip)) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '60' });
+        return res.end('Too Many Requests');
+    }
+
     // 1. Handle CORS for API
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -112,7 +168,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
-    console.log(`[Relay] 🆙 Upgrade request for: ${req.url}`);
+    const ip = clientIp(req);
+    if (!allowUpgrade(ip)) {
+        console.warn(`[Relay] ⚠️ Rate limit: too many upgrade attempts from ${ip}`);
+        socket.destroy();
+        return;
+    }
+    if (DEBUG) console.log(`[Relay] 🆙 Upgrade request for: ${req.url}`);
     if (req.url !== '/zen') {
         console.warn(`[Relay] ⚠️ Rejecting upgrade for invalid path: ${req.url}`);
         socket.destroy();
@@ -127,19 +189,99 @@ const zen = new ZEN({
     localStorage: false
 });
 
-// Middleware to log graph operations
+// Middleware to log graph operations. Off by default (RELAY_DEBUG=1 to
+// enable) — logging every PUT/GET at real traffic volume floods stdout
+// and burns disk/CPU on log rotation for no operational benefit.
 zen.on('in', function(msg) {
-    if (msg.put) {
-        const keys = Object.keys(msg.put);
-        console.log(`[Relay] 📤 PUT: ${keys.length} nodes (first: ${keys[0]})`);
-    }
-    if (msg.get) {
-        console.log(`[Relay] 📥 GET: ${msg.get['#']}`);
+    if (DEBUG) {
+        if (msg.put) {
+            const keys = Object.keys(msg.put);
+            console.log(`[Relay] 📤 PUT: ${keys.length} nodes (first: ${keys[0]})`);
+        }
+        if (msg.get) {
+            console.log(`[Relay] 📥 GET: ${msg.get['#']}`);
+        }
     }
     this.to.next(msg);
 });
 
+/**
+ * Deletes cached ciphertext files older than maxAgeMs under dir. Relay data
+ * is a replaceable cache, not the source of truth, so this is safe as long
+ * as at least one relay/peer still holds a given room's history — which is
+ * the operator's call, hence opt-in via RELAY_RETENTION_DAYS.
+ */
+async function pruneOldData(dir, maxAgeMs) {
+    let removed = 0;
+    async function walk(current) {
+        let entries;
+        try {
+            entries = await fs.promises.readdir(current, { withFileTypes: true });
+        } catch (e) {
+            return;
+        }
+        for (const entry of entries) {
+            const full = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                await walk(full);
+            } else if (entry.isFile()) {
+                try {
+                    const stat = await fs.promises.stat(full);
+                    if (Date.now() - stat.mtimeMs > maxAgeMs) {
+                        await fs.promises.unlink(full);
+                        removed++;
+                    }
+                } catch (e) {
+                    // File may have been removed/rewritten concurrently — skip it.
+                }
+            }
+        }
+    }
+    await walk(dir);
+    return removed;
+}
+
+if (RETENTION_DAYS) {
+    const maxAgeMs = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    console.log(`[Relay] Retention enabled: pruning cached data older than ${RETENTION_DAYS}d every 6h.`);
+    setInterval(async () => {
+        try {
+            const removed = await pruneOldData(STORE_DIR, maxAgeMs);
+            if (removed > 0) {
+                console.log(`[Relay] Retention sweep: removed ${removed} file(s) older than ${RETENTION_DAYS}d.`);
+            }
+        } catch (e) {
+            console.warn('[Relay] Retention sweep failed:', e.message);
+        }
+    }, RETENTION_SWEEP_INTERVAL_MS).unref();
+}
+
+// A single bad request/message shouldn't take the whole relay down —
+// log and keep serving everyone else.
+process.on('uncaughtException', (err) => {
+    console.error('[Relay] Uncaught exception (staying up):', err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[Relay] Unhandled rejection (staying up):', reason);
+});
+
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Relay] ${signal} received, shutting down gracefully...`);
+    server.close(() => {
+        console.log('[Relay] HTTP server closed.');
+        process.exit(0);
+    });
+    // Force-exit if close() hangs on lingering keep-alive sockets.
+    setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 server.listen(port, () => {
     console.log(`🚀 Semplice Relay Zen avviato su http://localhost:${port}`);
     console.log('ZenDB in ascolto e pronto.');
+    if (!DEBUG) console.log('[Relay] Verbose graph-op logging disabled (set RELAY_DEBUG=1 to enable).');
 });
