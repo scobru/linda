@@ -5496,7 +5496,7 @@ lightningcss@1.32.0:
 
 "linda-core@git+https://github.com/scobru/linda-core.git":
   version "1.0.6"
-  resolved "git+https://github.com/scobru/linda-core.git#197aa3fb9d60fdeadd1a3430b0566083b7faab6e"
+  resolved "git+https://github.com/scobru/linda-core.git#7c017f9de9abf03432b5689d0771a8b4357ab4ca"
   dependencies:
     sodium-javascript "^0.8.0"
     sodium-universal "^5.0.1"

@@ -1604,6 +1604,18 @@ export const useMessaging = (
 						messageId,
 						senderPub || "",
 					);
+
+					// Mark as deleted locally: the deletions listener will confirm
+					// this once the write round-trips, but that's not instant and
+					// the message must disappear the moment delete succeeds.
+					setDeletedMessages((prev) => {
+						const contactDeletions = new Set(prev[recipient] || []);
+						contactDeletions.add(messageId);
+						const next = { ...prev, [recipient]: contactDeletions };
+						saveDeletedMessages(userPub, next);
+						return next;
+					});
+
 					// ponytail: also nullify the actual message node via cert-gated write
 					// so a non-member/leaker (who only knows the room UUID) can't keep it.
 					try {
