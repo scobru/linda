@@ -129,27 +129,32 @@ export const useProfile = (
           };
 
           if (isGroup) {
-            // 1. Proactive Initial Fetch for Group metadata (name, avatar, description)
-            db.Get(`${groupPath(cleanId)}/meta`, 4000, true).then((data: any) => {
+            const handleGroupMeta = (data: any) => {
               if (data && typeof data === "object") {
                 const name = typeof data.name === "string" ? data.name.trim() : "";
                 const avatar = typeof data.avatar === "string" ? data.avatar.trim() : "";
                 if (name || avatar) {
                   updateProfile(cleanId, { ...(name ? { nickname: name } : {}), ...(avatar ? { avatar } : {}) });
+                  if (avatar) {
+                    try {
+                      localStorage.setItem(`linda_avatar_${cleanId}`, avatar);
+                      if (contactId !== cleanId) {
+                        localStorage.setItem(`linda_avatar_${contactId}`, avatar);
+                      }
+                      window.dispatchEvent(new CustomEvent("linda_avatar_updated", {
+                        detail: { pub: cleanId, avatar }
+                      }));
+                    } catch (e) {}
+                  }
                 }
               }
-            });
+            };
+
+            // 1. Proactive Initial Fetch for Group metadata (name, avatar, description)
+            db.Get(`${groupPath(cleanId)}/meta`, 4000, true).then(handleGroupMeta);
 
             // 2. Reactive Listener for Group metadata
-            db.On(`${groupPath(cleanId)}/meta`, (data: any) => {
-              if (data && typeof data === "object") {
-                const name = typeof data.name === "string" ? data.name.trim() : "";
-                const avatar = typeof data.avatar === "string" ? data.avatar.trim() : "";
-                if (name || avatar) {
-                  updateProfile(cleanId, { ...(name ? { nickname: name } : {}), ...(avatar ? { avatar } : {}) });
-                }
-              }
-            });
+            db.On(`${groupPath(cleanId)}/meta`, handleGroupMeta);
           } else {
             let cPub = cleanId;
             if (cleanId.length < 43 || cleanId.startsWith("@")) {

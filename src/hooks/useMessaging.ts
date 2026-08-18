@@ -74,6 +74,10 @@ export const useMessaging = (
 	const [pinnedMessages, setPinnedMessages] = useState<
 		Record<string, Set<string>>
 	>({});
+	// contactId -> messageId -> reactorPub -> emoji
+	const [messageReactions, setMessageReactions] = useState<
+		Record<string, Record<string, Record<string, string>>>
+	>({});
 	const [clearedChats, setClearedChats] = useState<Record<string, number>>({});
 
 	const clearedChatsRef = useRef<Record<string, number>>({});
@@ -238,7 +242,13 @@ export const useMessaging = (
 						.filter((m: any) => m.timestamp.getTime() > clearedAt);
 				}
 				setMessages(parsed);
-				setContacts(Object.keys(parsed));
+				setContacts(
+					Object.keys(parsed).filter(
+						(c) =>
+							c !== user &&
+							DataBase.cleanPub(c) !== DataBase.cleanPub(user),
+					),
+				);
 			}
 		} catch (e) {
 			console.error("Failed to load saved messages", e);
@@ -329,11 +339,17 @@ export const useMessaging = (
 		trackChain(db.zen.get(`linda_v3_contacts_${userPub}`))
 			.map()
 			.on((data: any, contactId: string) => {
+				const isSelfContact =
+					contactId === userPub ||
+					DataBase.cleanPub(contactId) === DataBase.cleanPub(userPub);
+
 				if (data === true) {
-					setContacts((prev) =>
-						prev.includes(contactId) ? prev : [...prev, contactId],
-					);
-					setTrustedContacts((prev) => new Set(prev).add(contactId));
+					if (!isSelfContact) {
+						setContacts((prev) =>
+							prev.includes(contactId) ? prev : [...prev, contactId],
+						);
+						setTrustedContacts((prev) => new Set(prev).add(contactId));
+					}
 					setBlockedContacts((prev) => {
 						const next = new Set(prev);
 						next.delete(contactId);
@@ -383,7 +399,13 @@ export const useMessaging = (
 
 	// Auto-subscribe to recipient if opened directly via deep link URL (/chat/:id)
 	useEffect(() => {
-		if (recipient && userPub && !contacts.includes(recipient)) {
+		if (
+			recipient &&
+			userPub &&
+			recipient !== userPub &&
+			DataBase.cleanPub(recipient) !== DataBase.cleanPub(userPub) &&
+			!contacts.includes(recipient)
+		) {
 			saveContact(recipient);
 		}
 	}, [recipient, userPub, contacts, saveContact]);
@@ -922,6 +944,32 @@ export const useMessaging = (
 							});
 						});
 					}
+
+					// 4. Listen to Reactions. Key is "<messageId>::<reactorPub>",
+					// value is {emoji,...} or null when the reactor cleared it.
+					const reactionChains = isP2P
+						? [db.zen.get(`${groupPath(roomId)}/reactions`)]
+						: await communicationService!.getRoomChains(
+								roomId,
+								roomSecrets,
+								"reactions",
+							);
+					if (reactionChains.length) {
+						attachAll(reactionChains, (data: any, key: string) => {
+							const sep = key.indexOf("::");
+							if (sep === -1) return;
+							const msgId = key.slice(0, sep);
+							const reactorPub = key.slice(sep + 2);
+							setMessageReactions((prev) => {
+								const groupReactions = { ...(prev[contactId] || {}) };
+								const forMsg = { ...(groupReactions[msgId] || {}) };
+								if (data && data.emoji) forMsg[reactorPub] = data.emoji;
+								else delete forMsg[reactorPub];
+								groupReactions[msgId] = forMsg;
+								return { ...prev, [contactId]: groupReactions };
+							});
+						});
+					}
 				}
 			} catch (err) {
 				console.warn(
@@ -1272,13 +1320,19 @@ export const useMessaging = (
 				saveMessages(userPub, next);
 				return next;
 			});
-			setContacts((prev) => {
-				if (!prev.includes(recipient)) {
-					saveContact(recipient);
-					return [...prev, recipient];
-				}
-				return prev;
-			});
+			const isSelfRecipient =
+				recipient === userPub ||
+				DataBase.cleanPub(recipient) === DataBase.cleanPub(userPub);
+
+			if (!isSelfRecipient) {
+				setContacts((prev) => {
+					if (!prev.includes(recipient)) {
+						saveContact(recipient);
+						return [...prev, recipient];
+					}
+					return prev;
+				});
+			}
 
 			try {
 				const isGroup = isGroupId(recipient);
@@ -1727,6 +1781,15 @@ export const useMessaging = (
 		handlePinMessage: (msgId: string, pin: boolean) => {
 			if (!recipient || !groupService) return;
 			groupService.pinMessage(recipient, msgId, pin);
+		},
+		messageReactions,
+		handleReactMessage: (msgId: string, emoji: string) => {
+			if (!recipient || !groupService) return;
+			groupService
+				.reactToMessage(recipient, msgId, emoji)
+				.catch((e) =>
+					console.warn(`[Groups] Failed to react to ${msgId}:`, e),
+				);
 		},
 		handleReportMessage: () => {
 			showNotification?.("Message reported", "info");

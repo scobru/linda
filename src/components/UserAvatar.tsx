@@ -10,6 +10,22 @@ interface UserAvatarProps {
   isGroup?: boolean;
 }
 
+const getStoredAvatar = (rawPub: string): string | null => {
+  if (!rawPub) return null;
+  const cleanPub = DataBase.cleanPub(rawPub);
+  const direct = localStorage.getItem(`linda_avatar_${cleanPub}`) || localStorage.getItem(`linda_avatar_${rawPub}`);
+  if (direct) return direct;
+  try {
+    const cached = localStorage.getItem("linda_contact_profiles_v2");
+    if (cached) {
+      const profiles = JSON.parse(cached);
+      if (profiles[cleanPub]?.avatar) return profiles[cleanPub].avatar;
+      if (profiles[rawPub]?.avatar) return profiles[rawPub].avatar;
+    }
+  } catch (e) {}
+  return null;
+};
+
 /**
  * A robust avatar component that handles GunDB subscriptions 
  * to show custom avatars with an automatic DiceBear fallback.
@@ -21,22 +37,11 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
   className = "w-12 h-12", 
   isGroup = false 
 }) => {
-  const [avatar, setAvatar] = useState<string | null>(() => {
-    if (!pub) return null;
-    const cleanPub = DataBase.cleanPub(pub);
-    return localStorage.getItem(`linda_avatar_${cleanPub}`);
-  });
+  const [avatar, setAvatar] = useState<string | null>(() => getStoredAvatar(pub));
 
-  // Reset when the subject changes, otherwise the previous user's avatar
-  // keeps showing until the subscription below emits (React reuses the
-  // component instance when only `pub` changes).
+  // Reset when the subject changes
   useEffect(() => {
-    if (!pub) {
-      setAvatar(null);
-      return;
-    }
-    const cleanPub = DataBase.cleanPub(pub);
-    setAvatar(localStorage.getItem(`linda_avatar_${cleanPub}`));
+    setAvatar(getStoredAvatar(pub));
   }, [pub]);
 
   useEffect(() => {
@@ -46,28 +51,59 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
     
     // Define all possible paths for the avatar
     const paths = isGroup 
-      ? [`${groupPath(cleanPub)}/meta/avatar`] 
+      ? [
+          `${groupPath(cleanPub)}/meta/avatar`,
+          `${groupPath(cleanPub)}/meta`,
+          ...(pub !== cleanPub ? [`${groupPath(pub)}/meta/avatar`, `${groupPath(pub)}/meta`] : [])
+        ] 
       : [
           `~${cleanPub}/profile/avatar`, 
           `linda_public_profiles/${cleanPub}/avatar`
         ];
     
-    // Subscribe to all paths
-    paths.forEach(path => {
-      db.On(path, (data: any) => {
-        if (typeof data === "string") {
-          setAvatar(data);
-          // If it's the current user, keep localStorage in sync
-          if (!isGroup && cleanPub === DataBase.cleanPub(db.getUserPub() || "")) {
-            localStorage.setItem(`linda_avatar_${cleanPub}`, data);
+    const handleAvatarData = (data: any) => {
+      let avatarUrl = "";
+      if (typeof data === "string" && data.trim()) {
+        avatarUrl = data.trim();
+      } else if (data && typeof data === "object" && typeof data.avatar === "string" && data.avatar.trim()) {
+        avatarUrl = data.avatar.trim();
+      }
+
+      if (avatarUrl && !avatarUrl.startsWith("{")) {
+        setAvatar(avatarUrl);
+        try {
+          localStorage.setItem(`linda_avatar_${cleanPub}`, avatarUrl);
+          if (pub !== cleanPub) {
+            localStorage.setItem(`linda_avatar_${pub}`, avatarUrl);
           }
-        }
-      });
+        } catch (e) {}
+      }
+    };
+
+    // Proactive initial fetch
+    paths.forEach(path => {
+      db.Get(path, 3000, true).then(handleAvatarData).catch(() => {});
     });
 
-    // Note: We don't call db.Off(path) here because Gun's .off() 
-    // is destructive and would remove listeners for all components 
-    // watching this avatar (e.g. sidebar AND chat view).
+    // Reactive listener
+    paths.forEach(path => {
+      db.On(path, handleAvatarData);
+    });
+
+    // Real-time custom event listener for immediate same-tab UI updates
+    const onAvatarUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ pub: string; avatar: string }>;
+      if (customEvent.detail && (customEvent.detail.pub === pub || customEvent.detail.pub === cleanPub)) {
+        if (customEvent.detail.avatar) {
+          setAvatar(customEvent.detail.avatar);
+        }
+      }
+    };
+    window.addEventListener("linda_avatar_updated", onAvatarUpdated);
+
+    return () => {
+      window.removeEventListener("linda_avatar_updated", onAvatarUpdated);
+    };
   }, [pub, db, isGroup]);
 
   return (

@@ -42,6 +42,7 @@ converge at different speeds and a blank name is worse than a stale one.
 | `linda_rooms/<roomId>/messages` | root | Append-only message set. Values are ciphertext. |
 | `linda_rooms/<roomId>/deleted_messages` | root | Tombstones for messages hidden from the room. |
 | `linda_rooms/<roomId>/pins` | root | Pinned message ids. |
+| `linda_rooms/<roomId>/reactions/<messageId>::<pub>` | root | One reactor's emoji on one message, or `null` once cleared. One leaf per (message, member) pair so concurrent reactors never overwrite each other. |
 | `linda_room_keys/<roomId>` | root | Encrypted escrow of a room secret, readable only by the members who hold the wrapping key. |
 
 The 1:1 room id is derived, not negotiated: both peers sort their two public

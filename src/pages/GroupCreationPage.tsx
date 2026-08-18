@@ -25,9 +25,14 @@ export const GroupCreationPage: React.FC<GroupCreationPageProps> = ({
   const [joinByName, setJoinByName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Helper to instantly seed the profile cache
   const seedGroupProfile = (groupId: string, groupName: string, avatar?: string) => {
     try {
+      if (avatar) {
+        localStorage.setItem(`linda_avatar_${groupId}`, avatar);
+        window.dispatchEvent(new CustomEvent("linda_avatar_updated", {
+          detail: { pub: groupId, avatar }
+        }));
+      }
       const cached = localStorage.getItem("linda_contact_profiles_v2");
       const profiles = cached ? JSON.parse(cached) : {};
       profiles[groupId] = {

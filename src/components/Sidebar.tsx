@@ -47,9 +47,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "unread">("all");
 
-  const visibleContacts = contacts.filter((id) =>
-    filter === "unread" ? (unreadCounts[id] || 0) > 0 : true,
-  );
+  const isSelf = (id: string) => {
+    if (!userPub || !id) return false;
+    return id === userPub || DataBase.cleanPub(id) === DataBase.cleanPub(userPub);
+  };
+
+  const visibleContacts = contacts
+    .filter((id) => !isSelf(id))
+    .filter((id) =>
+      filter === "unread" ? (unreadCounts[id] || 0) > 0 : true,
+    );
 
   const handleQrScan = async (data: string) => {
     setShowScanner(false);
@@ -92,11 +99,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         pubKey = await communicationService.getPubKeyFromUsername(pubKey);
       }
 
-      if (!blockedContacts.has(pubKey)) {
-        saveContact(pubKey);
-        showNotification(`Contatto aggiunto tramite QR!`, "info");
-      } else {
-        showNotification(`Apertura chat con contatto bloccato`, "info");
+      if (!isSelf(pubKey)) {
+        if (!blockedContacts.has(pubKey)) {
+          saveContact(pubKey);
+          showNotification(`Contatto aggiunto tramite QR!`, "info");
+        } else {
+          showNotification(`Apertura chat con contatto bloccato`, "info");
+        }
       }
       smoothNavigate(`/chat/${pubKey}`, () => setRecipient(pubKey));
     } catch (err: any) {
@@ -154,10 +163,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           pubKey = await communicationService.getPubKeyFromUsername(name);
         }
 
-        if (!blockedContacts.has(pubKey)) {
-          saveContact(pubKey);
-        } else {
-          showNotification(`Apertura chat con contatto bloccato`, "info");
+        if (!isSelf(pubKey)) {
+          if (!blockedContacts.has(pubKey)) {
+            saveContact(pubKey);
+          } else {
+            showNotification(`Apertura chat con contatto bloccato`, "info");
+          }
         }
         smoothNavigate(`/chat/${pubKey}`, () => {
           setRecipient(pubKey);

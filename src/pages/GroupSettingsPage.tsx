@@ -162,6 +162,7 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
           await groupService.updateGroupMeta(groupId, { avatar: dataUrl });
           
           try {
+            localStorage.setItem(`linda_avatar_${groupId}`, dataUrl);
             const cached = localStorage.getItem("linda_contact_profiles_v2");
             const profiles = cached ? JSON.parse(cached) : {};
             profiles[groupId] = {
@@ -170,6 +171,10 @@ export const GroupSettingsPage: React.FC<GroupSettingsPageProps> = ({
             };
             localStorage.setItem("linda_contact_profiles_v2", JSON.stringify(profiles));
           } catch (e) {}
+
+          window.dispatchEvent(new CustomEvent("linda_avatar_updated", {
+            detail: { pub: groupId, avatar: dataUrl }
+          }));
 
           showNotification("Immagine del gruppo aggiornata!", "info");
           loadData();

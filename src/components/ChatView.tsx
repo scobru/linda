@@ -43,6 +43,8 @@ interface ChatViewProps {
   handlePinMessage: (msgId: string, pin: boolean) => void;
   handleReportMessage: (msgId: string) => void;
   handleDeleteMessage: (msgId: string, senderPub?: string) => void;
+  messageReactions: Record<string, Record<string, Record<string, string>>>;
+  handleReactMessage: (msgId: string, emoji: string) => void;
   handleRegenerateCertificate: () => void;
   setShowGroupSettings: (id: string | null) => void;
   transferProgress: Record<string, number>;
@@ -57,6 +59,8 @@ interface ChatViewProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
   blockedContacts: Set<string>;
 }
+
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 const MessageText = React.memo(
   ({ text, isMe }: { text?: string | any; isMe?: boolean }) => {
@@ -109,6 +113,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   handlePinMessage,
   handleReportMessage,
   handleDeleteMessage,
+  messageReactions,
+  handleReactMessage,
   handleRegenerateCertificate,
   setShowGroupSettings,
   transferProgress,
@@ -135,6 +141,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
+    null,
+  );
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
     null,
   );
 
@@ -174,17 +183,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
   };
 
+  const isSelf = useMemo(() => {
+    if (!userPub || !recipient) return false;
+    return (
+      recipient === userPub ||
+      DataBase.cleanPub(recipient) === DataBase.cleanPub(userPub)
+    );
+  }, [recipient, userPub]);
+
   const isTrusted = useMemo(() => {
     if (isContactsLoading) return true;
     if (!recipient) return true;
+    if (isSelf) return true; // Self messages (Messaggi Salvati) are always trusted
     if (isGroupId(recipient)) return true; // Groups are trusted by join
     return trustedContacts.has(recipient);
-  }, [recipient, trustedContacts, isContactsLoading]);
+  }, [recipient, isSelf, trustedContacts, isContactsLoading]);
 
   const isBlocked = useMemo(() => {
     if (!recipient) return false;
+    if (isSelf) return false;
     return blockedContacts.has(recipient);
-  }, [recipient, blockedContacts]);
+  }, [recipient, isSelf, blockedContacts]);
   useEffect(() => {
     const checkPerms = async () => {
       // If looks like a group UUID
@@ -327,7 +346,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const processMessages = async () => {
       for (const msg of currentMessages) {
         // Auto-accept if it's an image in Cloud/Self chat
-        const isCloudChat = recipient === userPub;
+        const isCloudChat = isSelf;
         if (
           msg.type === "image" &&
           isCloudChat &&
@@ -480,13 +499,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         <div className="flex-1 flex items-center gap-3.5 min-w-0">
           <div className="relative">
-            <UserAvatar
-              pub={recipient}
-              db={db}
-              isGroup={isGroupId(recipient)}
-              className="w-14 h-14"
-            />
-            {typingStatuses[recipient] && (
+            {isSelf ? (
+              <div className="w-14 h-14 rounded-full border border-base-content/10 bg-base-300 overflow-hidden shadow-sm flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-7 w-7 text-primary"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.2}
+                    d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
+                  />
+                </svg>
+              </div>
+            ) : (
+              <UserAvatar
+                pub={recipient}
+                db={db}
+                isGroup={isGroupId(recipient)}
+                className="w-14 h-14"
+              />
+            )}
+            {!isSelf && typingStatuses[recipient] && (
               <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-success rounded-full border-2 border-base-200 animate-pulse" />
             )}
           </div>
@@ -494,6 +532,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex flex-col min-w-0">
             <h3 className="text-[19px] font-black tracking-tight truncate leading-tight">
               {(() => {
+                if (isSelf) return "Messaggi Salvati";
                 const isGroup = isGroupId(recipient);
                 const cleanId = isGroup
                   ? recipient
@@ -503,7 +542,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
               })()}
             </h3>
             <span className="text-sm opacity-70 font-medium">
-              {typingStatuses[recipient]
+              {isSelf
+                ? "Spazio personale"
+                : typingStatuses[recipient]
                 ? "sta scrivendo..."
                 : isGroupId(recipient)
                 ? "Gruppo crittografato"
@@ -739,6 +780,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
               ? userNick || truncatePub(userPub) || truncatePub(username) || "Tu"
               : getDisplayName(msg.sender, profile);
             const isPinned = pinnedMessages[recipient]?.has(msg.id);
+            const reactionsForMsg = messageReactions[recipient]?.[msg.id] || {};
+            const reactionCounts: Record<string, number> = {};
+            for (const emoji of Object.values(reactionsForMsg)) {
+              reactionCounts[emoji] = (reactionCounts[emoji] || 0) + 1;
+            }
+            const myReaction = reactionsForMsg[userPub];
 
             return (
               <div
@@ -780,7 +827,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <FileBubble
                       metadata={msg.fileMetadata}
                       isMe={isMe}
-                      isCloud={recipient === userPub}
+                      isCloud={isSelf}
                       status="idle"
                       wormholeStatus={
                         msg.fileMetadata.method === "wormhole"
@@ -904,6 +951,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div
                     className={`absolute top-0 flex gap-1.5 p-1.5 bg-base-300/90 backdrop-blur-xl rounded-full shadow-2xl border border-base-content/10 transition-all duration-300 z-10 ${selectedMessageId === msg.id ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" : "opacity-0 scale-90 translate-y-2 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:scale-100 sm:group-hover:scale-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"} ${isMe ? "-left-20 sm:-left-24" : "-right-20 sm:-right-24"}`}
                   >
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setReactionPickerFor(
+                            reactionPickerFor === msg.id ? null : msg.id,
+                          )
+                        }
+                        className="btn btn-ghost btn-circle btn-xs hover:text-primary transition-colors"
+                        title="Reagisci"
+                        aria-label="Reagisci al messaggio"
+                      >
+                        😀
+                      </button>
+                      {reactionPickerFor === msg.id && (
+                        <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 flex gap-1 p-1.5 bg-base-300 rounded-full shadow-2xl border border-base-content/10 z-20">
+                          {QUICK_REACTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => {
+                                handleReactMessage(msg.id, emoji);
+                                setReactionPickerFor(null);
+                              }}
+                              className={`btn btn-ghost btn-circle btn-xs text-base ${myReaction === emoji ? "bg-primary/20" : ""}`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {isGroupId(recipient) && (
                       <>
                         {["moderator", "administrator"].includes(
@@ -946,6 +1024,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     )}
                   </div>
                 </div>
+
+                {Object.keys(reactionCounts).length > 0 && (
+                  <div
+                    className={`flex gap-1 mt-1 flex-wrap ${isMe ? "justify-end mr-1" : "justify-start ml-1"}`}
+                  >
+                    {Object.entries(reactionCounts).map(([emoji, count]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleReactMessage(msg.id, emoji)}
+                        className={`text-xs rounded-full px-2 py-0.5 border transition-colors ${myReaction === emoji ? "bg-primary/20 border-primary/40" : "bg-base-300 border-base-content/10"}`}
+                      >
+                        {emoji} {count}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
