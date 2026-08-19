@@ -158,7 +158,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(
     null,
   );
-  const [editText, setEditText] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
   // Compute all unique tags in current chat
@@ -972,41 +971,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     />
                   ) : (
                     <div className="py-0.5 leading-relaxed text-[16px] text-base font-normal">
-                      {editingMessageId === msg.id ? (
-                        <div
-                          className="flex flex-col gap-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <textarea
-                            autoFocus
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            className="textarea textarea-sm w-full bg-base-100/20 text-inherit"
-                            rows={2}
-                          />
-                          <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => setEditingMessageId(null)}
-                              className="btn btn-xs btn-ghost"
-                            >
-                              Annulla
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (editText.trim()) {
-                                  handleEditMessage(msg.id, editText.trim());
-                                }
-                                setEditingMessageId(null);
-                              }}
-                              className="btn btn-xs btn-primary"
-                            >
-                              Salva
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {msg.replyTo && (
+                      <>
+                        {msg.replyTo && (
                             <div
                               className={`mb-1 pl-2 border-l-2 text-xs opacity-70 truncate max-w-[60vw] sm:max-w-xs ${isMe ? "border-primary-content/50" : "border-base-content/30"}`}
                             >
@@ -1030,8 +996,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               modificato
                             </span>
                           )}
-                        </>
-                      )}
+                      </>
 
                       {msg.tags && msg.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2 mb-1">
@@ -1095,7 +1060,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {/* Bubble Actions: minimal text menu, appears on click */}
                   {selectedMessageId === msg.id && (
                     <div
-                      className={`absolute top-0 z-20 min-w-[150px] py-1.5 bg-base-300 rounded-xl shadow-2xl border border-base-content/10 ${isMe ? "right-full mr-2" : "left-full ml-2"}`}
+                      className={`absolute top-0 z-20 min-w-[150px] py-1.5 bg-base-300 text-base-content rounded-xl shadow-2xl border border-base-content/10 ${isMe ? "right-full mr-2" : "left-full ml-2"}`}
                     >
                       <button
                         onClick={() => {
@@ -1148,8 +1113,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {isMe && msg.type === "text" && (
                         <button
                           onClick={() => {
-                            setEditText(msg.text || "");
+                            setMessage(msg.text || "");
                             setEditingMessageId(msg.id);
+                            setReplyingTo(null);
                             setSelectedMessageId(null);
                           }}
                           className="w-full text-left px-3.5 py-2 text-xs font-semibold whitespace-nowrap hover:bg-base-content/10 transition-colors"
@@ -1297,6 +1263,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         ) : (
           <div className="flex flex-col gap-2 w-full max-w-3xl mx-auto">
+            {editingMessageId && (
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-base-300/50 rounded-xl text-xs">
+                <div className="truncate opacity-70">Modifica messaggio</div>
+                <button
+                  onClick={() => {
+                    setEditingMessageId(null);
+                    setMessage("");
+                  }}
+                  className="btn btn-ghost btn-xs btn-circle"
+                  aria-label="Annulla modifica"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             {replyingTo && (
               <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-base-300/50 rounded-xl text-xs">
                 <div className="truncate opacity-70">
@@ -1431,14 +1412,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       if (e.key === "Enter" && !e.shiftKey) {
                         if (message.trim()) {
                           e.preventDefault();
-                          handleSendMessage(
-                            message,
-                            undefined,
-                            undefined,
-                            replyingTo?.id,
-                          );
+                          if (editingMessageId) {
+                            handleEditMessage(editingMessageId, message.trim());
+                            setEditingMessageId(null);
+                          } else {
+                            handleSendMessage(
+                              message,
+                              undefined,
+                              undefined,
+                              replyingTo?.id,
+                            );
+                            setReplyingTo(null);
+                          }
                           setMessage("");
-                          setReplyingTo(null);
                         } else {
                           e.preventDefault();
                         }
@@ -1451,14 +1437,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   className={`btn btn-circle h-12 w-12 shrink-0 transition-all ${message.trim() ? "btn-primary shadow-lg" : "btn-ghost opacity-25"}`}
                   onClick={() => {
                     if (message.trim()) {
-                      handleSendMessage(
-                        message,
-                        undefined,
-                        undefined,
-                        replyingTo?.id,
-                      );
+                      if (editingMessageId) {
+                        handleEditMessage(editingMessageId, message.trim());
+                        setEditingMessageId(null);
+                      } else {
+                        handleSendMessage(
+                          message,
+                          undefined,
+                          undefined,
+                          replyingTo?.id,
+                        );
+                        setReplyingTo(null);
+                      }
                       setMessage("");
-                      setReplyingTo(null);
                     }
                   }}
                   disabled={!message.trim()}
