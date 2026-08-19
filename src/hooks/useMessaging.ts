@@ -594,20 +594,13 @@ export const useMessaging = (
 			if (!userPub || !db.zen || !communicationService) return;
 			console.log(`[Messaging] Blocking contact: ${contactId.slice(0, 8)}`);
 
-			// 1. Revoke certificate
-			await communicationService.revokeCertificate(contactId);
-
-			// 2. Mark as blocked in contacts list
+			// Arm the guard and local state FIRST, synchronously — revokeCertificate
+			// below is a network/crypto call that can take seconds (observed 2s+),
+			// and every incoming-message listener gates on blockedContactsRef. Doing
+			// this after the await left that whole window unguarded: an in-flight
+			// P2P_POKE or contacts-listener echo from the peer could still land and
+			// re-add them to contacts before the block ever took effect.
 			recentContactActionRef.current.set(contactId, false);
-			db.zen
-				.get(`linda_v3_contacts_${userPub}`)
-				.get(contactId)
-				.put(false as any);
-
-			// Optimistic: blockedContactsRef gates every incoming-message listener
-			// (room + inbox). Waiting on the listener to round-trip our own write
-			// left a window where the contact could still get through, and the
-			// "blocked" UI never showed until it eventually did.
 			setContacts((prev) => prev.filter((c) => c !== contactId));
 			setTrustedContacts((prev) => {
 				const next = new Set(prev);
@@ -619,10 +612,16 @@ export const useMessaging = (
 				blockedContactsRef.current = next;
 				return next;
 			});
-
 			if (recipient === contactId) {
 				setRecipient("");
 			}
+
+			db.zen
+				.get(`linda_v3_contacts_${userPub}`)
+				.get(contactId)
+				.put(false as any);
+
+			await communicationService.revokeCertificate(contactId);
 		},
 		[userPub, db, communicationService, recipient, setRecipient],
 	);
