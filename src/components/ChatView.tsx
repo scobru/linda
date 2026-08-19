@@ -571,13 +571,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        <div className="flex-none flex items-center gap-2">
+        <div className="flex-none shrink-0 flex items-center gap-2">
           {!isSelf && !isGroupId(recipient) && (
             <>
               <button
                 onClick={() => onStartCall(false)}
                 disabled={callStatus !== "idle"}
-                className="btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
+                className="max-sm:hidden btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
                 aria-label="Chiama"
                 title="Chiamata vocale"
               >
@@ -599,7 +599,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <button
                 onClick={() => onStartCall(true)}
                 disabled={callStatus !== "idle"}
-                className="btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
+                className="max-sm:hidden btn btn-ghost btn-circle btn-md opacity-70 disabled:opacity-30"
                 aria-label="Videochiamata"
                 title="Videochiamata"
               >
@@ -647,7 +647,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {isGroupId(recipient) && (
             <button
               onClick={() => setShowGroupSettings(recipient)}
-              className="btn btn-ghost btn-circle btn-md"
+              className="max-sm:hidden btn btn-ghost btn-circle btn-md"
               aria-label="Impostazioni gruppo"
             >
               <svg
@@ -691,6 +691,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
               tabIndex={0}
               className="dropdown-content mt-2 z-[50] menu p-2.5 shadow-2xl bg-base-300 border border-base-content/10 rounded-2xl w-60 font-bold text-base"
             >
+              {!isSelf && !isGroupId(recipient) && (
+                <>
+                  <li className="sm:hidden">
+                    <button
+                      onClick={() => onStartCall(false)}
+                      disabled={callStatus !== "idle"}
+                      className="py-3 disabled:opacity-30"
+                    >
+                      Chiama
+                    </button>
+                  </li>
+                  <li className="sm:hidden">
+                    <button
+                      onClick={() => onStartCall(true)}
+                      disabled={callStatus !== "idle"}
+                      className="py-3 disabled:opacity-30"
+                    >
+                      Videochiamata
+                    </button>
+                  </li>
+                </>
+              )}
+              {isGroupId(recipient) && (
+                <li className="sm:hidden">
+                  <button
+                    onClick={() => setShowGroupSettings(recipient)}
+                    className="py-3"
+                  >
+                    Impostazioni gruppo
+                  </button>
+                </li>
+              )}
               <li>
                 <button
                   onClick={() => {
