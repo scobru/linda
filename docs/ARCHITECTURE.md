@@ -109,20 +109,40 @@ The full path inventory lives in [DATA_MODEL.md](./DATA_MODEL.md).
 5. **Decryption** — the recipient derives the identical secret from
    `zen.secret(senderPub, myPair)` and decrypts locally.
 
-### Group messaging (shared AES-GCM key + ECDSA signatures)
+### Group messaging (shared AES-GCM key + ECDSA signatures + roles)
 
-1. **Group secret** — the creator generates a 256-bit symmetric key (`meta.secret`).
-2. **Invite distribution** — the key reaches new members over encrypted 1:1
-   channels or signed invite tokens, never in the clear.
-3. **Group cryptography & signatures** — `GroupService.encryptGroupMessage` signs the
+1. **Group secret** — the creator generates a 256-bit symmetric key, tagged
+   `keyEpoch: 1`. `GroupInfo.secret` on the public `meta` node is always the
+   empty string; the key itself never touches the graph in cleartext.
+2. **Roles & permissions** — every member holds `peer`, `moderator`, or
+   `administrator` at `linda_rooms/<id>/members/<pub>/role`. A fixed matrix in
+   `GroupService.canPerform` gates every write (send, pin, delete, mute, kick,
+   promote, invite-by-role); broadcast-type groups additionally restrict
+   `send_message` to moderator/administrator.
+3. **Invite distribution** — invite tokens carry `{groupId, role, expiry,
+   singleUse}`; the key itself is delivered separately (rotation drop or
+   direct message), not embedded in newer invite links. Admin invites are
+   always single-use and expire in 1 hour; other roles expire in 24 hours.
+4. **Key rotation & epochs** — kicking or leaving a member rotates the key:
+   a new AES-256 key is ECDH-encrypted per remaining member and dropped at
+   `linda_rooms/<id>/keys/<epoch>/<memberPub>`, then pushed live to online
+   members. `keyEpoch` only advances after every drop is written. Clients keep
+   every epoch they ever held, because the room's node soul is itself derived
+   from the secret — losing an old key loses that epoch's backlog, not just
+   future decryption.
+5. **Group cryptography & signatures** — `GroupService.encryptGroupMessage` signs the
    message with the sender's secp256k1 keypair (`zenCrypto.sign`), then encrypts the
-   signed envelope with the group's symmetric key (`zenCrypto.encrypt`).
-4. **Decryption & sender verification** — `GroupService.decryptGroupMessage` decrypts
-   the payload and verifies the sender's cryptographic ECDSA signature (`zenCrypto.verify`),
-   ensuring authenticity and preventing message impersonation.
-5. **Key durability** — every path that learns a secret also escrows it,
+   signed envelope with the group's current symmetric key (`zenCrypto.encrypt`).
+6. **Decryption & sender verification** — `GroupService.decryptGroupMessage` tries
+   every locally-held epoch (newest first, no epoch tag on the wire) to decrypt
+   the payload, then verifies the sender's ECDSA signature (`zenCrypto.verify`).
+7. **Key durability** — every path that learns a secret also escrows it,
    encrypted to the owner's own keypair, at `linda_room_keys/<groupId>`, so a
    cleared browser profile does not lock a member out of their own group.
+
+Full role matrix, invite mechanics, and how this sits on top of Zen's own
+per-path write authorization (policy tails, certificate issuance/revocation)
+are detailed in [ENCRYPTION_FLOW.md](../ENCRYPTION_FLOW.md#3-group-service-ruoli-e-chat-di-gruppo).
 
 ---
 
@@ -172,7 +192,13 @@ Relays are **blind sync nodes**:
 - They hold no private keys, decrypt nothing, and perform no cryptographic
   transformation on message content.
 - Inbox writes are authorised by per-peer Zen certificates rather than wildcard
-  policies, so a leaked certificate grants one writer one path.
+  policies, so a leaked certificate grants one writer one path. Certificates
+  are scoped, revocable (`revokeCertificate` writes both a discovery-blocking
+  null and a live write-blocklist entry Zen checks on every write), and sit on
+  top of Zen's four path-level authorization modes (open, signature,
+  certificate, proof-of-work) — see
+  [ENCRYPTION_FLOW.md §4](../ENCRYPTION_FLOW.md#4-permessi-su-zen-chi-può-scrivere-cosa)
+  for the full mechanics.
 
 A relay operator can still observe metadata: which souls are written, when, and
 by which public key. See [SECURITY.md](./SECURITY.md) for what that implies.

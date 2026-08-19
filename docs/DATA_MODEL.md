@@ -75,21 +75,45 @@ certified path and fall back to the public one.
 > Chaining down from a parent node with a certificate attached silently stalls
 > instead of erroring.
 
-## 4. Group secrets
+## 4. Group secrets, roles, and certificates
 
 A group's AES-GCM key never travels in the clear and is never derivable from the
 room id.
 
-- The creator generates a 256-bit key and keeps it in `secretCache` plus
-  `localStorage` under `linda_group_secret_<myPub>_<groupId>`.
+| Path | Space | Contents |
+| :--- | :--- | :--- |
+| `linda_rooms/<groupId>/members/<pub>` | root | `{role, joinedAt}`. Role is one of `peer`/`moderator`/`administrator`, checked by `GroupService.canPerform` before every write. |
+| `linda_rooms/<groupId>/keys/<epoch>/<memberPub>` | root | One rotated key per surviving member, ECDH-encrypted to that member's pub. Written on every kick/leave; a removed member simply gets no entry. |
+| `linda_rooms/<groupId>/mutes/<pub>` | root | Timestamp a member was muted, or `null` once cleared. Blocks `send_message` only. |
+| `linda_rooms/<groupId>/active_invites/<inviteId>` | root | Tracking record for single-use invites (always written for admin-role invites). |
+| `linda_rooms/<groupId>/reports/<reportId>` | root | Content/user reports; visible only to moderator+ via `action_reports`. |
+| `linda_public_index/<publicName>` | root | Public-group name → `groupId`, written by `setGroupPublic`. |
+| `~<pub>/certs/<peerPub>` | user | Zen certificate authorising `peerPub` to write into this user's certified inbox/room paths. `null` on revoke. |
+
+- The creator generates a 256-bit key, tagged with `keyEpoch: 1`, and keeps it
+  in `secretCache` plus `localStorage` under
+  `linda_group_secret_<myPub>_<groupId>`. `meta.secret` on the public node is
+  always the empty string — the key is never written there.
 - The same key is escrowed, encrypted to the owner's own keypair, at
   `linda_room_keys/<groupId>`. This is what survives a cleared browser profile.
-- New members receive the key through a 1:1 ECDH-encrypted invite message, not
-  through the group room itself.
+- New members receive the key either inline in a legacy invite token (`s`
+  field, no longer used by new invites) or as a rotation drop at
+  `linda_rooms/<groupId>/keys/<epoch>/<memberPub>` — never through the group
+  room itself.
+- Every kick or leave bumps `keyEpoch` and rewrites the drop for every
+  remaining member. Because the room's node soul is derived from the secret
+  (`CommunicationService.getRoomPair`), each epoch lives at a distinct graph
+  node — clients keep every key they were ever handed so old history stays
+  reachable, not just the current epoch.
 
 A key is only accepted if it decodes as base64 of a 16, 24, or 32 byte buffer.
 Anything else is refused rather than cached, because a corrupt secret poisons
 every later send in the room.
+
+Write authorization for these paths is layered on top of the encryption: see
+[ENCRYPTION_FLOW.md §4](../ENCRYPTION_FLOW.md#4-permessi-su-zen-chi-può-scrivere-cosa)
+for Zen's per-path policy tails (open / signed / certificate / proof-of-work)
+and how Linda issues and revokes certificates.
 
 ## 5. Local (non-graph) state
 
