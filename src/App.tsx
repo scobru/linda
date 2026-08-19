@@ -310,7 +310,7 @@ const AppContent: React.FC<{
         remoteStream={calling.remoteStream}
         recipientProfile={
           contactProfiles[
-            calling.callPeer ? DataBase.cleanPub(calling.callPeer) : ""
+          calling.callPeer ? DataBase.cleanPub(calling.callPeer) : ""
           ] || null
         }
         onAccept={calling.acceptCall}
@@ -344,6 +344,21 @@ const App: React.FC = () => {
     username: "",
   });
 
+  // Magic-link (?magic_login=/?session=) login: must run here, not inside
+  // AppContent — AppContent only mounts once authState.isLoggedIn is true,
+  // so a logged-out device scanning the QR landed on the login screen with
+  // the link silently ignored. This instance handles the pre-login case;
+  // AppContent's own useAuthManager (isLoggedIn already true there) no-ops
+  // on the magic-link effect and keeps handling its unrelated toast needs.
+  const { isProcessingMagicLink: rootProcessingMagicLink, notification: rootNotification } =
+    useAuthManager(dbInstance, authState.isLoggedIn, (username) =>
+      setAuthState({
+        isLoggedIn: true,
+        userPub: dbInstance?.getUserPub() ?? null,
+        username,
+      }),
+    );
+
   useEffect(() => {
     const savedTheme = localStorage.getItem("linda-theme") || "linda";
     document.documentElement.dataset.theme = savedTheme;
@@ -352,7 +367,8 @@ const App: React.FC = () => {
     const initZen = async () => {
       try {
         const relays = [
-          "https://delay.scobrudot.dev/zen",
+          "wss://delay.scobrudot.dev/zen",
+          "wss://yp52lp72ot44r4fbrzxw743lcm.srv.us/zen"
         ];
         const zen = new ZEN({
           peers: relays,
@@ -398,10 +414,27 @@ const App: React.FC = () => {
       />
     );
 
+  if (rootProcessingMagicLink)
+    return (
+      <LoadingScreen
+        message="Authenticating Link"
+        submessage="Verifying identity on decentralized web"
+      />
+    );
+
   const Router = window.location.protocol === "file:" ? HashRouter : BrowserRouter;
 
   return (
     <Router>
+      {rootNotification && (
+        <div className="toast toast-top toast-end z-[100]">
+          <div
+            className={`alert ${rootNotification.type === "error" ? "alert-error" : "alert-success"} shadow-xl border border-base-content/5`}
+          >
+            <span>{rootNotification.msg}</span>
+          </div>
+        </div>
+      )}
       {!authState.isLoggedIn ? (
         <AuthPage
           db={dbInstance}

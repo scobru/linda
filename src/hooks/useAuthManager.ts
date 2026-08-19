@@ -7,7 +7,11 @@ export interface Notification {
   type: "info" | "error";
 }
 
-export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
+export const useAuthManager = (
+  db: DataBase | null,
+  isLoggedIn: boolean,
+  onLoginSuccess?: (username: string) => void,
+) => {
   const [searchParams] = useSearchParams();
 
   const magicLoginAttempted = useRef(false);
@@ -24,7 +28,7 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
 
   const processUniversalLogin = useCallback(
     async (data: string, context: string = "Login") => {
-      if (!data) return;
+      if (!data || !db) return false;
       try {
         console.log(`[Login] ${context} context, processing data...`);
         let payload = data.trim();
@@ -91,6 +95,7 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
           // no Gun singleton user().is to poll here.
 
           showNotification(`Welcome back, ${displayName}!`, "info");
+          onLoginSuccess?.(finalUsername);
           return true;
         } else {
           throw new Error("Invalid key pair structure");
@@ -100,7 +105,7 @@ export const useAuthManager = (db: DataBase, isLoggedIn: boolean) => {
         return false;
       }
     },
-    [db, showNotification]
+    [db, showNotification, onLoginSuccess]
   );
 
   // Magic Login Hook
