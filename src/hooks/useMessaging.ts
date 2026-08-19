@@ -1243,6 +1243,15 @@ export const useMessaging = (
 			].then(async () => {
 				try {
 					if (processedRef.current.has(gunKey)) return;
+					// Re-check: this item may have been queued before the sender was
+					// blocked. The queue can take seconds to drain (sequential decrypts),
+					// so a block applied mid-drain must still stop already-queued items —
+					// otherwise a backlogged P2P_POKE re-adds the blocked sender to
+					// contacts right after blocking them.
+					if (blockedContactsRef.current.has(senderPubKeyRaw)) {
+						if (userPub) saveProcessedKey(userPub, gunKey);
+						return;
+					}
 					await communicationService.waitReady();
 
 					try {
