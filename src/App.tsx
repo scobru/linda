@@ -169,10 +169,10 @@ const AppContent: React.FC<{
     try {
       if (isGroupId(contactKey)) {
         if (groupService) await groupService.leaveGroup(contactKey, true);
+        messaging.removeContact(contactKey);
       } else {
         await messaging.blockContact(contactKey);
       }
-      messaging.removeContact(contactKey);
       if (recipient === contactKey) {
         smoothNavigate("/", () => setRecipient(""));
       }
