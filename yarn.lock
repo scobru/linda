@@ -5494,9 +5494,9 @@ lightningcss@1.32.0:
     lightningcss-win32-arm64-msvc "1.32.0"
     lightningcss-win32-x64-msvc "1.32.0"
 
-"linda-core@git+https://github.com/scobru/linda-core.git#5fffa20":
+"linda-core@git+https://github.com/scobru/linda-core.git#c54bad2":
   version "1.0.6"
-  resolved "git+https://github.com/scobru/linda-core.git#5fffa204f8677bdbc4d94857d3036d4da4ed0e69"
+  resolved "git+https://github.com/scobru/linda-core.git#c54bad221b491b68e179205c76eeabe8408c8e84"
   dependencies:
     sodium-javascript "^0.8.0"
     sodium-universal "^5.0.1"

@@ -1573,12 +1573,21 @@ export const useMessaging = (
 			});
 		};
 
-		// Legacy public inbox node (transition) + cert-gated user-space inbox.
-		// Writes now land on ~pub/linda_inbox_v13/msgs carrying the recipient's cert,
-		// so anonymous relay spam on the legacy public node is ignored.
-		trackChain(db.zen.get(`linda_v3_inbox_${userPub}`))
-			.map()
-			.on(handleInboxItem);
+		// Pre-contact fallback (PoW-gated, see CommunicationService.getPowInboxSoul)
+		// + cert-gated user-space inbox. The old fully-open linda_v3_inbox_<pub>
+		// node is no longer written to or read — anonymous writes there cost
+		// nothing, so anyone could spam or forge signals; the PoW soul is open
+		// to the same strangers but a write actually costs CPU.
+		communicationService
+			.getPowInboxSoul()
+			.then((soul) => {
+				trackChain(db.zen.get(`${soul}/${userPub}`))
+					.map()
+					.on(handleInboxItem);
+			})
+			.catch((e) =>
+				console.error("[Signal] Failed to resolve PoW inbox soul:", e),
+			);
 		trackChain(db.zen.get(`~${userPub}/linda_inbox_v13/msgs`))
 			.map()
 			.on(handleInboxItem);
@@ -1786,26 +1795,18 @@ export const useMessaging = (
 						"p2p_chat",
 					);
 
-					// POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
+					// POKING: We still send a minimal 'poke' so their app knows to check
+					// the P2P room. No cert exists yet at first contact, so this goes
+					// through sendMessage's PoW-gated fallback (getPowInboxSoul) rather
+					// than a free-for-anyone open node — the poke is what makes an
+					// unknown sender appear in the recipient's contact list, which is
+					// what starts their room listener, so it can't require a cert.
 					try {
-						const pokeMsg = await communicationService.encryptMessage(
+						await communicationService.sendMessage(
 							recipient,
 							`P2P_POKE:${p2pGroup.id}`,
+							"p2p_poke",
 						);
-
-						// No certificate here: linda_v3_inbox_* is a public root node, not
-						// user-space (~pub/...), so writes need no authorization. Fetching one
-						// blocked the poke for up to ~115s (10 attempts x 3 lookups x 3s
-						// timeouts) whenever the peer had published no cert — and the poke is
-						// what makes an unknown sender appear in the recipient's contact list,
-						// which is what starts their room listener.
-						await db.Set(`linda_v3_inbox_${recipient}`, {
-							sender: userPub,
-							type: pokeMsg.type,
-							body: pokeMsg.body,
-							timestamp: timestamp.toISOString(),
-							msgType: "p2p_poke",
-						} as any);
 					} catch (e) {
 						console.warn(
 							"[Signal] Failed to send P2P_POKE, recipient might take longer to sync.",
@@ -2073,20 +2074,11 @@ export const useMessaging = (
 				await communicationService.resetSession(contactId);
 				await communicationService.republishBundle().catch(() => {});
 
-				const ping = await communicationService.encryptMessage(
-					contactId,
-					"PING_HEAL",
-				);
 				const pub =
 					contactId.length < 30
 						? await communicationService.getPubKeyFromUsername(contactId)
 						: contactId;
-				await db.Set(`linda_v3_inbox_${pub}`, {
-					sender: userPub,
-					type: ping.type,
-					body: ping.body,
-					timestamp: new Date().toISOString(),
-				} as any);
+				await communicationService.sendMessage(pub, "PING_HEAL", "text");
 
 				setContactErrors((prev) => ({ ...prev, [contactId]: false }));
 				showNotification?.("Synchronization repaired", "info");
