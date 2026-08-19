@@ -368,7 +368,7 @@ const App: React.FC = () => {
       try {
         const relays = [
           "wss://delay.scobrudot.dev/zen",
-          "wss://yp52lp72ot44r4fbrzxw743lcm.srv.us/zen"
+          "wss://yp52lp72ot44r4fbrzxw743lcm.srv.us/zen",
         ];
         const zen = new ZEN({
           peers: relays,

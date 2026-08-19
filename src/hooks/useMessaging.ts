@@ -414,6 +414,7 @@ export const useMessaging = (
 							prev.includes(contactId) ? prev : [...prev, contactId],
 						);
 						setTrustedContacts((prev) => new Set(prev).add(contactId));
+						communicationService?.ensureFreshCertificate(contactId);
 					}
 					setBlockedContacts((prev) => {
 						const next = new Set(prev);
@@ -460,6 +461,7 @@ export const useMessaging = (
 		loadProcessedKeys,
 		trackChain,
 		resumeTick,
+		communicationService,
 	]);
 
 	// Auto-subscribe to recipient if opened directly via deep link URL (/chat/:id)
