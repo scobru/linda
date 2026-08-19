@@ -2020,13 +2020,16 @@ export const useMessaging = (
 			if (isAppend) {
 				const newMessages = currentMsgs.slice(prevMsgs.length);
 				const addedUnread = newMessages.filter(
-					(m) => m.sender === c && m.status !== "read",
+					(m) => m.sender !== "Me" && m.status !== "read",
 				).length;
 				counts[c] = prevCount + addedUnread;
 			} else {
 				// 3. Fallback: Full scan for first load, deletions, or status updates
+				// A group message's sender is the individual member's pubkey, never
+				// the group id itself, so `m.sender === c` (correct for P2P, where
+				// c IS the peer's pubkey) always missed group messages entirely.
 				counts[c] = currentMsgs.filter(
-					(m) => m.sender === c && m.status !== "read",
+					(m) => m.sender !== "Me" && m.status !== "read",
 				).length;
 			}
 		}
