@@ -459,11 +459,12 @@ export const useMessaging = (
 			userPub &&
 			recipient !== userPub &&
 			DataBase.cleanPub(recipient) !== DataBase.cleanPub(userPub) &&
-			!contacts.includes(recipient)
+			!contacts.includes(recipient) &&
+			!blockedContacts.has(recipient)
 		) {
 			saveContact(recipient);
 		}
-	}, [recipient, userPub, contacts, saveContact]);
+	}, [recipient, userPub, contacts, blockedContacts, saveContact]);
 
 	// ── Listener Re-arm on Resume ──
 	// Zen's mesh re-sends `get` for souls still in root.next when a socket
