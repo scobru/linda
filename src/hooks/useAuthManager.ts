@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
 import { DataBase } from 'linda-core';
 
 export interface Notification {
@@ -12,7 +11,11 @@ export const useAuthManager = (
   isLoggedIn: boolean,
   onLoginSuccess?: (username: string) => void,
 ) => {
-  const [searchParams] = useSearchParams();
+  // Read straight off the URL instead of react-router's useSearchParams:
+  // this hook now also runs at the App root, above <Router>, where
+  // useSearchParams throws ("may be used only in the context of a
+  // <Router>"). A magic link is always a fresh page load, so there's
+  // nothing router-navigation would need to keep this reactive to.
 
   const magicLoginAttempted = useRef(false);
   const [isProcessingMagicLink, setIsProcessingMagicLink] = useState(false);
@@ -110,6 +113,7 @@ export const useAuthManager = (
 
   // Magic Login Hook
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
     const magic_login = searchParams.get("magic_login");
     const session = searchParams.get("session");
 
@@ -131,7 +135,7 @@ export const useAuthManager = (
         }
       });
     }
-  }, [isLoggedIn, searchParams, processUniversalLogin]);
+  }, [isLoggedIn, processUniversalLogin]);
 
   // Session Cleanup
   useEffect(() => {
