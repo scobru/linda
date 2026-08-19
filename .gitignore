@@ -22,6 +22,14 @@ radata
 radata_storge
 .env
 
+
+.serena
+.tokensave
+.jules
+.headroom
+.agents
+.cache
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
