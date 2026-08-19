@@ -1457,8 +1457,7 @@ export const useMessaging = (
 											);
 										}
 									}
-								}
-							} else if (
+								} else if (
 								data.type === "P2P_ROOM_MIRROR" ||
 								parsed.type === "P2P_ROOM_MIRROR"
 							) {
@@ -1555,6 +1554,7 @@ export const useMessaging = (
 											});
 										}
 									}
+								}
 								}
 							} catch (e) {
 								console.log(
