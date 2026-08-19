@@ -1357,6 +1357,90 @@ export const useMessaging = (
 									console.log(
 										`[Signal] Received GROUP_KEY_DISTRIBUTION for room ${parsed.groupId.slice(0, 8)}`,
 									);
+								} else if (
+									data.type === "P2P_CHAT" ||
+									parsed.type === "P2P_CHAT"
+								) {
+									// Delivered via the cert-gated inbox — see the send-side
+									// comment in handleSendMessage. blockedContactsRef was
+									// already checked twice before we got here (enqueue time
+									// and just above, before decrypt), so a currently-blocked
+									// sender never reaches this branch.
+									const remoteMsgId = parsed.msgId || gunKey;
+									const clearedAt =
+										clearedChatsRef.current[senderPubKeyRaw] || 0;
+									const msgTs = new Date(
+										data.timestamp || Date.now(),
+									).getTime();
+									if (msgTs > clearedAt) {
+										const actualType = parsed.msgType || "text";
+										const isFile =
+											actualType === "file" || actualType === "image";
+										let fileMetadata: FileMetadata | undefined;
+										let messageText: string | undefined = parsed.text;
+										if (isFile) {
+											try {
+												fileMetadata = JSON.parse(parsed.text);
+												messageText = undefined;
+											} catch (e) {
+												console.error(
+													"[Messaging] Failed to parse file metadata:",
+													e,
+												);
+											}
+										}
+
+										setMessages((prev) => {
+											const existing = prev[senderPubKeyRaw] || [];
+											if (existing.some((m) => m.id === remoteMsgId))
+												return prev;
+											const next = {
+												...prev,
+												[senderPubKeyRaw]: [
+													...existing,
+													{
+														id: remoteMsgId,
+														sender: senderPubKeyRaw,
+														senderPub: senderPubKeyRaw,
+														text:
+															actualType === "audio" || isFile
+																? undefined
+																: messageText,
+														audio:
+															actualType === "audio"
+																? parsed.text
+																: undefined,
+														fileMetadata,
+														type: actualType,
+														timestamp: new Date(
+															data.timestamp || Date.now(),
+														),
+														status: "delivered" as const,
+														replyTo: parsed.replyTo,
+													} as Message,
+												],
+											};
+											if (userPub) saveMessages(userPub, next);
+											return next;
+										});
+
+										if (
+											recipientRef.current !== senderPubKeyRaw ||
+											document.visibilityState !== "visible"
+										) {
+											sendAppNotification(
+												`Message from ${senderPubKeyRaw.slice(0, 8)}`,
+												{
+													body: (parsed.text || "").substring(0, 50),
+													icon: "./logo.svg",
+													badge: "./logo.svg",
+													tag: senderPubKeyRaw,
+													renotify: true,
+													data: `/chat/${senderPubKeyRaw}`,
+												},
+											);
+										}
+									}
 								}
 							} catch (e) {
 								console.log(
@@ -1558,27 +1642,35 @@ export const useMessaging = (
 						msgId,
 					);
 				} else {
-					// 1:1 direct message -> P2P ECDH
+					// 1:1 direct message -> delivered through the recipient's cert-gated
+					// inbox (~pub/linda_inbox_v13), the same certificate issued on
+					// contact accept and revoked on block. sendMessage prefers that
+					// path and falls back to the open room chain only when no cert
+					// exists yet (first message before mutual accept) — so a
+					// legitimately not-yet-fully-accepted chat never silently fails.
+					// Once a cert exists it's the only delivery path: a blocked peer's
+					// cert is revoked, so their honest client's write is rejected by
+					// Zen's own ownership verification on ingestion — enforced by any
+					// compliant client, not just our own message filter. The old open
+					// P2P room chain (linda_rooms/p2p_.../messages) still carries
+					// reactions/edits/pins/deletes, which key off msgId independently
+					// of where the message text itself lives.
 					console.log(
-						`[Signal] Using P2P ECDH for 1:1 chat with ${recipient.slice(0, 8)}...`,
+						`[Signal] Delivering P2P message to ${recipient.slice(0, 8)} via cert-gated inbox...`,
 					);
 					const p2pGroup = await groupService.getOrCreateP2PGroup(recipient);
 
-					const pokeCipher = await communicationService.encryptMessage(
+					await communicationService.sendMessage(
 						recipient,
-						payload || "",
+						JSON.stringify({
+							type: "P2P_CHAT",
+							msgId,
+							msgType: type,
+							text: payload || "",
+							...(replyTo ? { replyTo } : {}),
+						}),
+						"p2p_chat",
 					);
-
-					// Write to the P2P room messages node
-					await db.Set(`${groupPath(p2pGroup.id)}/messages`, {
-						msgId,
-						sender: userPub,
-						body: pokeCipher.body,
-						timestamp: timestamp.toISOString(),
-						type: pokeCipher.type,
-						msgType: type,
-						...(replyTo ? { replyTo } : {}),
-					} as any);
 
 					// POKING: We still write a minimal 'poke' to signal_v3_inbox so their app knows to check the P2P room
 					try {
