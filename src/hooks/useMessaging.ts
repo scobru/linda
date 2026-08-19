@@ -182,11 +182,21 @@ export const useMessaging = (
 			return { ...prev, [recipient]: updatedGroupMsgs };
 		});
 
-		for (const m of toMark) {
-			groupService.markMessageRead(recipient, m.id).catch(() => {
-				markedReadRef.current.delete(`${recipient}:${m.id}`);
-			});
-		}
+		(async () => {
+			// GroupService looks up membership/meta at groupPath(roomId) — for a
+			// P2P chat that's the deterministic p2p_<sortedPubs> id, not the raw
+			// peer pubkey `recipient` itself. Passing the raw pubkey here always
+			// missed that node, so canPerform found no role and every one of
+			// these calls silently failed with "Unauthorized".
+			const roomId = isGroupId(recipient)
+				? recipient
+				: await groupService.getP2PGroupId(recipient);
+			for (const m of toMark) {
+				groupService.markMessageRead(roomId, m.id).catch(() => {
+					markedReadRef.current.delete(`${recipient}:${m.id}`);
+				});
+			}
+		})();
 	}, [recipient, messages, groupService, userPub]);
 
 	// Keep messagesRef in sync so Signal inbox listeners read current state.
@@ -989,19 +999,24 @@ export const useMessaging = (
 						}
 					});
 
-				// 2. Listen to Deletions
+				// 2. Listen to Deletions. P2P deletes arrive as a cert-gated DELETE:
+				// signal via the inbox listener instead (see handleDeleteMessage) —
+				// this open room node is unauthenticated and, for P2P, unused by our
+				// own write path, so trusting it would let anyone who computes the
+				// deterministic p2p_<sortedPubs> id forge a deletion.
 				const delChains = isP2P
-					? [db.zen.get(`${groupPath(roomId)}/deleted_messages`)]
+					? []
 					: await communicationService!.getRoomChains(
 							roomId,
 							roomSecrets,
 							"deleted_messages",
 						);
-				if (!delChains.length) {
+				if (!delChains.length && !isP2P) {
 					console.warn(
 						`[Groups] No room chain for ${contactId} deleted_messages, skipping`,
 					);
-				} else {
+				}
+				if (delChains.length) {
 					attachAll(delChains, (data: any, msgId: string) => {
 						if (data) {
 							setDeletedMessages((prev) => {
@@ -1013,10 +1028,16 @@ export const useMessaging = (
 							});
 						}
 					});
-
-					// 3. Listen to Pins
+				}
+				{
+					// 3. Listen to Pins. P2P pins/reactions/edits/receipts arrive as
+					// P2P_ROOM_MIRROR envelopes via the cert-gated inbox instead (see
+					// GroupService.mirrorToCertifiedRoom) — these open room nodes are
+					// unauthenticated and, for P2P, no longer what our own write path
+					// (or GroupService.canPerform, which needs the p2p_ room id, not
+					// the raw peer pubkey) actually targets.
 					const pinsChains = isP2P
-						? [db.zen.get(`${groupPath(roomId)}/pins`)]
+						? []
 						: await communicationService!.getRoomChains(
 								roomId,
 								roomSecrets,
@@ -1036,7 +1057,7 @@ export const useMessaging = (
 					// 4. Listen to Reactions. Key is "<messageId>::<reactorPub>",
 					// value is {emoji,...} or null when the reactor cleared it.
 					const reactionChains = isP2P
-						? [db.zen.get(`${groupPath(roomId)}/reactions`)]
+						? []
 						: await communicationService!.getRoomChains(
 								roomId,
 								roomSecrets,
@@ -1061,7 +1082,7 @@ export const useMessaging = (
 
 					// 5. Listen to Edits. Value is {body: <ciphertext>, editedAt}.
 					const editChains = isP2P
-						? [db.zen.get(`${groupPath(roomId)}/edited_messages`)]
+						? []
 						: await communicationService!.getRoomChains(
 								roomId,
 								roomSecrets,
@@ -1075,16 +1096,11 @@ export const useMessaging = (
 									(m) => m.id === msgId,
 								);
 								if (!existing) return;
-								const decrypted = isP2P
-									? await communicationService!.decryptMessage(
-											contactId,
-											JSON.parse(data.body),
-										)
-									: await groupService.decryptGroupMessage(
-											meta,
-											data.body,
-											existing.senderPub,
-										);
+								const decrypted = await groupService.decryptGroupMessage(
+									meta,
+									data.body,
+									existing.senderPub,
+								);
 								if (!decrypted) return;
 								setMessages((prev) => {
 									const groupMsgs = prev[contactId] || [];
@@ -1109,7 +1125,7 @@ export const useMessaging = (
 					// 6. Listen to Read Receipts. Key is "<messageId>::<readerPub>".
 					// Any reader other than the sender flips the sender's copy to "read".
 					const receiptChains = isP2P
-						? [db.zen.get(`${groupPath(roomId)}/read_receipts`)]
+						? []
 						: await communicationService!.getRoomChains(
 								roomId,
 								roomSecrets,
@@ -1439,6 +1455,104 @@ export const useMessaging = (
 													data: `/chat/${senderPubKeyRaw}`,
 												},
 											);
+										}
+									}
+								}
+							} else if (
+								data.type === "P2P_ROOM_MIRROR" ||
+								parsed.type === "P2P_ROOM_MIRROR"
+							) {
+								// Cert-gated equivalent of GroupService.mirrorToCertifiedRoom
+								// for P2P — see the comment there. subpath/key/data mirror the
+								// shape the (now-unlistened) open room node used to carry.
+								const { subpath, key, data: value } = parsed;
+								if (subpath === "pins" && typeof key === "string") {
+									setPinnedMessages((prev) => {
+										const contactPins = new Set(prev[senderPubKeyRaw] || []);
+										if (value) contactPins.add(key);
+										else contactPins.delete(key);
+										return { ...prev, [senderPubKeyRaw]: contactPins };
+									});
+								} else if (subpath === "reactions" && typeof key === "string") {
+									const sep = key.indexOf("::");
+									if (sep !== -1) {
+										const msgId = key.slice(0, sep);
+										const reactorPub = key.slice(sep + 2);
+										setMessageReactions((prev) => {
+											const contactReactions = {
+												...(prev[senderPubKeyRaw] || {}),
+											};
+											const forMsg = { ...(contactReactions[msgId] || {}) };
+											if (value && value.emoji) forMsg[reactorPub] = value.emoji;
+											else delete forMsg[reactorPub];
+											contactReactions[msgId] = forMsg;
+											return { ...prev, [senderPubKeyRaw]: contactReactions };
+										});
+									}
+								} else if (
+									subpath === "edited_messages" &&
+									typeof key === "string" &&
+									value?.body
+								) {
+									try {
+										const existing = messagesRef.current[
+											senderPubKeyRaw
+										]?.find((m) => m.id === key);
+										if (existing) {
+											const decrypted =
+												await communicationService.decryptMessage(
+													senderPubKeyRaw,
+													JSON.parse(value.body),
+												);
+											if (decrypted) {
+												setMessages((prev) => {
+													const contactMsgs = prev[senderPubKeyRaw] || [];
+													const updated = contactMsgs.map((m) =>
+														m.id === key
+															? {
+																	...m,
+																	text: decrypted,
+																	editedAt: value.editedAt,
+																}
+															: m,
+													);
+													const next = {
+														...prev,
+														[senderPubKeyRaw]: updated,
+													};
+													if (userPub) saveMessages(userPub, next);
+													return next;
+												});
+											}
+										}
+									} catch (e) {
+										console.warn(
+											`[Messaging] Failed to decrypt P2P edit for ${key}:`,
+											e,
+										);
+									}
+								} else if (
+									subpath === "read_receipts" &&
+									typeof key === "string"
+								) {
+									const sep = key.indexOf("::");
+									if (sep !== -1) {
+										const msgId = key.slice(0, sep);
+										const readerPub = key.slice(sep + 2);
+										if (readerPub !== userPub) {
+											setMessages((prev) => {
+												const contactMsgs = prev[senderPubKeyRaw] || [];
+												const target = contactMsgs.find(
+													(m) => m.id === msgId,
+												);
+												if (!target || target.status === "read") return prev;
+												const updated = contactMsgs.map((m) =>
+													m.id === msgId
+														? { ...m, status: "read" as const }
+														: m,
+												);
+												return { ...prev, [senderPubKeyRaw]: updated };
+											});
 										}
 									}
 								}
@@ -1832,25 +1946,20 @@ export const useMessaging = (
 						return next;
 					});
 
-					// 2. Notify the peer (Delete for everyone)
+					// 2. Notify the peer (Delete for everyone) — cert-gated when we
+					// still hold one, same delivery as regular P2P chat messages, so
+					// a blocked/revoked peer's forged delete can't reach us; falls
+					// back to the open inbox only pre-accept, same as everything else.
 					if (communicationService) {
-						const cipher = await communicationService.encryptMessage(
-							recipient,
-							`DELETE:${messageId}`,
-						);
 						const pub =
 							recipient.length < 30
 								? await communicationService.getPubKeyFromUsername(recipient)
 								: recipient;
-
-						// Public root node — no certificate required (see P2P_POKE above).
-						await db.Set(`linda_v3_inbox_${pub}`, {
-							sender: userPub,
-							type: cipher.type,
-							body: cipher.body,
-							timestamp: new Date().toISOString(),
-							msgType: "text", // Protocol message
-						} as any);
+						await communicationService.sendMessage(
+							pub,
+							`DELETE:${messageId}`,
+							"text",
+						);
 					}
 				}
 			} catch (err: any) {
@@ -2065,9 +2174,12 @@ export const useMessaging = (
 		saveContact,
 		removeContact,
 		saveMessages,
-		handlePinMessage: (msgId: string, pin: boolean) => {
+		handlePinMessage: async (msgId: string, pin: boolean) => {
 			if (!recipient || !groupService) return;
-			groupService.pinMessage(recipient, msgId, pin);
+			const roomId = isGroupId(recipient)
+				? recipient
+				: await groupService.getP2PGroupId(recipient);
+			groupService.pinMessage(roomId, msgId, pin);
 		},
 		handleEditMessage: async (msgId: string, newText: string) => {
 			if (!recipient || !groupService || !communicationService || !userPub)
@@ -2089,7 +2201,10 @@ export const useMessaging = (
 					);
 					newBody = JSON.stringify(cipher);
 				}
-				await groupService.editMessage(recipient, msgId, userPub, newBody);
+				const roomId = isGroup
+					? recipient
+					: await groupService.getP2PGroupId(recipient);
+				await groupService.editMessage(roomId, msgId, userPub, newBody);
 				setMessages((prev) => {
 					const groupMsgs = prev[recipient] || [];
 					const updatedGroupMsgs = groupMsgs.map((m) =>
@@ -2106,10 +2221,13 @@ export const useMessaging = (
 			}
 		},
 		messageReactions,
-		handleReactMessage: (msgId: string, emoji: string) => {
+		handleReactMessage: async (msgId: string, emoji: string) => {
 			if (!recipient || !groupService) return;
+			const roomId = isGroupId(recipient)
+				? recipient
+				: await groupService.getP2PGroupId(recipient);
 			groupService
-				.reactToMessage(recipient, msgId, emoji)
+				.reactToMessage(roomId, msgId, emoji)
 				.catch((e) =>
 					console.warn(`[Groups] Failed to react to ${msgId}:`, e),
 				);
