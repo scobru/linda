@@ -1,14 +1,64 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import type { DataBase } from "linda-core";
 import { requestNotificationPermission } from "../utils/notifications";
+import { resolveRootOpt, type ZenPeer } from "../utils/connectionHealth";
 
 interface SettingsProps {
   showNotification: (msg: string, type?: "info" | "error") => void;
+  db: DataBase;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
+interface RelayStatus {
+  url: string;
+  state: "connected" | "connecting" | "disconnected";
+}
+
+// readyState: 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED
+function relayState(peer: ZenPeer): RelayStatus["state"] {
+  const rs = peer.wire?.readyState;
+  if (rs === 1) return "connected";
+  if (rs === 0 || rs === 2) return "connecting";
+  return "disconnected";
+}
+
+function useRelayStatuses(db: DataBase): RelayStatus[] {
+  const [relays, setRelays] = React.useState<RelayStatus[]>([]);
+
+  React.useEffect(() => {
+    const read = () => {
+      const opt = resolveRootOpt((db as any).zen);
+      const peers: Record<string, ZenPeer> = opt?.peers || {};
+      setRelays(
+        Object.keys(peers)
+          .filter((url) => peers[url]?.url)
+          .map((url) => ({ url, state: relayState(peers[url]) })),
+      );
+    };
+    read();
+    const interval = setInterval(read, 5000);
+    return () => clearInterval(interval);
+  }, [db]);
+
+  return relays;
+}
+
+const RELAY_STATE_LABEL: Record<RelayStatus["state"], string> = {
+  connected: "Connesso",
+  connecting: "Connessione...",
+  disconnected: "Disconnesso",
+};
+
+const RELAY_STATE_DOT: Record<RelayStatus["state"], string> = {
+  connected: "bg-success",
+  connecting: "bg-warning animate-pulse",
+  disconnected: "bg-error",
+};
+
+export const Settings: React.FC<SettingsProps> = ({ showNotification, db }) => {
   const navigate = useNavigate();
   const [currentTheme, setCurrentTheme] = React.useState(localStorage.getItem("linda-theme") || "linda");
+  const relays = useRelayStatuses(db);
 
   const logout = () => {
     localStorage.clear();
@@ -96,6 +146,32 @@ export const Settings: React.FC<SettingsProps> = ({ showNotification }) => {
                 Ripristina
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Relay */}
+        <div>
+          <h2 className="premium-section-title">Relay</h2>
+          <div className="premium-card-container">
+            {relays.length === 0 ? (
+              <div className="premium-card-row">
+                <div className="premium-row-desc">Nessun relay configurato.</div>
+              </div>
+            ) : (
+              relays.map((relay) => (
+                <div className="premium-card-row" key={relay.url}>
+                  <div className="premium-row-left">
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${RELAY_STATE_DOT[relay.state]}`}
+                    />
+                    <div className="premium-row-info">
+                      <div className="premium-row-title break-all">{relay.url}</div>
+                      <div className="premium-row-desc">{RELAY_STATE_LABEL[relay.state]}</div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

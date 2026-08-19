@@ -273,7 +273,7 @@ const AppContent: React.FC<{
           />
           <Route
             path="/settings"
-            element={<Settings showNotification={showNotification} />}
+            element={<Settings showNotification={showNotification} db={db} />}
           />
           <Route
             path="/chat/:id/settings"

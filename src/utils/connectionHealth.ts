@@ -44,7 +44,7 @@ const CHECK_INTERVAL_MS = 30_000;
 // pongs plus margin) is considered half-open.
 const SILENT_WIRE_MS = 75_000;
 
-interface ZenPeer {
+export interface ZenPeer {
   url?: string;
   wire?: { readyState: number; close: () => void } | null;
   retry?: number;
@@ -67,7 +67,7 @@ function tombVariants(url: string): string[] {
 // the graph chain, so `zen._` is undefined on it and the watchdog disabled
 // itself on every start. The root — and its `opt.peers` table — is reachable
 // through `back(-1)`.
-function resolveRootOpt(zen: any): any {
+export function resolveRootOpt(zen: any): any {
   const candidates = [
     () => zen?._?.opt,
     () => zen?.back?.(-1)?._?.opt,
