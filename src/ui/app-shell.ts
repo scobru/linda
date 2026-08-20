@@ -472,6 +472,7 @@ export class AppShell extends HTMLElement {
         onCallSignal: (m) => void this.onCallSignal(m),
         onDirectoryChange: () => { if (this.view === 'discover') this.render() },
         onContactsChange: () => { if (this.view === 'people') this.render() },
+        onBookmarksChange: () => { if (this.view === 'app') this.render() },
         onPeerConnected: () => {
           this.session?.broadcastPresence(true)
           this.renderApp()

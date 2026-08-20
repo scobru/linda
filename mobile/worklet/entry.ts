@@ -115,6 +115,7 @@ const methods: Record<string, (...args: any[]) => any> = {
       onPeerDisconnected: (pk) => pushEvent('peerDisconnected', { userId: b4a.toString(pk, 'hex') }),
       onContactsChange: () => pushEvent('contactsChange'),
       onDirectoryChange: () => pushEvent('directoryChange'),
+      onBookmarksChange: () => pushEvent('bookmarksChange'),
       onIncomingMessage: (roomId, message) => pushEvent('incomingMessage', { roomId, message }),
       onCallSignal: (m) => pushEvent('callSignal', m),
       onTyping: (m) => pushEvent('typing', m),

@@ -85,6 +85,9 @@ export function SessionProvider({ children }: Props) {
 
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded.
     bareClient.on('incomingMessage', () => { void s.listRoomSummaries().then(setBookmarks) })
+    // A room's name/avatar/description edited on another device replicates in, but the local
+    // bookmark cache the room list renders from only updates itself in response to this event.
+    bareClient.on('bookmarksChange', () => { void s.listRoomSummaries().then(setBookmarks) })
 
     setSession(s)
     setIdentity(id)

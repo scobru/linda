@@ -110,6 +110,7 @@ function makeApply(
   bannedIdentities: Set<string>,
   moderatorIdentities: Set<string>,
   onMessageMutation: () => void,
+  onMetaChange: () => void,
   persist: () => Promise<void>
 ) {
   function roleOf(authorKey: string): Role {
@@ -210,6 +211,7 @@ function makeApply(
           if (entry.description !== undefined) meta.description = entry.description
           dirty = true
           onMessageMutation()
+          onMetaChange()
         }
       }
     }
@@ -248,6 +250,7 @@ export class Room {
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
   private mutationListeners: Array<() => void> = []
+  private metaListeners: Array<() => void> = []
   /** Content-encryption keys, by epoch. Never written to the replicated log (would leak to any reader) — distributed peer-to-peer over RPC by Session. */
   private readonly contentKeys = new Map<number, Buffer>()
   private currentEpoch = -1
@@ -327,7 +330,7 @@ export class Room {
     const base = new Autobase<RoomEntry>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, writerIdentities, overlay, messageAuthors, mutedIdentities, bannedIdentities, moderatorIdentities, () => room.notifyMutation(), persist)
+      apply: makeApply(owner, meta, writerIdentities, overlay, messageAuthors, mutedIdentities, bannedIdentities, moderatorIdentities, () => room.notifyMutation(), () => room.notifyMetaChange(), persist)
     })
     room.base = base
     await base.ready()
@@ -560,6 +563,17 @@ export class Room {
   onMessage(listener: (index: number) => void): void {
     this.base.view.on('append', () => listener(this.base.view.length - 1))
     this.mutationListeners.push(() => listener(this.base.view.length - 1))
+  }
+
+  /** Fires when the room's name/avatar/description changes — including on a device that only
+   * received the change over replication, not the one that made it. Lets callers keep any
+   * cached copy of these fields (e.g. a room-list bookmark) in sync. */
+  onMetaChange(listener: () => void): void {
+    this.metaListeners.push(listener)
+  }
+
+  private notifyMetaChange(): void {
+    for (const listener of this.metaListeners) listener()
   }
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */

@@ -23,6 +23,7 @@ export interface SessionEvents {
   onCallSignal?(message: CallSignalMessage): void
   onDirectoryChange?(): void
   onContactsChange?(): void
+  onBookmarksChange?(): void
   onPeerConnected?(peer: PeerConnection): void
   onPeerDisconnected?(publicKey: Buffer): void
   onIncomingMessage?(roomId: string, message: ChatMessage): void
@@ -655,6 +656,16 @@ export class Session {
     room.onNewMessage((message) => {
       if (message.authorId === this.identity.id) return
       this.events.onIncomingMessage?.(room.id, message)
+    })
+    // A room's name/avatar/description replicate through Autobase to every member on their
+    // own, but the bookmark (what the room list actually renders) is a separate local cache
+    // that only the device making the change updates on its own — so it never picked up a
+    // change made on another device until now.
+    room.onMetaChange(() => {
+      const bookmark = this.bookmarks.get(room.id)
+      if (!bookmark) return
+      void this.saveBookmark({ ...bookmark, name: room.name || bookmark.name, avatar: room.avatar, description: room.description })
+      this.events.onBookmarksChange?.()
     })
   }
 
