@@ -7,6 +7,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
+import * as Clipboard from 'expo-clipboard'
 import { RTCView } from 'react-native-webrtc'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -163,6 +164,9 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     if (!selectedMessage) return
 
     switch (action) {
+      case 'copy':
+        void Clipboard.setStringAsync(selectedMessage.body)
+        break
       case 'reply':
         setReplyTo({
           id: selectedMessage.id,
@@ -279,6 +283,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       <Modal visible={!!selectedMessage} transparent animationType="fade">
         <Pressable style={styles.actionOverlay} onPress={() => setSelectedMessage(null)}>
           <View style={styles.actionSheet}>
+            {!!selectedMessage?.body && (
+              <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('copy')}>
+                <Ionicons name="copy-outline" size={16} color={colors.textPrimary} />
+                <Text style={styles.actionText}>Copy</Text>
+              </Pressable>
+            )}
+
             <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('reply')}>
               <Ionicons name="arrow-undo-outline" size={16} color={colors.textPrimary} />
               <Text style={styles.actionText}>Reply</Text>

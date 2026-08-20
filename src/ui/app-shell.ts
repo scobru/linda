@@ -1205,6 +1205,13 @@ export class AppShell extends HTMLElement {
       btn.addEventListener('click', () => void this.downloadFile(btn.dataset.download!, btn.dataset.name!, btn.dataset.path!))
     })
 
+    container.querySelectorAll<HTMLButtonElement>('[data-copy-msg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const msg = byId.get(btn.dataset.copyMsg!)
+        if (msg) navigator.clipboard.writeText(msg.body)
+      })
+    })
+
     container.querySelectorAll<HTMLButtonElement>('[data-reply]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.replyingTo = byId.get(btn.dataset.reply!) ?? null
@@ -1289,6 +1296,7 @@ export class AppShell extends HTMLElement {
     const quickEmojis = ['👍', '❤️', '🔥', '😂', '🤩', '🚀']
     const actions = message.deleted ? '' : `
       <div class="msg-actions">
+        ${message.body ? `<button data-copy-msg="${message.id}" title="Copy">${ICONS.copy}</button>` : ''}
         <button data-reply="${message.id}" title="Reply">${ICONS.reply}</button>
         ${quickEmojis.map((e) => `<button data-react="${e}" data-message-id="${message.id}">${e}</button>`).join('')}
       </div>
