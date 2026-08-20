@@ -1,9 +1,15 @@
 import esbuild from 'esbuild'
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+
+const testFiles = fs.readdirSync('test')
+  .filter((f) => f.endsWith('.test.ts'))
+  .map((f) => `test/${f}`)
 
 await esbuild.build({
-  entryPoints: ['test/room.test.ts'],
-  outfile: 'dist/room.test.cjs',
+  entryPoints: testFiles,
+  outdir: 'dist',
+  outExtension: { '.js': '.cjs' },
   bundle: true,
   format: 'cjs',
   platform: 'node',
@@ -13,5 +19,6 @@ await esbuild.build({
   logLevel: 'info'
 })
 
-const result = spawnSync(process.execPath, ['--test', 'dist/room.test.cjs'], { stdio: 'inherit' })
+const outFiles = testFiles.map((f) => `dist/${f.slice('test/'.length).replace(/\.ts$/, '.cjs')}`)
+const result = spawnSync(process.execPath, ['--test', ...outFiles], { stdio: 'inherit' })
 process.exit(result.status ?? 1)
