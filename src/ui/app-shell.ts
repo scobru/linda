@@ -1655,6 +1655,13 @@ export class AppShell extends HTMLElement {
               `}
             </div>
 
+            <div class="form-group">
+              <label>About</label>
+              <a href="https://github.com/scobru/linda" target="_blank" rel="noopener" class="ghost" style="display:block;width:fit-content;font-size:0.8rem;text-decoration:none;color:var(--text);padding:0.25rem 0.5rem;">
+                linda-pear is open source — view on GitHub ↗
+              </a>
+            </div>
+
             <div style="border:1px solid var(--danger-dim);border-radius:8px;padding:0.75rem;display:flex;flex-direction:column;gap:0.4rem;">
               <span style="font-size:0.75rem;color:var(--danger);font-weight:600;">Danger Zone</span>
               <p style="font-size:0.75rem;color:var(--text-dim);">Permanently wipe local keys and storage on this machine.</p>

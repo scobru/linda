@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, session, desktopCapturer } = require('electron')
+const { app, BrowserWindow, Menu, session, desktopCapturer, shell } = require('electron')
 const path = require('node:path')
 
 function createWindow() {
@@ -24,6 +24,12 @@ function createWindow() {
   })
   win.webContents.on('render-process-gone', (_event, details) => {
     console.log('[renderer crashed]', details)
+  })
+  // target="_blank" links (e.g. the About link to the repo) would otherwise open a second,
+  // chromeless Electron window instead of the user's browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
   })
 
   win.loadFile(path.join(__dirname, '..', 'index.html'))

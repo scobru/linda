@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   View, Text, TextInput, Pressable, Switch, StyleSheet,
-  SafeAreaView, ScrollView, Alert, DevSettings,
+  SafeAreaView, ScrollView, Alert, DevSettings, Linking,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
@@ -314,6 +314,16 @@ export default function ProfileScreen({ navigation }: Props) {
         <View style={styles.field}>
           <Text style={styles.label}>Connected peers</Text>
           <Text style={styles.value}>{onlineUsers.size}</Text>
+        </View>
+
+        {/* About */}
+        <View style={styles.field}>
+          <Text style={styles.label}>About</Text>
+          <Pressable onPress={() => Linking.openURL('https://github.com/scobru/linda')} style={styles.keyRow}>
+            <Ionicons name="logo-github" size={16} color={colors.textSecondary} />
+            <Text style={[styles.value, { flex: 1 }]}>Source code (open source)</Text>
+            <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
+          </Pressable>
         </View>
 
         {/* Danger Zone */}
