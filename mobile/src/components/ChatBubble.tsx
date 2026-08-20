@@ -20,11 +20,15 @@ interface Props {
   authorName: string
   replyPreview?: string
   onLongPress?: () => void
+  onPress?: () => void
   onReactionPress?: (emoji: string) => void
   onFilePress?: () => void
   fileDownloading?: boolean
   isAudioPlaying?: boolean
   isAudioLoading?: boolean
+  /** In multi-select mode, whether this message can be selected (own messages only — batch delete is protocol-restricted to your own). */
+  selectable?: boolean
+  selected?: boolean
 }
 
 export function isAudioFile(file: { name: string; mimeType?: string }): boolean {
@@ -42,7 +46,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onReactionPress, onFilePress, fileDownloading, isAudioPlaying, isAudioLoading }: Props) {
+export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   if (message.deleted) {
@@ -60,13 +64,24 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
 
   return (
     <View style={[styles.row, isSelf && styles.rowSelf]}>
-      <Pressable
-        onLongPress={onLongPress}
-        style={[
-          styles.bubble,
-          isSelf ? styles.bubbleSelf : styles.bubbleOther,
-        ]}
-      >
+      <View style={styles.selectableRow}>
+        {selectable && (
+          <Ionicons
+            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={20}
+            color={selected ? colors.cyan : colors.textTertiary}
+            style={styles.selectIcon}
+          />
+        )}
+        <Pressable
+          onLongPress={onLongPress}
+          onPress={onPress}
+          style={[
+            styles.bubble,
+            isSelf ? styles.bubbleSelf : styles.bubbleOther,
+            selected && styles.bubbleSelected,
+          ]}
+        >
         {/* Author name (other's messages only) */}
         {!isSelf && (
           <Text style={styles.authorName}>{authorName}</Text>
@@ -133,7 +148,8 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
             {formatTime(message.timestamp)}
           </Text>
         </View>
-      </Pressable>
+        </Pressable>
+      </View>
 
       {/* Reactions */}
       {hasReactions && (
@@ -166,11 +182,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   rowSelf: {
     alignItems: 'flex-end',
   },
+  selectableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    maxWidth: '90%',
+  },
+  selectIcon: {
+    flexShrink: 0,
+  },
   bubble: {
-    maxWidth: '80%',
+    maxWidth: '100%',
+    flexShrink: 1,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radii.lg,
+  },
+  bubbleSelected: {
+    opacity: 0.7,
   },
   bubbleSelf: {
     backgroundColor: colors.bubbleSelf,

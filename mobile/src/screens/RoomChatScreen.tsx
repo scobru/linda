@@ -68,7 +68,42 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }, [])
+
+  const handleBatchDelete = useCallback(() => {
+    if (selectedIds.size === 0) return
+    Alert.alert(
+      `Delete ${selectedIds.size} message${selectedIds.size > 1 ? 's' : ''}?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            for (const id of selectedIds) await deleteMessage(id)
+            exitSelectionMode()
+          },
+        },
+      ]
+    )
+  }, [selectedIds, deleteMessage, exitSelectionMode])
 
   const [memberCount, setMemberCount] = useState(1)
   useEffect(() => {
@@ -80,7 +115,28 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   // Custom header
   useEffect(() => {
+    if (selectionMode) {
+      navigation.setOptions({
+        headerTitle: () => (
+          <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
+            {selectedIds.size} selected
+          </Text>
+        ),
+        headerLeft: () => (
+          <Pressable onPress={exitSelectionMode} style={styles.headerBtn}>
+            <Ionicons name="close" size={22} color={colors.textPrimary} />
+          </Pressable>
+        ),
+        headerRight: () => (
+          <Pressable onPress={handleBatchDelete} style={styles.headerBtn} disabled={selectedIds.size === 0}>
+            <Ionicons name="trash-outline" size={20} color={selectedIds.size === 0 ? colors.textTertiary : colors.error} />
+          </Pressable>
+        ),
+      })
+      return
+    }
     navigation.setOptions({
+      headerLeft: undefined,
       headerTitle: () => (
         <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -117,7 +173,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, startCall, memberCount, colors])
+  }, [navigation, roomId, roomName, showSearch, startCall, memberCount, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'
@@ -274,7 +330,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             isSelf={item.authorId === identityId}
             authorName={getAuthorName(item.authorId)}
             replyPreview={getReplyPreview(item.replyTo)}
-            onLongPress={() => handleLongPress(item)}
+            onLongPress={() => selectionMode ? (item.authorId === identityId && toggleSelected(item.id)) : handleLongPress(item)}
+            onPress={selectionMode && item.authorId === identityId ? () => toggleSelected(item.id) : undefined}
+            selected={selectedIds.has(item.id)}
+            selectable={selectionMode && item.authorId === identityId}
             onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
             onFilePress={() => handleFilePress(item)}
             fileDownloading={downloadingId === item.id}
@@ -343,6 +402,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 <Pressable style={[styles.actionItem, styles.actionRow]} onPress={() => handleAction('delete')}>
                   <Ionicons name="trash-outline" size={16} color={colors.error} />
                   <Text style={[styles.actionText, styles.actionDestructive]}>Delete</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionItem, styles.actionRow]}
+                  onPress={() => {
+                    if (selectedMessage) {
+                      setSelectionMode(true)
+                      setSelectedIds(new Set([selectedMessage.id]))
+                    }
+                    setSelectedMessage(null)
+                  }}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.textPrimary} />
+                  <Text style={styles.actionText}>Select multiple</Text>
                 </Pressable>
               </>
             )}

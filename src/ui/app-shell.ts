@@ -173,6 +173,8 @@ export class AppShell extends HTMLElement {
   private activeRoomName = ''
   private replyingTo: ChatMessage | null = null
   private editingMessage: ChatMessage | null = null
+  private selectionMode = false
+  private selectedMessageIds = new Set<string>()
   private messageFilter = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
@@ -1072,7 +1074,15 @@ export class AppShell extends HTMLElement {
       <div id="seenBy" class="status-bar"></div>
       <div id="typing" class="status-bar"></div>
 
-      ${this.editingMessage ? `
+      ${this.selectionMode ? `
+        <div class="reply-bar">
+          <div class="reply-bar-text">
+            <span>${this.selectedMessageIds.size} selected</span>
+          </div>
+          <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
+          <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
+        </div>
+      ` : this.editingMessage ? `
         <div class="reply-bar">
           <div class="reply-bar-text">
             <span>Editing message</span>
@@ -1164,6 +1174,23 @@ export class AppShell extends HTMLElement {
       this.editingMessage = null
       this.renderApp()
     })
+
+    this.querySelector('#cancelSelection')?.addEventListener('click', () => {
+      this.selectionMode = false
+      this.selectedMessageIds = new Set()
+      this.renderApp()
+    })
+
+    this.querySelector('#batchDeleteBtn')?.addEventListener('click', () => {
+      if (this.selectedMessageIds.size === 0) return
+      if (!confirm(`Delete ${this.selectedMessageIds.size} message(s)? This cannot be undone.`)) return
+      void (async () => {
+        for (const id of this.selectedMessageIds) await room.deleteMessage(id)
+        this.selectionMode = false
+        this.selectedMessageIds = new Set()
+        this.renderApp()
+      })()
+    })
   }
 
   private openRoom(roomId: string, name: string): void {
@@ -1175,6 +1202,10 @@ export class AppShell extends HTMLElement {
     this.typingPeers.clear()
     this.readBy.clear()
     this.lastReadSent = null
+    this.selectionMode = false
+    this.selectedMessageIds = new Set()
+    this.replyingTo = null
+    this.editingMessage = null
     this.session!.markRoomRead(roomId)
     room.onMessage(() => {
       if (this.activeRoom === room) {
@@ -1253,6 +1284,23 @@ export class AppShell extends HTMLElement {
       btn.addEventListener('click', () => {
         if (!confirm('Delete this message? This cannot be undone.')) return
         void room.deleteMessage(btn.dataset.deleteMsg!)
+      })
+    })
+
+    container.querySelectorAll<HTMLButtonElement>('[data-select-msg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.selectionMode = true
+        this.selectedMessageIds = new Set([btn.dataset.selectMsg!])
+        this.renderApp()
+      })
+    })
+
+    container.querySelectorAll<HTMLButtonElement>('[data-toggle-select]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.toggleSelect!
+        if (this.selectedMessageIds.has(id)) this.selectedMessageIds.delete(id)
+        else this.selectedMessageIds.add(id)
+        this.renderApp()
       })
     })
 
@@ -1348,6 +1396,7 @@ export class AppShell extends HTMLElement {
         ${mine ? `
           <button data-edit-msg="${message.id}" title="Edit">${ICONS.edit}</button>
           <button data-delete-msg="${message.id}" title="Delete">${ICONS.trash}</button>
+          <button data-select-msg="${message.id}" title="Select">${ICONS.check}</button>
         ` : ''}
         ${quickEmojis.map((e) => `<button data-react="${e}" data-message-id="${message.id}">${e}</button>`).join('')}
       </div>
@@ -1361,8 +1410,14 @@ export class AppShell extends HTMLElement {
       ? `<span class="member-role-badge owner" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Room Owner">👑 Owner</span>`
       : (authorIsMod ? `<span class="member-role-badge mod" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Moderator">🛡️ Mod</span>` : '')
 
+    const selected = this.selectedMessageIds.has(message.id)
+    const selectCheckbox = this.selectionMode && mine
+      ? `<button class="icon ghost icon-sm" data-toggle-select="${message.id}" title="${selected ? 'Deselect' : 'Select'}" style="align-self:center;color:${selected ? 'var(--accent)' : 'var(--text-dim)'};">${selected ? ICONS.check : '○'}</button>`
+      : ''
+
     return `
-      <div class="msg-row ${mine ? 'mine' : ''}">
+      <div class="msg-row ${mine ? 'mine' : ''}" style="${selected ? 'opacity:0.7;' : ''}">
+        ${selectCheckbox}
         ${!mine ? `<div class="msg-row-avatar">${avatar}</div>` : ''}
         <div class="msg-group">
           ${!mine && !isSameAuthor ? `
