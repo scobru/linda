@@ -149,12 +149,18 @@ const methods: Record<string, (...args: any[]) => any> = {
       let lastMessageTime: number | null = null
       let lastMessageText: string | null = null
       let lastMessageAuthor: string | null = null
+      // Walk from the newest message backward and stop at the first non-deleted one, instead
+      // of decrypting the room's entire history just to find its tail — this used to be O(all
+      // messages in every room) on every call (app start, each incoming message, any room's
+      // meta change), which got very slow in rooms with a real amount of history.
       if (room) {
-        for await (const m of room.messages()) {
+        for (let i = room.messageCount - 1; i >= 0; i--) {
+          const m = await room.getMessage(i)
           if (m.deleted) continue
           lastMessageTime = m.timestamp
           lastMessageText = m.file ? `Shared ${m.file.name}` : m.body
           lastMessageAuthor = m.authorId
+          break
         }
       }
       summaries.push({ ...bookmark, lastMessageTime, lastMessageText, lastMessageAuthor })

@@ -509,9 +509,12 @@ export class AppShell extends HTMLElement {
       const room = this.session.getRoom(b.id)
       if (room) {
         void (async () => {
+          // Walk backward from the newest message instead of decrypting the room's whole
+          // history just to find its tail.
           let lastMsg: ChatMessage | null = null
-          for await (const m of room.messages()) {
-            if (!m.deleted) lastMsg = m
+          for (let i = room.messageCount - 1; i >= 0; i--) {
+            const m = await room.getMessage(i)
+            if (!m.deleted) { lastMsg = m; break }
           }
           if (lastMsg) {
             this.lastMessages.set(b.id, {
