@@ -144,12 +144,4 @@ export class SessionProxy {
   deleteRoom(roomId: string): Promise<void> {
     return bareClient.call('session.deleteRoom', roomId)
   }
-
-  setZenPub(zenPub: string): Promise<void> {
-    return bareClient.call('session.setZenPub', zenPub)
-  }
-
-  getPeerZenPub(userId: string): Promise<string | null> {
-    return bareClient.call('session.getPeerZenPub', userId)
-  }
 }

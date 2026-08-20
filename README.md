@@ -77,7 +77,7 @@ cd mobile/android
 
 ## Known issues
 
-- **Push notifications are disabled.** `mobile/src/bare/zen-push.ts` is stubbed out — the [@akaoio/zen](https://github.com/akaoio/zen) client pulls in Node-only internals (`child_process`, `fs`, `import.meta`) that don't bundle for Hermes. Chat itself is unaffected (works over Hyperswarm regardless); this only means no wake-on-push while the app is backgrounded/killed.
+- **Push notifications are not configured.** Chat works in real-time over Hyperswarm while the app is running.
 - Release APK is unsigned beyond the RN debug keystore — fine for beta distribution, not for a Play Store submission.
 
 ## Testing

@@ -78,9 +78,7 @@ export class Session {
   private fileStoreInstance: FileStore | null = null
   private nickname = ''
   private avatar = ''
-  private zenPub = ''
   private readonly peerAvatars = new Map<string, string>()
-  private readonly peerZenPubs = new Map<string, string>()
   private readonly events: SessionEvents
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents) {
@@ -98,7 +96,6 @@ export class Session {
           this.peerAvatars.set(message.userId, message.avatar)
           void this.profileStore.setPeerAvatar(message.userId, message.avatar)
         }
-        if (message.zenPub) this.peerZenPubs.set(message.userId, message.zenPub)
         events.onPresence?.(message)
       },
       onReadReceipt: events.onReadReceipt,
@@ -193,7 +190,7 @@ export class Session {
       onConnection: (peer) => {
         this.store.replicate(peer.socket)
         this.peers.set(b4a.toString(peer.remotePublicKey, 'hex'), peer)
-        peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar, zenPub: this.zenPub || undefined })
+        peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar })
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
           this.requestWriteIfNeeded(room, peer)
@@ -300,18 +297,8 @@ export class Session {
 
   broadcastPresence(online: boolean): void {
     for (const peer of this.peers.values()) {
-      peer.rpc.sendPresence({ userId: this.identity.id, online, nickname: this.nickname, avatar: this.avatar, zenPub: this.zenPub || undefined })
+      peer.rpc.sendPresence({ userId: this.identity.id, online, nickname: this.nickname, avatar: this.avatar })
     }
-  }
-
-  /** Mobile-only: announces this device's ZEN pub key to connected peers (via presence) so they can wake it through the push-notification relay while it's offline. No-op on desktop. */
-  setZenPub(zenPub: string): void {
-    this.zenPub = zenPub
-    this.broadcastPresence(true)
-  }
-
-  getPeerZenPub(userId: string): string | undefined {
-    return this.peerZenPubs.get(userId)
   }
 
 

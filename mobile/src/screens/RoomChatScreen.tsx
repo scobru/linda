@@ -15,7 +15,6 @@ import { useRoom } from '../hooks/useRoom'
 import { useCall } from '../hooks/useCall'
 import { downloadFile } from '../bare/room-proxy'
 import { listConnectedPeerIds } from '../bare/call-proxy'
-import { notifyOffline } from '../bare/zen-push'
 import type { ChatMessage } from '@core/rooms/room'
 import ChatBubble from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
@@ -103,35 +102,16 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     ? messages.filter((m) => m.body.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages
 
-  // Best-effort: wakes room members who are offline on hyperswarm right now, via the ZEN relay
-  // (see zen-push.ts). Silently does nothing for members who never registered a ZEN pub.
-  const wakeOfflineMembers = useCallback(async () => {
-    if (!room || !session) return
-    try {
-      const [{ members }, connected] = await Promise.all([room.listMembers(), listConnectedPeerIds()])
-      const connectedSet = new Set(connected)
-      const offline = members.filter((m) => m.identityId !== identityId && !connectedSet.has(m.identityId))
-      await Promise.all(offline.map(async (m) => {
-        const zenPub = await session.getPeerZenPub(m.identityId)
-        if (zenPub) await notifyOffline(zenPub, roomId)
-      }))
-    } catch {
-      // Push wake-up is best-effort; message already sent over hyperswarm regardless.
-    }
-  }, [room, session, identityId, roomId])
-
   const handleSend = useCallback(async (text: string) => {
     await sendMessage(text, replyTo?.id)
     setReplyTo(null)
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-    void wakeOfflineMembers()
-  }, [sendMessage, replyTo, wakeOfflineMembers])
+  }, [sendMessage, replyTo])
 
   const handleAttach = useCallback(async (name: string, mimeType: string, base64: string, thumbnail?: string) => {
     await sendFile(name, mimeType, base64, thumbnail)
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-    void wakeOfflineMembers()
-  }, [sendFile, wakeOfflineMembers])
+  }, [sendFile])
 
   const handleFilePress = useCallback(async (message: ChatMessage) => {
     if (!message.file || downloadingId) return

@@ -199,9 +199,6 @@ const methods: Record<string, (...args: any[]) => any> = {
 
   'session.listConnectedPeerIds': () => [...requireSession().peers.keys()],
 
-  'session.setZenPub': (zenPub: string) => requireSession().setZenPub(zenPub),
-  'session.getPeerZenPub': (userId: string) => requireSession().getPeerZenPub(userId) ?? null,
-
   'session.sendCallSignal': (targetUserId: string, message: CallSignalMessage) => {
     const peer = requireSession().peers.get(targetUserId)
     if (!peer) throw new Error('peer not connected')

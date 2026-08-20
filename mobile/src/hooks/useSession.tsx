@@ -3,7 +3,6 @@ import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
-import { registerPushToken } from '../bare/zen-push'
 
 interface SessionContextValue {
   session: SessionProxy | null
@@ -94,10 +93,6 @@ export function SessionProvider({ children }: Props) {
     setBookmarks(await s.listRoomSummaries())
     setContacts(info.contacts)
     setAvatars(new Map(info.peerAvatars))
-
-    // Best-effort: push notifications need an EAS project + granted permission.
-    // Silently skipped (see zen-push.ts) if either is missing — chat works regardless.
-    registerPushToken().then((zenPub) => { if (zenPub) void s.setZenPub(zenPub) }).catch(() => {})
   }, [])
 
   return (

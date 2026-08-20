@@ -12,8 +12,6 @@ export interface PresenceMessage {
   online: boolean
   nickname: string
   avatar?: string
-  /** Mobile-only: this peer's ZEN pub key, so others can wake them via a push-notification relay while offline (see mobile/src/bare/zen-push.ts). Absent on desktop. */
-  zenPub?: string
 }
 
 export interface ReadReceiptMessage {
@@ -48,24 +46,20 @@ export const presenceEncoding: Encoding<PresenceMessage> = {
     cenc.bool.preencode(state, m.online)
     cenc.string.preencode(state, m.nickname)
     cenc.string.preencode(state, m.avatar ?? '')
-    cenc.string.preencode(state, m.zenPub ?? '')
   },
   encode(state, m) {
     cenc.string.encode(state, m.userId)
     cenc.bool.encode(state, m.online)
     cenc.string.encode(state, m.nickname)
     cenc.string.encode(state, m.avatar ?? '')
-    cenc.string.encode(state, m.zenPub ?? '')
   },
   decode(state) {
     const userId = cenc.string.decode(state)
     const online = cenc.bool.decode(state)
     const nickname = cenc.string.decode(state)
     let avatar = ''
-    let zenPub = ''
     try {
       avatar = cenc.string.decode(state)
-      zenPub = cenc.string.decode(state)
     } catch {
       // backwards compatibility if old peer decoded
     }
@@ -73,8 +67,7 @@ export const presenceEncoding: Encoding<PresenceMessage> = {
       userId,
       online,
       nickname,
-      avatar,
-      zenPub: zenPub || undefined
+      avatar
     }
   }
 }
