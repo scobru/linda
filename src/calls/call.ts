@@ -32,7 +32,7 @@ export class PeerCall {
     private readonly localUserId: string,
     remoteUserId: string,
     localStream: MediaStream,
-    handlers: CallHandlers = {}
+    private readonly handlers: CallHandlers = {}
   ) {
     this.polite = localUserId < remoteUserId
     this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
@@ -118,7 +118,11 @@ export class PeerCall {
         }
         break
       case 'hangup':
+        // pc.close() doesn't reliably fire onconnectionstatechange in every runtime — call
+        // the handler directly so the remote side's call UI closes every time, not just when
+        // the event happens to fire.
         this.pc.close()
+        this.handlers.onClose?.()
         break
     }
   }
