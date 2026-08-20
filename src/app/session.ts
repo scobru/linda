@@ -613,7 +613,7 @@ export class Session {
     }
 
     const initialKeys = await this.profileStore.getRoomKeys(roomId)
-    const room = await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys)
+    const room = await this.openRoomWithRetry(roomId, bootstrapKey, initialKeys)
     this.setupRoomKeyPersistence(room)
     this.pendingInviteCodes.set(roomId, inviteCode)
     await this.joinTopic(room)
@@ -631,7 +631,7 @@ export class Session {
       try {
         const bootstrapKey = b4a.from(bookmark.bootstrapKey, 'hex')
         const initialKeys = await this.profileStore.getRoomKeys(bookmark.id)
-        const room = await Room.open(this.store, bookmark.id, bootstrapKey, this.identity.id, initialKeys, bookmark.storeId)
+        const room = await this.openRoomWithRetry(bookmark.id, bootstrapKey, initialKeys, bookmark.storeId)
         this.setupRoomKeyPersistence(room)
         await this.joinTopic(room)
         this.trackRoom(room)
@@ -692,6 +692,28 @@ export class Session {
     await joinRoom(this.swarm, topic)
     room.onWritableChange(() => { if (room.writable) this.pendingInviteCodes.delete(room.id) })
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
+  }
+
+  /** Opening a room this device has never replicated can hit Autobase's local-resume check
+   * before the swarm connection to the peer serving it has come up, which throws STORAGE_EMPTY
+   * immediately instead of waiting. Joins the topic first to get a connection underway, then
+   * retries through that race for a few seconds before giving up. */
+  private async openRoomWithRetry(
+    roomId: string | null,
+    bootstrapKey: Buffer,
+    initialKeys?: Array<{ epoch: number; keyHex: string }>,
+    storeNamespace?: string
+  ): Promise<Room> {
+    await joinRoom(this.swarm, hypercoreCrypto.discoveryKey(bootstrapKey))
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
+        if (attempt >= 4) throw new Error('Could not reach that room — the person who invited you may be offline. Try again once they are online.')
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+      }
+    }
   }
 
   private requestWriteIfNeeded(room: Room, peer: PeerConnection): void {
