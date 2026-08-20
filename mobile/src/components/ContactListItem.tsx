@@ -4,11 +4,12 @@ import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import Avatar from './Avatar'
+import type { ContactEntry } from '@core/app/session'
 
 interface Props {
   userId: string
   nickname: string
-  status: 'incoming' | 'outgoing' | 'accepted'
+  status: ContactEntry['status']
   avatar?: string
   online?: boolean
   onAccept?: () => void
@@ -17,10 +18,12 @@ interface Props {
   onPress?: () => void
 }
 
-const STATUS_LABELS = {
+const STATUS_LABELS: Record<ContactEntry['status'], string> = {
   incoming: 'wants to connect',
   outgoing: 'request sent',
   accepted: '',
+  // Never rendered: declined entries are tombstones filtered out of Session.listContacts().
+  declined: '',
 }
 
 export default function ContactListItem({

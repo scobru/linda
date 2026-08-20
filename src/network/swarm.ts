@@ -1,4 +1,5 @@
 import Hyperswarm from 'hyperswarm'
+import b4a from 'b4a'
 import type { Duplex } from 'node:stream'
 import type { Keypair } from '../identity/keypair.js'
 import { attachRpc, type RpcChannel, type RpcHandlers } from './rpc.js'
@@ -18,7 +19,20 @@ export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}): Hy
   const swarm = new Hyperswarm({ keyPair: identity })
 
   swarm.on('connection', (socket, info) => {
-    const rpc = attachRpc(socket, handlers)
+    // `fromId` is self-declared, but the connection's noise key is the same key the app uses as
+    // its identity id — so drop contact traffic that claims to come from anyone else. Without
+    // this, any peer on the lobby topic could forge a request as a third party, and our reply
+    // (routed by `fromId`) would go to a different socket than the one that asked.
+    const remoteId = b4a.toString(info.publicKey, 'hex')
+    const rpc = attachRpc(socket, {
+      ...handlers,
+      onContactRequest: (message) => {
+        if (message.fromId === remoteId) handlers.onContactRequest?.(message)
+      },
+      onContactResponse: (message) => {
+        if (message.fromId === remoteId) handlers.onContactResponse?.(message)
+      }
+    })
     handlers.onConnection?.({ socket, rpc, remotePublicKey: info.publicKey })
 
     socket.on('close', () => handlers.onDisconnection?.(info.publicKey))

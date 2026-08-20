@@ -761,6 +761,7 @@ export class AppShell extends HTMLElement {
           </div>
           <div class="room-item-bottom-row">
             <span class="room-item-snippet">${lastAuthor ? `<strong>${escapeHtml(lastAuthor)}</strong>` : ''}${escapeHtml(lastSnippet.slice(0, 34))}</span>
+            ${unread ? `<span class="unread-pill">1</span>` : ''}
           </div>
         </div>
       </div>
@@ -1934,13 +1935,21 @@ export class AppShell extends HTMLElement {
     })
     this.querySelectorAll<HTMLButtonElement>('[data-accept-contact-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.respondToContact(btn.dataset.acceptContactId!, true)
+        try {
+          await this.session!.respondToContact(btn.dataset.acceptContactId!, true)
+        } catch (err) {
+          alert(`Could not accept request: ${(err as Error).message}`)
+        }
         this.renderPeoplePage()
       })
     })
     this.querySelectorAll<HTMLButtonElement>('[data-decline-contact-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.respondToContact(btn.dataset.declineContactId!, false)
+        try {
+          await this.session!.respondToContact(btn.dataset.declineContactId!, false)
+        } catch (err) {
+          alert(`Could not decline request: ${(err as Error).message}`)
+        }
         this.renderPeoplePage()
       })
     })
@@ -2120,9 +2129,13 @@ export class AppShell extends HTMLElement {
     })
 
     this.querySelectorAll<HTMLButtonElement>('[data-add-contact-id]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const ok = this.session!.sendContactRequest(btn.dataset.addContactId!, btn.dataset.addContactName!)
-        if (!ok) alert('Could not send request: member is not currently connected.')
+      btn.addEventListener('click', async () => {
+        try {
+          const ok = await this.session!.sendContactRequest(btn.dataset.addContactId!, btn.dataset.addContactName!)
+          if (!ok) alert('Could not send request: member is not currently connected.')
+        } catch (err) {
+          alert(`Could not send request: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })

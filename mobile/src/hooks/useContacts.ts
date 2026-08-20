@@ -28,8 +28,13 @@ export function useContacts(): UseContactsResult {
 
   const respond = useCallback(async (userId: string, accept: boolean) => {
     if (!session) return
-    await session.respondToContact(userId, accept)
-    refresh()
+    // Refresh even on failure: the worklet may have gotten partway (room created, response not
+    // sent) and the list must show what actually happened. The error still reaches the caller.
+    try {
+      await session.respondToContact(userId, accept)
+    } finally {
+      refresh()
+    }
   }, [session, refresh])
 
   const remove = useCallback(async (userId: string) => {

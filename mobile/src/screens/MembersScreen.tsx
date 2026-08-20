@@ -141,7 +141,7 @@ export default function MembersScreen({ route, navigation }: Props) {
                   <Pressable
                     onPress={() => sendRequest(item.identityId, name).then((ok) => {
                       if (!ok) Alert.alert('Could not send request', 'This member is not currently connected.')
-                    })}
+                    }).catch((err: Error) => Alert.alert('Could not send request', err.message))}
                     style={styles.actionBtn}
                   >
                     <Text style={styles.actionText}>Add contact</Text>

@@ -14,12 +14,24 @@ export interface RoomBookmark {
 }
 
 
+/** A contact response we owe a peer but haven't managed to hand to a live socket yet. */
+export interface PendingContactResponse {
+  accepted: boolean
+  roomId: string
+  name: string
+  bootstrapKey: string
+  inviteCode: string
+}
+
 export interface ContactEntry {
   userId: string
   nickname: string
-  status: 'outgoing' | 'incoming' | 'accepted'
+  /** `declined` is a tombstone: hidden from `Session.listContacts()`, kept only until its
+   * pending refusal reaches the peer, then dropped. */
+  status: 'outgoing' | 'incoming' | 'accepted' | 'declined'
   roomId?: string
   avatar?: string
+  pendingResponse?: PendingContactResponse
 }
 
 export interface StoredRoomKey {

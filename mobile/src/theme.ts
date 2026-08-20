@@ -1,104 +1,117 @@
 /**
- * Design tokens — mirrors desktop style.css exactly (Nothing-inspired monochrome + red accent, see style.css :root / [data-theme="light"]).
+ * Design tokens — mirrors Keet-inspired theme (slate navy + indigo/cyan accents, rounded cards and pills).
  * Single source of truth for all mobile styling.
  */
 
 export const darkColors = {
   // Backgrounds (from desktop --bg-*)
-  bgPrimary: '#000000',
-  bgSecondary: '#0a0a0a',
-  bgTertiary: '#171717',
-  bgElevated: '#0d0d0d',
-  bgHover: 'rgba(255, 255, 255, 0.05)',
-  bgActive: 'rgba(215, 25, 33, 0.15)',
+  bgPrimary: '#0e121a',
+  bgSecondary: '#111622',
+  bgTertiary: '#161c28',
+  bgElevated: '#1c2433',
+  bgHover: 'rgba(255, 255, 255, 0.06)',
+  bgActive: '#1c2433',
 
   // Surfaces
-  surface: '#0d0d0d',
-  surfaceHover: '#171717',
-  card: '#0d0d0d',
-  cardBorder: 'rgba(255, 255, 255, 0.05)',
+  surface: '#161c28',
+  surfaceHover: '#1c2434',
+  card: '#161c28',
+  cardBorder: 'rgba(255, 255, 255, 0.08)',
 
   // Text
   textPrimary: '#ffffff',
-  textSecondary: '#999999',
-  textTertiary: '#5c5c5c',
-  textMuted: '#3d3d3d',
+  textSecondary: '#94a3b8',
+  textTertiary: '#64748b',
+  textMuted: '#475569',
 
-  // Accent / Brand ("Nothing Red")
-  accent: '#D71921',
-  accentLight: '#ff2a34',
-  accentDark: '#a10f16',
-  accentGlow: 'rgba(215, 25, 33, 0.35)',
+  // Accent / Brand (Keet Indigo + Cyan)
+  accent: '#5865f2',
+  accentLight: '#00c2cb',
+  accentDark: '#4752c4',
+  accentGlow: 'rgba(88, 101, 242, 0.35)',
+
+  // Cyan Accent
+  cyan: '#00c2cb',
+  cyanLight: '#06b6d4',
+  cyanDim: 'rgba(0, 194, 203, 0.15)',
 
   // Status
   success: '#22c55e',
   warning: '#f59e0b',
   error: '#ef4444',
-  info: '#3b82f6',
+  info: '#38bdf8',
 
   // Chat bubbles
-  bubbleSelf: '#161616',
+  bubbleSelf: '#202b3d',
   bubbleSelfText: '#ffffff',
-  bubbleOther: '#0d0d0d',
-  bubbleOtherText: '#f1f1f1',
+  bubbleOther: '#1c2433',
+  bubbleOtherText: '#f1f5f9',
 
   // Misc
-  border: 'rgba(255, 255, 255, 0.1)',
-  borderFocus: '#D71921',
-  overlay: 'rgba(0, 0, 0, 0.6)',
-  inputBg: '#0a0a0a',
-  badgeBg: '#ef4444',
-  badgeText: '#ffffff',
+  border: 'rgba(255, 255, 255, 0.08)',
+  borderFocus: '#00c2cb',
+  overlay: 'rgba(0, 0, 0, 0.75)',
+  inputBg: '#18202d',
+  badgeBg: '#00c2cb',
+  badgeText: '#061e27',
+  betaBadge: '#f59e0b',
+  betaBadgeBg: 'rgba(245, 158, 11, 0.12)',
 
   // Gradient stops
-  gradientStart: '#D71921',
-  gradientEnd: '#ff2a34',
+  gradientStart: '#5865f2',
+  gradientEnd: '#00c2cb',
 } as const
 
 export type ThemeColors = { [K in keyof typeof darkColors]: string }
 
 export const lightColors: ThemeColors = {
-  bgPrimary: '#ffffff',
-  bgSecondary: '#fafafa',
-  bgTertiary: '#f0f0f0',
+  bgPrimary: '#f8fafc',
+  bgSecondary: '#ffffff',
+  bgTertiary: '#f1f5f9',
   bgElevated: '#ffffff',
-  bgHover: 'rgba(10, 10, 10, 0.04)',
-  bgActive: 'rgba(215, 25, 33, 0.1)',
+  bgHover: 'rgba(15, 23, 42, 0.04)',
+  bgActive: '#e2e8f0',
 
   surface: '#ffffff',
-  surfaceHover: '#f0f0f0',
+  surfaceHover: '#f1f5f9',
   card: '#ffffff',
-  cardBorder: 'rgba(10, 10, 10, 0.06)',
+  cardBorder: '#e2e8f0',
 
-  textPrimary: '#0a0a0a',
-  textSecondary: '#4d4d4d',
-  textTertiary: '#999999',
-  textMuted: '#c2c2c2',
+  textPrimary: '#0f172a',
+  textSecondary: '#475569',
+  textTertiary: '#94a3b8',
+  textMuted: '#cbd5e1',
 
-  accent: '#D71921',
-  accentLight: '#b8141a',
-  accentDark: '#8f0d13',
-  accentGlow: 'rgba(215, 25, 33, 0.18)',
+  accent: '#5865f2',
+  accentLight: '#00c2cb',
+  accentDark: '#4752c4',
+  accentGlow: 'rgba(88, 101, 242, 0.18)',
+
+  cyan: '#00c2cb',
+  cyanLight: '#0891b2',
+  cyanDim: 'rgba(0, 194, 203, 0.1)',
 
   success: '#22c55e',
   warning: '#f59e0b',
   error: '#ef4444',
-  info: '#3b82f6',
+  info: '#0284c7',
 
-  bubbleSelf: '#0a0a0a',
+  bubbleSelf: '#5865f2',
   bubbleSelfText: '#ffffff',
   bubbleOther: '#ffffff',
-  bubbleOtherText: '#0a0a0a',
+  bubbleOtherText: '#0f172a',
 
-  border: '#e0e0e0',
-  borderFocus: '#D71921',
-  overlay: 'rgba(10, 10, 10, 0.4)',
-  inputBg: '#f0f0f0',
-  badgeBg: '#ef4444',
+  border: '#e2e8f0',
+  borderFocus: '#00c2cb',
+  overlay: 'rgba(15, 23, 42, 0.4)',
+  inputBg: '#f1f5f9',
+  badgeBg: '#00c2cb',
   badgeText: '#ffffff',
+  betaBadge: '#d97706',
+  betaBadgeBg: 'rgba(217, 119, 6, 0.1)',
 
-  gradientStart: '#D71921',
-  gradientEnd: '#b8141a',
+  gradientStart: '#5865f2',
+  gradientEnd: '#00c2cb',
 }
 
 /** @deprecated static dark palette, kept for any not-yet-themed call site — prefer `useTheme().colors` */
@@ -114,12 +127,12 @@ export const spacing = {
   xxxl: 32,
 } as const
 
-// Matches desktop's --radius-* (sharp, dot-matrix aesthetic — not the old rounded indigo look)
+// Matches desktop's --radius-* (rounded Keet aesthetic)
 export const radii = {
-  sm: 2,
-  md: 4,
-  lg: 6,
-  xl: 8,
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 18,
   full: 9999,
 } as const
 

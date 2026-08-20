@@ -75,6 +75,7 @@ export class Session {
   private readonly bookmarks = new Map<string, RoomBookmark>()
   private readonly invites = new Map<string, InviteToken>()
   private readonly pendingInviteCodes = new Map<string, string>()
+  private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
   private nickname = ''
   private avatar = ''
@@ -146,45 +147,95 @@ export class Session {
         events.onDirectoryChange?.()
       },
       onContactRequest: (message) => {
-        if (this.contacts.get(message.fromId)?.status === 'accepted') return
-        const contact: ContactEntry = { userId: message.fromId, nickname: message.nickname, status: 'incoming', avatar: message.avatar }
-        this.contacts.set(message.fromId, contact)
         if (message.avatar) {
           this.peerAvatars.set(message.fromId, message.avatar)
           void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
         }
-        void this.profileStore.saveContact(contact)
+        const existing = this.contacts.get(message.fromId)
+
+        // Peers re-send their request on every reconnect while it's unanswered (see
+        // flushPendingContacts), so a request from someone we already accepted means our
+        // acceptance never landed — or they lost it. We're the room owner (accepting is what
+        // creates the room), so re-issue the same acceptance instead of ignoring them, which
+        // used to leave them stuck on 'outgoing' forever with no way back.
+        if (existing?.status === 'accepted') {
+          const room = existing.roomId ? this.rooms.get(existing.roomId) : undefined
+          if (!room || !room.isOwner(this.identity.id)) return
+          this.deliverContactResponse({
+            ...existing,
+            pendingResponse: {
+              accepted: true,
+              roomId: room.id,
+              name: this.nickname,
+              bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
+              inviteCode: this.invites.get(room.id)?.code ?? ''
+            }
+          })
+          return
+        }
+
+        // Crossed requests: we each asked the other before either answer arrived. Both sides
+        // accepting would create two separate rooms, neither of which the other joins — so
+        // tie-break on identity id, lower id accepts and the higher one keeps waiting.
+        if (existing?.status === 'outgoing' && this.identity.id > message.fromId) return
+
+        const incoming: ContactEntry = { userId: message.fromId, nickname: message.nickname, status: 'incoming', avatar: message.avatar }
+        this.contacts.set(message.fromId, incoming)
+        void this.profileStore.saveContact(incoming)
         events.onContactsChange?.()
+        if (existing?.status === 'outgoing') {
+          void this.respondToContact(message.fromId, true).catch((err) => {
+            console.warn('[session] auto-accept on crossed contact requests failed:', (err as Error).message)
+          })
+        }
       },
       onContactResponse: (message) => {
         const contact = this.contacts.get(message.fromId)
-        if (!contact || contact.status !== 'outgoing') return
+        // 'incoming' is reachable too: our own request crossed theirs and the tie-break made
+        // them the accepter, leaving our local entry flipped to incoming.
+        if (!contact || (contact.status !== 'outgoing' && contact.status !== 'incoming')) return
         if (!message.accepted) {
           this.contacts.delete(message.fromId)
           void this.profileStore.removeContact(message.fromId)
           events.onContactsChange?.()
           return
         }
+        // An acceptance is re-sent whenever our request is re-sent (unacked, fire-and-forget),
+        // so the same response can land twice — never open the room twice for it.
+        if (this.joiningContactRooms.has(message.roomId)) return
+        this.joiningContactRooms.add(message.roomId)
         void (async () => {
-          const initialKeys = await this.profileStore.getRoomKeys(message.roomId)
-          const room = await Room.open(this.store, message.roomId, b4a.from(message.bootstrapKey, 'hex'), this.identity.id, initialKeys)
-          this.setupRoomKeyPersistence(room)
-          this.pendingInviteCodes.set(room.id, message.inviteCode)
-          await this.joinTopic(room)
-          this.trackRoom(room)
-          // Hyperswarm reuses the existing socket to this peer (already connected via a shared
-          // room/lobby topic), so `onConnection` won't re-fire for this brand-new room's topic —
-          // request write access explicitly instead of waiting for a connection event that never comes.
-          for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
-          await this.saveBookmark({ id: room.id, name: message.name, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar })
-          const updated: ContactEntry = { ...contact, status: 'accepted', roomId: room.id, avatar: message.avatar || contact.avatar }
-          this.contacts.set(message.fromId, updated)
-          if (message.avatar) {
-            this.peerAvatars.set(message.fromId, message.avatar)
-            void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
+          try {
+            const roomName = message.name || contact.nickname || message.fromId.slice(0, 8)
+            let room = this.rooms.get(message.roomId)
+            if (!room) {
+              const initialKeys = await this.profileStore.getRoomKeys(message.roomId)
+              room = await Room.open(this.store, message.roomId, b4a.from(message.bootstrapKey, 'hex'), this.identity.id, initialKeys)
+              this.setupRoomKeyPersistence(room)
+              this.pendingInviteCodes.set(room.id, message.inviteCode)
+              await this.joinTopic(room)
+              this.trackRoom(room)
+            }
+            // Hyperswarm reuses the existing socket to this peer (already connected via a shared
+            // room/lobby topic), so `onConnection` won't re-fire for this brand-new room's topic —
+            // request write access explicitly instead of waiting for a connection event that never comes.
+            for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
+            await this.saveBookmark({ id: room.id, name: roomName, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar })
+            const updated: ContactEntry = { ...contact, nickname: roomName, status: 'accepted', roomId: room.id, avatar: message.avatar || contact.avatar, pendingResponse: undefined }
+            this.contacts.set(message.fromId, updated)
+            if (message.avatar) {
+              this.peerAvatars.set(message.fromId, message.avatar)
+              void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
+            }
+            await this.profileStore.saveContact(updated)
+            events.onContactsChange?.()
+          } catch (err) {
+            // Leaving the contact on 'outgoing' is the recoverable state: we re-send the request
+            // on the next reconnect and the peer re-issues its acceptance.
+            console.warn('[session] joining contact room failed:', (err as Error).message)
+          } finally {
+            this.joiningContactRooms.delete(message.roomId)
           }
-          await this.profileStore.saveContact(updated)
-          events.onContactsChange?.()
         })()
       },
       onConnection: (peer) => {
@@ -196,6 +247,7 @@ export class Session {
           this.requestWriteIfNeeded(room, peer)
           this.syncKeyIfOwner(room, peer)
         }
+        this.flushPendingContacts(peer)
         events.onPeerConnected?.(peer)
       },
       onDisconnection: (publicKey) => {
@@ -389,14 +441,22 @@ export class Session {
   }
 
   listContacts(): ContactEntry[] {
-    return [...this.contacts.values()]
+    return [...this.contacts.values()].filter((c) => c.status !== 'declined')
   }
 
   contactStatus(userId: string): ContactEntry | undefined {
-    return this.contacts.get(userId)
+    const contact = this.contacts.get(userId)
+    return contact?.status === 'declined' ? undefined : contact
   }
 
-  sendContactRequest(userId: string, nickname: string): boolean {
+  async sendContactRequest(userId: string, nickname: string): Promise<boolean> {
+    const existing = this.contacts.get(userId)
+    // They already asked us: accepting is what the user means here, and firing a competing
+    // request instead would have both sides create a room the other never joins.
+    if (existing?.status === 'incoming') {
+      await this.respondToContact(userId, true)
+      return true
+    }
     const peer = this.peers.get(userId)
     if (!peer) return false
     peer.rpc.sendContactRequest({ fromId: this.identity.id, nickname: this.nickname, avatar: this.avatar })
@@ -409,19 +469,89 @@ export class Session {
   async respondToContact(userId: string, accept: boolean): Promise<void> {
     const contact = this.contacts.get(userId)
     if (!contact || contact.status !== 'incoming') return
-    const peer = this.peers.get(userId)
     if (!accept) {
-      this.contacts.delete(userId)
-      await this.profileStore.removeContact(userId)
-      peer?.rpc.sendContactResponse({ fromId: this.identity.id, accepted: false, roomId: '', name: '', bootstrapKey: '', inviteCode: '', avatar: this.avatar })
+      const declined: ContactEntry = { ...contact, status: 'declined', pendingResponse: { accepted: false, roomId: '', name: '', bootstrapKey: '', inviteCode: '' } }
+      this.contacts.set(userId, declined)
+      await this.profileStore.saveContact(declined)
+      this.deliverContactResponse(declined)
+      this.events.onContactsChange?.()
       return
     }
-    const room = await this.createRoom(contact.nickname, false, contact.avatar)
-    const updated: ContactEntry = { ...contact, status: 'accepted', roomId: room.id }
+    // Never let room creation abort the accept: `createRoom` rejects a blank or already-used
+    // name, and a peer with no nickname set — or a second room already named after them — is
+    // exactly the case that used to throw here and leave both sides desynced.
+    const room = await this.createRoom(this.uniqueRoomName(contact.nickname || userId.slice(0, 8)), false, contact.avatar)
+    const updated: ContactEntry = {
+      ...contact,
+      status: 'accepted',
+      roomId: room.id,
+      pendingResponse: {
+        accepted: true,
+        roomId: room.id,
+        name: this.nickname,
+        bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
+        inviteCode: this.invites.get(room.id)?.code ?? ''
+      }
+    }
     this.contacts.set(userId, updated)
     await this.profileStore.saveContact(updated)
-    const inviteCode = this.invites.get(room.id)?.code ?? ''
-    peer?.rpc.sendContactResponse({ fromId: this.identity.id, accepted: true, roomId: room.id, name: this.nickname, bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), inviteCode, avatar: this.avatar })
+    this.deliverContactResponse(updated)
+    this.events.onContactsChange?.()
+  }
+
+  /** `createRoom` throws on a blank or duplicate name; contact nicknames are neither unique nor
+   * guaranteed non-empty, so derive one that always passes. */
+  private uniqueRoomName(base: string): string {
+    const trimmed = base.trim() || 'Contact'
+    const taken = new Set(this.listBookmarks().map((b) => b.name.trim().toLowerCase()))
+    if (!taken.has(trimmed.toLowerCase())) return trimmed
+    for (let i = 2; ; i++) {
+      const candidate = `${trimmed} (${i})`
+      if (!taken.has(candidate.toLowerCase())) return candidate
+    }
+  }
+
+  /**
+   * Hands a contact response to the peer if it's reachable right now. Delivery isn't acked, so
+   * the pending copy is dropped once written and the peer's own re-sent request (it keeps
+   * re-sending while stuck on 'outgoing') is what recovers a response lost in flight.
+   */
+  private deliverContactResponse(contact: ContactEntry): void {
+    const pending = contact.pendingResponse
+    if (!pending) return
+    const peer = this.peers.get(contact.userId)
+    if (!peer) return
+    peer.rpc.sendContactResponse({
+      fromId: this.identity.id,
+      accepted: pending.accepted,
+      roomId: pending.roomId,
+      name: pending.name,
+      bootstrapKey: pending.bootstrapKey,
+      inviteCode: pending.inviteCode,
+      avatar: this.avatar
+    })
+    if (!pending.accepted) {
+      this.contacts.delete(contact.userId)
+      void this.profileStore.removeContact(contact.userId)
+      return
+    }
+    const cleared: ContactEntry = { ...contact, pendingResponse: undefined }
+    this.contacts.set(contact.userId, cleared)
+    void this.profileStore.saveContact(cleared)
+  }
+
+  /** Contact handshakes are fire-and-forget over a live socket, and mobile peers drop off
+   * whenever the app backgrounds — replay whatever is still owed to this peer now it's back. */
+  private flushPendingContacts(peer: PeerConnection): void {
+    const contact = this.contacts.get(b4a.toString(peer.remotePublicKey, 'hex'))
+    if (!contact) return
+    if (contact.pendingResponse) {
+      this.deliverContactResponse(contact)
+      return
+    }
+    if (contact.status === 'outgoing') {
+      peer.rpc.sendContactRequest({ fromId: this.identity.id, nickname: this.nickname, avatar: this.avatar })
+    }
   }
 
   async deleteContact(userId: string): Promise<void> {

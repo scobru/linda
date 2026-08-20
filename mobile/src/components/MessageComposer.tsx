@@ -121,7 +121,7 @@ export default function MessageComposer({
             disabled={disabled || attaching}
             style={({ pressed }) => [styles.attachButton, pressed && styles.attachButtonPressed]}
           >
-            {attaching ? <Text style={styles.attachIcon}>...</Text> : <Ionicons name="attach-outline" size={20} color={colors.textSecondary} />}
+            {attaching ? <Text style={styles.attachIcon}>...</Text> : <Ionicons name="add" size={22} color={colors.textPrimary} />}
           </Pressable>
         )}
         <TextInput
@@ -129,7 +129,7 @@ export default function MessageComposer({
           style={styles.input}
           value={text}
           onChangeText={(t) => { setText(t); onChangeText?.(t) }}
-          placeholder="Message..."
+          placeholder="Message"
           placeholderTextColor={colors.textTertiary}
           multiline
           maxLength={4000}
@@ -146,7 +146,7 @@ export default function MessageComposer({
             pressed && styles.sendButtonPressed,
           ]}
         >
-          <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={18} color="#ffffff" />
+          <Ionicons name={editingMessage ? 'checkmark' : 'send'} size={16} color={text.trim().length > 0 ? '#061e27' : colors.textTertiary} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -156,7 +156,7 @@ export default function MessageComposer({
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     backgroundColor: colors.bgSecondary,
@@ -167,40 +167,41 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   input: {
     flex: 1,
     backgroundColor: colors.inputBg,
-    borderRadius: radii.lg,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: Platform.OS === 'ios' ? spacing.sm : 6,
     color: colors.textPrimary,
     fontSize: typography.md,
     maxHeight: 120,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sendButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.cyan,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: colors.textTertiary,
-    opacity: 0.4,
+    backgroundColor: 'transparent',
+    opacity: 0.3,
   },
   sendButtonPressed: {
-    backgroundColor: colors.accentDark,
+    backgroundColor: colors.cyanLight,
     transform: [{ scale: 0.95 }],
   },
   sendIcon: {
-    color: '#ffffff',
-    fontSize: 18,
+    color: '#061e27',
+    fontSize: 16,
     fontWeight: typography.bold,
   },
   attachButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    backgroundColor: '#20293a',
     alignItems: 'center',
     justifyContent: 'center',
   },

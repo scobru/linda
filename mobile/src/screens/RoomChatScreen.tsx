@@ -65,9 +65,30 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null)
   const flatListRef = useRef<FlatList>(null)
 
+  const [memberCount, setMemberCount] = useState(1)
+  useEffect(() => {
+    if (!room) return
+    void room.listMembers().then((res) => {
+      if (res?.members) setMemberCount(res.members.length)
+    })
+  }, [room])
+
   // Custom header
   useEffect(() => {
     navigation.setOptions({
+      headerTitle: () => (
+        <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
+              {roomName}
+            </Text>
+            <Ionicons name="checkmark-circle" size={14} color="#38bdf8" />
+          </View>
+          <Text style={{ color: colors.textTertiary, fontSize: 11 }}>
+            {`${memberCount} member(s)`}
+          </Text>
+        </View>
+      ),
       headerRight: () => (
         <View style={styles.headerRight}>
           <Pressable onPress={() => startCall().catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
@@ -91,7 +112,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, startCall])
+  }, [navigation, roomId, roomName, showSearch, startCall, memberCount, colors])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'

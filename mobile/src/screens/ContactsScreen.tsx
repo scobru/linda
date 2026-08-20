@@ -19,6 +19,14 @@ export default function ContactsScreen({ navigation }: Props) {
   const styles = React.useMemo(() => createStyles(colors), [colors])
   const { incoming, outgoing, accepted, respond, remove } = useContacts()
 
+  // Without this the rejected promise vanished into an unhandled rejection and the button
+  // looked dead — no room created, no response sent, no explanation.
+  const answer = (userId: string, accept: boolean) => {
+    respond(userId, accept).catch((err: Error) => {
+      Alert.alert(accept ? 'Could not accept request' : 'Could not decline request', err.message)
+    })
+  }
+
   const confirmRemove = (userId: string, nickname: string) => {
     Alert.alert('Remove contact?', `${nickname || userId.slice(0, 8)} will be removed from your contacts.`, [
       { text: 'Cancel', style: 'cancel' },
@@ -51,8 +59,8 @@ export default function ContactsScreen({ navigation }: Props) {
             status={item.status}
             avatar={item.avatar || avatars.get(item.userId)}
             online={onlineUsers.has(item.userId)}
-            onAccept={() => respond(item.userId, true)}
-            onDecline={() => respond(item.userId, false)}
+            onAccept={() => answer(item.userId, true)}
+            onDecline={() => answer(item.userId, false)}
             onRemove={() => confirmRemove(item.userId, item.nickname)}
             onPress={item.roomId ? () => {
               navigation.navigate('RoomChat', {

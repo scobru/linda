@@ -81,14 +81,34 @@ export default function RoomsScreen({ navigation }: Props) {
     ])
   }, [session, refresh])
 
+  const [activeFilter, setActiveFilter] = useState<'all' | 'unread'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredBookmarks = useMemo(() => {
+    let list = bookmarks
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim()
+      list = list.filter((b) => b.name.toLowerCase().includes(q) || (b.lastMessageText && b.lastMessageText.toLowerCase().includes(q)))
+    }
+    if (activeFilter === 'unread') {
+      list = list.filter((b) => !!b.lastMessageTime && b.lastMessageTime > (b.lastReadAt ?? 0))
+    }
+    return list
+  }, [bookmarks, searchQuery, activeFilter])
+
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header bar with profile + contacts */}
+      {/* Header bar with profile + Linda title + BETA badge + header actions */}
       <View style={styles.headerBar}>
         <Pressable onPress={() => navigation.navigate('Profile')} style={styles.profileBtn}>
           <Avatar id={identity?.id || ''} label={nickname} imageUrl={avatar} size="sm" />
         </Pressable>
-        <Text style={styles.headerTitle}>Linda</Text>
+        <View style={styles.titleWrap}>
+          <Text style={styles.headerTitle}>Linda</Text>
+          <View style={styles.betaBadge}>
+            <Text style={styles.betaBadgeText}>BETA</Text>
+          </View>
+        </View>
         <View style={styles.headerActions}>
           <Pressable onPress={() => navigation.navigate('Discover')} style={styles.headerBtn}>
             <Ionicons name="compass-outline" size={20} color={colors.textPrimary} />
@@ -104,9 +124,25 @@ export default function RoomsScreen({ navigation }: Props) {
         </View>
       </View>
 
+      {/* Keet Filter Pills Row */}
+      <View style={styles.filterPillsRow}>
+        <Pressable
+          onPress={() => setActiveFilter('all')}
+          style={[styles.filterPill, activeFilter === 'all' && styles.filterPillActive]}
+        >
+          <Text style={[styles.filterPillText, activeFilter === 'all' && styles.filterPillTextActive]}>All</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setActiveFilter('unread')}
+          style={[styles.filterPill, activeFilter === 'unread' && styles.filterPillActive]}
+        >
+          <Text style={[styles.filterPillText, activeFilter === 'unread' && styles.filterPillTextActive]}>Unread</Text>
+        </Pressable>
+      </View>
+
       {/* Room list */}
       <FlatList
-        data={bookmarks}
+        data={filteredBookmarks}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <RoomListItem
@@ -122,12 +158,12 @@ export default function RoomsScreen({ navigation }: Props) {
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
-            <Text style={styles.emptyTitle}>No rooms yet</Text>
+            <Ionicons name="chatbubbles-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
+            <Text style={styles.emptyTitle}>No conversations yet</Text>
             <Text style={styles.emptyText}>Create a room or join one with an invite link</Text>
           </View>
         }
-        contentContainerStyle={bookmarks.length === 0 ? styles.emptyList : undefined}
+        contentContainerStyle={filteredBookmarks.length === 0 ? styles.emptyList : undefined}
       />
 
       {/* FAB */}
@@ -142,7 +178,7 @@ export default function RoomsScreen({ navigation }: Props) {
           onPress={() => setShowCreate(true)}
           style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
         >
-          <Text style={styles.fabIcon}>+</Text>
+          <Ionicons name="add" size={28} color="#061e27" />
         </Pressable>
       </View>
 
@@ -218,23 +254,68 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomColor: colors.border,
   },
   profileBtn: { marginRight: spacing.md },
+  titleWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   headerTitle: {
-    flex: 1, fontSize: typography.xl, fontWeight: typography.bold,
+    fontSize: typography.xl,
+    fontWeight: typography.bold,
     color: colors.textPrimary,
+  },
+  betaBadge: {
+    borderWidth: 1,
+    borderColor: colors.betaBadge,
+    backgroundColor: colors.betaBadgeBg,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.full,
+  },
+  betaBadgeText: {
+    color: colors.betaBadge,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   headerActions: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: { padding: spacing.sm, position: 'relative' },
-  headerBtnText: { fontSize: 20 },
   badge: {
     position: 'absolute', top: 2, right: 2,
-    backgroundColor: colors.badgeBg, borderRadius: 8,
+    backgroundColor: colors.cyan, borderRadius: 8,
     minWidth: 16, height: 16, alignItems: 'center',
     justifyContent: 'center', paddingHorizontal: 4,
   },
-  badgeText: { color: '#fff', fontSize: 10, fontWeight: typography.bold },
+  badgeText: { color: '#061e27', fontSize: 10, fontWeight: typography.bold },
+  filterPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.bgPrimary,
+  },
+  filterPill: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 6,
+    borderRadius: radii.full,
+    backgroundColor: 'transparent',
+  },
+  filterPillActive: {
+    backgroundColor: colors.accent,
+  },
+  filterPillText: {
+    color: colors.textSecondary,
+    fontSize: typography.sm,
+    fontWeight: typography.semibold,
+  },
+  filterPillTextActive: {
+    color: '#ffffff',
+  },
   empty: { alignItems: 'center', gap: spacing.sm },
   emptyList: { flex: 1, justifyContent: 'center' },
-  emptyEmoji: { fontSize: 48, opacity: 0.5 },
+  emptyEmoji: { opacity: 0.4 },
   emptyTitle: { fontSize: typography.lg, fontWeight: typography.semibold, color: colors.textSecondary },
   emptyText: { fontSize: typography.sm, color: colors.textTertiary, textAlign: 'center' },
   fabRow: {
@@ -242,9 +323,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: 'row', gap: spacing.md, alignItems: 'center',
   },
   fab: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: colors.accent, alignItems: 'center',
-    justifyContent: 'center', ...shadows.glow,
+    width: 54, height: 54, borderRadius: 27,
+    backgroundColor: colors.cyan, alignItems: 'center',
+    justifyContent: 'center', elevation: 4,
   },
   fabSecondary: {
     width: 44, height: 44, borderRadius: 22,
@@ -252,8 +333,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: 'center', borderWidth: 1, borderColor: colors.border,
   },
   fabPressed: { transform: [{ scale: 0.93 }] },
-  fabIcon: { color: '#fff', fontSize: 28, fontWeight: typography.bold, marginTop: -2 },
-  fabText: { fontSize: 20 },
   modalOverlay: {
     flex: 1, backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
@@ -277,15 +356,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: spacing.md },
   modalCancel: {
     flex: 1, paddingVertical: spacing.md,
-    alignItems: 'center', borderRadius: radii.md,
+    alignItems: 'center', borderRadius: radii.full,
     backgroundColor: colors.bgTertiary,
   },
-  modalCancelText: { color: colors.textSecondary, fontSize: typography.md },
+  modalCancelText: { color: colors.textSecondary, fontSize: typography.md, fontWeight: typography.medium },
   modalConfirm: {
     flex: 1, paddingVertical: spacing.md,
-    alignItems: 'center', borderRadius: radii.md,
-    backgroundColor: colors.accent,
+    alignItems: 'center', borderRadius: radii.full,
+    backgroundColor: colors.cyan,
   },
   buttonPressed: { transform: [{ scale: 0.98 }] },
-  modalConfirmText: { color: '#fff', fontSize: typography.md, fontWeight: typography.semibold },
+  modalConfirmText: { color: '#061e27', fontSize: typography.md, fontWeight: typography.bold },
 })

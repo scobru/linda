@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, Text, Pressable, StyleSheet } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import Avatar from './Avatar'
@@ -39,22 +40,35 @@ export default function RoomListItem({ id, name, lastMessage, timestamp, unread,
       <Avatar id={id} label={name} imageUrl={avatar} size="lg" />
       <View style={styles.content}>
         <View style={styles.topRow}>
-          <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
-            {name}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
+              {name}
+            </Text>
+            <Ionicons name="checkmark-circle" size={14} color="#38bdf8" style={styles.verifiedIcon} />
+          </View>
           {timestamp && timestamp > 0 && (
             <Text style={[styles.time, unread && styles.timeUnread]}>
               {formatRelativeTime(timestamp)}
             </Text>
           )}
         </View>
-        {lastMessage && (
-          <Text style={styles.preview} numberOfLines={1}>
-            {lastMessage}
-          </Text>
-        )}
+        <View style={styles.bottomRow}>
+          {lastMessage ? (
+            <Text style={[styles.preview, unread && styles.previewUnread]} numberOfLines={1}>
+              {lastMessage}
+            </Text>
+          ) : (
+            <Text style={styles.previewEmpty} numberOfLines={1}>
+              E2E Sovereign Room
+            </Text>
+          )}
+          {unread && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>1</Text>
+            </View>
+          )}
+        </View>
       </View>
-      {unread && <View style={styles.badge} />}
     </Pressable>
   )
 }
@@ -65,6 +79,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
+    marginHorizontal: spacing.sm,
+    borderRadius: radii.lg,
     gap: spacing.md,
   },
   pressed: {
@@ -72,21 +88,29 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   content: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 4,
+  },
   name: {
     color: colors.textPrimary,
     fontSize: typography.md,
-    fontWeight: typography.medium,
-    flex: 1,
+    fontWeight: typography.semibold,
   },
   nameUnread: {
     fontWeight: typography.bold,
+  },
+  verifiedIcon: {
+    marginTop: 1,
   },
   time: {
     color: colors.textTertiary,
@@ -94,16 +118,42 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginLeft: spacing.sm,
   },
   timeUnread: {
-    color: colors.accent,
+    color: colors.cyan,
+    fontWeight: typography.semibold,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   preview: {
     color: colors.textSecondary,
     fontSize: typography.sm,
+    flex: 1,
+  },
+  previewUnread: {
+    color: colors.textPrimary,
+    fontWeight: typography.medium,
+  },
+  previewEmpty: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+    fontStyle: 'italic',
+    flex: 1,
   },
   badge: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.accent,
+    minWidth: 18,
+    height: 18,
+    borderRadius: radii.full,
+    backgroundColor: colors.cyan,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  badgeText: {
+    color: '#061e27',
+    fontSize: 10,
+    fontWeight: '700',
   },
 })
