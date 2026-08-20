@@ -172,6 +172,7 @@ export class AppShell extends HTMLElement {
   private activeRoom: Room | null = null
   private activeRoomName = ''
   private replyingTo: ChatMessage | null = null
+  private editingMessage: ChatMessage | null = null
   private messageFilter = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
@@ -1071,7 +1072,14 @@ export class AppShell extends HTMLElement {
       <div id="seenBy" class="status-bar"></div>
       <div id="typing" class="status-bar"></div>
 
-      ${this.replyingTo ? `
+      ${this.editingMessage ? `
+        <div class="reply-bar">
+          <div class="reply-bar-text">
+            <span>Editing message</span>
+          </div>
+          <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
+        </div>
+      ` : this.replyingTo ? `
         <div class="reply-bar">
           <div class="reply-bar-text">
             <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
@@ -1087,7 +1095,7 @@ export class AppShell extends HTMLElement {
           <div class="composer-capsule">
             <button class="composer-plus-btn" id="attachBtn" title="Attach file or image via Hyperdrive">+</button>
             <input id="file" type="file" style="display:none" />
-            <input id="body" placeholder="Message" autofocus />
+            <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
             <div class="composer-tools-group">
               <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">😊</button>
               <button class="composer-send-btn" id="send" title="Send">${ICONS.send}</button>
@@ -1151,6 +1159,11 @@ export class AppShell extends HTMLElement {
       this.replyingTo = null
       this.renderApp()
     })
+
+    this.querySelector('#cancelEdit')?.addEventListener('click', () => {
+      this.editingMessage = null
+      this.renderApp()
+    })
   }
 
   private openRoom(roomId: string, name: string): void {
@@ -1202,6 +1215,13 @@ export class AppShell extends HTMLElement {
     const lastVisible = visible[visible.length - 1]
     if (lastVisible) this.notifyRead(room, lastVisible.id)
 
+    container.querySelectorAll<HTMLButtonElement>('[data-play-audio]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const slot = this.querySelector(`[data-audio-slot="${btn.dataset.playAudio}"]`) as HTMLElement | null
+        if (slot) void this.playAudio(btn.dataset.driveKey!, btn.dataset.path!, slot)
+      })
+    })
+
     container.querySelectorAll<HTMLButtonElement>('[data-download]').forEach((btn) => {
       btn.addEventListener('click', () => void this.downloadFile(btn.dataset.download!, btn.dataset.name!, btn.dataset.path!))
     })
@@ -1215,8 +1235,24 @@ export class AppShell extends HTMLElement {
 
     container.querySelectorAll<HTMLButtonElement>('[data-reply]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        this.editingMessage = null
         this.replyingTo = byId.get(btn.dataset.reply!) ?? null
         this.renderApp()
+      })
+    })
+
+    container.querySelectorAll<HTMLButtonElement>('[data-edit-msg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.replyingTo = null
+        this.editingMessage = byId.get(btn.dataset.editMsg!) ?? null
+        this.renderApp()
+      })
+    })
+
+    container.querySelectorAll<HTMLButtonElement>('[data-delete-msg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!confirm('Delete this message? This cannot be undone.')) return
+        void room.deleteMessage(btn.dataset.deleteMsg!)
       })
     })
 
@@ -1245,7 +1281,17 @@ export class AppShell extends HTMLElement {
     let fileHtml = ''
     if (message.file) {
       const isImg = message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name)
-      if (isImg) {
+      const isAudio = !isImg && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
+      if (isAudio) {
+        fileHtml = `
+          <div class="file-chip" style="display:flex;flex-direction:column;gap:0.4rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
+            <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
+            <div data-audio-slot="${message.id}">
+              <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}">▶ Play</button>
+            </div>
+          </div>
+        `
+      } else if (isImg) {
         const thumbSrc = message.file.thumbnail || this.remoteImageCache.get(`${message.file.driveKey}:${message.file.path}`) || ''
         fileHtml = `
           <div class="msg-image-card">
@@ -1299,6 +1345,10 @@ export class AppShell extends HTMLElement {
       <div class="msg-actions">
         ${message.body ? `<button data-copy-msg="${message.id}" title="Copy">${ICONS.copy}</button>` : ''}
         <button data-reply="${message.id}" title="Reply">${ICONS.reply}</button>
+        ${mine ? `
+          <button data-edit-msg="${message.id}" title="Edit">${ICONS.edit}</button>
+          <button data-delete-msg="${message.id}" title="Delete">${ICONS.trash}</button>
+        ` : ''}
         ${quickEmojis.map((e) => `<button data-react="${e}" data-message-id="${message.id}">${e}</button>`).join('')}
       </div>
     `
@@ -1338,8 +1388,13 @@ export class AppShell extends HTMLElement {
     const input = this.querySelector('#body') as HTMLInputElement
     const body = input?.value.trim()
     if (!body) return
-    await room.send(this.identity!.id, body, this.replyingTo?.id)
-    this.replyingTo = null
+    if (this.editingMessage) {
+      await room.editMessage(this.editingMessage.id, body)
+      this.editingMessage = null
+    } else {
+      await room.send(this.identity!.id, body, this.replyingTo?.id)
+      this.replyingTo = null
+    }
     input.value = ''
     this.notifyTyping(false)
   }
@@ -1372,21 +1427,40 @@ export class AppShell extends HTMLElement {
     input.value = ''
   }
 
-  private async downloadFile(driveKeyHex: string, name: string, drivePath: string): Promise<void> {
+  private async fetchFileBlob(driveKeyHex: string, drivePath: string): Promise<Blob | null> {
     const drive = await RemoteDrive.connect(storageDir(), b4a.from(driveKeyHex, 'hex'))
     try {
       const buffer = await drive.downloadFile(drivePath)
-      if (!buffer) return alert('File not found on peer')
-      const blob = new Blob([new Uint8Array(buffer)])
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
+      return buffer ? new Blob([new Uint8Array(buffer)]) : null
     } finally {
       await drive.close()
     }
+  }
+
+  private async downloadFile(driveKeyHex: string, name: string, drivePath: string): Promise<void> {
+    const blob = await this.fetchFileBlob(driveKeyHex, drivePath)
+    if (!blob) return alert('File not found on peer')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  private async playAudio(driveKeyHex: string, drivePath: string, slot: HTMLElement): Promise<void> {
+    slot.innerHTML = `<span style="font-size:0.7rem;color:var(--text-muted);">Loading…</span>`
+    const blob = await this.fetchFileBlob(driveKeyHex, drivePath)
+    if (!blob) { slot.innerHTML = `<span style="font-size:0.7rem;color:var(--danger);">Unavailable</span>`; return }
+    const url = URL.createObjectURL(blob)
+    slot.innerHTML = ''
+    const audio = document.createElement('audio')
+    audio.controls = true
+    audio.autoplay = true
+    audio.src = url
+    audio.style.height = '32px'
+    audio.addEventListener('emptied', () => URL.revokeObjectURL(url))
+    slot.appendChild(audio)
   }
 
   // --- calls & presence ----------------------------------------------------

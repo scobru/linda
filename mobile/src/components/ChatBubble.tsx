@@ -23,6 +23,12 @@ interface Props {
   onReactionPress?: (emoji: string) => void
   onFilePress?: () => void
   fileDownloading?: boolean
+  isAudioPlaying?: boolean
+  isAudioLoading?: boolean
+}
+
+export function isAudioFile(file: { name: string; mimeType?: string }): boolean {
+  return !!file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(file.name)
 }
 
 function formatTime(ts: number): string {
@@ -36,7 +42,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onReactionPress, onFilePress, fileDownloading }: Props) {
+export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onReactionPress, onFilePress, fileDownloading, isAudioPlaying, isAudioLoading }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   if (message.deleted) {
@@ -77,7 +83,19 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
 
         {/* File attachment */}
         {message.file && (
-          message.file.thumbnail ? (
+          isAudioFile(message.file) ? (
+            <Pressable style={styles.fileAttachment} onPress={onFilePress} disabled={isAudioLoading}>
+              <View style={styles.fileNameRow}>
+                <Ionicons
+                  name={isAudioLoading ? 'hourglass-outline' : isAudioPlaying ? 'pause-circle' : 'play-circle'}
+                  size={22}
+                  color={colors.textPrimary}
+                />
+                <Text style={styles.fileName}>{message.file.name}</Text>
+              </View>
+              <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+            </Pressable>
+          ) : message.file.thumbnail ? (
             <Pressable onPress={onFilePress} disabled={fileDownloading} style={styles.imageAttachment}>
               <Image source={{ uri: message.file.thumbnail }} style={styles.imageThumb} resizeMode="cover" />
               {fileDownloading && (

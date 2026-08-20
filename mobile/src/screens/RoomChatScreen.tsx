@@ -8,6 +8,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import * as Clipboard from 'expo-clipboard'
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { RTCView } from 'react-native-webrtc'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -17,7 +18,7 @@ import { useCall } from '../hooks/useCall'
 import { downloadFile } from '../bare/room-proxy'
 import { listConnectedPeerIds } from '../bare/call-proxy'
 import type { ChatMessage } from '@core/rooms/room'
-import ChatBubble from '../components/ChatBubble'
+import ChatBubble, { isAudioFile } from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
@@ -36,6 +37,9 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const identityId = identity?.id || ''
   const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
+  const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null)
+  const audioPlayerRef = useRef<AudioPlayer | null>(null)
   const { remoteStreams, startCall } = useCall(room, identityId)
 
   // Mirrors desktop's openRoom: stamp read on open, and again for each message that
@@ -135,8 +139,41 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
   }, [sendFile])
 
+  const handlePlayAudio = useCallback(async (message: ChatMessage) => {
+    if (!message.file || loadingAudioId) return
+    if (playingAudioId === message.id) {
+      audioPlayerRef.current?.pause()
+      setPlayingAudioId(null)
+      return
+    }
+    audioPlayerRef.current?.remove()
+    audioPlayerRef.current = null
+    setPlayingAudioId(null)
+    setLoadingAudioId(message.id)
+    try {
+      const base64 = await downloadFile(message.file.driveKey, message.file.path)
+      if (!base64) return Alert.alert('File unavailable', 'The peer sharing this file is offline.')
+      const dest = FileSystem.cacheDirectory + message.file.name
+      await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 })
+      const player = createAudioPlayer(dest)
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) setPlayingAudioId(null)
+      })
+      audioPlayerRef.current = player
+      player.play()
+      setPlayingAudioId(message.id)
+    } catch {
+      Alert.alert('Playback failed', 'Could not play this file.')
+    } finally {
+      setLoadingAudioId(null)
+    }
+  }, [playingAudioId, loadingAudioId])
+
+  useEffect(() => () => { audioPlayerRef.current?.remove() }, [])
+
   const handleFilePress = useCallback(async (message: ChatMessage) => {
     if (!message.file || downloadingId) return
+    if (isAudioFile(message.file)) return handlePlayAudio(message)
     setDownloadingId(message.id)
     try {
       const base64 = await downloadFile(message.file.driveKey, message.file.path)
@@ -241,6 +278,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
             onFilePress={() => handleFilePress(item)}
             fileDownloading={downloadingId === item.id}
+            isAudioPlaying={playingAudioId === item.id}
+            isAudioLoading={loadingAudioId === item.id}
           />
         )}
         contentContainerStyle={styles.messageList}
