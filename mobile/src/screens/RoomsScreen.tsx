@@ -18,7 +18,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Rooms'>
 export default function RoomsScreen({ navigation }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
-  const { session, identity, nickname, avatar, bookmarks, contacts, refresh } = useSession()
+  const { session, identity, nickname, avatar, bookmarks, contacts, avatars, refresh } = useSession()
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
   const [roomName, setRoomName] = useState('')
@@ -26,6 +26,17 @@ export default function RoomsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false)
 
   const incomingCount = contacts.filter((c) => c.status === 'incoming').length
+
+  // Bookmark avatars are a snapshot from when the contact was accepted — they never update
+  // again on their own, so a 1:1 room keeps showing a peer's old picture after they change it.
+  // `avatars` is kept live via presence, so prefer it here when we can map the room back to them.
+  const contactAvatarByRoom = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of contacts) {
+      if (c.roomId && c.status === 'accepted') map.set(c.roomId, c.userId)
+    }
+    return map
+  }, [contacts])
 
   const handleCreateRoom = useCallback(async () => {
     if (!session || !roomName.trim()) return
@@ -148,7 +159,10 @@ export default function RoomsScreen({ navigation }: Props) {
           <RoomListItem
             id={item.id}
             name={item.name}
-            avatar={item.avatar}
+            avatar={(() => {
+              const peerId = contactAvatarByRoom.get(item.id)
+              return (peerId && avatars.get(peerId)) || item.avatar
+            })()}
             lastMessage={item.lastMessageText ?? undefined}
             timestamp={item.lastMessageTime ?? undefined}
             unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
