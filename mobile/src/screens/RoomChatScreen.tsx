@@ -35,7 +35,9 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const { session, identity, nicknames, avatars, refresh: refreshSession } = useSession()
   const room = session?.getRoom(roomId)
   const identityId = identity?.id || ''
-  const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
+  const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, hasMore, loadOlder, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const lastTailIdRef = useRef<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null)
@@ -349,7 +351,27 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           />
         )}
         contentContainerStyle={styles.messageList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() => {
+          // Only snap to bottom when a message actually landed at the tail — loadOlder()
+          // prepends to the top and must not yank the view back down.
+          const tail = filteredMessages[filteredMessages.length - 1]
+          if (tail && tail.id !== lastTailIdRef.current) {
+            lastTailIdRef.current = tail.id
+            flatListRef.current?.scrollToEnd({ animated: false })
+          }
+        }}
+        ListHeaderComponent={hasMore ? (
+          <Pressable
+            style={styles.loadEarlier}
+            disabled={loadingOlder}
+            onPress={async () => {
+              setLoadingOlder(true)
+              try { await loadOlder() } finally { setLoadingOlder(false) }
+            }}
+          >
+            <Text style={styles.loadEarlierText}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</Text>
+          </Pressable>
+        ) : undefined}
         ListEmptyComponent={
           loading ? (
             <View style={styles.emptyCenter}>
@@ -479,6 +501,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   searchClose: { color: colors.textTertiary, fontSize: 18, padding: spacing.xs },
   messageList: { paddingVertical: spacing.sm, flexGrow: 1 },
+  loadEarlier: { alignItems: 'center', paddingVertical: spacing.sm },
+  loadEarlierText: { color: colors.textTertiary, fontSize: typography.sm },
   emptyCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   emptyEmoji: { fontSize: 48, opacity: 0.5 },
   emptyText: { color: colors.textTertiary, fontSize: typography.md },

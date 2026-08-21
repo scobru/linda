@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { RoomProxy as Room } from '../bare/room-proxy'
 import type { ChatMessage } from '@core/rooms/room'
 
+// Only the tail is loaded on open; older messages come in on-demand via loadOlder() instead
+// of decrypting and shipping a room's entire history across the RN<->worklet bridge every time.
+const PAGE_SIZE = 50
+
 export interface UseRoomResult {
   messages: ChatMessage[]
   loading: boolean
@@ -11,6 +15,8 @@ export interface UseRoomResult {
   deleteMessage: (id: string) => Promise<void>
   toggleReaction: (messageId: string, emoji: string) => Promise<void>
   refreshMessages: () => Promise<void>
+  hasMore: boolean
+  loadOlder: () => Promise<void>
   typingUsers: Set<string>
   notifyTyping: () => void
   readBy: Set<string>
@@ -19,20 +25,39 @@ export interface UseRoomResult {
 export function useRoom(room: Room | null | undefined, identityId: string): UseRoomResult {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasMore, setHasMore] = useState(false)
+  const oldestLoadedRef = useRef(0)
   const mountedRef = useRef(true)
 
   const loadMessages = useCallback(async () => {
     if (!room) return
     setLoading(true)
+    const count = await room.messageCount()
+    const start = Math.max(0, count - PAGE_SIZE)
     const msgs: ChatMessage[] = []
-    for await (const msg of room.messages()) {
+    for await (const msg of room.messages(start, count)) {
       if (!mountedRef.current) return
       msgs.push(msg)
     }
     if (mountedRef.current) {
+      oldestLoadedRef.current = start
+      setHasMore(start > 0)
       setMessages(msgs)
       setLoading(false)
     }
+  }, [room])
+
+  const loadOlder = useCallback(async () => {
+    if (!room) return
+    const end = oldestLoadedRef.current
+    if (end <= 0) return
+    const start = Math.max(0, end - PAGE_SIZE)
+    const older: ChatMessage[] = []
+    for await (const msg of room.messages(start, end)) older.push(msg)
+    if (!mountedRef.current) return
+    oldestLoadedRef.current = start
+    setHasMore(start > 0)
+    setMessages((prev) => [...older, ...prev])
   }, [room])
 
   useEffect(() => {
@@ -46,6 +71,9 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     if (!room) return
     const handler = async (index: number) => {
       if (!mountedRef.current) return
+      // A mutation on a message from before the currently loaded page — leave it be, it'll
+      // show up correctly once the user scrolls back and loadOlder() brings that page in.
+      if (index < oldestLoadedRef.current) return
       try {
         const msg = await room.getMessage(index)
         setMessages((prev) => {
@@ -143,6 +171,8 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     deleteMessage,
     toggleReaction,
     refreshMessages: loadMessages,
+    hasMore,
+    loadOlder,
     typingUsers,
     notifyTyping,
     readBy,

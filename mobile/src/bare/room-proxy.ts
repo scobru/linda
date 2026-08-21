@@ -1,3 +1,4 @@
+import b4a from 'b4a'
 import { bareClient } from './client'
 import type { ChatMessage, MemberInfo } from '@core/rooms/room'
 
@@ -49,9 +50,14 @@ export class RoomProxy {
     return bareClient.call('room.setBroadcast', this.id, enabled)
   }
 
-  async *messages(): AsyncIterable<ChatMessage> {
-    const all = await bareClient.call<ChatMessage[]>('room.messages', this.id)
+  /** Omit start/end for the full history; pass a range to page it (see useRoom's PAGE_SIZE). */
+  async *messages(start?: number, end?: number): AsyncIterable<ChatMessage> {
+    const all = await bareClient.call<ChatMessage[]>('room.messages', this.id, start, end)
     for (const msg of all) yield msg
+  }
+
+  messageCount(): Promise<number> {
+    return bareClient.call('room.messageCount', this.id)
   }
 
   getMessage(index: number): Promise<ChatMessage> {
@@ -74,8 +80,13 @@ export class RoomProxy {
     return bareClient.call('room.toggleReaction', this.id, userId, messageId, emoji)
   }
 
-  sendFile(authorId: string, name: string, mimeType: string, base64: string, thumbnail?: string, body = ''): Promise<ChatMessage> {
-    return bareClient.call('room.sendFile', this.id, authorId, name, mimeType, base64, thumbnail, body)
+  // File bytes travel as the frame's binary tail (see client.ts), not base64 inside the
+  // JSON args — cuts a third off the wire size and skips JSON-escaping the whole file.
+  async sendFile(authorId: string, name: string, mimeType: string, base64: string, thumbnail?: string, body = ''): Promise<ChatMessage> {
+    const { result } = await bareClient.callBinary<ChatMessage>(
+      'room.sendFile', [this.id, authorId, name, mimeType, thumbnail, body], b4a.from(base64, 'base64')
+    )
+    return result
   }
 
   listMembers(): Promise<{ members: MemberInfo[]; ownerId: string | null; moderators: string[]; muted: string[]; banned: string[] }> {
@@ -109,7 +120,9 @@ export class RoomProxy {
   }
 }
 
-/** `null` if the peer hosting the file is unreachable. */
-export function downloadFile(driveKeyHex: string, drivePath: string): Promise<string | null> {
-  return bareClient.call('files.download', driveKeyHex, drivePath)
+/** `null` if the peer hosting the file is unreachable. Reply's binary tail is the raw file,
+ * converted to base64 here so callers (expo-file-system) don't need to change. */
+export async function downloadFile(driveKeyHex: string, drivePath: string): Promise<string | null> {
+  const { result, binary } = await bareClient.callBinary<{ found: boolean }>('files.download', [driveKeyHex, drivePath], new Uint8Array(0))
+  return result.found ? b4a.toString(binary, 'base64') : null
 }

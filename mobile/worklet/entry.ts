@@ -1,11 +1,13 @@
 // Runs inside the Bare runtime (react-native-bare-kit Worklet), not the RN/Hermes thread.
 // Bundled by scripts/build-worklet.mjs (esbuild -> bare-pack --linked) into worklet/dist/worklet.bundle.cjs.
-// Protocol over BareKit.IPC: newline-delimited JSON.
-//   request:  {id, method, args}
-//   response: {id, ok:true, result} | {id, ok:false, error}
-//   push:     {event, payload}
+// Protocol over BareKit.IPC: bare-rpc (see mobile/src/bare/client.ts for the RN-side half and
+// why — binary-safe framing, no more base64-in-JSON for file bytes).
+//   request:  method call, frame header {method, args}
+//   response: frame header {ok:true, result} | {ok:false, error}, optional binary tail
+//   push:     rpc.event(), frame header {event, payload}
 import b4a from 'b4a'
 import fs from 'node:fs'
+import RPC from 'bare-rpc'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, validateMnemonic, revealMnemonic, WrongPassphraseError, type Identity } from '../../src/identity/index.js'
 import { joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
@@ -13,7 +15,7 @@ import type { Room } from '../../src/rooms/room.js'
 import { RemoteDrive } from '../../src/files/remote.js'
 import type { CallSignalMessage } from '../../src/network/encoding.js'
 
-declare const BareKit: { IPC: { on(event: 'data', cb: (chunk: Uint8Array) => void): void; write(data: Uint8Array): void } }
+declare const BareKit: { IPC: unknown }
 
 const { IPC } = BareKit
 
@@ -22,12 +24,39 @@ let session: Session | null = null
 let storageDir = ''
 const wiredRooms = new Set<string>()
 
-function send(frame: unknown): void {
-  IPC.write(b4a.from(JSON.stringify(frame) + '\n', 'utf8'))
+function packFrame(header: unknown, binary?: Uint8Array): Uint8Array {
+  const json = b4a.from(JSON.stringify(header), 'utf8')
+  const lenPrefix = new Uint8Array(4)
+  new DataView(lenPrefix.buffer).setUint32(0, json.byteLength, true)
+  return binary && binary.byteLength ? b4a.concat([lenPrefix, json, binary]) : b4a.concat([lenPrefix, json])
+}
+
+function unpackFrame(buf: Uint8Array): { header: any; binary: Uint8Array } {
+  const headerLen = new DataView(buf.buffer, buf.byteOffset, 4).getUint32(0, true)
+  const header = JSON.parse(b4a.toString(buf.subarray(4, 4 + headerLen), 'utf8'))
+  return { header, binary: buf.subarray(4 + headerLen) }
+}
+
+const rpc = new RPC(IPC as any, (req: any) => {
+  if (!req.reply) return // stray incoming event; RN never sends one
+  void handleRequest(req)
+})
+
+async function handleRequest(req: any): Promise<void> {
+  const { header, binary } = unpackFrame(req.data)
+  try {
+    const handler = methods[header.method]
+    if (!handler) throw new Error(`unknown method ${header.method}`)
+    const raw = await handler(...header.args, binary)
+    const isBinary = raw && typeof raw === 'object' && raw.__binary === true
+    req.reply(packFrame({ ok: true, result: isBinary ? raw.result : raw }, isBinary ? raw.binary : undefined))
+  } catch (err) {
+    req.reply(packFrame({ ok: false, error: (err as Error).message || String(err) }))
+  }
 }
 
 function pushEvent(event: string, payload?: unknown): void {
-  send({ event, payload })
+  rpc.event(0).send(packFrame({ event, payload }) as any)
 }
 
 function requireIdentity(): Identity {
@@ -244,23 +273,31 @@ const methods: Record<string, (...args: any[]) => any> = {
     }
   },
 
-  'room.messages': async (roomId: string) => {
+  // start/end page the room's message log (see room.ts) instead of dumping the whole
+  // history through the bridge on every room open.
+  'room.messages': async (roomId: string, start?: number | null, end?: number | null) => {
+    // args cross the bridge as JSON, which turns a trailing `undefined` into `null` — coerce
+    // back so Room.messages()'s start=0/end=messageCount defaults still kick in.
     const out = []
-    for await (const msg of requireRoom(roomId).messages()) out.push(msg)
+    for await (const msg of requireRoom(roomId).messages(start ?? undefined, end ?? undefined)) out.push(msg)
     return out
   },
+  'room.messageCount': (roomId: string) => requireRoom(roomId).messageCount,
   'room.getMessage': (roomId: string, index: number) => requireRoom(roomId).getMessage(index),
   'room.send': (roomId: string, authorId: string, body: string, replyTo?: string) => requireRoom(roomId).send(authorId, body, replyTo),
   'room.editMessage': (roomId: string, id: string, body: string) => requireRoom(roomId).editMessage(id, body),
   'room.deleteMessage': (roomId: string, id: string) => requireRoom(roomId).deleteMessage(id),
   'room.toggleReaction': (roomId: string, userId: string, messageId: string, emoji: string) => requireRoom(roomId).toggleReaction(userId, messageId, emoji),
 
-  'room.sendFile': async (roomId: string, authorId: string, name: string, mimeType: string, base64: string, thumbnail?: string, body = '') => {
+  // Trailing `binary` param is the file's raw bytes, appended by handleRequest() — see the
+  // bare-rpc frame layout at the top of this file. No base64 args() field: RN sends the file
+  // as the frame's binary tail instead.
+  'room.sendFile': async (roomId: string, authorId: string, name: string, mimeType: string, thumbnail: string | undefined, body: string | undefined, binary: Uint8Array) => {
     const room = requireRoom(roomId)
     const fileStore = await requireSession().fileStore()
     const drivePath = `/${roomId}/${Date.now()}-${name}`
-    const shared = await fileStore.addBuffer(drivePath, b4a.from(base64, 'base64'))
-    return room.sendFile(authorId, { driveKey: b4a.toString(fileStore.key, 'hex'), path: shared.path, size: shared.size, name, mimeType, thumbnail }, body)
+    const shared = await fileStore.addBuffer(drivePath, b4a.from(binary))
+    return room.sendFile(authorId, { driveKey: b4a.toString(fileStore.key, 'hex'), path: shared.path, size: shared.size, name, mimeType, thumbnail }, body || '')
   },
 
   'room.sendTyping': (roomId: string, userId: string, typing: boolean) => {
@@ -271,40 +308,17 @@ const methods: Record<string, (...args: any[]) => any> = {
     for (const peer of requireSession().peers.values()) peer.rpc.sendReadReceipt({ roomId, userId, messageId })
   },
 
+  // Returns the file's raw bytes as the reply's binary tail instead of a base64 string —
+  // see the __binary convention in handleRequest() above.
   'files.download': async (driveKeyHex: string, drivePath: string) => {
     const drive = await RemoteDrive.connect(storageDir, b4a.from(driveKeyHex, 'hex'))
     try {
       const buffer = await drive.downloadFile(drivePath)
-      return buffer ? b4a.toString(buffer, 'base64') : null
+      return buffer ? { __binary: true as const, result: { found: true }, binary: buffer } : { found: false }
     } finally {
       await drive.close()
     }
   }
 }
-
-let buf = ''
-IPC.on('data', (chunk: Uint8Array) => {
-  buf += b4a.toString(chunk, 'utf8')
-  let idx: number
-  while ((idx = buf.indexOf('\n')) >= 0) {
-    const line = buf.slice(0, idx)
-    buf = buf.slice(idx + 1)
-    if (!line) continue
-
-    void (async () => {
-      let id: number | undefined
-      try {
-        const req = JSON.parse(line) as { id: number; method: string; args: unknown[] }
-        id = req.id
-        const handler = methods[req.method]
-        if (!handler) throw new Error(`unknown method ${req.method}`)
-        const result = await handler(...req.args)
-        send({ id, ok: true, result })
-      } catch (err) {
-        send({ id, ok: false, error: (err as Error).message || String(err) })
-      }
-    })()
-  }
-})
 
 pushEvent('ready')

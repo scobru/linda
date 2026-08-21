@@ -727,8 +727,10 @@ export class Room {
     }
   }
 
-  async *messages(): AsyncIterable<ChatMessage> {
-    for (let i = 0; i < this.base.view.messages.length; i++) yield await this.getMessage(i)
+  /** Defaults to the full log; pass a range (e.g. the last N) to page a long history instead
+   * of decrypting every message on every open. */
+  async *messages(start = 0, end = this.messageCount): AsyncIterable<ChatMessage> {
+    for (let i = start; i < end; i++) yield await this.getMessage(i)
   }
 
   /** The returned unsubscribe must be called when the caller stops caring about the room — every
