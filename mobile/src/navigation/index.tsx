@@ -22,7 +22,7 @@ export type RootStackParamList = {
   Recover: undefined
   Pair: undefined
   Rooms: undefined
-  RoomChat: { roomId: string; roomName: string }
+  RoomChat: { roomId?: string; roomName: string; pendingJoin?: { name: string; key: string } }
   Contacts: undefined
   Profile: undefined
   Invite: { roomId: string; roomName: string }

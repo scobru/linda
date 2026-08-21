@@ -15,6 +15,8 @@ interface Props {
     reactions?: Record<string, string[]>
     replyTo?: string
     file?: { name: string; size: number; mimeType?: string; driveKey: string; path: string; thumbnail?: string }
+    pending?: boolean
+    failed?: boolean
   }
   isSelf: boolean
   authorName: string
@@ -144,9 +146,15 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
           {message.edited && (
             <Text style={[styles.meta, isSelf ? styles.metaSelf : null]}>edited</Text>
           )}
-          <Text style={[styles.meta, isSelf ? styles.metaSelf : null]}>
-            {formatTime(message.timestamp)}
-          </Text>
+          {message.failed ? (
+            <Text style={[styles.meta, styles.metaFailed]}>Failed to send</Text>
+          ) : message.pending ? (
+            <Text style={[styles.meta, isSelf ? styles.metaSelf : null]}>Sending…</Text>
+          ) : (
+            <Text style={[styles.meta, isSelf ? styles.metaSelf : null]}>
+              {formatTime(message.timestamp)}
+            </Text>
+          )}
         </View>
         </Pressable>
       </View>
@@ -304,6 +312,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   metaSelf: {
     color: 'rgba(255, 255, 255, 0.6)',
+  },
+  metaFailed: {
+    color: colors.error,
   },
   reactions: {
     flexDirection: 'row',

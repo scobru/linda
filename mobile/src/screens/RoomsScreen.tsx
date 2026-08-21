@@ -55,28 +55,20 @@ export default function RoomsScreen({ navigation }: Props) {
     setLoading(false)
   }, [session, roomName, newRoomBroadcast, refresh, navigation])
 
-  const handleJoinRoom = useCallback(async () => {
-    if (!session || !inviteLink.trim()) return
-    setLoading(true)
-    try {
-      // Try parsing as linda-pear:// invite URL first
-      const invite = decodeInvite(inviteLink.trim())
-      let room
-      if (invite) {
-        room = await session.joinRoomByKey(invite.name, invite.key)
-      } else {
-        // Raw bootstrapKey:inviteCode format
-        room = await session.joinRoomByKey('Joined Room', inviteLink.trim())
-      }
-      refresh()
-      setShowJoin(false)
-      setInviteLink('')
-      navigation.navigate('RoomChat', { roomId: room.id, roomName: invite?.name || 'Joined Room' })
-    } catch (err) {
-      Alert.alert('Error', (err as Error).message)
-    }
-    setLoading(false)
-  }, [session, inviteLink, refresh, navigation])
+  // Navigates immediately and lets RoomChatScreen run the actual join in the background —
+  // joinRoomByKey can block for up to ~30s waiting on the swarm (see session.ts's
+  // openRoomWithRetry), and there's no reason to freeze this modal for that.
+  const handleJoinRoom = useCallback(() => {
+    const trimmed = inviteLink.trim()
+    if (!trimmed) return
+    // linda-pear:// invite URL, or raw bootstrapKey:inviteCode
+    const invite = decodeInvite(trimmed)
+    const key = invite?.key ?? trimmed
+    const name = invite?.name || 'Joined Room'
+    setShowJoin(false)
+    setInviteLink('')
+    navigation.navigate('RoomChat', { roomName: name, pendingJoin: { name, key } })
+  }, [inviteLink, navigation])
 
   const openRoom = useCallback((id: string, name: string) => {
     navigation.navigate('RoomChat', { roomId: id, roomName: name })
@@ -252,10 +244,10 @@ export default function RoomsScreen({ navigation }: Props) {
               </Pressable>
               <Pressable
                 onPress={handleJoinRoom}
-                disabled={loading || !inviteLink.trim()}
+                disabled={!inviteLink.trim()}
                 style={({ pressed }) => [styles.modalConfirm, pressed && styles.buttonPressed]}
               >
-                <Text style={styles.modalConfirmText}>{loading ? 'Joining...' : 'Join'}</Text>
+                <Text style={styles.modalConfirmText}>Join</Text>
               </Pressable>
             </View>
           </View>

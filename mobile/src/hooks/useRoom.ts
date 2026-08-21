@@ -6,8 +6,11 @@ import type { ChatMessage } from '@core/rooms/room'
 // of decrypting and shipping a room's entire history across the RN<->worklet bridge every time.
 const PAGE_SIZE = 50
 
+/** A message shown before the send round-trip through the bare-rpc bridge finishes. */
+export type LocalChatMessage = ChatMessage & { pending?: boolean; failed?: boolean }
+
 export interface UseRoomResult {
-  messages: ChatMessage[]
+  messages: LocalChatMessage[]
   loading: boolean
   sendMessage: (body: string, replyTo?: string) => Promise<void>
   sendFile: (name: string, mimeType: string, base64: string, thumbnail?: string) => Promise<void>
@@ -23,7 +26,7 @@ export interface UseRoomResult {
 }
 
 export function useRoom(room: Room | null | undefined, identityId: string): UseRoomResult {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<LocalChatMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(false)
   const oldestLoadedRef = useRef(0)
@@ -92,9 +95,23 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     return room.onMessage(handler)
   }, [room])
 
+  // Shows the message immediately instead of waiting on the bridge round-trip; reconciled with
+  // the real record (same id, since 'roomMessage' targets it by index) once send() resolves.
   const sendMessage = useCallback(async (body: string, replyTo?: string) => {
     if (!room) return
-    await room.send(identityId, body, replyTo)
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setMessages((prev) => [...prev, { id: tempId, roomId: room.id, authorId: identityId, body, timestamp: Date.now(), replyTo, pending: true }])
+    try {
+      const sent = await room.send(identityId, body, replyTo)
+      setMessages((prev) => {
+        const seen = new Set<string>()
+        return prev
+          .map((m) => (m.id === tempId ? sent : m))
+          .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)))
+      })
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)))
+    }
   }, [room, identityId])
 
   const sendFile = useCallback(async (name: string, mimeType: string, base64: string, thumbnail?: string) => {

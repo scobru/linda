@@ -31,10 +31,28 @@ const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '🎉', '💯
 export default function RoomChatScreen({ route, navigation }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
-  const { roomId, roomName } = route.params
+  const { roomName, pendingJoin } = route.params
+  const [roomId, setRoomId] = useState(route.params.roomId)
   const { session, identity, nicknames, avatars, refresh: refreshSession } = useSession()
-  const room = session?.getRoom(roomId)
+  const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
+
+  // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
+  // instead, in the background. `room` stays undefined until this resolves, so useRoom below
+  // just shows its normal loading state in the meantime.
+  useEffect(() => {
+    if (!pendingJoin || !session) return
+    let cancelled = false
+    session.joinRoomByKey(pendingJoin.name, pendingJoin.key).then((joined) => {
+      if (cancelled) return
+      setRoomId(joined.id)
+      refreshSession()
+    }).catch((err) => {
+      if (cancelled) return
+      Alert.alert('Could not join room', (err as Error).message, [{ text: 'OK', onPress: () => navigation.goBack() }])
+    })
+    return () => { cancelled = true }
+  }, [pendingJoin, session])
   const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, hasMore, loadOlder, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const lastTailIdRef = useRef<string | null>(null)
@@ -47,12 +65,12 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // Mirrors desktop's openRoom: stamp read on open, and again for each message that
   // arrives while this screen is focused (mute the badge, not just a one-time clear).
   useEffect(() => {
-    if (!session) return
+    if (!session || !roomId) return
     session.markRoomRead(roomId).then(refreshSession)
   }, [session, roomId])
   useEffect(() => {
     if (!room || !session) return
-    return room.onMessage(() => { void session.markRoomRead(roomId).then(refreshSession) })
+    return room.onMessage(() => { void session.markRoomRead(room.id).then(refreshSession) })
   }, [room, session, roomId])
 
   const [writable, setWritable] = useState(false)
@@ -168,13 +186,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
           </Pressable>
           <Pressable
-            onPress={() => navigation.navigate('Members', { roomId, roomName })}
+            onPress={() => roomId && navigation.navigate('Members', { roomId, roomName })}
             style={styles.headerBtn}
           >
             <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
           </Pressable>
           <Pressable
-            onPress={() => navigation.navigate('Invite', { roomId, roomName })}
+            onPress={() => roomId && navigation.navigate('Invite', { roomId, roomName })}
             style={styles.headerBtn}
           >
             <Ionicons name="share-outline" size={20} color={colors.textPrimary} />

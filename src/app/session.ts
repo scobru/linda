@@ -738,13 +738,14 @@ export class Session {
     storeNamespace?: string
   ): Promise<Room> {
     this.trackDiscovery(hypercoreCrypto.discoveryKey(bootstrapKey))
+    const maxAttempts = 15
     for (let attempt = 0; ; attempt++) {
       try {
         return await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)
       } catch (err) {
         if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
-        if (attempt >= 4) throw new Error('Could not reach that room — the person who invited you may be offline. Try again once they are online.')
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+        if (attempt >= maxAttempts) throw new Error('Could not reach that room — check your connection and try again.')
+        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.min(attempt + 1, 2)))
       }
     }
   }
