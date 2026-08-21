@@ -364,7 +364,7 @@ export class Session {
     return this.fileStoreInstance
   }
 
-  async createRoom(name: string, isPublic = false, avatar = '', description = ''): Promise<Room> {
+  async createRoom(name: string, isPublic = false, avatar = '', description = '', broadcast = false): Promise<Room> {
     const trimmed = name.trim()
     if (!trimmed) throw new Error('Room name required')
     const existing = this.listBookmarks().find((b) => b.name.toLowerCase() === trimmed.toLowerCase())
@@ -379,6 +379,7 @@ export class Session {
     if (avatar || description) {
       await room.updateMeta({ name: trimmed, avatar, description })
     }
+    if (broadcast) await room.setBroadcast(true)
     const token = this.issueInvite(roomId)
     await this.profileStore.saveInviteToken({ roomId, ...token })
     await this.joinTopic(room)
@@ -393,6 +394,14 @@ export class Session {
       for (const peer of this.peers.values()) peer.rpc.sendRoomAnnounce(announce)
     }
     return room
+  }
+
+  /** Broadcast is replicated state, not a bookmark field: only the owner may change it and every
+   * peer derives it from the log, so there is nothing to mirror locally. */
+  async setRoomBroadcast(roomId: string, enabled: boolean): Promise<void> {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    await room.setBroadcast(enabled)
   }
 
   async updateRoomMeta(roomId: string, opts: { name?: string; avatar?: string; description?: string }): Promise<void> {

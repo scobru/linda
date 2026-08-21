@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert, Switch } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -36,6 +36,7 @@ export default function MembersScreen({ route, navigation }: Props) {
   const { session, identity, nicknames, avatars, onlineUsers, refresh: refreshSession } = useSession()
   const { contacts, sendRequest } = useContacts()
   const [state, setState] = useState<ModerationState | null>(null)
+  const [broadcast, setBroadcast] = useState(false)
 
   const room = session?.getRoom(roomId)
 
@@ -45,6 +46,19 @@ export default function MembersScreen({ route, navigation }: Props) {
   }, [room])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!room) return
+    void room.refreshState().then((s) => setBroadcast(s.broadcast))
+    return room.onStateChange((s) => setBroadcast(s.broadcast))
+  }, [room])
+
+  const toggleBroadcast = useCallback((enabled: boolean) => {
+    setBroadcast(enabled)
+    room?.setBroadcast(enabled).catch((err) => {
+      setBroadcast(!enabled)
+      Alert.alert('Error', (err as Error).message)
+    })
+  }, [room])
 
   const myId = identity?.id ?? ''
   const iAmOwner = state?.ownerId === myId
@@ -98,6 +112,15 @@ export default function MembersScreen({ route, navigation }: Props) {
       <FlatList
         data={state.members}
         keyExtractor={(m) => m.writerKey}
+        ListHeaderComponent={iAmOwner ? (
+          <View style={styles.row}>
+            <View style={styles.info}>
+              <Text style={styles.name}>Broadcast</Text>
+              <Text style={styles.sectionTitle}>Only you and moderators can post</Text>
+            </View>
+            <Switch value={broadcast} onValueChange={toggleBroadcast} />
+          </View>
+        ) : null}
         ListFooterComponent={bannedList.length > 0 ? (
           <View>
             <Text style={styles.sectionTitle}>Banned</Text>

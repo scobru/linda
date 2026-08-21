@@ -55,12 +55,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const [writable, setWritable] = useState(false)
   const [hasKey, setHasKey] = useState(false)
+  // False when muted or in a broadcast room without admin rights — the two cases where the worklet
+  // would accept the message and every peer would then drop it while linearizing the log.
+  const [canPost, setCanPost] = useState(false)
   useEffect(() => {
     if (!room) return
-    setWritable(room.writable)
-    setHasKey(room.hasKey)
-    void room.refreshState().then((s) => { setWritable(s.writable); setHasKey(s.hasKey) })
-    return room.onStateChange((s) => { setWritable(s.writable); setHasKey(s.hasKey) })
+    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean }) => {
+      setWritable(s.writable)
+      setHasKey(s.hasKey)
+      setCanPost(s.canPost)
+    }
+    apply(room)
+    void room.refreshState().then(apply)
+    return room.onStateChange(apply)
   }, [room])
 
   const [replyTo, setReplyTo] = useState<{ id: string; body: string; authorName: string } | null>(null)
@@ -364,6 +371,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         <Text style={styles.statusBar}>Seen by {[...readBy].map(getAuthorName).join(', ')}</Text>
       ) : null}
 
+      {writable && hasKey && !canPost && (
+        <Text style={styles.statusBar}>Only admins can send messages in this broadcast room</Text>
+      )}
+
       {/* Composer */}
       <MessageComposer
         onSend={handleSend}
@@ -374,7 +385,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         onCancelReply={() => setReplyTo(null)}
         onCancelEdit={() => setEditingMessage(null)}
         onSubmitEdit={handleEdit}
-        disabled={!writable || !hasKey}
+        disabled={!writable || !hasKey || !canPost}
       />
 
       {/* Action sheet modal (cross-platform) */}

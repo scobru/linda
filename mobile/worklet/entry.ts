@@ -40,8 +40,18 @@ function requireSession(): Session {
   return session
 }
 
+function roomState(room: Room) {
+  return {
+    roomId: room.id,
+    writable: room.writable,
+    hasKey: room.hasKey,
+    broadcast: room.isBroadcast,
+    canPost: identity ? room.canPost(identity.id) : false
+  }
+}
+
 function pushRoomState(room: Room): void {
-  pushEvent('roomState', { roomId: room.id, writable: room.writable, hasKey: room.hasKey })
+  pushEvent('roomState', roomState(room))
 }
 
 function wireRoom(room: Room): void {
@@ -50,6 +60,8 @@ function wireRoom(room: Room): void {
   room.onMessage((index) => pushEvent('roomMessage', { roomId: room.id, index }))
   room.onWritableChange(() => pushRoomState(room))
   room.onKeyChange(() => pushRoomState(room))
+  // Broadcast mode and mutes both change who may post without touching writable/hasKey.
+  room.onMetaChange(() => pushRoomState(room))
   pushRoomState(room)
 }
 
@@ -176,8 +188,8 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.setNickname': (nickname: string) => requireSession().setNickname(nickname),
   'session.setAvatar': (avatar: string) => requireSession().setAvatar(avatar),
 
-  'session.createRoom': async (name: string, isPublic: boolean, avatar: string, description: string) => {
-    const room = await requireSession().createRoom(name, isPublic, avatar, description)
+  'session.createRoom': async (name: string, isPublic: boolean, avatar: string, description: string, broadcast = false) => {
+    const room = await requireSession().createRoom(name, isPublic, avatar, description, broadcast)
     wireRoom(room)
     return { roomId: room.id }
   },
@@ -217,10 +229,9 @@ const methods: Record<string, (...args: any[]) => any> = {
   // would listen for it, so it's silently lost. Rooms whose writable/hasKey never change again
   // afterward (e.g. a room you just created, already fully writable) would otherwise be stuck
   // showing as not-writable forever.
-  'room.getState': (roomId: string) => {
-    const room = requireRoom(roomId)
-    return { writable: room.writable, hasKey: room.hasKey }
-  },
+  'room.getState': (roomId: string) => roomState(requireRoom(roomId)),
+
+  'room.setBroadcast': (roomId: string, enabled: boolean) => requireRoom(roomId).setBroadcast(enabled),
 
   'room.listMembers': (roomId: string) => {
     const room = requireRoom(roomId)

@@ -1,31 +1,52 @@
 import { bareClient } from './client'
 import type { ChatMessage, MemberInfo } from '@core/rooms/room'
 
+export interface RoomState {
+  writable: boolean
+  hasKey: boolean
+  /** Only the owner and moderators may post. */
+  broadcast: boolean
+  /** Whether this device's identity may post right now — false when muted, or in a broadcast room without admin rights. */
+  canPost: boolean
+}
+
 export class RoomProxy {
   writable = false
   hasKey = false
+  broadcast = false
+  canPost = false
 
   constructor(readonly id: string) {
-    bareClient.on('roomState', (payload: { roomId: string; writable: boolean; hasKey: boolean }) => {
+    bareClient.on('roomState', (payload: RoomState & { roomId: string }) => {
       if (payload.roomId !== this.id) return
-      this.writable = payload.writable
-      this.hasKey = payload.hasKey
+      this.applyState(payload)
     })
   }
 
-  onStateChange(listener: (state: { writable: boolean; hasKey: boolean }) => void): () => void {
-    return bareClient.on('roomState', (payload: { roomId: string; writable: boolean; hasKey: boolean }) => {
-      if (payload.roomId === this.id) listener({ writable: payload.writable, hasKey: payload.hasKey })
+  private applyState(state: RoomState): void {
+    this.writable = state.writable
+    this.hasKey = state.hasKey
+    this.broadcast = state.broadcast
+    this.canPost = state.canPost
+  }
+
+  onStateChange(listener: (state: RoomState) => void): () => void {
+    return bareClient.on('roomState', (payload: RoomState & { roomId: string }) => {
+      if (payload.roomId === this.id) listener(payload)
     })
   }
 
   /** Pulls current state directly rather than waiting on the 'roomState' push, which fires the
    * instant the room is created/joined — before this proxy exists to hear it — and is otherwise lost. */
-  async refreshState(): Promise<{ writable: boolean; hasKey: boolean }> {
-    const state = await bareClient.call<{ writable: boolean; hasKey: boolean }>('room.getState', this.id)
-    this.writable = state.writable
-    this.hasKey = state.hasKey
+  async refreshState(): Promise<RoomState> {
+    const state = await bareClient.call<RoomState>('room.getState', this.id)
+    this.applyState(state)
     return state
+  }
+
+  /** Owner-only (enforced in `apply()`). */
+  setBroadcast(enabled: boolean): Promise<void> {
+    return bareClient.call('room.setBroadcast', this.id, enabled)
   }
 
   async *messages(): AsyncIterable<ChatMessage> {

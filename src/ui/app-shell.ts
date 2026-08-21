@@ -997,7 +997,8 @@ export class AppShell extends HTMLElement {
       const desc = (this.querySelector('#newGroupDesc') as HTMLInputElement)?.value.trim() || ''
       if (!name) return alert('Please enter a group name')
       try {
-        const room = await this.session!.createRoom(name, true, '', desc)
+        const broadcast = (this.querySelector('#newGroupBroadcast') as HTMLInputElement)?.checked ?? false
+        const room = await this.session!.createRoom(name, true, '', desc, broadcast)
         this.activeModal = 'none'
         this.openRoom(room.id, name)
       } catch (err) {
@@ -1052,7 +1053,15 @@ export class AppShell extends HTMLElement {
       : (bookmark?.avatar || room.avatar)
     const roomDesc = bookmark?.description || room.description || ''
     const muted = room.isMuted(this.identity!.id)
-    const writable = room.writable && room.hasKey && !muted
+    // `canPost` folds in the mute and the broadcast gate — the two cases where `apply()` would drop
+    // the message; `writable`/`hasKey` are the local ones where it could not be sent at all.
+    const canPost = room.canPost(this.identity!.id)
+    const writable = room.writable && room.hasKey && canPost
+    const composerBlockedReason = muted
+      ? 'You are muted in this room'
+      : !canPost
+        ? 'Only admins can send messages in this broadcast room'
+        : 'You do not have write access to this room yet'
     const memberCount = room.listMembers().length || 1
     const isFavorite = this.favoriteRooms.has(room.id)
 
@@ -1143,7 +1152,7 @@ export class AppShell extends HTMLElement {
             </div>
           </div>
         ` : `
-          <div class="broadcast-disabled-bar">Messages are disabled in this broadcast room</div>
+          <div class="broadcast-disabled-bar">${composerBlockedReason}</div>
         `}
       </footer>
     `
@@ -1955,6 +1964,19 @@ export class AppShell extends HTMLElement {
               </div>
             </div>
 
+            ${room.isOwner(this.identity!.id) ? `
+              <div class="keet-switch-row">
+                <div class="switch-label-wrap">
+                  <span>Broadcast Feed (Read-only)</span>
+                  <span class="info-tooltip-icon" title="Only administrators can send messages in a broadcast feed">&#9432;</span>
+                </div>
+                <label class="keet-switch">
+                  <input type="checkbox" id="roomBroadcastToggle" ${room.isBroadcast ? 'checked' : ''} />
+                  <span class="keet-slider"></span>
+                </label>
+              </div>
+            ` : ''}
+
             <div class="form-group" style="margin-top:0.25rem;">
               <button id="manageMembersFromSettingsBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--border);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:space-between;background:var(--bg-subtle);">
                 <span style="display:flex;align-items:center;gap:0.5rem;font-weight:600;color:var(--text);font-size:0.85rem;">
@@ -2019,6 +2041,18 @@ export class AppShell extends HTMLElement {
           this.renderRoomSettingsPage()
         }
       })
+    })
+
+    // Applied on toggle rather than on Save: it is an owner-only log entry, not part of the meta
+    // record the Save button writes, and the checkbox already shows the new state.
+    const broadcastToggle = this.querySelector('#roomBroadcastToggle') as HTMLInputElement | null
+    broadcastToggle?.addEventListener('change', async () => {
+      try {
+        await this.session!.setRoomBroadcast(room.id, broadcastToggle.checked)
+      } catch (err) {
+        broadcastToggle.checked = !broadcastToggle.checked
+        alert((err as Error).message || 'Could not change broadcast mode')
+      }
     })
 
     this.querySelector('#saveRoomBtn')?.addEventListener('click', async () => {

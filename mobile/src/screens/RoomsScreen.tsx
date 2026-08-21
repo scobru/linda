@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
-  TextInput, Alert, Modal, SafeAreaView,
+  TextInput, Alert, Modal, SafeAreaView, Switch,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
@@ -20,6 +20,7 @@ export default function RoomsScreen({ navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors])
   const { session, identity, nickname, avatar, bookmarks, contacts, avatars, refresh } = useSession()
   const [showCreate, setShowCreate] = useState(false)
+  const [newRoomBroadcast, setNewRoomBroadcast] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
   const [roomName, setRoomName] = useState('')
   const [inviteLink, setInviteLink] = useState('')
@@ -42,16 +43,17 @@ export default function RoomsScreen({ navigation }: Props) {
     if (!session || !roomName.trim()) return
     setLoading(true)
     try {
-      const room = await session.createRoom(roomName.trim())
+      const room = await session.createRoom(roomName.trim(), false, '', '', newRoomBroadcast)
       refresh()
       setShowCreate(false)
       setRoomName('')
+      setNewRoomBroadcast(false)
       navigation.navigate('RoomChat', { roomId: room.id, roomName: roomName.trim() })
     } catch (err) {
       Alert.alert('Error', (err as Error).message)
     }
     setLoading(false)
-  }, [session, roomName, refresh, navigation])
+  }, [session, roomName, newRoomBroadcast, refresh, navigation])
 
   const handleJoinRoom = useCallback(async () => {
     if (!session || !inviteLink.trim()) return
@@ -209,8 +211,12 @@ export default function RoomsScreen({ navigation }: Props) {
               onChangeText={setRoomName}
               autoFocus
             />
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Broadcast (only admins can post)</Text>
+              <Switch value={newRoomBroadcast} onValueChange={setNewRoomBroadcast} />
+            </View>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => { setShowCreate(false); setRoomName('') }} style={styles.modalCancel}>
+              <Pressable onPress={() => { setShowCreate(false); setRoomName(''); setNewRoomBroadcast(false) }} style={styles.modalCancel}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
@@ -366,6 +372,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textPrimary, fontSize: typography.md,
     borderWidth: 1, borderColor: colors.border,
   },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  switchLabel: { color: colors.textSecondary, fontSize: typography.sm, flex: 1 },
   inviteInput: { height: 80, textAlignVertical: 'top', fontFamily: 'monospace', fontSize: typography.sm },
   modalActions: { flexDirection: 'row', gap: spacing.md },
   modalCancel: {

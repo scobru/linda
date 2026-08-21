@@ -224,3 +224,50 @@ test('security: a non-owner cannot grant write access to a third party', async (
   await closeWriter(b)
   await closeWriter(c)
 })
+
+test('security: in a broadcast room a member message is dropped even if their client appends it', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  await a.room.setBroadcast(true)
+  await sync(a.store, b.store)
+  await reopen(b)
+  assert.equal(b.room.isBroadcast, true)
+  assert.equal(b.room.canPost(b.identityId), false)
+  await assert.rejects(() => b.room.send(b.identityId, 'blocked by my own client'))
+
+  // A patched client that skips that local check appends the entry anyway — the gate that counts
+  // is in `apply()`, which every peer runs over the signed log.
+  const forged = { id: randomId(), roomId: b.room.id, authorId: b.identityId, body: 'forged', timestamp: Date.now() }
+  await (b.room as unknown as { base: { append(entry: unknown): Promise<void> } }).base.append({ type: 'message', message: forged })
+  await sync(a.store, b.store)
+
+  // The owner may still post, so the room is not simply frozen.
+  await a.room.send(a.identityId, 'owner announcement')
+  await reopen(a)
+  const bodies: string[] = []
+  for (let i = 0; i < a.room.messageCount; i++) bodies.push((await a.room.getMessage(i)).body)
+  assert.deepEqual(bodies, ['owner announcement'], 'a member-authored message must not be linearized into a broadcast room')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
+test('security: only the owner can turn broadcast mode on or off', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  // A moderator is deliberately not enough: flipping broadcast off would hand every member the
+  // write access the owner withheld.
+  await a.room.promote(b.identityId)
+  await a.room.setBroadcast(true)
+  await sync(a.store, b.store)
+
+  await reopen(b)
+  await b.room.setBroadcast(false)
+  await sync(a.store, b.store)
+
+  await reopen(a)
+  assert.equal(a.room.isBroadcast, true, 'a moderator-authored setBroadcast must be ignored')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})

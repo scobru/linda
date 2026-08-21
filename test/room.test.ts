@@ -249,3 +249,33 @@ test('reactions add and remove per user rather than blind-toggling', async () =>
   await store.close()
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test('broadcast mode survives reopen and still lets the owner post', async () => {
+  const dir = tmpDir()
+  const identityA = randomId(32)
+  const storeId = randomId(8)
+
+  const store1 = new Corestore(dir)
+  const room1 = await Room.open(store1, null, null, identityA, undefined, storeId)
+  const roomId = room1.id
+  const bootstrapKey = room1.bootstrapKey
+  await room1.setBroadcast(true)
+  assert.equal(room1.isBroadcast, true)
+  const keyHex = room1.currentKeyHex
+  await room1.close()
+  await store1.close()
+
+  const store2 = new Corestore(dir)
+  const room2 = await Room.open(store2, roomId, bootstrapKey, identityA, keyHex ? [{ epoch: 0, keyHex }] : undefined, storeId)
+  assert.equal(room2.isBroadcast, true)
+  assert.equal(room2.canPost(identityA), true)
+  await room2.send(identityA, 'owner post')
+  assert.equal((await room2.getMessage(0)).body, 'owner post')
+
+  await room2.setBroadcast(false)
+  assert.equal(room2.isBroadcast, false)
+
+  await room2.close()
+  await store2.close()
+  fs.rmSync(dir, { recursive: true, force: true })
+})

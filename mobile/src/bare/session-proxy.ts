@@ -75,8 +75,8 @@ export class SessionProxy {
     return bareClient.call('session.setAvatar', avatar)
   }
 
-  async createRoom(name: string, isPublic = false, avatar = '', description = ''): Promise<RoomProxy> {
-    const { roomId } = await bareClient.call<{ roomId: string }>('session.createRoom', name, isPublic, avatar, description)
+  async createRoom(name: string, isPublic = false, avatar = '', description = '', broadcast = false): Promise<RoomProxy> {
+    const { roomId } = await bareClient.call<{ roomId: string }>('session.createRoom', name, isPublic, avatar, description, broadcast)
     return this.getRoom(roomId)
   }
 
