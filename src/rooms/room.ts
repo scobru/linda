@@ -38,7 +38,10 @@ type RoomEntry =
   | { type: 'message'; message: ChatMessage }
   | { type: 'edit'; messageId: string; body: string; keyEpoch: number }
   | { type: 'delete'; messageId: string }
-  | { type: 'reaction'; messageId: string; userId: string; emoji: string }
+  /** `op` absent = legacy toggle entry. A toggle is not idempotent, and Autobase re-runs `apply()`
+   * over already-applied entries after a reorg (see `undo()` in autobase/lib/apply-state.js), which
+   * would flip such a reaction back off. New entries state the intended end result instead. */
+  | { type: 'reaction'; messageId: string; userId: string; emoji: string; op?: 'add' | 'remove' }
   | { type: 'addWriter'; key: string; identityId: string }
   | { type: 'removeWriter'; key: string }
   | { type: 'init'; ownerKey: string; ownerIdentityId: string }
@@ -61,7 +64,8 @@ interface RoomMetaRef {
   description: string
 }
 
-/** `apply()`'s derived membership/moderation state lives only in JS closures — Autobase checkpoints already-applied log entries and won't replay them on reopen, so this must be persisted separately (message content survives reopen only because it's written into the `view` core itself, which has no such gap). */
+/** The room's membership/moderation/meta state as derived by `apply()`, stored as one record in the
+ * state view. Small and rewritten whole on every change, unlike the per-message records beside it. */
 interface PersistedRoomState {
   ownerWriterKey: string | null
   ownerIdentityId: string | null
@@ -85,17 +89,67 @@ function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, writerIdentities
 }
 
 
-/** messageId -> mutable overlay state, replayed from edit/delete/reaction log entries; raw appended messages in the view stay immutable. */
-type MessageOverlay = Map<string, { body?: string; bodyEpoch?: number; edited?: boolean; deleted?: boolean; reactions: Map<string, Set<string>> }>
-
-function overlayFor(overlay: MessageOverlay, messageId: string) {
-  let entry = overlay.get(messageId)
-  if (!entry) {
-    entry = { reactions: new Map() }
-    overlay.set(messageId, entry)
-  }
-  return entry
+function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: RoomMetaRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>): void {
+  owner.writerKey = state.ownerWriterKey
+  owner.identityId = state.ownerIdentityId
+  meta.name = state.meta.name
+  meta.avatar = state.meta.avatar
+  meta.description = state.meta.description
+  writerIdentities.clear()
+  for (const [key, id] of state.writerIdentities) writerIdentities.set(key, id)
+  moderatorIdentities.clear()
+  for (const id of state.moderatorIdentities) moderatorIdentities.add(id)
+  mutedIdentities.clear()
+  for (const id of state.mutedIdentities) mutedIdentities.add(id)
+  bannedIdentities.clear()
+  for (const id of state.bannedIdentities) bannedIdentities.add(id)
 }
+
+/** Mutable per-message state replayed from edit/delete/reaction entries; the raw message appended to the message view stays immutable. */
+interface PersistedOverlay {
+  body?: string
+  bodyEpoch?: number
+  edited?: boolean
+  deleted?: boolean
+  /** emoji -> identity ids that reacted with it. */
+  reactions: Record<string, string[]>
+}
+
+type RoomStateRecord =
+  | { kind: 'room'; state: PersistedRoomState }
+  /** The writer core that appended a message, captured when `apply()` linearized it. The only
+   * unforgeable message-to-author binding there is, and what edit/delete authorization checks. */
+  | { kind: 'author'; writerKey: string }
+  | { kind: 'overlay'; overlay: PersistedOverlay }
+
+const ROOM_KEY = 'room'
+const authorKeyFor = (messageId: string) => `author/${messageId}`
+const overlayKeyFor = (messageId: string) => `overlay/${messageId}`
+
+/** Everything `apply()` derives from the log. Autobase owns both cores: it truncates them back to
+ * the fork point on a reorg and keeps them across a reopen, so derived state written here is
+ * rewound and restored by the runtime. Derived state kept in JS closures gets neither — Autobase
+ * checkpoints applied entries and never replays them, so a reopen silently lost it. */
+interface RoomView {
+  messages: AutobaseView
+  state: Hyperbee<RoomStateRecord>
+}
+
+function openView(store: Corestore): RoomView {
+  return {
+    messages: store.get('view', { valueEncoding: 'json' }),
+    state: new Hyperbee<RoomStateRecord>(store.get('state'), { keyEncoding: 'utf-8', valueEncoding: 'json' })
+  }
+}
+
+async function readOverlay(state: Hyperbee<RoomStateRecord>, messageId: string): Promise<PersistedOverlay | null> {
+  const record = (await state.get(overlayKeyFor(messageId)))?.value
+  return record?.kind === 'overlay' ? record.overlay : null
+}
+
+/** Window over which mutation notifications from one Autobase batch are collapsed into one. Long
+ * enough to swallow a sync burst, short enough to stay imperceptible in the UI. */
+const MUTATION_NOTIFY_MS = 16
 
 /** owner: full control. mod: can kick/ban/mute plain members, never the owner or another mod. member: none of the above. */
 type Role = 'owner' | 'mod' | 'member'
@@ -104,14 +158,19 @@ function makeApply(
   owner: OwnerRef,
   meta: RoomMetaRef,
   writerIdentities: Map<string, string>,
-  overlay: MessageOverlay,
-  messageAuthors: Map<string, string>,
   mutedIdentities: Set<string>,
   bannedIdentities: Set<string>,
   moderatorIdentities: Set<string>,
-  onMessageMutation: () => void,
+  /** Owner key already established before this Autobase was constructed — for rooms created before
+   * the state view existed, whose `init` entry is checkpointed and will never be applied again. */
+  seededOwnerKey: string | null,
+  /** `messageId` names the one message whose rendered form changed, so callers can invalidate just
+   * that entry; omitted means "something broader changed, assume everything is stale". */
+  onMessageMutation: (messageId?: string) => void,
   onMetaChange: () => void,
-  persist: () => Promise<void>
+  /** Reloads the in-memory mirror if Autobase rewound the state view under it. Awaited before any
+   * entry is processed, so a reorg can never land halfway through a re-apply. */
+  refreshState: (state: Hyperbee<RoomStateRecord>) => Promise<void>
 ) {
   function roleOf(authorKey: string): Role {
     if (authorKey === owner.writerKey) return 'owner'
@@ -122,28 +181,49 @@ function makeApply(
     return identityId !== undefined && (identityId === owner.identityId || moderatorIdentities.has(identityId))
   }
 
-  return async function applyEntries(nodes: AutobaseNode<RoomEntry>[], view: AutobaseView, host: AutobaseApplyHost): Promise<void> {
-    let dirty = false
+  return async function applyEntries(nodes: AutobaseNode<RoomEntry>[], view: RoomView, host: AutobaseApplyHost): Promise<void> {
+    const state = view.state
+    await refreshState(state)
+
+    /** Rewritten after every change rather than once per batch: Autobase rewinds a view to any past
+     * length, so each entry that alters this state must leave its own restorable snapshot. */
+    const persist = () => state.put(ROOM_KEY, { kind: 'room', state: serializeRoomState(owner, meta, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities) })
+
+    async function authorOf(messageId: string): Promise<string | undefined> {
+      const record = (await state.get(authorKeyFor(messageId)))?.value
+      return record?.kind === 'author' ? record.writerKey : undefined
+    }
+    async function mutateOverlay(messageId: string, mutate: (overlay: PersistedOverlay) => void): Promise<void> {
+      const overlay = (await readOverlay(state, messageId)) ?? { reactions: {} }
+      mutate(overlay)
+      await state.put(overlayKeyFor(messageId), { kind: 'overlay', overlay })
+      onMessageMutation(messageId)
+    }
+
     for (const node of nodes) {
       const entry = node.value
       const authorKey = b4a.toString(node.from.key, 'hex')
       if (entry.type === 'message') {
         const authorIdentity = writerIdentities.get(authorKey)
         if (authorIdentity && mutedIdentities.has(authorIdentity)) continue
-        messageAuthors.set(entry.message.id, authorKey)
-        await view.append(entry.message)
+        await state.put(authorKeyFor(entry.message.id), { kind: 'author', writerKey: authorKey })
+        await view.messages.append(entry.message)
       } else if (entry.type === 'init') {
-        if (owner.writerKey === null) {
-          owner.writerKey = entry.ownerKey
-          owner.identityId = entry.ownerIdentityId
-          writerIdentities.set(entry.ownerKey, entry.ownerIdentityId)
-          dirty = true
-        }
+        // Only the first `init` establishes ownership; any later one is a second writer trying to
+        // take the room over. "First" is decided against the durable record, not the in-memory
+        // mirror — the mirror starts empty on every reopen, which would re-open that window.
+        if (seededOwnerKey !== null) continue
+        const record = (await state.get(ROOM_KEY))?.value
+        if (record?.kind === 'room' && record.state.ownerWriterKey !== null) continue
+        owner.writerKey = entry.ownerKey
+        owner.identityId = entry.ownerIdentityId
+        writerIdentities.set(entry.ownerKey, entry.ownerIdentityId)
+        await persist()
       } else if (entry.type === 'addWriter') {
         if (authorKey !== owner.writerKey) continue
         await host.addWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.set(entry.key, entry.identityId)
-        dirty = true
+        await persist()
       } else if (entry.type === 'removeWriter') {
         const role = roleOf(authorKey)
         if (role === 'member') continue
@@ -152,116 +232,114 @@ function makeApply(
         await host.removeWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.delete(entry.key)
         if (targetIdentity) moderatorIdentities.delete(targetIdentity)
-        dirty = true
+        await persist()
       } else if (entry.type === 'edit') {
-        if (authorKey !== messageAuthors.get(entry.messageId)) continue
-        const state = overlayFor(overlay, entry.messageId)
-        state.body = entry.body
-        state.bodyEpoch = entry.keyEpoch
-        state.edited = true
-        onMessageMutation()
+        if (authorKey !== await authorOf(entry.messageId)) continue
+        await mutateOverlay(entry.messageId, (overlay) => {
+          overlay.body = entry.body
+          overlay.bodyEpoch = entry.keyEpoch
+          overlay.edited = true
+        })
       } else if (entry.type === 'delete') {
-        if (authorKey !== messageAuthors.get(entry.messageId)) continue
-        overlayFor(overlay, entry.messageId).deleted = true
-        onMessageMutation()
+        if (authorKey !== await authorOf(entry.messageId)) continue
+        await mutateOverlay(entry.messageId, (overlay) => { overlay.deleted = true })
       } else if (entry.type === 'mute') {
         const role = roleOf(authorKey)
         if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId))) continue
         mutedIdentities.add(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'unmute') {
         if (roleOf(authorKey) === 'member') continue
         mutedIdentities.delete(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'ban') {
         const role = roleOf(authorKey)
         if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId))) continue
         bannedIdentities.add(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'unban') {
         if (roleOf(authorKey) === 'member') continue
         bannedIdentities.delete(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'promote') {
         if (authorKey !== owner.writerKey) continue
         moderatorIdentities.add(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'demote') {
         if (authorKey !== owner.writerKey) continue
         moderatorIdentities.delete(entry.identityId)
-        dirty = true
+        await persist()
         onMessageMutation()
       } else if (entry.type === 'reaction') {
-        const state = overlayFor(overlay, entry.messageId)
-        const users = state.reactions.get(entry.emoji) ?? new Set<string>()
-        if (users.has(entry.userId)) users.delete(entry.userId)
-        else users.add(entry.userId)
-        state.reactions.set(entry.emoji, users)
-        onMessageMutation()
+        await mutateOverlay(entry.messageId, (overlay) => {
+          const users = new Set(overlay.reactions[entry.emoji] ?? [])
+          const add = entry.op === undefined ? !users.has(entry.userId) : entry.op === 'add'
+          if (add) users.add(entry.userId)
+          else users.delete(entry.userId)
+          overlay.reactions[entry.emoji] = [...users]
+        })
       } else if (entry.type === 'setMeta') {
         const role = roleOf(authorKey)
         if (role === 'owner' || role === 'mod') {
           if (entry.name !== undefined) meta.name = entry.name
           if (entry.avatar !== undefined) meta.avatar = entry.avatar
           if (entry.description !== undefined) meta.description = entry.description
-          dirty = true
+          await persist()
           onMessageMutation()
           onMetaChange()
         }
       }
     }
-    if (dirty) await persist()
   }
 }
 
-function openView(store: Corestore): AutobaseView {
-  return store.get('view', { valueEncoding: 'json' })
-}
-
-function applyOverlay(message: ChatMessage, overlay: MessageOverlay): ChatMessage {
-  const state = overlay.get(message.id)
-  if (!state) return message
-  const reactions: Record<string, string[]> | undefined = state.reactions.size
-    ? Object.fromEntries([...state.reactions.entries()].filter(([, users]) => users.size > 0).map(([emoji, users]) => [emoji, [...users]]))
-    : undefined
+function applyOverlay(message: ChatMessage, overlay: PersistedOverlay | null): ChatMessage {
+  if (!overlay) return message
+  const reactions = Object.fromEntries(Object.entries(overlay.reactions).filter(([, users]) => users.length > 0))
   return {
     ...message,
-    body: state.deleted ? '' : (state.body ?? message.body),
-    keyEpoch: state.bodyEpoch ?? message.keyEpoch,
-    edited: state.edited,
-    deleted: state.deleted,
-    reactions: reactions && Object.keys(reactions).length > 0 ? reactions : undefined
+    body: overlay.deleted ? '' : (overlay.body ?? message.body),
+    keyEpoch: overlay.bodyEpoch ?? message.keyEpoch,
+    edited: overlay.edited,
+    deleted: overlay.deleted,
+    reactions: Object.keys(reactions).length > 0 ? reactions : undefined
   }
 }
 
 export class Room {
   readonly id: string
-  private base!: Autobase<RoomEntry>
+  private base!: Autobase<RoomEntry, RoomView>
   private readonly owner: OwnerRef
   private readonly meta: RoomMetaRef
   private readonly writerIdentities: Map<string, string>
-  private readonly overlay: MessageOverlay
   private readonly mutedIdentities: Set<string>
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
-  private mutationListeners: Array<() => void> = []
-  private metaListeners: Array<() => void> = []
+  private readonly mutationListeners = new Set<() => void>()
+  private readonly metaListeners = new Set<() => void>()
   /** Content-encryption keys, by epoch. Never written to the replicated log (would leak to any reader) — distributed peer-to-peer over RPC by Session. */
   private readonly contentKeys = new Map<number, Buffer>()
   private currentEpoch = -1
-  private keyListeners: Array<(epoch: number, keyHex: string) => void> = []
+  private readonly keyListeners = new Set<(epoch: number, keyHex: string) => void>()
+  /** Decrypted, overlay-merged messages by view index. Reading a message costs a view read plus a
+   * secretbox open, and the UI re-reads the room on every redraw — without this, a room's whole
+   * history was decrypted again on each incoming message. */
+  private readonly messageCache = new Map<number, ChatMessage>()
+  private readonly messageIndexById = new Map<string, number>()
+  private mutationNotifyTimer: ReturnType<typeof setTimeout> | null = null
+  /** Set when Autobase truncates the state view, cleared once the mirror below has been reloaded from it. */
+  private stateRewound = false
 
-  private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, writerIdentities: Map<string, string>, overlay: MessageOverlay, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>) {
+  private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, writerIdentities: Map<string, string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>) {
     this.id = id
     this.owner = owner
     this.meta = meta
     this.writerIdentities = writerIdentities
-    this.overlay = overlay
     this.mutedIdentities = mutedIdentities
     this.bannedIdentities = bannedIdentities
     this.moderatorIdentities = moderatorIdentities
@@ -297,28 +375,20 @@ export class Room {
     const owner: OwnerRef = { writerKey: null, identityId: null }
     const meta: RoomMetaRef = { name: '', avatar: '', description: '' }
     const writerIdentities = new Map<string, string>()
-    const overlay: MessageOverlay = new Map()
-    const messageAuthors = new Map<string, string>()
     const mutedIdentities = new Set<string>()
     const bannedIdentities = new Set<string>()
     const moderatorIdentities = new Set<string>()
-    const room = new Room(tempId, owner, meta, writerIdentities, overlay, mutedIdentities, bannedIdentities, moderatorIdentities)
+    const room = new Room(tempId, owner, meta, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities)
 
-    const stateBee = new Hyperbee<PersistedRoomState>(store.get({ name: 'state' }), { keyEncoding: 'utf-8', valueEncoding: 'json' })
-    await stateBee.ready()
-    const persistedState = (await stateBee.get('room'))?.value
-    if (persistedState) {
-      owner.writerKey = persistedState.ownerWriterKey
-      owner.identityId = persistedState.ownerIdentityId
-      meta.name = persistedState.meta.name
-      meta.avatar = persistedState.meta.avatar
-      meta.description = persistedState.meta.description
-      for (const [k, v] of persistedState.writerIdentities) writerIdentities.set(k, v)
-      for (const id of persistedState.moderatorIdentities) moderatorIdentities.add(id)
-      for (const id of persistedState.mutedIdentities) mutedIdentities.add(id)
-      for (const id of persistedState.bannedIdentities) bannedIdentities.add(id)
-    }
-    const persist = () => stateBee.put('room', serializeRoomState(owner, meta, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities))
+    // Rooms created before the state view existed kept this state in a Hyperbee alongside Autobase.
+    // Their log entries are checkpointed and will never be applied again, so that copy is the only
+    // record of who owns them — read it once as the seed. Nothing writes here any more; the state
+    // view takes over as soon as a single entry mutates the room.
+    const legacyStateBee = new Hyperbee<PersistedRoomState>(store.get({ name: 'state' }), { keyEncoding: 'utf-8', valueEncoding: 'json' })
+    await legacyStateBee.ready()
+    const legacyState = (await legacyStateBee.get('room'))?.value
+    if (legacyState) hydrateRoomState(legacyState, owner, meta, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities)
+    const seededOwnerKey = owner.writerKey
 
     if (initialKeys && initialKeys.length > 0) {
       for (const k of initialKeys) {
@@ -327,13 +397,26 @@ export class Room {
       }
     }
 
-    const base = new Autobase<RoomEntry>(store, bootstrapKey, {
+    const base = new Autobase<RoomEntry, RoomView>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, writerIdentities, overlay, messageAuthors, mutedIdentities, bannedIdentities, moderatorIdentities, () => room.notifyMutation(), () => room.notifyMetaChange(), persist)
+      apply: makeApply(owner, meta, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), (state) => room.refreshState(state))
     })
     room.base = base
+    // The mirror starts empty, and Autobase never replays checkpointed entries that would refill
+    // it — so the first thing to touch it, whether that is an `apply()` during `ready()` or the
+    // explicit refresh below, has to load it from the state view.
+    room.stateRewound = true
     await base.ready()
+    await room.refreshState(base.view.state)
+    // A reorg makes Autobase truncate the views and re-apply from the fork point, so every cached
+    // message at or past the truncation point may now be a different message entirely, and the
+    // room state mirrored in memory is now ahead of the state view it was derived from.
+    base.view.messages.on('truncate', () => room.invalidateMessage())
+    base.view.state.core.on('truncate', () => {
+      room.stateRewound = true
+      void room.refreshState(base.view.state)
+    })
     if (base.update) await base.update()
 
     const canonicalId = b4a.toString(base.key, 'hex').slice(0, 16)
@@ -345,7 +428,6 @@ export class Room {
       owner.identityId = identityId
       writerIdentities.set(key, identityId)
       await base.append({ type: 'init', ownerKey: key, ownerIdentityId: identityId })
-      await persist()
       const contentKey = b4a.allocUnsafe(sodium.crypto_secretbox_KEYBYTES)
       sodium.randombytes_buf(contentKey)
       room.contentKeys.set(0, contentKey)
@@ -355,8 +437,44 @@ export class Room {
     return room
   }
 
-  private notifyMutation(): void {
-    for (const listener of this.mutationListeners) listener()
+  /** Membership, moderation and meta are mirrored in memory so the getters that report them can
+   * stay synchronous; the state view holds the durable copy `apply()` writes alongside. Reload the
+   * mirror whenever Autobase may have rewound that view — reading the record first and assigning
+   * from it without awaiting keeps a second caller from overwriting a reload already applied.
+   * A missing record means nothing has been written yet, so whatever the mirror holds (a
+   * pre-state-view room's seed, or an in-flight `init`) is still the best answer. */
+  private async refreshState(state: Hyperbee<RoomStateRecord>): Promise<void> {
+    if (!this.stateRewound) return
+    const record = (await state.get(ROOM_KEY))?.value
+    if (!this.stateRewound) return
+    this.stateRewound = false
+    if (record?.kind !== 'room') return
+    hydrateRoomState(record.state, this.owner, this.meta, this.writerIdentities, this.moderatorIdentities, this.mutedIdentities, this.bannedIdentities)
+    this.invalidateMessage()
+    this.notifyMetaChange()
+  }
+
+  /** Autobase hands `apply()` a whole linearization batch at once, so a sync burst used to fire one
+   * notification per entry — and every consumer redrew that many times. Drop the stale cache
+   * entries immediately, but collapse the burst into a single notification. */
+  private notifyMutation(messageId?: string): void {
+    this.invalidateMessage(messageId)
+    if (this.mutationNotifyTimer !== null) return
+    this.mutationNotifyTimer = setTimeout(() => {
+      this.mutationNotifyTimer = null
+      for (const listener of this.mutationListeners) listener()
+    }, MUTATION_NOTIFY_MS)
+  }
+
+  /** Without a `messageId` the change wasn't traceable to one message, so nothing cached can be trusted. */
+  private invalidateMessage(messageId?: string): void {
+    if (messageId === undefined) {
+      this.messageCache.clear()
+      this.messageIndexById.clear()
+      return
+    }
+    const index = this.messageIndexById.get(messageId)
+    if (index !== undefined) this.messageCache.delete(index)
   }
 
   /** `base.activeWriters` is Autobase's internal writer-core bookkeeping (it always includes the local replica's own writer core, even before the owner approves it) — not an ACL. `writerIdentities` is: populated only from `init`/owner-authorized `addWriter` log entries and pruned on `removeWriter`, so its key set is the actual authorized-writer set. */
@@ -398,7 +516,7 @@ export class Room {
   get bootstrapKey(): Buffer { return this.base.key }
   get localWriterKey(): Buffer { return this.base.local.key }
   get writable(): boolean { return this.base.writable }
-  get messageCount(): number { return this.base.view.length }
+  get messageCount(): number { return this.base.view.messages.length }
   /** Whether a content-encryption key has been received yet; sending requires this in addition to `writable`. */
   get hasKey(): boolean { return this.currentEpoch >= 0 }
   get keyEpoch(): number { return this.currentEpoch }
@@ -411,11 +529,14 @@ export class Room {
   receiveKey(epoch: number, keyHex: string): void {
     this.contentKeys.set(epoch, b4a.from(keyHex, 'hex'))
     if (epoch > this.currentEpoch) this.currentEpoch = epoch
+    // Anything read before this key arrived was cached as a locked-message placeholder.
+    this.invalidateMessage()
     for (const listener of this.keyListeners) listener(epoch, keyHex)
   }
 
-  onKeyChange(listener: (epoch: number, keyHex: string) => void): void {
-    this.keyListeners.push(listener)
+  onKeyChange(listener: (epoch: number, keyHex: string) => void): () => void {
+    this.keyListeners.add(listener)
+    return () => this.keyListeners.delete(listener)
   }
 
   /** Owner-only (enforced by caller): generates and adopts a new epoch key, e.g. after kicking a member, so they lose access to future content. Caller is responsible for distributing it to remaining members via RPC. */
@@ -542,34 +663,50 @@ export class Room {
   }
 
   async toggleReaction(userId: string, messageId: string, emoji: string): Promise<void> {
-    await this.base.append({ type: 'reaction', messageId, userId, emoji })
+    const overlay = await readOverlay(this.base.view.state, messageId)
+    const reacted = overlay?.reactions[emoji]?.includes(userId) ?? false
+    await this.base.append({ type: 'reaction', messageId, userId, emoji, op: reacted ? 'remove' : 'add' })
   }
 
   async getMessage(index: number): Promise<ChatMessage> {
+    const cached = this.messageCache.get(index)
+    if (cached) return cached
     try {
-      const raw = await this.base.view.get(index) as ChatMessage
-      const merged = applyOverlay(raw, this.overlay)
-      if (merged.deleted) return merged
-      return { ...merged, body: this.decryptText(merged.body, merged.keyEpoch) }
+      const raw = await this.base.view.messages.get(index) as ChatMessage
+      const merged = applyOverlay(raw, await readOverlay(this.base.view.state, raw.id))
+      const message = merged.deleted ? merged : { ...merged, body: this.decryptText(merged.body, merged.keyEpoch) }
+      this.messageCache.set(index, message)
+      this.messageIndexById.set(message.id, index)
+      return message
     } catch {
       return { id: `err-${index}`, roomId: this.id, authorId: '', body: '\u26A0\uFE0F message unavailable', timestamp: 0 }
     }
   }
 
   async *messages(): AsyncIterable<ChatMessage> {
-    for (let i = 0; i < this.base.view.length; i++) yield await this.getMessage(i)
+    for (let i = 0; i < this.base.view.messages.length; i++) yield await this.getMessage(i)
   }
 
-  onMessage(listener: (index: number) => void): void {
-    this.base.view.on('append', () => listener(this.base.view.length - 1))
-    this.mutationListeners.push(() => listener(this.base.view.length - 1))
+  /** The returned unsubscribe must be called when the caller stops caring about the room — every
+   * registration that outlives its consumer keeps redrawing a dead view, and the cost multiplies
+   * because each surviving listener re-triggers the same work on every incoming message. */
+  onMessage(listener: (index: number) => void): () => void {
+    const onAppend = () => listener(this.base.view.messages.length - 1)
+    const onMutation = () => listener(this.base.view.messages.length - 1)
+    this.base.view.messages.on('append', onAppend)
+    this.mutationListeners.add(onMutation)
+    return () => {
+      this.base.view.messages.off('append', onAppend)
+      this.mutationListeners.delete(onMutation)
+    }
   }
 
   /** Fires when the room's name/avatar/description changes — including on a device that only
    * received the change over replication, not the one that made it. Lets callers keep any
    * cached copy of these fields (e.g. a room-list bookmark) in sync. */
-  onMetaChange(listener: () => void): void {
-    this.metaListeners.push(listener)
+  onMetaChange(listener: () => void): () => void {
+    this.metaListeners.add(listener)
+    return () => this.metaListeners.delete(listener)
   }
 
   private notifyMetaChange(): void {
@@ -577,16 +714,23 @@ export class Room {
   }
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */
-  onNewMessage(listener: (message: ChatMessage) => void): void {
-    this.base.view.on('append', () => { void this.getMessage(this.base.view.length - 1).then(listener).catch(() => {}) })
+  onNewMessage(listener: (message: ChatMessage) => void): () => void {
+    const onAppend = () => { void this.getMessage(this.base.view.messages.length - 1).then(listener).catch(() => {}) }
+    this.base.view.messages.on('append', onAppend)
+    return () => this.base.view.messages.off('append', onAppend)
   }
 
-  onWritableChange(listener: () => void): void {
+  onWritableChange(listener: () => void): () => void {
     this.base.on('writable', listener)
     this.base.on('unwritable', listener)
+    return () => {
+      this.base.off('writable', listener)
+      this.base.off('unwritable', listener)
+    }
   }
 
   async close(): Promise<void> {
+    if (this.mutationNotifyTimer !== null) clearTimeout(this.mutationNotifyTimer)
     await this.base.close()
   }
 }

@@ -11,6 +11,7 @@ declare module 'corestore' {
     append(value: unknown): Promise<{ length: number }>
     get(index: number): Promise<unknown>
     on(event: string, listener: (...args: any[]) => void): this
+    off(event: string, listener: (...args: any[]) => void): this
     ready(): Promise<void>
     purge(): Promise<void>
   }
@@ -22,6 +23,9 @@ declare module 'corestore' {
     namespace(name: string): Corestore
     list(namespace: Buffer): AsyncIterable<Buffer>
     replicate(stream: Duplex | boolean): Duplex
+    /** Marks peer discovery as in progress for every core in the store; call the returned function
+     * once discovery settles. Reads on a core with no local data wait while it is held. */
+    findingPeers(): () => void
     ready(): Promise<void>
     close(): Promise<void>
   }
@@ -41,6 +45,7 @@ declare module 'autobase' {
     get(index: number): Promise<any>
     append(value: unknown): Promise<void | { length: number }>
     on(event: string, listener: (...args: any[]) => void): void
+    off(event: string, listener: (...args: any[]) => void): void
   }
 
   export interface AutobaseApplyHost {
@@ -49,14 +54,17 @@ declare module 'autobase' {
     ackWriter(publicKey: Buffer): Promise<void>
   }
 
-  export interface AutobaseOptions<T> {
+  /** `V` is whatever `open()` returns. Every core opened from the store during `open()` becomes a
+   * view Autobase manages — truncated on reorg, persisted across reopen — so returning an object of
+   * several cores gives several views. */
+  export interface AutobaseOptions<T, V = AutobaseView> {
     valueEncoding?: string
-    open(store: Corestore): AutobaseView
-    apply(nodes: AutobaseNode<T>[], view: AutobaseView, host: AutobaseApplyHost): Promise<void> | void
+    open(store: Corestore): V
+    apply(nodes: AutobaseNode<T>[], view: V, host: AutobaseApplyHost): Promise<void> | void
   }
 
-  export default class Autobase<T = unknown> {
-    constructor(store: Corestore, bootstrap: Buffer | null, opts: AutobaseOptions<T>)
+  export default class Autobase<T = unknown, V = AutobaseView> {
+    constructor(store: Corestore, bootstrap: Buffer | null, opts: AutobaseOptions<T, V>)
     ready(): Promise<void>
     update?(): Promise<boolean | void>
     close(): Promise<void>
@@ -64,9 +72,10 @@ declare module 'autobase' {
     replicate(stream: Duplex | boolean): Duplex
     readonly key: Buffer
     readonly local: { key: Buffer }
-    readonly view: AutobaseView
+    readonly view: V
     readonly writable: boolean
     on(event: string, listener: (...args: any[]) => void): this
+    off(event: string, listener: (...args: any[]) => void): this
   }
 }
 

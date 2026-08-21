@@ -257,7 +257,7 @@ export class Session {
       }
     })
 
-    void joinRoom(this.swarm, LOBBY_TOPIC)
+    this.trackDiscovery(LOBBY_TOPIC)
   }
 
   private setupRoomKeyPersistence(room: Room): void {
@@ -626,9 +626,10 @@ export class Session {
     return room
   }
 
+  /** Opens every bookmarked room concurrently. Serially, each room waited on its own network
+   * round-trips before the next one started, so startup cost was the sum over all bookmarks. */
   async reopenBookmarkedRooms(): Promise<Room[]> {
-    const opened: Room[] = []
-    for (const bookmark of this.listBookmarks()) {
+    const results = await Promise.all(this.listBookmarks().map(async (bookmark) => {
       try {
         const bootstrapKey = b4a.from(bookmark.bootstrapKey, 'hex')
         const initialKeys = await this.profileStore.getRoomKeys(bookmark.id)
@@ -636,14 +637,15 @@ export class Session {
         this.setupRoomKeyPersistence(room)
         await this.joinTopic(room)
         this.trackRoom(room)
-        opened.push(room)
+        return room
       } catch (err) {
         console.warn(`[session] cleaning up corrupted/purged room bookmark ${bookmark.id}:`, (err as Error).message)
         this.bookmarks.delete(bookmark.id)
         await this.profileStore.removeBookmark(bookmark.id)
+        return null
       }
-    }
-    return opened
+    }))
+    return results.filter((room): room is Room => room !== null)
   }
 
   getRoom(roomId: string): Room | undefined {
@@ -698,9 +700,20 @@ export class Session {
     }
   }
 
+  /** Joins the topic and holds Corestore's `findingPeers` open until the swarm has finished looking.
+   * Without it, a `get()` on a core this device has never replicated resolves against empty local
+   * storage the instant it finds nothing, rather than waiting for the peer that is about to
+   * connect — the difference between a room that populates and one that looks empty then fills in
+   * seconds later. Deliberately not awaited: the caller should open the room concurrently with
+   * discovery, not after it. */
+  private trackDiscovery(topic: Buffer): void {
+    const done = this.store.findingPeers()
+    joinRoom(this.swarm, topic)
+    this.swarm.flush().then(done, done)
+  }
+
   private async joinTopic(room: Room): Promise<void> {
-    const topic = hypercoreCrypto.discoveryKey(room.bootstrapKey)
-    await joinRoom(this.swarm, topic)
+    this.trackDiscovery(hypercoreCrypto.discoveryKey(room.bootstrapKey))
     room.onWritableChange(() => { if (room.writable) this.pendingInviteCodes.delete(room.id) })
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
   }
@@ -715,7 +728,7 @@ export class Session {
     initialKeys?: Array<{ epoch: number; keyHex: string }>,
     storeNamespace?: string
   ): Promise<Room> {
-    await joinRoom(this.swarm, hypercoreCrypto.discoveryKey(bootstrapKey))
+    this.trackDiscovery(hypercoreCrypto.discoveryKey(bootstrapKey))
     for (let attempt = 0; ; attempt++) {
       try {
         return await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)

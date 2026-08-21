@@ -61,9 +61,7 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
         // Message unavailable, skip
       }
     }
-    room.onMessage(handler)
-    // Note: Room doesn't provide an unsubscribe mechanism,
-    // but the mountedRef guard prevents state updates after unmount
+    return room.onMessage(handler)
   }, [room])
 
   const sendMessage = useCallback(async (body: string, replyTo?: string) => {

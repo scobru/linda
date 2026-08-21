@@ -211,6 +211,11 @@ export class AppShell extends HTMLElement {
   private remoteImageCache = new Map<string, string>()
   private favoriteRooms = new Set<string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
+  private renderAppQueued = false
+  /** Torn down when the active room changes — a room fires its listeners for the lifetime of the
+   * session, so leaving these attached meant every previously-visited room kept redrawing the UI,
+   * multiplying the cost of every incoming message by the number of rooms opened so far. */
+  private activeRoomUnsubscribes: Array<() => void> = []
 
   connectedCallback(): void {
     if (localStorage.getItem('linda-theme') === 'light') document.documentElement.setAttribute('data-theme', 'light')
@@ -237,6 +242,19 @@ export class AppShell extends HTMLElement {
       localStorage.setItem('linda-theme', 'light')
     }
     this.render()
+  }
+
+  /** For redraws triggered by the network rather than by the user: replication delivers messages in
+   * bursts, and `renderApp` rebuilds the whole DOM, so a burst of N events used to cost N full
+   * rebuilds to display one final state. Coalesces them into a single rebuild per frame. User
+   * actions still call `renderApp` directly, where the immediate repaint is the point. */
+  private scheduleRenderApp(): void {
+    if (this.renderAppQueued) return
+    this.renderAppQueued = true
+    requestAnimationFrame(() => {
+      this.renderAppQueued = false
+      if (this.view === 'app') this.renderApp()
+    })
   }
 
   private render(): void {
@@ -478,9 +496,9 @@ export class AppShell extends HTMLElement {
         onBookmarksChange: () => { if (this.view === 'app') this.render() },
         onPeerConnected: () => {
           this.session?.broadcastPresence(true)
-          this.renderApp()
+          this.scheduleRenderApp()
         },
-        onPeerDisconnected: () => this.renderApp(),
+        onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
       })
     } catch (err: any) {
@@ -522,7 +540,7 @@ export class AppShell extends HTMLElement {
               text: lastMsg.file ? `Shared an image 🖼️` : lastMsg.body,
               time: lastMsg.timestamp
             })
-            if (this.view === 'app') this.renderApp()
+            this.scheduleRenderApp()
           }
         })()
       }
@@ -552,22 +570,35 @@ export class AppShell extends HTMLElement {
 
   // --- Main App Shell ------------------------------------------------------
 
+  /** Whether a room passes the sidebar's tab and search query. Shared by the full render and the
+   * in-place filter so the two can never disagree about what should be on screen. */
+  private matchesSidebarFilter(b: RoomBookmark): boolean {
+    const query = this.sidebarSearchQuery.trim().toLowerCase()
+    if (query && !b.name.toLowerCase().includes(query) && !b.description?.toLowerCase().includes(query)) return false
+    if (this.activeFilter === 'favorites') return this.favoriteRooms.has(b.id)
+    if (this.activeFilter === 'unread') return this.isRoomUnread(b)
+    return true
+  }
+
+  /** Applies the current filter to the already-rendered room list without rebuilding the DOM. */
+  private applySidebarFilter(): void {
+    const bookmarks = new Map(this.session?.listBookmarks().map((b) => [b.id, b]) ?? [])
+    let visible = 0
+    this.querySelectorAll<HTMLElement>('.room-item').forEach((item) => {
+      const bookmark = bookmarks.get(item.dataset.roomId!)
+      const show = bookmark !== undefined && this.matchesSidebarFilter(bookmark)
+      item.style.display = show ? '' : 'none'
+      if (show) visible++
+    })
+    const hint = this.querySelector('.empty-room-hint') as HTMLElement | null
+    if (hint) hint.style.display = visible === 0 ? '' : 'none'
+  }
+
   private renderApp(): void {
     if (!this.session || !this.identity) return
     const allBookmarks = this.session.listBookmarks()
 
-    // Filter bookmarks according to tab and search query
-    const query = this.sidebarSearchQuery.trim().toLowerCase()
-    let filteredBookmarks = allBookmarks.filter((b) => {
-      if (!query) return true
-      return b.name.toLowerCase().includes(query) || (b.description && b.description.toLowerCase().includes(query))
-    })
-
-    if (this.activeFilter === 'favorites') {
-      filteredBookmarks = filteredBookmarks.filter((b) => this.favoriteRooms.has(b.id))
-    } else if (this.activeFilter === 'unread') {
-      filteredBookmarks = filteredBookmarks.filter((b) => this.isRoomUnread(b))
-    }
+    const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
 
     const peerCount = this.session.peers.size
     const userInitial = this.nickname ? this.nickname.slice(0, 1).toUpperCase() : (this.identity.id.slice(0, 1).toUpperCase() || 'S')
@@ -611,12 +642,11 @@ export class AppShell extends HTMLElement {
             </div>
 
             <div class="room-list">
-              ${filteredBookmarks.map((b) => this.renderRoomListItem(b)).join('') || `
-                <div class="empty-room-hint" style="padding:2.5rem 1rem;text-align:center;color:var(--text-muted);font-size:0.825rem;">
-                  <p>No conversations found.</p>
-                  <small>Click the compose button above to start a chat.</small>
-                </div>
-              `}
+              ${allBookmarks.map((b) => this.renderRoomListItem(b, this.matchesSidebarFilter(b))).join('')}
+              <div class="empty-room-hint" style="padding:2.5rem 1rem;text-align:center;color:var(--text-muted);font-size:0.825rem;${filteredBookmarks.length ? 'display:none;' : ''}">
+                <p>No conversations found.</p>
+                <small>Click the compose button above to start a chat.</small>
+              </div>
             </div>
 
             <div class="sidebar-bottom-actions">
@@ -735,7 +765,7 @@ export class AppShell extends HTMLElement {
     return lastMsgTime > (b.lastReadAt ?? 0)
   }
 
-  private renderRoomListItem(b: RoomBookmark): string {
+  private renderRoomListItem(b: RoomBookmark, visible = true): string {
     const active = this.activeRoom?.id === b.id
     const contact = this.session?.listContacts().find((c) => c.roomId === b.id)
     // For a DM, the room's own `avatar` is just a one-time snapshot of the contact's avatar taken
@@ -753,7 +783,7 @@ export class AppShell extends HTMLElement {
     const unread = this.isRoomUnread(b)
 
     return `
-      <div class="room-item ${active ? 'active' : ''} ${unread ? 'unread' : ''}" data-room-id="${b.id}" data-room-name="${escapeHtml(b.name)}">
+      <div class="room-item ${active ? 'active' : ''} ${unread ? 'unread' : ''}" data-room-id="${b.id}" data-room-name="${escapeHtml(b.name)}"${visible ? '' : ' style="display:none;"'}>
         <div class="room-item-avatar-wrap">
           ${avatarHtml(b.id, 'md', b.name, roomAvatar)}
           ${unread ? '<span class="room-item-unread-dot"></span>' : ''}
@@ -916,14 +946,12 @@ export class AppShell extends HTMLElement {
 
     // Search filter input
     const searchInput = this.querySelector('#sidebarSearch') as HTMLInputElement
+    // Filtering only affects which room items are shown, so hide/show them in place rather than
+    // rebuilding the whole app on every keystroke — which also destroyed the input mid-typing and
+    // needed the focus/caret to be restored afterwards.
     searchInput?.addEventListener('input', () => {
       this.sidebarSearchQuery = searchInput.value
-      this.renderApp()
-      const refreshedInput = this.querySelector('#sidebarSearch') as HTMLInputElement
-      if (refreshedInput) {
-        refreshedInput.focus()
-        refreshedInput.setSelectionRange(refreshedInput.value.length, refreshedInput.value.length)
-      }
+      this.applySidebarFilter()
     })
 
     // Filter pills (All, Unread, Favorites)
@@ -1210,14 +1238,15 @@ export class AppShell extends HTMLElement {
     this.replyingTo = null
     this.editingMessage = null
     this.session!.markRoomRead(roomId)
-    room.onMessage(() => {
-      if (this.activeRoom === room) {
+    for (const unsubscribe of this.activeRoomUnsubscribes) unsubscribe()
+    this.activeRoomUnsubscribes = [
+      room.onMessage(() => {
         this.session!.markRoomRead(roomId)
-        this.renderApp()
-      }
-    })
-    room.onWritableChange(() => this.activeRoom === room && this.renderApp())
-    room.onKeyChange(() => this.activeRoom === room && this.renderApp())
+        this.scheduleRenderApp()
+      }),
+      room.onWritableChange(() => this.scheduleRenderApp()),
+      room.onKeyChange(() => this.scheduleRenderApp())
+    ]
     this.renderApp()
   }
 
@@ -1560,7 +1589,7 @@ export class AppShell extends HTMLElement {
     else this.onlineUsers.delete(userId)
     if (nickname) this.nicknames.set(userId, nickname)
     if (avatar) this.avatars.set(userId, avatar)
-    if (this.view === 'app') this.renderApp()
+    this.scheduleRenderApp()
   }
 
   private displayName(userId: string): string {
@@ -1957,6 +1986,8 @@ export class AppShell extends HTMLElement {
       if (!confirm(`Leave "${this.activeRoomName}"? You'll need a new invite to rejoin.`)) return
       void (async () => {
         await this.session!.deleteRoom(room.id)
+        for (const unsubscribe of this.activeRoomUnsubscribes) unsubscribe()
+        this.activeRoomUnsubscribes = []
         this.activeRoom = null
         this.view = 'app'
         this.render()

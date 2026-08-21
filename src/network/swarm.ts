@@ -42,7 +42,11 @@ export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}): Hy
   return swarm
 }
 
-export function joinRoom(swarm: Hyperswarm, roomTopic: Buffer): Promise<void> {
-  const discovery = swarm.join(roomTopic, { server: true, client: true })
-  return discovery.flushed()
+/** Announces on the topic without waiting for `discovery.flushed()`. That flush waits for the DHT
+ * announce to land — seconds — and callers used to await one per room, in sequence, before the app
+ * could show anything. Whether a peer serving the room has been found is instead communicated to
+ * Hypercore through Corestore's `findingPeers` (see `Session.trackDiscovery`), which is the signal
+ * a `get()` on a not-yet-replicated core actually waits on. */
+export function joinRoom(swarm: Hyperswarm, roomTopic: Buffer): void {
+  swarm.join(roomTopic, { server: true, client: true })
 }

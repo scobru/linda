@@ -34,27 +34,29 @@ async function main(): Promise<void> {
   console.log('identity A:', identityA.id.slice(0, 12))
   console.log('identity B:', identityB.id.slice(0, 12))
 
-  const sessionA = new Session(identityA, dirA, {
+  const sessionA = await Session.create(identityA, dirA, {
     onPeerConnected: (p) => console.log('[A] peer connected', b4a.toString(p.remotePublicKey, 'hex').slice(0, 12))
   })
-  const sessionB = new Session(identityB, dirB, {
+  const sessionB = await Session.create(identityB, dirB, {
     onPeerConnected: (p) => console.log('[B] peer connected', b4a.toString(p.remotePublicKey, 'hex').slice(0, 12))
   })
 
   console.log('A creating room...')
   const roomA = await sessionA.createRoom('test-room')
   const bootstrapHex = b4a.toString(roomA.bootstrapKey, 'hex')
+  const invite = sessionA.inviteLinkFor(roomA.id) // already `bootstrapKeyHex:inviteCode`
 
   console.log('B joining room...')
-  const roomB = await sessionB.joinRoomByKey('test-room', bootstrapHex)
+  const roomB = await sessionB.joinRoomByKey('test-room', invite)
 
   console.log('waiting for swarm connection (real Hyperswarm/DHT)...')
   await waitFor(() => sessionA.peers.size > 0 && sessionB.peers.size > 0, 30000, 'peer connection')
   console.log('peers connected')
 
-  console.log('granting B write access to room...')
-  await roomA.addWriter(roomB.localWriterKey)
-  await wait(1000)
+  // Write access and the room's content key both arrive over the RPC grant flow that
+  // `joinRoomByKey`'s invite code triggers — no manual addWriter.
+  console.log('waiting for B to be granted write access and the room key...')
+  await waitFor(() => roomB.writable && roomB.hasKey, 30000, 'write grant + key')
 
   console.log('B sending message...')
   await roomB.send(identityB.id, 'hello from B')

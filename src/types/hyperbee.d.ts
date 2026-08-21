@@ -13,6 +13,7 @@ declare module 'hyperbee' {
 
   export default class Hyperbee<T = unknown> {
     constructor(core: HyperCore, opts?: HyperbeeOptions)
+    readonly core: HyperCore
     ready(): Promise<void>
     put(key: string, value: T): Promise<void>
     get(key: string): Promise<HyperbeeNode<T> | null>
