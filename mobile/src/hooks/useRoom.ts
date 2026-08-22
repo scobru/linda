@@ -52,41 +52,37 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
 
   const loadMessages = useCallback(async () => {
     if (!room) return
-    // Have this room's tail from a previous visit. onMessage only keeps it current while this
-    // hook is mounted, though — nothing was listening for the room while the user was elsewhere,
-    // so a message that arrived in the meantime (the room-list preview updates independently, via
-    // its own always-on listener) would otherwise stay missing until this cache entry happened to
-    // get evicted. A message-count check is cheap; catch up on just the gap if there is one.
+    // A cached tail is shown instantly (see the initial useState above) while this re-verifies
+    // it in the background — onMessage only keeps the cache current while this hook is mounted,
+    // so anything that happened while the user was elsewhere (a new message, but just as easily a
+    // reaction/edit/delete on a message already in the cached page, which doesn't change the
+    // message count at all) needs re-checking. Always re-fetching just the tail page — the same
+    // cost the very first load ever paid — keeps this correct without re-decrypting whatever
+    // older history loadOlder() had paged in, which is the part actually worth caching.
     const cachedEntry = roomCache.get(room.id)
-    if (cachedEntry) {
-      const cachedCount = cachedEntry.oldestLoaded + cachedEntry.messages.length
-      const liveCount = await room.messageCount()
-      if (liveCount >= cachedCount && mountedRef.current) {
-        const gap: ChatMessage[] = []
-        for await (const msg of room.messages(cachedCount, liveCount)) gap.push(msg)
-        if (!mountedRef.current) return
-        oldestLoadedRef.current = cachedEntry.oldestLoaded
-        setHasMore(cachedEntry.hasMore)
-        setMessages([...cachedEntry.messages, ...gap])
-        setLoading(false)
-        return
-      }
-      // liveCount < cachedCount is unexpected (e.g. a view truncation) — cache isn't trustworthy, fall through to a full refetch.
-    }
-    setLoading(true)
-    const count = await room.messageCount()
-    const start = Math.max(0, count - PAGE_SIZE)
-    const msgs: ChatMessage[] = []
-    for await (const msg of room.messages(start, count)) {
+    const liveCount = await room.messageCount()
+    if (!mountedRef.current) return
+    const tailStart = Math.max(0, liveCount - PAGE_SIZE)
+    const tail: ChatMessage[] = []
+    for await (const msg of room.messages(tailStart, liveCount)) {
       if (!mountedRef.current) return
-      msgs.push(msg)
+      tail.push(msg)
     }
-    if (mountedRef.current) {
-      oldestLoadedRef.current = start
-      setHasMore(start > 0)
-      setMessages(msgs)
-      setLoading(false)
+    if (!mountedRef.current) return
+
+    if (cachedEntry && cachedEntry.oldestLoaded <= tailStart) {
+      const olderCount = tailStart - cachedEntry.oldestLoaded
+      oldestLoadedRef.current = cachedEntry.oldestLoaded
+      setHasMore(cachedEntry.hasMore || tailStart > 0)
+      setMessages([...cachedEntry.messages.slice(0, olderCount), ...tail])
+    } else {
+      // No cache, or it starts later than the tail page we just fetched (e.g. a view truncation
+      // shrank the room) — the tail fetch alone is the full trustworthy picture.
+      oldestLoadedRef.current = tailStart
+      setHasMore(tailStart > 0)
+      setMessages(tail)
     }
+    setLoading(false)
   }, [room])
 
   const refreshMessages = useCallback(async () => {

@@ -171,6 +171,10 @@ export class AppShell extends HTMLElement {
   private session: Session | null = null
   private activeRoom: Room | null = null
   private activeRoomName = ''
+  /** Set right before a send/edit of our own — the next renderMessages() should land on the tail
+   * regardless of scroll position, unlike an arbitrary incoming mutation which shouldn't yank
+   * someone back down while they're reading history. */
+  private forceScrollOnNextRender = false
   private replyingTo: ChatMessage | null = null
   private editingMessage: ChatMessage | null = null
   private selectionMode = false
@@ -796,6 +800,12 @@ export class AppShell extends HTMLElement {
     const roomAvatar = contact
       ? (this.avatars.get(contact.userId) || this.session?.getPeerAvatar(contact.userId) || contact.avatar || b.avatar)
       : b.avatar
+    // Same staleness as the avatar above: a DM's bookmark name is whatever nickname was known
+    // (or wasn't — falling back to an id slice) at accept time, and never updates again. Live
+    // presence wins once it's known.
+    const roomName = contact
+      ? (this.nicknames.get(contact.userId) || contact.nickname || b.name)
+      : b.name
 
     const lastMsgInfo = this.lastMessages.get(b.id)
     const lastAuthor = lastMsgInfo ? `${lastMsgInfo.author}: ` : ''
@@ -804,15 +814,15 @@ export class AppShell extends HTMLElement {
     const unread = this.isRoomUnread(b)
 
     return `
-      <div class="room-item ${active ? 'active' : ''} ${unread ? 'unread' : ''}" data-room-id="${b.id}" data-room-name="${escapeHtml(b.name)}"${visible ? '' : ' style="display:none;"'}>
+      <div class="room-item ${active ? 'active' : ''} ${unread ? 'unread' : ''}" data-room-id="${b.id}" data-room-name="${escapeHtml(roomName)}"${visible ? '' : ' style="display:none;"'}>
         <div class="room-item-avatar-wrap">
-          ${avatarHtml(b.id, 'md', b.name, roomAvatar)}
+          ${avatarHtml(b.id, 'md', roomName, roomAvatar)}
           ${unread ? '<span class="room-item-unread-dot"></span>' : ''}
         </div>
         <div class="room-item-content">
           <div class="room-item-top-row">
             <div class="room-item-name-group">
-              <span class="room-item-name">${escapeHtml(b.name)}</span>
+              <span class="room-item-name">${escapeHtml(roomName)}</span>
               <span class="verified-badge" title="End-to-End Encrypted">${ICONS.verified}</span>
             </div>
             ${timeFormatted ? `<span class="room-item-time">${timeFormatted}</span>` : ''}
@@ -1131,6 +1141,7 @@ export class AppShell extends HTMLElement {
 
       <!-- Messages Stream Canvas -->
       <div id="messages" class="messages"></div>
+      <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" title="Scroll to latest">↓</button>
 
       <div id="seenBy" class="status-bar"></div>
       <div id="typing" class="status-bar"></div>
@@ -1185,6 +1196,14 @@ export class AppShell extends HTMLElement {
 
     void this.renderMessages()
     this.restoreCallTiles()
+
+    // Direct DOM toggling, not scheduleRenderApp() — this fires on every scroll tick, and routing
+    // that through a full DOM rebuild would fight the very scrolling it's reacting to.
+    this.querySelector('#messages')?.addEventListener('scroll', () => this.updateScrollToBottomBtn())
+    this.updateScrollToBottomBtn()
+    this.querySelector('#scrollToBottomBtn')?.addEventListener('click', () => {
+      this.querySelector('#messages')?.scrollTo({ top: this.querySelector('#messages')!.scrollHeight, behavior: 'smooth' })
+    })
 
     this.querySelector('#editRoomAvatarTrigger')?.addEventListener('click', () => this.openRoomSettingsPage(room))
     this.querySelector('#roomSettingsBtn')?.addEventListener('click', () => this.openRoomSettingsPage(room))
@@ -1280,11 +1299,26 @@ export class AppShell extends HTMLElement {
     this.renderApp()
   }
 
+  private updateScrollToBottomBtn(): void {
+    const container = this.querySelector('#messages')
+    const btn = this.querySelector('#scrollToBottomBtn')
+    if (!container || !btn) return
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    btn.classList.toggle('visible', distanceFromBottom > 200)
+  }
+
   private async renderMessages(): Promise<void> {
     const room = this.activeRoom
     if (!room) return
     const container = this.querySelector('#messages')
     if (!container) return
+
+    // Preserves reading position: force-scrolling on every redraw (any message, anyone's, any
+    // edit/reaction) would otherwise yank someone back to the tail while they're reading history.
+    // A negative distance (container not yet scrollable, e.g. this room's first render) still
+    // counts as "near the bottom", so a fresh open still lands there.
+    const wasNearBottom = this.forceScrollOnNextRender || container.scrollHeight - container.scrollTop - container.clientHeight < 100
+    this.forceScrollOnNextRender = false
 
     const all: ChatMessage[] = []
     for await (const message of room.messages()) all.push(message)
@@ -1303,7 +1337,8 @@ export class AppShell extends HTMLElement {
     }
 
     container.innerHTML = htmlChunks.join('')
-    container.scrollTop = container.scrollHeight
+    if (wasNearBottom) container.scrollTop = container.scrollHeight
+    this.updateScrollToBottomBtn()
 
     const lastVisible = visible[visible.length - 1]
     if (lastVisible) this.notifyRead(room, lastVisible.id)
@@ -1511,6 +1546,7 @@ export class AppShell extends HTMLElement {
     // the fresh one keeps showing what was typed.
     input.value = ''
     this.notifyTyping(false)
+    this.forceScrollOnNextRender = true
     try {
       if (this.editingMessage) {
         await room.editMessage(this.editingMessage.id, body)
@@ -1543,6 +1579,7 @@ export class AppShell extends HTMLElement {
       try { thumbnail = await resizeImageToDataUrl(file, 360) } catch { /* ignore */ }
     }
 
+    this.forceScrollOnNextRender = true
     await room.sendFile(this.identity!.id, {
       driveKey: b4a.toString(fileStore.key, 'hex'),
       path: shared.path,
@@ -2150,11 +2187,16 @@ export class AppShell extends HTMLElement {
           <div class="modal">
             <h3 style="font-size:0.9rem;color:var(--text-dim);margin-bottom:0.5rem;">Contacts (${contacts.length})</h3>
             <div style="display:flex;flex-direction:column;gap:0.5rem;">
-              ${contacts.map((c) => `
+              ${contacts.map((c) => {
+                // `c.nickname` is a one-time snapshot from when the contact request was sent/accepted
+                // — blank if the other side hadn't set one yet, and never updated after. Live
+                // presence wins once it's known (same fallback chain as the sidebar's DM rooms).
+                const name = this.nicknames.get(c.userId) || c.nickname || c.userId.slice(0, 8)
+                return `
                 <div class="room-item" style="padding:0.6rem;background:var(--bg-subtle);border-radius:10px;border:1px solid var(--border);">
-                  ${avatarHtml(c.userId, 'md', c.nickname, c.avatar)}
+                  ${avatarHtml(c.userId, 'md', name, c.avatar)}
                   <div style="flex:1;min-width:0;">
-                    <div style="font-weight:700;color:var(--text);">${escapeHtml(c.nickname)}</div>
+                    <div style="font-weight:700;color:var(--text);">${escapeHtml(name)}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);">${c.status === 'incoming' ? 'wants to connect' : c.status === 'outgoing' ? 'request sent' : ''}</div>
                   </div>
                   ${c.status === 'incoming' ? `
@@ -2162,10 +2204,11 @@ export class AppShell extends HTMLElement {
                     <button data-decline-contact-id="${c.userId}" class="ghost" style="color:var(--danger);">✕ Decline</button>
                   ` : ''}
                   ${c.status === 'outgoing' ? '<span style="font-size:0.75rem;color:var(--text-muted);padding:0.25rem 0.5rem;">pending</span>' : ''}
-                  ${c.roomId ? `<button data-open-contact-room="${c.roomId}" data-open-contact-name="${escapeHtml(c.nickname)}" class="ghost">Chat</button>` : ''}
-                  <button data-remove-contact-id="${c.userId}" data-remove-contact-name="${escapeHtml(c.nickname)}" class="ghost" style="color:var(--danger);" title="Remove contact">${ICONS.trash}</button>
+                  ${c.roomId ? `<button data-open-contact-room="${c.roomId}" data-open-contact-name="${escapeHtml(name)}" class="ghost">Chat</button>` : ''}
+                  <button data-remove-contact-id="${c.userId}" data-remove-contact-name="${escapeHtml(name)}" class="ghost" style="color:var(--danger);" title="Remove contact">${ICONS.trash}</button>
                 </div>
-              `).join('') || '<p style="text-align:center;color:var(--text-muted);padding:1rem;">No contacts yet.</p>'}
+              `
+              }).join('') || '<p style="text-align:center;color:var(--text-muted);padding:1rem;">No contacts yet.</p>'}
             </div>
           </div>
         </div>

@@ -21,7 +21,7 @@ import type { ChatMessage } from '@core/rooms/room'
 import ChatBubble, { isAudioFile } from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
-import { spacing, radii, typography, type ThemeColors } from '../theme'
+import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
@@ -98,6 +98,12 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const handleListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
+    setShowScrollToBottom(distanceFromBottom > 300)
+  }, [])
 
   // Lands on the latest messages when a room first opens. Fires once messages first become
   // non-empty rather than once on `loading` alone — a room whose peer hasn't synced recently (far
@@ -392,6 +398,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         maxToRenderPerBatch={16}
         initialNumToRender={16}
         removeClippedSubviews
+        onScroll={handleListScroll}
+        scrollEventThrottle={100}
         onContentSizeChange={() => {
           // Only snap to bottom when a message actually landed at the tail — loadOlder()
           // prepends to the top and must not yank the view back down.
@@ -426,6 +434,15 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           )
         }
       />
+
+      {showScrollToBottom && (
+        <Pressable
+          style={styles.scrollToBottomBtn}
+          onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        >
+          <Ionicons name="chevron-down" size={22} color={colors.textPrimary} />
+        </Pressable>
+      )}
 
       {/* Typing / seen-by status */}
       {typingUsers.size > 0 ? (
@@ -545,6 +562,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   loadEarlier: { alignItems: 'center', paddingVertical: spacing.sm },
   loadEarlierText: { color: colors.textTertiary, fontSize: typography.sm },
   emptyCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  scrollToBottomBtn: {
+    position: 'absolute', right: spacing.lg, bottom: 90,
+    width: 42, height: 42, borderRadius: radii.full,
+    backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+    ...shadows.md,
+  },
   emptyEmoji: { fontSize: 48, opacity: 0.5 },
   emptyText: { color: colors.textTertiary, fontSize: typography.md },
   statusBar: {
