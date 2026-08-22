@@ -596,6 +596,18 @@ export class AppShell extends HTMLElement {
 
   private renderApp(): void {
     if (!this.session || !this.identity) return
+
+    // renderApp() rebuilds the whole DOM below on every room event — a message, a typing
+    // indicator, a read receipt (see the call-area comment further down) — which recreates
+    // #body/#sidebarSearch from scratch. Without this, whatever the user was mid-typing gets
+    // wiped and the input loses focus every time one of those arrives, which on an active chat
+    // can happen every animation frame — the box then reads as unresponsive until things quiet
+    // down long enough for a keystroke to survive a full render cycle.
+    const active = document.activeElement as (HTMLInputElement | HTMLTextAreaElement) | null
+    const focused = active?.id && this.contains(active)
+      ? { id: active.id, value: active.value, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd }
+      : null
+
     const allBookmarks = this.session.listBookmarks()
 
     const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
@@ -755,6 +767,15 @@ export class AppShell extends HTMLElement {
     this.wireTopbarAndDrawer()
     if (this.activeRoom) this.wireRoom()
     if (this.activeModal !== 'none') this.wireModal()
+
+    if (focused) {
+      const el = this.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${focused.id}`)
+      if (el) {
+        el.value = focused.value
+        el.focus()
+        try { el.setSelectionRange(focused.selectionStart, focused.selectionEnd) } catch { /* input type doesn't support range selection */ }
+      }
+    }
   }
 
   /** Unread = this room has a message newer than the last time it was opened (never opened counts as the epoch). */

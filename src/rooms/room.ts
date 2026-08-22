@@ -343,7 +343,8 @@ export class Room {
   private readonly mutedIdentities: Set<string>
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
-  private readonly mutationListeners = new Set<() => void>()
+  private readonly mutationListeners = new Set<(index: number) => void>()
+  private readonly pendingMutationIds = new Set<string>()
   private readonly metaListeners = new Set<() => void>()
   /** Content-encryption keys, by epoch. Never written to the replicated log (would leak to any reader) — distributed peer-to-peer over RPC by Session. */
   private readonly contentKeys = new Map<number, Buffer>()
@@ -501,10 +502,21 @@ export class Room {
    * entries immediately, but collapse the burst into a single notification. */
   private notifyMutation(messageId?: string): void {
     this.invalidateMessage(messageId)
+    if (messageId !== undefined) this.pendingMutationIds.add(messageId)
     if (this.mutationNotifyTimer !== null) return
     this.mutationNotifyTimer = setTimeout(() => {
       this.mutationNotifyTimer = null
-      for (const listener of this.mutationListeners) listener()
+      const ids = [...this.pendingMutationIds]
+      this.pendingMutationIds.clear()
+      // Resolve each mutated message to its view index — only messages already read once
+      // (i.e. currently rendered somewhere) are in this map, which is exactly the set a
+      // listener can usefully redraw. Falls back to the tail so an untraceable change
+      // (e.g. a full state rewind, where messageId is unknown) still triggers a redraw.
+      const indexes = new Set(ids.map((id) => this.messageIndexById.get(id)).filter((i): i is number => i !== undefined))
+      if (indexes.size === 0) indexes.add(this.base.view.messages.length - 1)
+      for (const listener of this.mutationListeners) {
+        for (const index of indexes) listener(index)
+      }
     }, MUTATION_NOTIFY_MS)
   }
 
@@ -738,12 +750,11 @@ export class Room {
    * because each surviving listener re-triggers the same work on every incoming message. */
   onMessage(listener: (index: number) => void): () => void {
     const onAppend = () => listener(this.base.view.messages.length - 1)
-    const onMutation = () => listener(this.base.view.messages.length - 1)
     this.base.view.messages.on('append', onAppend)
-    this.mutationListeners.add(onMutation)
+    this.mutationListeners.add(listener)
     return () => {
       this.base.view.messages.off('append', onAppend)
-      this.mutationListeners.delete(onMutation)
+      this.mutationListeners.delete(listener)
     }
   }
 

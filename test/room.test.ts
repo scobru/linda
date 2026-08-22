@@ -250,6 +250,36 @@ test('reactions add and remove per user rather than blind-toggling', async () =>
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test('onMessage reports the mutated message\'s own index, not always the tail (regression)', async () => {
+  const dir = tmpDir()
+  const store = new Corestore(dir)
+  const identityA = randomId(32)
+  const room = await Room.open(store, null, null, identityA, undefined, randomId(8))
+
+  await room.send(identityA, 'first')
+  const second = await room.send(identityA, 'second')
+  await room.send(identityA, 'third')
+  await room.getMessage(1) // simulates the message having been rendered at least once, as it would be to be reacted to
+
+  const notified: number[] = []
+  const unsubscribe = room.onMessage((index) => notified.push(index))
+  await room.toggleReaction(identityA, second.id, '\u{1F44D}')
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  unsubscribe()
+
+  // Autobase's view truncates and replays a few times as a local write settles, and each replay
+  // that lands before the id->index map is repopulated falls back to notifying the tail (index
+  // 2) — harmless, since that just re-reads a message that didn't change. What must not regress
+  // is index 1 (the message actually reacted to) getting reported at all, and last — a consumer
+  // that only keeps the latest notification per tick still ends up with the right one.
+  assert.ok(notified.includes(1), `expected index 1 (the reacted message) among ${JSON.stringify(notified)}`)
+  assert.equal(notified[notified.length - 1], 1)
+
+  await room.close()
+  await store.close()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
 test('broadcast mode survives reopen and still lets the owner post', async () => {
   const dir = tmpDir()
   const identityA = randomId(32)

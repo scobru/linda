@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { View, Text, Image, StyleSheet } from 'react-native'
 import { SvgXml } from 'react-native-svg'
 import { radii, typography, avatarColor, avatarInitials } from '../theme'
@@ -30,15 +30,22 @@ export default function Avatar({ id, label, imageUrl, size = 'md', online }: Pro
   const bg = avatarColor(id || 'default')
   const initials = avatarInitials(label || id)
 
+  // A large base64 data: URI occasionally fails to decode (memory pressure, especially while
+  // scrolling a list that's recycling these) — RN's Image renders nothing rather than falling
+  // back on its own, so without this an avatar can go blank instead of showing initials.
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [imageUrl])
+
   return (
     <View style={[styles.container, { width: dim, height: dim, borderRadius: dim / 2 }]}>
-      {imageUrl ? (
+      {imageUrl && !failed ? (
         imageUrl.startsWith(SVG_DATA_URI_PREFIX) ? (
           <SvgXml xml={svgXmlFromDataUri(imageUrl)} width={dim} height={dim} />
         ) : (
           <Image
             source={{ uri: imageUrl }}
             style={[styles.image, { width: dim, height: dim, borderRadius: dim / 2 }]}
+            onError={() => setFailed(true)}
           />
         )
       ) : (
