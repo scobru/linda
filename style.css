@@ -449,6 +449,9 @@ input::placeholder, textarea::placeholder {
   background: #1c2433;
   box-shadow: 0 0 0 2px var(--cyan-dim);
 }
+[data-theme="light"] .sidebar-search-box:focus-within {
+  background: #f1f5f9;
+}
 .sidebar-search-box .search-icon {
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -1078,6 +1081,9 @@ body.private-mode-active .pinned-text {
   border-color: var(--cyan-accent);
   box-shadow: 0 0 0 2px var(--cyan-dim);
   background: #1c2434;
+}
+[data-theme="light"] .composer-capsule:focus-within {
+  background: #ffffff;
 }
 
 .composer-plus-btn {
