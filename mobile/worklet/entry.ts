@@ -5,15 +5,16 @@
 //   request:  method call, frame header {method, args}
 //   response: frame header {ok:true, result} | {ok:false, error}, optional binary tail
 //   push:     rpc.event(), frame header {event, payload}
-import b4a from 'b4a'
 import fs from 'node:fs'
 import RPC from 'bare-rpc'
+import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, validateMnemonic, revealMnemonic, WrongPassphraseError, type Identity } from '../../src/identity/index.js'
 import { joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { RemoteDrive } from '../../src/files/remote.js'
 import type { CallSignalMessage } from '../../src/network/encoding.js'
+import { packFrame, unpackFrame } from '../src/bare/frame.js'
 
 declare const BareKit: { IPC: unknown }
 
@@ -23,19 +24,6 @@ let identity: Identity | null = null
 let session: Session | null = null
 let storageDir = ''
 const wiredRooms = new Set<string>()
-
-function packFrame(header: unknown, binary?: Uint8Array): Uint8Array {
-  const json = b4a.from(JSON.stringify(header), 'utf8')
-  const lenPrefix = new Uint8Array(4)
-  new DataView(lenPrefix.buffer).setUint32(0, json.byteLength, true)
-  return binary && binary.byteLength ? b4a.concat([lenPrefix, json, binary]) : b4a.concat([lenPrefix, json])
-}
-
-function unpackFrame(buf: Uint8Array): { header: any; binary: Uint8Array } {
-  const headerLen = new DataView(buf.buffer, buf.byteOffset, 4).getUint32(0, true)
-  const header = JSON.parse(b4a.toString(buf.subarray(4, 4 + headerLen), 'utf8'))
-  return { header, binary: buf.subarray(4 + headerLen) }
-}
 
 const rpc = new RPC(IPC as any, (req: any) => {
   if (!req.reply) return // stray incoming event; RN never sends one

@@ -5,7 +5,7 @@ import hypercoreCrypto from 'hypercore-crypto'
 import type Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import type { Identity } from '../identity/index.js'
-import { loadNickname, loadProfile, saveProfile } from '../identity/profile.js'
+import { loadProfile } from '../identity/profile.js'
 import { createSwarm, joinRoom, type PeerConnection } from '../network/swarm.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, CallSignalMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
@@ -42,8 +42,6 @@ interface CoreDeleteStorage {
 /** Access-control token gating write grants for a room; owner-held, in-memory only (lost on restart — reissued invite links must be re-shared, which is fine since it's the "revoke a leaked link" path anyway). */
 interface InviteToken {
   code: string
-  expiresAt: number | null
-  maxUses: number | null
   usedCount: number
 }
 
@@ -139,7 +137,7 @@ export class Session {
           description: message.description ?? ''
         }
         for (const [id, a] of this.directory.entries()) {
-          if (a.bootstrapKey === message.bootstrapKey || a.name.toLowerCase() === message.name.toLowerCase()) {
+          if (a.bootstrapKey === message.bootstrapKey) {
             this.directory.delete(id)
           }
         }
@@ -293,24 +291,11 @@ export class Session {
     for (const token of await profileStore.listInviteTokens()) {
       session.invites.set(token.roomId, {
         code: token.code,
-        expiresAt: token.expiresAt,
-        maxUses: token.maxUses,
         usedCount: token.usedCount
       })
     }
     session.nickname = await profileStore.getNickname()
     session.avatar = await profileStore.getAvatar()
-    if (!session.nickname || !session.avatar) {
-      const diskProf = loadProfile(storageDir)
-      if (!session.nickname && diskProf.nickname) {
-        session.nickname = diskProf.nickname
-        await profileStore.setNickname(diskProf.nickname)
-      }
-      if (!session.avatar && diskProf.avatar) {
-        session.avatar = diskProf.avatar
-        await profileStore.setAvatar(diskProf.avatar)
-      }
-    }
     for (const [uid, av] of await profileStore.listPeerAvatars()) {
       session.peerAvatars.set(uid, av)
     }
@@ -326,7 +311,6 @@ export class Session {
     this.nickname = nickname
     this.broadcastPresence(true)
     await this.profileStore.setNickname(nickname)
-    saveProfile({ nickname, avatar: this.avatar }, this.storageDir)
   }
 
   getAvatar(): string {
@@ -337,7 +321,6 @@ export class Session {
     this.avatar = avatar
     this.broadcastPresence(true)
     await this.profileStore.setAvatar(avatar)
-    saveProfile({ nickname: this.nickname, avatar }, this.storageDir)
   }
 
   listPeerAvatars(): Map<string, string> {
@@ -452,11 +435,6 @@ export class Session {
 
   listContacts(): ContactEntry[] {
     return [...this.contacts.values()].filter((c) => c.status !== 'declined')
-  }
-
-  contactStatus(userId: string): ContactEntry | undefined {
-    const contact = this.contacts.get(userId)
-    return contact?.status === 'declined' ? undefined : contact
   }
 
   async sendContactRequest(userId: string, nickname: string): Promise<boolean> {
@@ -826,7 +804,7 @@ export class Session {
   }
 
   private issueInvite(roomId: string): InviteToken {
-    const token: InviteToken = { code: randomId(16), expiresAt: null, maxUses: null, usedCount: 0 }
+    const token: InviteToken = { code: randomId(16), usedCount: 0 }
     this.invites.set(roomId, token)
     void this.profileStore.saveInviteToken({ roomId, ...token })
     return token
@@ -835,8 +813,6 @@ export class Session {
   private redeemInvite(roomId: string, code: string): boolean {
     const token = this.invites.get(roomId)
     if (!token || token.code !== code) return false
-    if (token.expiresAt !== null && Date.now() > token.expiresAt) return false
-    if (token.maxUses !== null && token.usedCount >= token.maxUses) return false
     token.usedCount++
     void this.profileStore.saveInviteToken({ roomId, ...token })
     return true
@@ -854,14 +830,6 @@ export class Session {
   regenerateInvite(roomId: string): string {
     this.issueInvite(roomId)
     return this.inviteLinkFor(roomId)
-  }
-
-  /** Owner-only: caps the current invite link's lifetime and/or redemption count. Pass `null` to clear a limit. */
-  setInviteLimits(roomId: string, opts: { expiresInMs?: number | null, maxUses?: number | null }): void {
-    const token = this.invites.get(roomId) ?? this.issueInvite(roomId)
-    if ('expiresInMs' in opts) token.expiresAt = opts.expiresInMs == null ? null : Date.now() + opts.expiresInMs
-    if ('maxUses' in opts) token.maxUses = opts.maxUses ?? null
-    void this.profileStore.saveInviteToken({ roomId, ...token })
   }
 
   private async saveBookmark(bookmark: RoomBookmark): Promise<void> {

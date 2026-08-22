@@ -7,6 +7,7 @@ import { PeerCall } from '../calls/call.js'
 import type { CallSignalMessage } from '../network/encoding.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
+import { avatarColor, avatarInitials } from '../util/avatar.js'
 
 function storageDir(): string {
   if (typeof Pear !== 'undefined') return Pear.config.storage
@@ -14,23 +15,6 @@ function storageDir(): string {
   const os = require('node:os')
   const path = require('node:path')
   return path.join(os.homedir(), '.linda-pear', 'storage')
-}
-
-const AVATAR_COLORS = [
-  '#22c55e', '#00c2cb', '#3b82f6', '#8b5cf6', 
-  '#f59e0b', '#ec4899', '#10b981', '#06b6d4'
-]
-
-function avatarColor(id: string): string {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length]!
-}
-
-function avatarInitials(label: string): string {
-  if (!label) return '?'
-  const clean = label.replace(/[@#]/g, '').trim()
-  return clean.slice(0, 2).toUpperCase() || '?'
 }
 
 function svgToDataUrl(svg: string): string {
@@ -145,6 +129,7 @@ const ICONS = {
   send: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
   attach: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`,
   phone: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  phoneOff: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>`,
   copy: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   edit: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
   trash: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
@@ -1117,7 +1102,9 @@ export class AppShell extends HTMLElement {
         </div>
 
         <div class="room-header-tools">
-          <button class="room-header-btn" id="callBtn" title="Start voice/video call">${ICONS.phone}</button>
+          ${this.activeCalls.size > 0
+            ? `<button class="room-header-btn active" id="hangupBtn" title="End call">${ICONS.phoneOff}</button>`
+            : `<button class="room-header-btn" id="callBtn" title="Start voice/video call">${ICONS.phone}</button>`}
           ${this.activeCalls.size > 0 ? `<button class="room-header-btn ${this.screenStream ? 'active' : ''}" id="screenShareBtn" title="${this.screenStream ? 'Stop sharing' : 'Share screen'}">🖥️</button>` : ''}
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
@@ -1210,6 +1197,7 @@ export class AppShell extends HTMLElement {
     this.querySelector('#roomMembersBtn')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#roomMembersSubtitleTrigger')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#callBtn')?.addEventListener('click', () => void this.startCall())
+    this.querySelector('#hangupBtn')?.addEventListener('click', () => this.hangupAll())
     this.querySelector('#screenShareBtn')?.addEventListener('click', () => void this.toggleScreenShare())
     this.querySelector('#inviteHeaderBtn')?.addEventListener('click', () => void this.openInvitePage(room))
     this.querySelector('#openDrawerFromRoomBtn')?.addEventListener('click', () => {
@@ -1675,7 +1663,7 @@ export class AppShell extends HTMLElement {
 
   private async startCall(): Promise<void> {
     const room = this.activeRoom
-    if (!room || !this.session) return
+    if (!room || !this.session || this.activeCalls.size > 0) return
     const memberIds = new Set(room.listMembers().map((m) => m.identityId))
     const targets = [...this.session.peers.entries()].filter(([id]) => memberIds.has(id) && id !== this.identity!.id)
     if (targets.length === 0) return alert('No connected room member to call')
@@ -1763,11 +1751,23 @@ export class AppShell extends HTMLElement {
     this.remoteScreenStreams.delete(peerId)
     this.querySelector(`#remote-${peerId}`)?.remove()
     this.querySelector(`#screen-${peerId}`)?.remove()
-    if (this.activeCalls.size === 0 && this.screenStream) {
-      for (const track of this.screenStream.getTracks()) track.stop()
-      this.screenStream = null
+    if (this.activeCalls.size === 0) {
+      if (this.screenStream) {
+        for (const track of this.screenStream.getTracks()) track.stop()
+        this.screenStream = null
+      }
+      if (this.localCallStream) {
+        for (const track of this.localCallStream.getTracks()) track.stop()
+        this.localCallStream = null
+      }
     }
     this.renderApp()
+  }
+
+  /** User-initiated hangup of every call in the room, from the header hangup button — the only
+   * in-app way to stop your own camera/mic once a call is placed (see `endPeerCall`). */
+  private hangupAll(): void {
+    for (const peerId of [...this.activeCalls.keys()]) this.endPeerCall(peerId)
   }
 
   private async toggleScreenShare(): Promise<void> {

@@ -43,8 +43,6 @@ export interface StoredRoomKey {
 export interface StoredInviteToken {
   roomId: string
   code: string
-  expiresAt: number | null
-  maxUses: number | null
   usedCount: number
 }
 

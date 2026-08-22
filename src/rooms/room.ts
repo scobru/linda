@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import Corestore from 'corestore'
 import Autobase, { type AutobaseApplyHost, type AutobaseNode, type AutobaseView } from 'autobase'
 import Hyperbee from 'hyperbee'
@@ -219,7 +220,7 @@ function makeApply(
       const authorKey = b4a.toString(node.from.key, 'hex')
       if (entry.type === 'message') {
         const authorIdentity = writerIdentities.get(authorKey)
-        if (authorIdentity && mutedIdentities.has(authorIdentity)) continue
+        if (authorIdentity && (mutedIdentities.has(authorIdentity) || bannedIdentities.has(authorIdentity))) continue
         if (mode.broadcast && roleOf(authorKey) === 'member') continue
         await state.put(authorKeyFor(entry.message.id), { kind: 'author', writerKey: authorKey })
         await view.messages.append(entry.message)
@@ -343,13 +344,11 @@ export class Room {
   private readonly mutedIdentities: Set<string>
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
-  private readonly mutationListeners = new Set<(index: number) => void>()
+  private readonly events = new EventEmitter()
   private readonly pendingMutationIds = new Set<string>()
-  private readonly metaListeners = new Set<() => void>()
   /** Content-encryption keys, by epoch. Never written to the replicated log (would leak to any reader) — distributed peer-to-peer over RPC by Session. */
   private readonly contentKeys = new Map<number, Buffer>()
   private currentEpoch = -1
-  private readonly keyListeners = new Set<(epoch: number, keyHex: string) => void>()
   /** Decrypted, overlay-merged messages by view index. Reading a message costs a view read plus a
    * secretbox open, and the UI re-reads the room on every redraw — without this, a room's whole
    * history was decrypted again on each incoming message. */
@@ -514,9 +513,7 @@ export class Room {
       // (e.g. a full state rewind, where messageId is unknown) still triggers a redraw.
       const indexes = new Set(ids.map((id) => this.messageIndexById.get(id)).filter((i): i is number => i !== undefined))
       if (indexes.size === 0) indexes.add(this.base.view.messages.length - 1)
-      for (const listener of this.mutationListeners) {
-        for (const index of indexes) listener(index)
-      }
+      for (const index of indexes) this.events.emit('mutation', index)
     }, MUTATION_NOTIFY_MS)
   }
 
@@ -585,12 +582,12 @@ export class Room {
     if (epoch > this.currentEpoch) this.currentEpoch = epoch
     // Anything read before this key arrived was cached as a locked-message placeholder.
     this.invalidateMessage()
-    for (const listener of this.keyListeners) listener(epoch, keyHex)
+    this.events.emit('key', epoch, keyHex)
   }
 
   onKeyChange(listener: (epoch: number, keyHex: string) => void): () => void {
-    this.keyListeners.add(listener)
-    return () => this.keyListeners.delete(listener)
+    this.events.on('key', listener)
+    return () => { this.events.off('key', listener) }
   }
 
   /** Owner-only (enforced by caller): generates and adopts a new epoch key, e.g. after kicking a member, so they lose access to future content. Caller is responsible for distributing it to remaining members via RPC. */
@@ -601,7 +598,7 @@ export class Room {
     this.contentKeys.set(epoch, key)
     this.currentEpoch = epoch
     const keyHex = b4a.toString(key, 'hex')
-    for (const listener of this.keyListeners) listener(epoch, keyHex)
+    this.events.emit('key', epoch, keyHex)
     return { epoch, keyHex }
   }
 
@@ -751,10 +748,10 @@ export class Room {
   onMessage(listener: (index: number) => void): () => void {
     const onAppend = () => listener(this.base.view.messages.length - 1)
     this.base.view.messages.on('append', onAppend)
-    this.mutationListeners.add(listener)
+    this.events.on('mutation', listener)
     return () => {
       this.base.view.messages.off('append', onAppend)
-      this.mutationListeners.delete(listener)
+      this.events.off('mutation', listener)
     }
   }
 
@@ -762,12 +759,12 @@ export class Room {
    * received the change over replication, not the one that made it. Lets callers keep any
    * cached copy of these fields (e.g. a room-list bookmark) in sync. */
   onMetaChange(listener: () => void): () => void {
-    this.metaListeners.add(listener)
-    return () => this.metaListeners.delete(listener)
+    this.events.on('meta', listener)
+    return () => { this.events.off('meta', listener) }
   }
 
   private notifyMetaChange(): void {
-    for (const listener of this.metaListeners) listener()
+    this.events.emit('meta')
   }
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */

@@ -114,9 +114,6 @@ export const lightColors: ThemeColors = {
   gradientEnd: '#00c2cb',
 }
 
-/** @deprecated static dark palette, kept for any not-yet-themed call site — prefer `useTheme().colors` */
-export const colors = darkColors
-
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -181,7 +178,7 @@ export const shadows = {
     elevation: 8,
   },
   glow: {
-    shadowColor: colors.accent,
+    shadowColor: darkColors.accent,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -189,24 +186,9 @@ export const shadows = {
   },
 } as const
 
-// Avatar helpers — identical array + hash to desktop's avatarColor() (app-shell.ts) so the same
-// identityId resolves to the same avatar color on both platforms.
-export const AVATAR_COLORS = [
-  '#22c55e', '#00c2cb', '#3b82f6', '#8b5cf6',
-  '#f59e0b', '#ec4899', '#10b981', '#06b6d4',
-] as const
-
-export function avatarColor(id: string): string {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length]!
-}
-
-export function avatarInitials(label: string): string {
-  if (!label) return '?'
-  const clean = label.replace(/[@#]/g, '').trim()
-  return clean.slice(0, 2).toUpperCase() || '?'
-}
+// Shared with desktop (app-shell.ts) so the same identityId resolves to the same avatar color
+// and initials on both platforms.
+export { AVATAR_COLORS, avatarColor, avatarInitials } from '@core/util/avatar'
 
 export interface PresetAvatar {
   id: string
