@@ -99,16 +99,21 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
 
-  // Lands on the latest messages when a room first opens (cache hit or fresh load alike — either
-  // way `loading` is false exactly once messages are ready). The same short delay handleSend/
-  // handleAttach use below: scrolling before the list has actually laid out its rows doesn't
-  // reliably reach the true bottom, which onContentSizeChange's own scroll can miss on the very
-  // first layout pass.
+  // Lands on the latest messages when a room first opens. Fires once messages first become
+  // non-empty rather than once on `loading` alone — a room whose peer hasn't synced recently (far
+  // more common for a quiet 1:1 than an active group) can flip `loading` false with nothing
+  // loaded yet, with the real content trickling in afterward via onMessage; keying only off
+  // `loading` would then never schedule a scroll at all. The ref makes it fire once per mount,
+  // not on every later message. The same short delay handleSend/handleAttach use below: scrolling
+  // before the list has actually laid out its rows doesn't reliably reach the true bottom, which
+  // onContentSizeChange's own scroll can miss on the very first layout pass.
+  const scrolledToTailRef = useRef(false)
   useEffect(() => {
-    if (loading || messages.length === 0) return
+    if (scrolledToTailRef.current || loading || messages.length === 0) return
+    scrolledToTailRef.current = true
     const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100)
     return () => clearTimeout(timer)
-  }, [loading, roomId])
+  }, [loading, messages.length])
 
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -380,6 +385,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           />
         )}
         contentContainerStyle={styles.messageList}
+        // Keeps fewer off-screen bubbles mounted at once — a long/media-heavy room otherwise
+        // renders most of its loaded page regardless of what's actually visible, which both
+        // scrolling and leaving the screen (everything mounted has to unmount) pay for.
+        windowSize={7}
+        maxToRenderPerBatch={16}
+        initialNumToRender={16}
+        removeClippedSubviews
         onContentSizeChange={() => {
           // Only snap to bottom when a message actually landed at the tail — loadOlder()
           // prepends to the top and must not yank the view back down.
