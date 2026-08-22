@@ -252,6 +252,32 @@ test('security: in a broadcast room a member message is dropped even if their cl
   await closeWriter(b)
 })
 
+test('security: a banned member\'s message is dropped even though ban alone does not revoke their writer key', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  await a.room.banMember(b.identityId)
+  await sync(a.store, b.store)
+
+  await reopen(b)
+  assert.equal(b.room.isBanned(b.identityId), true)
+  assert.equal(b.room.canPost(b.identityId), false, 'canPost must mirror the ban gate enforced in apply()')
+  await assert.rejects(() => b.room.send(b.identityId, 'blocked by my own client'))
+
+  // A patched client that skips that local check appends the entry anyway — B is still a writer
+  // (ban does not call removeWriter), so this only fails at the apply()-time gate.
+  const forged = { id: randomId(), roomId: b.room.id, authorId: b.identityId, body: 'forged after ban', timestamp: Date.now() }
+  await (b.room as unknown as { base: { append(entry: unknown): Promise<void> } }).base.append({ type: 'message', message: forged })
+  await sync(a.store, b.store)
+
+  await reopen(a)
+  const bodies: string[] = []
+  for (let i = 0; i < a.room.messageCount; i++) bodies.push((await a.room.getMessage(i)).body)
+  assert.deepEqual(bodies, [], 'a banned identity\'s message must never be linearized into the room')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
 test('security: only the owner can turn broadcast mode on or off', async () => {
   const { a, b } = await setupTwoWriterRoom()
 
