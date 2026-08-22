@@ -9,6 +9,23 @@ const PAGE_SIZE = 50
 /** A message shown before the send round-trip through the bare-rpc bridge finishes. */
 export type LocalChatMessage = ChatMessage & { pending?: boolean; failed?: boolean }
 
+// Keyed by room id, kept for the life of the app (not persisted to disk) — otherwise
+// leaving a room screen and coming back re-fetches everything through the bare-rpc bridge
+// even though nothing changed. Capped so someone in many rooms doesn't hold every room's
+// history in RAM forever — oldest-touched room is dropped first (Map preserves insertion
+// order; re-inserting on every write moves a room to the recently-used end).
+const MAX_CACHED_ROOMS = 10
+const roomCache = new Map<string, { messages: LocalChatMessage[]; oldestLoaded: number; hasMore: boolean }>()
+
+function cacheRoom(id: string, entry: { messages: LocalChatMessage[]; oldestLoaded: number; hasMore: boolean }): void {
+  roomCache.delete(id)
+  roomCache.set(id, entry)
+  if (roomCache.size > MAX_CACHED_ROOMS) {
+    const lru = roomCache.keys().next().value
+    if (lru !== undefined) roomCache.delete(lru)
+  }
+}
+
 export interface UseRoomResult {
   messages: LocalChatMessage[]
   loading: boolean
@@ -26,14 +43,27 @@ export interface UseRoomResult {
 }
 
 export function useRoom(room: Room | null | undefined, identityId: string): UseRoomResult {
-  const [messages, setMessages] = useState<LocalChatMessage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [hasMore, setHasMore] = useState(false)
-  const oldestLoadedRef = useRef(0)
+  const cached = room ? roomCache.get(room.id) : undefined
+  const [messages, setMessages] = useState<LocalChatMessage[]>(cached?.messages ?? [])
+  const [loading, setLoading] = useState(!cached)
+  const [hasMore, setHasMore] = useState(cached?.hasMore ?? false)
+  const oldestLoadedRef = useRef(cached?.oldestLoaded ?? 0)
   const mountedRef = useRef(true)
 
   const loadMessages = useCallback(async () => {
     if (!room) return
+    // Already have this room's tail from a previous visit — new messages arrive via onMessage
+    // below either way, so there's nothing a re-fetch would add. Hydrate from it explicitly
+    // rather than relying on the initial useState seed: `room` can go from undefined to set
+    // within the same mount (see RoomChatScreen's pendingJoin), after that seed already ran.
+    const cachedEntry = roomCache.get(room.id)
+    if (cachedEntry) {
+      oldestLoadedRef.current = cachedEntry.oldestLoaded
+      setHasMore(cachedEntry.hasMore)
+      setMessages(cachedEntry.messages)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     const count = await room.messageCount()
     const start = Math.max(0, count - PAGE_SIZE)
@@ -49,6 +79,11 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
       setLoading(false)
     }
   }, [room])
+
+  const refreshMessages = useCallback(async () => {
+    if (room) roomCache.delete(room.id)
+    await loadMessages()
+  }, [room, loadMessages])
 
   const loadOlder = useCallback(async () => {
     if (!room) return
@@ -68,6 +103,13 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     void loadMessages()
     return () => { mountedRef.current = false }
   }, [loadMessages])
+
+  // Keeps the cache in sync with every change (new/edited/deleted messages, pagination, sends)
+  // without threading a write-through call into each individual setMessages call site.
+  useEffect(() => {
+    if (!room) return
+    cacheRoom(room.id, { messages, oldestLoaded: oldestLoadedRef.current, hasMore })
+  }, [room, messages, hasMore])
 
   // Listen for new messages and mutations
   useEffect(() => {
@@ -187,7 +229,7 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     editMessage,
     deleteMessage,
     toggleReaction,
-    refreshMessages: loadMessages,
+    refreshMessages,
     hasMore,
     loadOlder,
     typingUsers,
