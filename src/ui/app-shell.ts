@@ -1505,15 +1505,25 @@ export class AppShell extends HTMLElement {
     const input = this.querySelector('#body') as HTMLInputElement
     const body = input?.value.trim()
     if (!body) return
-    if (this.editingMessage) {
-      await room.editMessage(this.editingMessage.id, body)
-      this.editingMessage = null
-    } else {
-      await room.send(this.identity!.id, body, this.replyingTo?.id)
-      this.replyingTo = null
-    }
+    // Cleared up front, before the await: the send itself triggers a re-render (via onMessage),
+    // which can land while we're still waiting and replace #body with a fresh node — clearing
+    // `input` afterward would then be silently clearing a node no longer in the document, while
+    // the fresh one keeps showing what was typed.
     input.value = ''
     this.notifyTyping(false)
+    try {
+      if (this.editingMessage) {
+        await room.editMessage(this.editingMessage.id, body)
+        this.editingMessage = null
+      } else {
+        await room.send(this.identity!.id, body, this.replyingTo?.id)
+        this.replyingTo = null
+      }
+    } catch (err) {
+      const current = this.querySelector('#body') as HTMLInputElement | null
+      if (current) current.value = body
+      throw err
+    }
   }
 
   private async sendFile(): Promise<void> {

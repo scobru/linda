@@ -52,17 +52,26 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
 
   const loadMessages = useCallback(async () => {
     if (!room) return
-    // Already have this room's tail from a previous visit — new messages arrive via onMessage
-    // below either way, so there's nothing a re-fetch would add. Hydrate from it explicitly
-    // rather than relying on the initial useState seed: `room` can go from undefined to set
-    // within the same mount (see RoomChatScreen's pendingJoin), after that seed already ran.
+    // Have this room's tail from a previous visit. onMessage only keeps it current while this
+    // hook is mounted, though — nothing was listening for the room while the user was elsewhere,
+    // so a message that arrived in the meantime (the room-list preview updates independently, via
+    // its own always-on listener) would otherwise stay missing until this cache entry happened to
+    // get evicted. A message-count check is cheap; catch up on just the gap if there is one.
     const cachedEntry = roomCache.get(room.id)
     if (cachedEntry) {
-      oldestLoadedRef.current = cachedEntry.oldestLoaded
-      setHasMore(cachedEntry.hasMore)
-      setMessages(cachedEntry.messages)
-      setLoading(false)
-      return
+      const cachedCount = cachedEntry.oldestLoaded + cachedEntry.messages.length
+      const liveCount = await room.messageCount()
+      if (liveCount >= cachedCount && mountedRef.current) {
+        const gap: ChatMessage[] = []
+        for await (const msg of room.messages(cachedCount, liveCount)) gap.push(msg)
+        if (!mountedRef.current) return
+        oldestLoadedRef.current = cachedEntry.oldestLoaded
+        setHasMore(cachedEntry.hasMore)
+        setMessages([...cachedEntry.messages, ...gap])
+        setLoading(false)
+        return
+      }
+      // liveCount < cachedCount is unexpected (e.g. a view truncation) — cache isn't trustworthy, fall through to a full refetch.
     }
     setLoading(true)
     const count = await room.messageCount()

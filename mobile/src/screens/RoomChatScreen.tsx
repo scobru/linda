@@ -99,6 +99,17 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
 
+  // Lands on the latest messages when a room first opens (cache hit or fresh load alike — either
+  // way `loading` is false exactly once messages are ready). The same short delay handleSend/
+  // handleAttach use below: scrolling before the list has actually laid out its rows doesn't
+  // reliably reach the true bottom, which onContentSizeChange's own scroll can miss on the very
+  // first layout pass.
+  useEffect(() => {
+    if (loading || messages.length === 0) return
+    const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100)
+    return () => clearTimeout(timer)
+  }, [loading, roomId])
+
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
