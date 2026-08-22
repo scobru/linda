@@ -393,7 +393,7 @@ export class Room {
   /** Whether this identity's messages would survive `apply()`. Mirrors the gates there, so the UI
    * can hide the composer instead of letting a message be appended and silently dropped. */
   canPost(identityId: string): boolean {
-    if (this.mutedIdentities.has(identityId)) return false
+    if (this.mutedIdentities.has(identityId) || this.bannedIdentities.has(identityId)) return false
     return !this.mode.broadcast || this.canModerate(identityId)
   }
 
@@ -674,6 +674,7 @@ export class Room {
 
   async send(authorId: string, body: string, replyTo?: string): Promise<ChatMessage> {
     if (this.mutedIdentities.has(authorId)) throw new Error('You are muted in this room')
+    if (this.bannedIdentities.has(authorId)) throw new Error('You are banned from this room')
     if (!this.canPost(authorId)) throw new Error('Only admins can post in a broadcast room')
     const encrypted = this.encryptText(body)
     const message: ChatMessage = {
@@ -691,6 +692,7 @@ export class Room {
 
   async sendFile(authorId: string, file: FileAttachment, body = ''): Promise<ChatMessage> {
     if (this.mutedIdentities.has(authorId)) throw new Error('You are muted in this room')
+    if (this.bannedIdentities.has(authorId)) throw new Error('You are banned from this room')
     if (!this.canPost(authorId)) throw new Error('Only admins can post in a broadcast room')
     const encrypted = this.encryptText(body)
     const message: ChatMessage = {
@@ -769,7 +771,7 @@ export class Room {
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */
   onNewMessage(listener: (message: ChatMessage) => void): () => void {
-    const onAppend = () => { void this.getMessage(this.base.view.messages.length - 1).then(listener).catch(() => {}) }
+    const onAppend = () => { void this.getMessage(this.base.view.messages.length - 1).then(listener) }
     this.base.view.messages.on('append', onAppend)
     return () => this.base.view.messages.off('append', onAppend)
   }
