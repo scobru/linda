@@ -896,14 +896,31 @@ export class Session {
     fs.writeFileSync(path.join(this.storageDir, DIRECTORY_FILE), JSON.stringify([...this.directory.values()], null, 2))
   }
 
+  private resumeNetworkPromise: Promise<void> | null = null
+
   /** Call after the OS reports a network change (e.g. mobile switching wifi <-> cellular). The
    * swarm's UDP socket stays bound to whatever interface/NAT mapping was active when it was
    * created — hyperdht's own "network-change" heuristic only fires from noticing its external
    * address shift in DHT replies, which never arrives once the old socket can no longer route
-   * out at all. Suspend+resume forces a clean rebind and re-announces every joined topic. */
+   * out at all. Suspend+resume forces a clean rebind and re-announces every joined topic.
+   *
+   * Toggling wifi off fires several network-type changes in quick succession (wifi -> none ->
+   * cellular) — each one calling this. Two overlapping suspend()/resume() cycles race Hyperswarm's
+   * own suspended flag and can leave the swarm neither cleanly suspended nor resumed, needing a
+   * force-restart to recover. Coalesced into a single in-flight cycle instead: a call that arrives
+   * while one is already running just waits on it — since resume() always rebinds against
+   * whatever network is active *when it runs*, that's still correct for the latest state. */
   async resumeNetwork(): Promise<void> {
-    await this.swarm.suspend()
-    await this.swarm.resume()
+    if (this.resumeNetworkPromise) return this.resumeNetworkPromise
+    this.resumeNetworkPromise = (async () => {
+      try {
+        await this.swarm.suspend()
+        await this.swarm.resume()
+      } finally {
+        this.resumeNetworkPromise = null
+      }
+    })()
+    return this.resumeNetworkPromise
   }
 
   async close(): Promise<void> {

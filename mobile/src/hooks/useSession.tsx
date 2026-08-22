@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react'
 import NetInfo from '@react-native-community/netinfo'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
@@ -87,12 +87,17 @@ export function SessionProvider({ children }: Props) {
     // The swarm's socket stays bound to whatever network was active when it was created — a
     // wifi <-> cellular switch otherwise leaves it trying to talk over an interface that no
     // longer routes anywhere, and peers silently stop connecting until the app is restarted.
+    // Debounced: turning wifi off fires several type changes in quick succession (wifi -> none ->
+    // cellular as the radio actually switches over) — waiting for it to settle avoids resyncing
+    // against the momentary "none" state in between.
     let lastNetworkType: string | null = null
+    let resyncTimer: ReturnType<typeof setTimeout> | null = null
     NetInfo.addEventListener((state) => {
       if (lastNetworkType === null) { lastNetworkType = state.type; return }
       if (state.type === lastNetworkType) return
       lastNetworkType = state.type
-      void s.resumeNetwork()
+      if (resyncTimer) clearTimeout(resyncTimer)
+      resyncTimer = setTimeout(() => { resyncTimer = null; void s.resumeNetwork() }, 800)
     })
 
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded.
@@ -110,22 +115,26 @@ export function SessionProvider({ children }: Props) {
     setAvatars(new Map(info.peerAvatars))
   }, [])
 
+  // Without this, every consumer of useSession() — every screen, since every screen reads it —
+  // re-renders on every presence/peer event, whether or not the fields it actually reads changed.
+  // Native-stack keeps prior screens mounted underneath the active one, so on a chatty P2P
+  // connection this was competing with the navigation transition itself for JS thread time.
+  const value = useMemo<SessionContextValue>(() => ({
+    session,
+    identity,
+    nickname,
+    avatar,
+    bookmarks,
+    contacts,
+    onlineUsers,
+    nicknames,
+    avatars,
+    initSession,
+    refresh,
+  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh])
+
   return (
-    <SessionContext.Provider
-      value={{
-        session,
-        identity,
-        nickname,
-        avatar,
-        bookmarks,
-        contacts,
-        onlineUsers,
-        nicknames,
-        avatars,
-        initSession,
-        refresh,
-      }}
-    >
+    <SessionContext.Provider value={value}>
       {children}
     </SessionContext.Provider>
   )
