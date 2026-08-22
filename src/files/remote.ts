@@ -19,15 +19,33 @@ export class RemoteDrive {
 
     const swarm = new Hyperswarm()
     swarm.on('connection', (socket) => store.replicate(socket))
+    // Without holding findingPeers() open across the join, a get() on this drive — which this
+    // device has never replicated, moments after receiving the message pointing at it — resolves
+    // against empty local storage the instant it finds nothing locally, instead of waiting for the
+    // peer that's still being looked up. Same fix as Session.trackDiscovery for room opens, just
+    // never applied here.
+    const done = store.findingPeers()
     swarm.join(drive.discoveryKey, { client: true, server: false })
-    await swarm.flush()
+    swarm.flush().then(done, done)
 
     return new RemoteDrive(store, swarm, drive)
   }
 
-  /** Fetches only the blocks needed for this path, on demand. */
+  /** Fetches only the blocks needed for this path, on demand. Retries for a few seconds: `flush()`
+   * in `connect()` can resolve before the peer serving this file is actually found (its own
+   * discovery-key announce may not have propagated yet, moments after the file arrived), in which
+   * case a single attempt would resolve against nothing found rather than wait for the connection
+   * that's still forming. */
   async downloadFile(filePath: string): Promise<Buffer | null> {
-    return this.drive.get(filePath)
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const buffer = await this.drive.get(filePath)
+        if (buffer || attempt >= 4) return buffer
+      } catch (err) {
+        if (attempt >= 4) throw err
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * Math.min(attempt + 1, 2)))
+    }
   }
 
   /** Streams blocks as they're requested, for progressive playback/download. */
