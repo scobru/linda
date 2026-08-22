@@ -22,6 +22,11 @@ declare module 'hyperswarm' {
     leave(topic: Buffer): Promise<void>
     flush(): Promise<void>
     destroy(): Promise<void>
+    /** Forces the DHT to rebind its socket and re-announce every joined topic — needed after a
+     * network change (see Session.resumeNetwork), since hyperdht otherwise only rebinds on its
+     * own heuristic of noticing its external address shift in DHT replies. */
+    suspend(): Promise<void>
+    resume(): Promise<void>
     on(event: 'connection', listener: (socket: Duplex, info: PeerInfo) => void): this
     on(event: string, listener: (...args: any[]) => void): this
   }

@@ -50,6 +50,11 @@ export class SessionProxy {
     return bareClient.call('session.markRoomRead', roomId)
   }
 
+  /** Call after the OS reports a network change (wifi <-> cellular) — see Session.resumeNetwork. */
+  resumeNetwork(): Promise<void> {
+    return bareClient.call('session.resumeNetwork')
+  }
+
   listContacts(): Promise<ContactEntry[]> {
     return bareClient.call('session.listContacts')
   }

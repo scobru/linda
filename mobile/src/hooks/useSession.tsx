@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import NetInfo from '@react-native-community/netinfo'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
@@ -82,6 +83,17 @@ export function SessionProvider({ children }: Props) {
 
     const { session: s, info } = await SessionProxy.create(storageDir)
     await s.reopenBookmarkedRooms()
+
+    // The swarm's socket stays bound to whatever network was active when it was created — a
+    // wifi <-> cellular switch otherwise leaves it trying to talk over an interface that no
+    // longer routes anywhere, and peers silently stop connecting until the app is restarted.
+    let lastNetworkType: string | null = null
+    NetInfo.addEventListener((state) => {
+      if (lastNetworkType === null) { lastNetworkType = state.type; return }
+      if (state.type === lastNetworkType) return
+      lastNetworkType = state.type
+      void s.resumeNetwork()
+    })
 
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded.
     bareClient.on('incomingMessage', () => { void s.listRoomSummaries().then(setBookmarks) })

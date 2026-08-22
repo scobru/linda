@@ -210,6 +210,7 @@ const methods: Record<string, (...args: any[]) => any> = {
   },
 
   'session.markRoomRead': (roomId: string) => requireSession().markRoomRead(roomId),
+  'session.resumeNetwork': () => requireSession().resumeNetwork(),
   'session.listContacts': () => requireSession().listContacts(),
   'session.getNickname': () => requireSession().getNickname(),
   'session.getAvatar': () => requireSession().getAvatar(),

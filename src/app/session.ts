@@ -896,6 +896,16 @@ export class Session {
     fs.writeFileSync(path.join(this.storageDir, DIRECTORY_FILE), JSON.stringify([...this.directory.values()], null, 2))
   }
 
+  /** Call after the OS reports a network change (e.g. mobile switching wifi <-> cellular). The
+   * swarm's UDP socket stays bound to whatever interface/NAT mapping was active when it was
+   * created — hyperdht's own "network-change" heuristic only fires from noticing its external
+   * address shift in DHT replies, which never arrives once the old socket can no longer route
+   * out at all. Suspend+resume forces a clean rebind and re-announces every joined topic. */
+  async resumeNetwork(): Promise<void> {
+    await this.swarm.suspend()
+    await this.swarm.resume()
+  }
+
   async close(): Promise<void> {
     for (const room of this.rooms.values()) await room.close()
     await this.swarm.destroy()
