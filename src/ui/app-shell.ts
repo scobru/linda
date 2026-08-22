@@ -1711,6 +1711,9 @@ export class AppShell extends HTMLElement {
         try {
           this.localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
         } catch {
+          // Without this, the caller's side just keeps ringing forever with nothing ever telling
+          // them why. 'hangup' doubles as "can't take this call".
+          peer.rpc.sendCallSignal({ roomId: message.roomId, fromUserId: this.identity!.id, kind: 'hangup', payload: '' })
           return
         }
       }

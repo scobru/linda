@@ -90,7 +90,16 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
       void (async () => {
         let call = callsRef.current.get(message.fromUserId)
         if (!call && message.kind === 'offer') {
-          const stream = await ensureLocalStream()
+          let stream: MediaStream
+          try {
+            stream = await ensureLocalStream()
+          } catch {
+            // Permission denied, camera busy, etc. — without this, the offer is silently dropped
+            // (an unhandled rejection) and the caller's side just keeps ringing forever with
+            // nothing ever telling them why. 'hangup' doubles as "can't take this call".
+            void sendCallSignal(message.fromUserId, { roomId: message.roomId, fromUserId: localUserId, kind: 'hangup', payload: '' })
+            return
+          }
           call = new PeerCall(rpcAdapter(message.fromUserId), message.roomId, localUserId, message.fromUserId, stream, {
             onRemoteStream: (remote) => setRemoteStreams((prev) => new Map(prev).set(message.fromUserId, remote)),
             onClose: () => endPeerCall(message.fromUserId)
