@@ -55,6 +55,30 @@ function answerSignal(): CallSignalMessage {
   return { roomId: 'room-1', fromUserId: 'user-b', kind: 'answer', payload: JSON.stringify({ type: 'answer', sdp: 'x' }) }
 }
 
+test('only candidates are held for a peer with no live call', () => {
+  const { shouldQueueSignal } = require('../src/calls/call.js')
+
+  // The reason this rule exists at all: candidates land while the answering side is still in
+  // getUserMedia, and losing them costs connectivity.
+  assert.equal(shouldQueueSignal('candidate'), true)
+
+  // The reason it must not be broader: the peer's parting 'hangup' routinely arrives just after
+  // our own teardown. Held, it gets replayed into the *next* call and ends it on arrival — which
+  // is what made calls work exactly once per session.
+  assert.equal(shouldQueueSignal('hangup'), false)
+  assert.equal(shouldQueueSignal('answer'), false)
+  assert.equal(shouldQueueSignal('offer'), false)
+})
+
+test('a hangup carries its reason to the peer', async () => {
+  const { call, sent } = setup()
+  call.hangup('NotReadableError opening camera/mic')
+
+  const hangup = sent.find((m) => m.kind === 'hangup')
+  assert.ok(hangup, 'a hangup signal is sent')
+  assert.equal(hangup.payload, 'NotReadableError opening camera/mic')
+})
+
 test('candidates arriving before the remote description are replayed, not dropped', async () => {
   const { call, pc } = setup()
 

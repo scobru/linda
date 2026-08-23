@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Platform, PermissionsAndroid } from 'react-native'
 import { mediaDevices } from 'react-native-webrtc'
-import { PeerCall } from '@core/calls/call'
+import { PeerCall, shouldQueueSignal } from '@core/calls/call'
 import type { CallSignalMessage } from '@core/network/encoding'
 import type { RpcChannel } from '@core/network/rpc'
 import { sendCallSignal, onCallSignal, listConnectedPeerIds } from '../bare/call-proxy'
@@ -101,15 +101,14 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
       void (async () => {
         let call = callsRef.current.get(message.fromUserId)
         if (!call) {
-          // Only an 'offer' builds the PeerCall these are handled by, and that path awaits
-          // getUserMedia — seconds, when it puts up a permission dialog. Every candidate the
-          // caller sends in that window used to land here with nothing to hand it to and was
-          // dropped; queue them for replay instead (see PeerCall.flushPendingCandidates for
-          // why silently losing them breaks cellular calls specifically).
+          // Held for replay once the 'offer' below has built the PeerCall — see shouldQueueSignal
+          // for which signals qualify and, more importantly, why the rest must be dropped.
           if (message.kind !== 'offer') {
-            const queued = pendingSignalsRef.current.get(message.fromUserId) ?? []
-            queued.push(message)
-            pendingSignalsRef.current.set(message.fromUserId, queued)
+            if (shouldQueueSignal(message.kind)) {
+              const queued = pendingSignalsRef.current.get(message.fromUserId) ?? []
+              queued.push(message)
+              pendingSignalsRef.current.set(message.fromUserId, queued)
+            }
             return
           }
           // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
@@ -119,12 +118,16 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
           let stream: MediaStream
           try {
             stream = await ensureLocalStream(offerHasVideo)
-          } catch {
+          } catch (err) {
             // Permission denied, camera busy, etc. — without this, the offer is silently dropped
             // (an unhandled rejection) and the caller's side just keeps ringing forever with
-            // nothing ever telling them why. 'hangup' doubles as "can't take this call".
+            // nothing ever telling them why. 'hangup' doubles as "can't take this call", and
+            // carries the reason so the caller sees "their camera was busy" rather than a bare
+            // dropped call indistinguishable from a network failure.
+            const reason = `${(err as Error).name || 'error'} opening ${offerHasVideo ? 'camera/mic' : 'mic'}`
+            addDiagnostic(message.fromUserId, `could not answer: ${reason}`)
             pendingSignalsRef.current.delete(message.fromUserId)
-            void sendCallSignal(message.fromUserId, { roomId: message.roomId, fromUserId: localUserId, kind: 'hangup', payload: '' })
+            void sendCallSignal(message.fromUserId, { roomId: message.roomId, fromUserId: localUserId, kind: 'hangup', payload: reason })
             return
           }
           call = new PeerCall(rpcAdapter(message.fromUserId), message.roomId, localUserId, message.fromUserId, stream, {
@@ -138,7 +141,12 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
         const queued = pendingSignalsRef.current.get(message.fromUserId)
         if (queued) {
           pendingSignalsRef.current.delete(message.fromUserId)
-          for (const signal of queued) await call.handleSignal(signal)
+          // Guarded per signal: a candidate left over from a previous call belongs to a dead ICE
+          // session and throws on apply. That must not abort the replay of the valid ones behind
+          // it, nor surface as an unhandled rejection.
+          for (const signal of queued) {
+            try { await call.handleSignal(signal) } catch { /* stale candidate */ }
+          }
         }
       })()
     })

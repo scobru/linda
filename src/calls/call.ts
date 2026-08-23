@@ -36,6 +36,21 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' }
 ]
 
+/** Whether a signal that arrived for a peer with no live `PeerCall` is worth holding for replay
+ * once one exists. Only candidates are.
+ *
+ * A `PeerCall` is built by an incoming 'offer', and that path awaits getUserMedia — seconds, when
+ * it raises a permission dialog. Candidates the caller sends during that window have nothing to
+ * apply to yet, and losing them breaks connectivity in exactly the cases that depend on them.
+ *
+ * Everything else must be dropped instead. A stray 'answer' or 'hangup' has no call to apply it
+ * to and never will: queueing them meant the peer's parting 'hangup' — which routinely lands just
+ * after our own teardown — survived in the queue and was replayed into the *next* call, ending it
+ * on arrival. Calls worked exactly once per app session because of it. */
+export function shouldQueueSignal(kind: CallSignalMessage['kind']): boolean {
+  return kind === 'candidate'
+}
+
 export class PeerCall {
   private readonly pc: RTCPeerConnection
   private readonly screenSenders: RTCRtpSender[] = []
@@ -194,8 +209,10 @@ export class PeerCall {
       }
       case 'hangup':
         // Distinguishes "the peer hung up on us" from "our own connection died" — the two look
-        // identical from the UI, and they have completely different causes.
-        this.handlers.onDiagnostic?.('hangup received from peer')
+        // identical from the UI, and they have completely different causes. `payload` carries
+        // the peer's reason when it has one (see `hangup`), which is the difference between
+        // "the call failed" and "their camera was busy".
+        this.handlers.onDiagnostic?.(`hangup from peer${message.payload ? `: ${message.payload}` : ''}`)
         // pc.close() doesn't reliably fire onconnectionstatechange in every runtime — call
         // the handler directly so the remote side's call UI closes every time, not just when
         // the event happens to fire.
@@ -221,9 +238,12 @@ export class PeerCall {
     }
   }
 
-  hangup(): void {
+  /** `reason` is shown to the peer as the cause of the hangup. Worth passing whenever we hang up
+   * for a reason the peer can't infer — above all "we couldn't open the camera/mic", which is
+   * otherwise indistinguishable on their end from the call simply failing to connect. */
+  hangup(reason = ''): void {
     if (this.disconnectTimer) { clearTimeout(this.disconnectTimer); this.disconnectTimer = null }
-    this.signal('hangup', '')
+    this.signal('hangup', reason)
     this.pc.close()
   }
 

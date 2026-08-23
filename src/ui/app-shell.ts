@@ -3,7 +3,7 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { Session, type RoomBookmark } from '../app/session.js'
 import type { Room, ChatMessage } from '../rooms/room.js'
 import { RemoteDrive } from '../files/remote.js'
-import { PeerCall } from '../calls/call.js'
+import { PeerCall, shouldQueueSignal } from '../calls/call.js'
 import type { CallSignalMessage } from '../network/encoding.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
@@ -1712,14 +1712,14 @@ export class AppShell extends HTMLElement {
 
     let call = this.activeCalls.get(message.fromUserId)
     if (!call) {
-      // Only an 'offer' builds the PeerCall these are handled by, and that path can await
-      // getUserMedia. Every candidate the caller sends in that window used to land here with
-      // nothing to hand it to and was dropped; queue them for replay instead (see
-      // PeerCall.flushPendingCandidates for why losing them breaks cellular calls specifically).
+      // Held for replay once the 'offer' below has built the PeerCall — see shouldQueueSignal
+      // for which signals qualify and, more importantly, why the rest must be dropped.
       if (message.kind !== 'offer') {
-        const queued = this.pendingCallSignals.get(message.fromUserId) ?? []
-        queued.push(message)
-        this.pendingCallSignals.set(message.fromUserId, queued)
+        if (shouldQueueSignal(message.kind)) {
+          const queued = this.pendingCallSignals.get(message.fromUserId) ?? []
+          queued.push(message)
+          this.pendingCallSignals.set(message.fromUserId, queued)
+        }
         return
       }
       if (!this.localCallStream) {
@@ -1729,11 +1729,17 @@ export class AppShell extends HTMLElement {
         const offerHasVideo = (JSON.parse(message.payload) as { sdp?: string }).sdp?.includes('m=video') ?? true
         try {
           this.localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: offerHasVideo })
-        } catch {
+        } catch (err) {
           // Without this, the caller's side just keeps ringing forever with nothing ever telling
           // them why. 'hangup' doubles as "can't take this call".
+          //
+          // The reason travels with it, and is shown here too: swallowing this error meant a
+          // machine with no camera (or a camera another app had open) rejected every video call
+          // instantly and silently, looking exactly like a network failure to both people.
+          const reason = `${(err as Error).name || 'error'} opening ${offerHasVideo ? 'camera/mic' : 'mic'}`
           this.pendingCallSignals.delete(message.fromUserId)
-          peer.rpc.sendCallSignal({ roomId: message.roomId, fromUserId: this.identity!.id, kind: 'hangup', payload: '' })
+          peer.rpc.sendCallSignal({ roomId: message.roomId, fromUserId: this.identity!.id, kind: 'hangup', payload: reason })
+          this.setError(`Could not answer call — ${reason}. ${offerHasVideo ? 'Is another app using the camera?' : ''}`)
           return
         }
       }
@@ -1750,7 +1756,11 @@ export class AppShell extends HTMLElement {
     const queued = this.pendingCallSignals.get(message.fromUserId)
     if (queued) {
       this.pendingCallSignals.delete(message.fromUserId)
-      for (const signal of queued) await call.handleSignal(signal)
+      // Guarded per signal: a candidate left over from a previous call belongs to a dead ICE
+      // session and throws on apply. That must not abort the replay of the valid ones behind it.
+      for (const signal of queued) {
+        try { await call.handleSignal(signal) } catch { /* stale candidate */ }
+      }
     }
   }
 
