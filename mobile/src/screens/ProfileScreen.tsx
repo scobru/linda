@@ -316,6 +316,14 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.value}>{onlineUsers.size}</Text>
         </View>
 
+        {/* Network status */}
+        <View style={styles.field}>
+          <Pressable onPress={() => navigation.navigate('NetworkStatus')} style={styles.keyRow}>
+            <Text style={[styles.value, { flex: 1 }]}>Network Status</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
+        </View>
+
         {/* About */}
         <View style={styles.field}>
           <Text style={styles.label}>About</Text>

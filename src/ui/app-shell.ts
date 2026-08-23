@@ -145,7 +145,7 @@ const ICONS = {
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
-  | 'profile' | 'room-settings' | 'members' | 'invite' | 'discover' | 'people' | 'pair-device'
+  | 'profile' | 'room-settings' | 'members' | 'invite' | 'discover' | 'people' | 'pair-device' | 'network-status'
 
 type FilterTab = 'all' | 'unread' | 'favorites'
 
@@ -260,6 +260,7 @@ export class AppShell extends HTMLElement {
     if (this.view === 'discover') return this.renderDiscoverPage()
     if (this.view === 'people') return this.renderPeoplePage()
     if (this.view === 'pair-device') return this.renderPairDevicePage()
+    if (this.view === 'network-status') return this.renderNetworkStatusPage()
   }
 
   // --- identity ---------------------------------------------------------
@@ -1908,6 +1909,14 @@ export class AppShell extends HTMLElement {
             </div>
 
             <div class="form-group">
+              <label>Network</label>
+              <button id="openNetworkStatus" class="ghost" style="display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;">
+                <span>Network Status</span>
+                <span>›</span>
+              </button>
+            </div>
+
+            <div class="form-group">
               <label>About</label>
               <a href="https://github.com/scobru/linda" target="_blank" rel="noopener" class="ghost" style="display:block;width:fit-content;font-size:0.8rem;text-decoration:none;color:var(--text);padding:0.25rem 0.5rem;">
                 linda-pear is open source — view on GitHub ↗
@@ -1932,6 +1941,7 @@ export class AppShell extends HTMLElement {
     this.querySelector('#cancelProfileBtn')?.addEventListener('click', () => { this.view = 'app'; this.render() })
     this.querySelector('#resetDeviceBtn')?.addEventListener('click', () => void this.resetDevice())
 
+    this.querySelector('#openNetworkStatus')?.addEventListener('click', () => { this.view = 'network-status'; this.render() })
     this.querySelector('#copyPublicKey')?.addEventListener('click', () => navigator.clipboard.writeText(this.identity!.id))
     this.querySelector('#copySecretKey')?.addEventListener('click', () => navigator.clipboard.writeText(b4a.toString(this.identity!.secretKey, 'hex')))
     this.querySelector('#toggleSecretKey')?.addEventListener('click', () => {
@@ -1991,6 +2001,48 @@ export class AppShell extends HTMLElement {
       this.view = 'app'
       this.render()
     })
+  }
+
+  private renderNetworkStatusPage(): void {
+    if (!this.session) { this.view = 'app'; return this.render() }
+    const status = this.session.getNetworkStatus()
+    this.innerHTML = `
+      <div class="page-view">
+        ${this.pageTopbarHtml('Network Status')}
+        <div class="page-view-body">
+          <div class="modal">
+            ${status.firewalled ? `
+              <div style="border:1px solid var(--warning-dim, var(--danger-dim));border-radius:8px;padding:0.75rem;font-size:0.8rem;color:var(--text-dim);">
+                Heads up! You're behind a restrictive network (firewall/NAT) — this can prevent direct connections to peers on similarly restrictive networks, e.g. some mobile carriers.
+              </div>
+            ` : ''}
+            <div class="form-group">
+              <label>Total Connections</label>
+              <div class="key-display-row"><code>${status.connections}</code></div>
+            </div>
+            <div class="form-group">
+              <label>External Address</label>
+              <div class="key-display-row">
+                <code>${escapeHtml(status.host ?? 'unknown')}:${status.port}</code>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Public Key</label>
+              <div class="key-display-row">
+                <code>${status.publicKey}</code>
+                <button class="icon ghost icon-sm" id="copyNetPublicKey" title="Copy public key">${ICONS.copy}</button>
+              </div>
+            </div>
+            <button id="copyNetworkInfo" class="ghost" style="width:100%;">${ICONS.copy} Copy info for troubleshooting</button>
+          </div>
+        </div>
+      </div>
+    `
+    this.wirePageBack()
+    this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => navigator.clipboard.writeText(status.publicKey))
+    this.querySelector('#copyNetworkInfo')?.addEventListener('click', () => navigator.clipboard.writeText(
+      `connections: ${status.connections}\naddress: ${status.host ?? 'unknown'}:${status.port}\nfirewalled: ${status.firewalled}\npublicKey: ${status.publicKey}`
+    ))
   }
 
   private openRoomSettingsPage(room: Room): void {

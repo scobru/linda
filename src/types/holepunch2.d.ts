@@ -16,8 +16,18 @@ declare module 'hyperswarm' {
     client?: boolean
   }
 
+  export interface HyperDHT {
+    /** hyperdht's own inferred external address — null until discovered, or once `firewalled`
+     * makes it unpredictable (see dht-rpc's `remoteAddress()`). */
+    host: string | null
+    port: number
+    firewalled: boolean
+  }
+
   export default class Hyperswarm extends EventEmitter {
     constructor(opts?: HyperswarmOptions)
+    readonly connections: Set<Duplex>
+    readonly dht: HyperDHT
     join(topic: Buffer, opts?: JoinOptions): { flushed(): Promise<void> }
     leave(topic: Buffer): Promise<void>
     flush(): Promise<void>

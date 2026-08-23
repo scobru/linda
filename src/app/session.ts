@@ -891,6 +891,20 @@ export class Session {
     return this.resumeNetworkPromise
   }
 
+  /** Snapshot of the swarm's current reachability — surfaced in a UI so a user stuck behind a
+   * NAT that blocks hole-punching (common on some mobile carriers) has something to screenshot
+   * for a bug report instead of just "it doesn't connect". `host`/`port` are hyperdht's own
+   * inferred external address, not necessarily reachable — `firewalled` is the actual signal. */
+  getNetworkStatus(): { connections: number; host: string | null; port: number; firewalled: boolean; publicKey: string } {
+    return {
+      connections: this.swarm.connections.size,
+      host: this.swarm.dht.host,
+      port: this.swarm.dht.port,
+      firewalled: this.swarm.dht.firewalled,
+      publicKey: this.identity.id
+    }
+  }
+
   async close(): Promise<void> {
     for (const room of this.rooms.values()) await room.close()
     await this.swarm.destroy()

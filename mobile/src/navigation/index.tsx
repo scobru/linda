@@ -15,6 +15,7 @@ import ProfileScreen from '../screens/ProfileScreen'
 import InviteScreen from '../screens/InviteScreen'
 import MembersScreen from '../screens/MembersScreen'
 import DiscoverScreen from '../screens/DiscoverScreen'
+import NetworkStatusScreen from '../screens/NetworkStatusScreen'
 
 export type RootStackParamList = {
   Create: undefined
@@ -28,6 +29,7 @@ export type RootStackParamList = {
   Invite: { roomId: string; roomName: string }
   Members: { roomId: string; roomName: string }
   Discover: undefined
+  NetworkStatus: undefined
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -100,6 +102,11 @@ export default function Navigation({ initialRoute }: Props) {
           name="Discover"
           component={DiscoverScreen}
           options={{ title: 'Discover Public Rooms' }}
+        />
+        <Stack.Screen
+          name="NetworkStatus"
+          component={NetworkStatusScreen}
+          options={{ title: 'Network Status' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

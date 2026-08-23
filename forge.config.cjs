@@ -12,6 +12,8 @@ module.exports = {
       /^\/out\//,
       /^\/linda-pear-\d/,
       /^\/mobile\//,
+      /^\/release-artifacts\//,
+      /^\/by-arch\//,
       /^\/build\.js$/,
       /^\/forge\.config\.cjs$/,
       /^\/tsconfig\.json$/,

@@ -42,6 +42,10 @@ export class SessionProxy {
     return bareClient.call('session.listBookmarks')
   }
 
+  getNetworkStatus(): Promise<{ connections: number; host: string | null; port: number; firewalled: boolean; publicKey: string }> {
+    return bareClient.call('session.getNetworkStatus')
+  }
+
   listRoomSummaries(): Promise<RoomSummary[]> {
     return bareClient.call('session.listRoomSummaries')
   }

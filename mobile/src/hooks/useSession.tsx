@@ -74,8 +74,6 @@ export function SessionProvider({ children }: Props) {
   }, [session])
 
   const initSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string } }) => {
-    void Notifications.requestPermissionsAsync()
-
     bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string }) => {
       if (msg.online) {
         setOnlineUsers((prev) => new Set(prev).add(msg.userId))
@@ -155,6 +153,12 @@ export function SessionProvider({ children }: Props) {
     setBookmarks(await s.listRoomSummaries())
     setContacts(info.contacts)
     setAvatars(new Map(info.peerAvatars))
+
+    // Deliberately last: the OS permission dialog this triggers (first run after this
+    // feature shipped) pauses the Activity, and requesting it while the swarm was still
+    // mid-bootstrap raced the DHT announce/lookup — fine on wifi's slack, not on cellular's
+    // tighter margins. Firing it only once the session/swarm is already up sidesteps that.
+    void Notifications.requestPermissionsAsync()
   }, [])
 
   // Without this, every consumer of useSession() — every screen, since every screen reads it —
