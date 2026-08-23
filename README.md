@@ -7,11 +7,23 @@ Same architecture Keet (Holepunch's own flagship app) uses under the hood — sa
 ## Repo layout
 
 ```
-src/           shared core: identity, rooms (autobase), network (hyperswarm RPC), calls (WebRTC), files (hyperdrive)
+src/           shared core: identity, rooms (autobase), network (hyperswarm RPC), files (hyperdrive)
 electron/      desktop main process (thin wrapper, no app logic)
 mobile/        Expo/React Native app; embeds src/ inside a Bare runtime worklet (mobile/worklet/)
 test/          integration tests against real Hyperswarm
 ```
+
+## Product Philosophy: Zero Relay Dependency
+
+Linda is built from the ground up for sovereign individuals with **100% serverless, zero-infrastructure peer-to-peer communication**.
+
+### Why No Voice or Video Calls?
+This is a **deliberate product stance**, not a missing feature:
+- **No Third-Party Relays**: Real-time WebRTC media streams across mobile networks (carrier CGNAT and symmetric NAT) strictly require TURN relay servers to proxy audio/video packets.
+- **True Independence**: Operating dedicated TURN server fleets requires corporate infrastructure, ongoing server budgets, and centralized hosting. Linda is an independent, sovereign project without a corporate software house behind it.
+- **Zero Trust & Sovereignty**: Relying on external or third-party relays introduces unvetted intermediaries that can log connection metadata, exhaust quotas, or silently fail. We refuse to depend on relays we do not control.
+
+By eliminating real-time call plumbing entirely, Linda guarantees that all interactions—chat, encrypted file sharing, and identity discovery—operate exclusively over pure P2P primitives (Hyperswarm DHT, Autobase, Corestore, Hyperdrive) with zero centralized infrastructure.
 
 ## Desktop (Electron)
 

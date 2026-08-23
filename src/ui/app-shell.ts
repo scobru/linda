@@ -3,8 +3,6 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { Session, type RoomBookmark } from '../app/session.js'
 import type { Room, ChatMessage } from '../rooms/room.js'
 import { RemoteDrive } from '../files/remote.js'
-import { PeerCall, shouldQueueSignal } from '../calls/call.js'
-import type { CallSignalMessage } from '../network/encoding.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
@@ -192,13 +190,6 @@ export class AppShell extends HTMLElement {
   private avatars = new Map<string, string>()
   private nickname = ''
   private avatar = ''
-  private activeCalls = new Map<string, PeerCall>()
-  /** Signals for a peer whose PeerCall doesn't exist yet — see `onCallSignal`. */
-  private pendingCallSignals = new Map<string, CallSignalMessage[]>()
-  private localCallStream: MediaStream | null = null
-  private screenStream: MediaStream | null = null
-  private remoteVideoStreams = new Map<string, MediaStream>()
-  private remoteScreenStreams = new Map<string, MediaStream>()
   private remoteImageCache = new Map<string, string>()
   private favoriteRooms = new Set<string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
@@ -482,7 +473,6 @@ export class AppShell extends HTMLElement {
         onTyping: (m) => this.onTyping(m.roomId, m.userId, m.typing),
         onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar),
         onReadReceipt: (m) => this.onReadReceipt(m.roomId, m.userId),
-        onCallSignal: (m) => void this.onCallSignal(m),
         onDirectoryChange: () => { if (this.view === 'discover') this.render() },
         onContactsChange: () => { if (this.view === 'people') this.render() },
         onBookmarksChange: () => { if (this.view === 'app') this.render() },
@@ -1115,11 +1105,6 @@ export class AppShell extends HTMLElement {
         </div>
 
         <div class="room-header-tools">
-          ${this.activeCalls.size > 0
-            ? `<button class="room-header-btn active" id="hangupBtn" title="End call">${ICONS.phoneOff}</button>`
-            : `<button class="room-header-btn" id="callBtn" title="Start voice call">${ICONS.phone}</button>
-               <button class="room-header-btn" id="videoCallBtn" title="Start video call">${ICONS.camera}</button>`}
-          ${this.activeCalls.size > 0 ? `<button class="room-header-btn ${this.screenStream ? 'active' : ''}" id="screenShareBtn" title="${this.screenStream ? 'Stop sharing' : 'Share screen'}">🖥️</button>` : ''}
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
           <button class="room-header-btn ${isFavorite ? 'active' : ''}" id="toggleFavoriteBtn" title="${isFavorite ? 'Remove from favorites' : 'Add to favorites'}">★</button>
@@ -1137,8 +1122,6 @@ export class AppShell extends HTMLElement {
           </div>
         </div>
       ` : ''}
-
-      <div id="call-area" class="call-area"></div>
 
       <!-- Messages Stream Canvas -->
       <div id="messages" class="messages"></div>
@@ -1196,7 +1179,6 @@ export class AppShell extends HTMLElement {
     if (!room) return
 
     void this.renderMessages()
-    this.restoreCallTiles()
 
     // Direct DOM toggling, not scheduleRenderApp() — this fires on every scroll tick, and routing
     // that through a full DOM rebuild would fight the very scrolling it's reacting to.
@@ -1210,10 +1192,6 @@ export class AppShell extends HTMLElement {
     this.querySelector('#roomSettingsBtn')?.addEventListener('click', () => this.openRoomSettingsPage(room))
     this.querySelector('#roomMembersBtn')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#roomMembersSubtitleTrigger')?.addEventListener('click', () => this.openMembersPage(room))
-    this.querySelector('#callBtn')?.addEventListener('click', () => void this.startCall(false))
-    this.querySelector('#videoCallBtn')?.addEventListener('click', () => void this.startCall(true))
-    this.querySelector('#hangupBtn')?.addEventListener('click', () => this.hangupAll())
-    this.querySelector('#screenShareBtn')?.addEventListener('click', () => void this.toggleScreenShare())
     this.querySelector('#inviteHeaderBtn')?.addEventListener('click', () => void this.openInvitePage(room))
     this.querySelector('#openDrawerFromRoomBtn')?.addEventListener('click', () => {
       this.isProfileDrawerOpen = !this.isProfileDrawerOpen
@@ -1675,170 +1653,6 @@ export class AppShell extends HTMLElement {
 
   private displayName(userId: string): string {
     return this.nicknames.get(userId) || userId.slice(0, 8)
-  }
-
-  private async startCall(withVideo: boolean): Promise<void> {
-    const room = this.activeRoom
-    if (!room || !this.session || this.activeCalls.size > 0) return
-    const memberIds = new Set(room.listMembers().map((m) => m.identityId))
-    const targets = [...this.session.peers.entries()].filter(([id]) => memberIds.has(id) && id !== this.identity!.id)
-    if (targets.length === 0) return alert('No connected room member to call')
-
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo })
-    } catch {
-      return alert(withVideo ? 'Camera/microphone unavailable' : 'Microphone unavailable')
-    }
-    this.localCallStream = stream
-
-    for (const [peerId, peer] of targets) {
-      const call = new PeerCall(peer.rpc, room.id, this.identity!.id, peerId, stream, {
-        onRemoteStream: (remote) => this.showRemoteVideo(peerId, remote),
-        onDiagnostic: (line) => console.log(`[call ${peerId.slice(0, 6)}] ${line}`),
-        onRemoteScreenShare: (remote) => this.showRemoteScreen(peerId, remote),
-        onClose: () => this.endPeerCall(peerId)
-      })
-      this.activeCalls.set(peerId, call)
-      void call.call()
-    }
-    this.renderApp()
-  }
-
-  private async onCallSignal(message: CallSignalMessage): Promise<void> {
-    if (!this.activeRoom || this.activeRoom.id !== message.roomId) return
-    const peer = this.session!.peers.get(message.fromUserId)
-    if (!peer) return
-
-    let call = this.activeCalls.get(message.fromUserId)
-    if (!call) {
-      // Held for replay once the 'offer' below has built the PeerCall — see shouldQueueSignal
-      // for which signals qualify and, more importantly, why the rest must be dropped.
-      if (message.kind !== 'offer') {
-        if (shouldQueueSignal(message.kind)) {
-          const queued = this.pendingCallSignals.get(message.fromUserId) ?? []
-          queued.push(message)
-          this.pendingCallSignals.set(message.fromUserId, queued)
-        }
-        return
-      }
-      if (!this.localCallStream) {
-        // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
-        // which one it was (no separate signaling field needed), so read it from there instead
-        // of always grabbing the camera regardless of what kind of call this is.
-        const offerHasVideo = (JSON.parse(message.payload) as { sdp?: string }).sdp?.includes('m=video') ?? true
-        try {
-          this.localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: offerHasVideo })
-        } catch (err) {
-          // Without this, the caller's side just keeps ringing forever with nothing ever telling
-          // them why. 'hangup' doubles as "can't take this call".
-          //
-          // The reason travels with it, and is shown here too: swallowing this error meant a
-          // machine with no camera (or a camera another app had open) rejected every video call
-          // instantly and silently, looking exactly like a network failure to both people.
-          const reason = `${(err as Error).name || 'error'} opening ${offerHasVideo ? 'camera/mic' : 'mic'}`
-          this.pendingCallSignals.delete(message.fromUserId)
-          peer.rpc.sendCallSignal({ roomId: message.roomId, fromUserId: this.identity!.id, kind: 'hangup', payload: reason })
-          this.setError(`Could not answer call — ${reason}. ${offerHasVideo ? 'Is another app using the camera?' : ''}`)
-          return
-        }
-      }
-      call = new PeerCall(peer.rpc, message.roomId, this.identity!.id, message.fromUserId, this.localCallStream, {
-        onRemoteStream: (remote) => this.showRemoteVideo(message.fromUserId, remote),
-        onDiagnostic: (line) => console.log(`[call ${message.fromUserId.slice(0, 6)}] ${line}`),
-        onRemoteScreenShare: (remote) => this.showRemoteScreen(message.fromUserId, remote),
-        onClose: () => this.endPeerCall(message.fromUserId)
-      })
-      this.activeCalls.set(message.fromUserId, call)
-      this.renderApp()
-    }
-    await call.handleSignal(message)
-    const queued = this.pendingCallSignals.get(message.fromUserId)
-    if (queued) {
-      this.pendingCallSignals.delete(message.fromUserId)
-      // Guarded per signal: a candidate left over from a previous call belongs to a dead ICE
-      // session and throws on apply. That must not abort the replay of the valid ones behind it.
-      for (const signal of queued) {
-        try { await call.handleSignal(signal) } catch { /* stale candidate */ }
-      }
-    }
-  }
-
-  /** `renderApp()` replaces `#call-area`'s innerHTML on every re-render (a message, typing indicator, read receipt — anything), so a tile inserted only once on `ontrack` would otherwise vanish the next time anything else in the room re-renders. `remoteVideoStreams`/`remoteScreenStreams` remember the live streams so `restoreCallTiles()` (called from `wireRoom()`, i.e. after every render) can re-insert them. */
-  private attachCallTile(prefix: 'remote' | 'screen', peerId: string, stream: MediaStream): void {
-    const maxHeight = prefix === 'remote' ? '180px' : '240px'
-    let el = this.querySelector(`#${prefix}-${peerId}`) as HTMLVideoElement | null
-    if (!el) {
-      const area = this.querySelector('#call-area')
-      if (!area) return
-      area.insertAdjacentHTML('beforeend', `<video id="${prefix}-${peerId}" autoplay playsinline style="max-height:${maxHeight};border-radius:8px;"></video>`)
-      el = this.querySelector(`#${prefix}-${peerId}`) as HTMLVideoElement
-    }
-    if (el.srcObject !== stream) el.srcObject = stream
-  }
-
-  private restoreCallTiles(): void {
-    for (const [peerId, stream] of this.remoteVideoStreams) this.attachCallTile('remote', peerId, stream)
-    for (const [peerId, stream] of this.remoteScreenStreams) this.attachCallTile('screen', peerId, stream)
-  }
-
-  private showRemoteVideo(peerId: string, stream: MediaStream): void {
-    this.remoteVideoStreams.set(peerId, stream)
-    this.attachCallTile('remote', peerId, stream)
-  }
-
-  private showRemoteScreen(peerId: string, stream: MediaStream): void {
-    this.remoteScreenStreams.set(peerId, stream)
-    this.attachCallTile('screen', peerId, stream)
-  }
-
-  private endPeerCall(peerId: string): void {
-    this.activeCalls.get(peerId)?.hangup()
-    this.activeCalls.delete(peerId)
-    this.pendingCallSignals.delete(peerId)
-    this.remoteVideoStreams.delete(peerId)
-    this.remoteScreenStreams.delete(peerId)
-    this.querySelector(`#remote-${peerId}`)?.remove()
-    this.querySelector(`#screen-${peerId}`)?.remove()
-    if (this.activeCalls.size === 0) {
-      if (this.screenStream) {
-        for (const track of this.screenStream.getTracks()) track.stop()
-        this.screenStream = null
-      }
-      if (this.localCallStream) {
-        for (const track of this.localCallStream.getTracks()) track.stop()
-        this.localCallStream = null
-      }
-    }
-    this.renderApp()
-  }
-
-  /** User-initiated hangup of every call in the room, from the header hangup button — the only
-   * in-app way to stop your own camera/mic once a call is placed (see `endPeerCall`). */
-  private hangupAll(): void {
-    for (const peerId of [...this.activeCalls.keys()]) this.endPeerCall(peerId)
-  }
-
-  private async toggleScreenShare(): Promise<void> {
-    if (this.screenStream) {
-      const stream = this.screenStream
-      this.screenStream = null
-      for (const call of this.activeCalls.values()) await call.removeScreenShare()
-      for (const track of stream.getTracks()) track.stop()
-      this.renderApp()
-      return
-    }
-
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
-    } catch {
-      return
-    }
-    this.screenStream = stream
-    for (const track of stream.getTracks()) track.onended = () => void this.toggleScreenShare()
-    for (const call of this.activeCalls.values()) await call.addScreenShare(stream)
-    this.renderApp()
   }
 
   // --- Sub-Pages (Profile, Room Settings, Contacts, Discover, Pair) --------

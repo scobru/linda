@@ -48,17 +48,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return context.resolveRequest(context, bareMap[moduleName], platform)
   }
 
-  // react-native-webrtc's package.json "react-native" field points at raw TS
-  // source (src/index.ts) with the extension baked in; Metro's main-field
-  // resolver mishandles an already-extensioned entry point and fails to find
-  // it. Send it straight to the prebuilt CommonJS output instead.
-  if (moduleName === 'react-native-webrtc') {
-    return context.resolveRequest(
-      context,
-      path.resolve(workspaceRoot, 'node_modules/react-native-webrtc/lib/commonjs/index.js'),
-      platform
-    )
-  }
 
   // Strip .js from relative imports so Metro resolves .ts files via sourceExts
   // (shared core modules use ESM .js extensions in imports)

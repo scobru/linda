@@ -270,36 +270,6 @@ export const contactResponseEncoding: Encoding<ContactResponseMessage> = {
 }
 
 
-export interface CallSignalMessage {
-  roomId: string
-  fromUserId: string
-  kind: 'offer' | 'answer' | 'candidate' | 'hangup'
-  payload: string
-}
-
-export const callSignalEncoding: Encoding<CallSignalMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.roomId)
-    cenc.string.preencode(state, m.fromUserId)
-    cenc.string.preencode(state, m.kind)
-    cenc.string.preencode(state, m.payload)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.roomId)
-    cenc.string.encode(state, m.fromUserId)
-    cenc.string.encode(state, m.kind)
-    cenc.string.encode(state, m.payload)
-  },
-  decode(state) {
-    return {
-      roomId: cenc.string.decode(state),
-      fromUserId: cenc.string.decode(state),
-      kind: cenc.string.decode(state) as CallSignalMessage['kind'],
-      payload: cenc.string.decode(state)
-    }
-  }
-}
-
 export const readReceiptEncoding: Encoding<ReadReceiptMessage> = {
   preencode(state, m) {
     cenc.string.preencode(state, m.roomId)

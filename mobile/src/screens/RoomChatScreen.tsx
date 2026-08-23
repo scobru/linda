@@ -10,14 +10,11 @@ import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import * as Clipboard from 'expo-clipboard'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
-import { RTCView } from 'react-native-webrtc'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
-import { useCall } from '../hooks/useCall'
 import { downloadFile } from '../bare/room-proxy'
-import { listConnectedPeerIds } from '../bare/call-proxy'
 import type { ChatMessage } from '@core/rooms/room'
 import ChatBubble, { isAudioFile } from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
@@ -62,7 +59,6 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null)
   const audioPlayerRef = useRef<AudioPlayer | null>(null)
-  const { remoteStreams, startCall, diagnostics } = useCall(room, identityId)
 
   // Mirrors desktop's openRoom: stamp read on open, and again for each message that
   // arrives while this screen is focused (mute the badge, not just a one-time clear).
@@ -210,12 +206,6 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
-          <Pressable onPress={() => startCall(false).catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
-            <Ionicons name="call-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
-          <Pressable onPress={() => startCall(true).catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
-            <Ionicons name="videocam-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
           <Pressable onPress={() => setShowSearch(!showSearch)} style={styles.headerBtn}>
             <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
           </Pressable>
@@ -234,7 +224,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, startCall, memberCount, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
+  }, [navigation, roomId, roomName, showSearch, memberCount, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'
@@ -353,27 +343,6 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Call area */}
-      {remoteStreams.size > 0 && (
-        <View style={styles.callArea}>
-          {[...remoteStreams.entries()].map(([peerId, stream]) => (
-            // react-native-webrtc's MediaStream (assigned to the global by registerGlobals) has .toURL(); the DOM MediaStream type call.ts is written against doesn't.
-            <RTCView key={peerId} streamURL={(stream as unknown as { toURL(): string }).toURL()} style={styles.callTile} objectFit="cover" />
-          ))}
-        </View>
-      )}
-
-      {/* Why a call did or didn't connect. Shown on the device because release builds strip
-          console.*, so there is otherwise no way to see this without a cable and adb. Stays up
-          after the call ends — a call that drops instantly is exactly the case worth reading. */}
-      {diagnostics.length > 0 && (
-        <View style={styles.callDiagnostics}>
-          {diagnostics.slice(-6).map((line, i) => (
-            <Text key={i} style={styles.callDiagnosticsText}>{line}</Text>
-          ))}
-        </View>
-      )}
-
       {/* Search bar */}
       {showSearch && (
         <View style={styles.searchBar}>
@@ -563,16 +532,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   headerRight: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: { padding: spacing.xs },
   headerBtnText: { fontSize: 18 },
-  callArea: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
-    padding: spacing.sm, backgroundColor: colors.bgSecondary,
-  },
-  callTile: { width: 160, height: 120, borderRadius: radii.md, backgroundColor: '#000' },
-  callDiagnostics: {
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    backgroundColor: colors.bgSecondary, borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  callDiagnosticsText: { color: colors.textTertiary, fontSize: typography.xs, fontFamily: 'monospace' },
   searchBar: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: colors.bgSecondary, paddingHorizontal: spacing.md,

@@ -7,7 +7,7 @@ import b4a from 'b4a'
 import type { Identity } from '../identity/index.js'
 import { loadProfile } from '../identity/profile.js'
 import { createSwarm, joinRoom, type PeerConnection } from '../network/swarm.js'
-import type { TypingMessage, PresenceMessage, ReadReceiptMessage, CallSignalMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
+import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
@@ -20,7 +20,6 @@ export interface SessionEvents {
   onTyping?(message: TypingMessage): void
   onPresence?(message: PresenceMessage): void
   onReadReceipt?(message: ReadReceiptMessage): void
-  onCallSignal?(message: CallSignalMessage): void
   onDirectoryChange?(): void
   onContactsChange?(): void
   onBookmarksChange?(): void
@@ -99,7 +98,6 @@ export class Session {
         events.onPresence?.(message)
       },
       onReadReceipt: events.onReadReceipt,
-      onCallSignal: events.onCallSignal,
       onRequestWrite: (message, channel) => {
         const room = [...this.rooms.values()].find((r) => b4a.toString(r.bootstrapKey, 'hex') === message.bootstrapKey)
         if (!room || !room.writable || !room.isOwner(identity.id)) return

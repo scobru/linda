@@ -13,7 +13,6 @@ import { joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { RemoteDrive } from '../../src/files/remote.js'
-import type { CallSignalMessage } from '../../src/network/encoding.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
 
 declare const BareKit: { IPC: unknown }
@@ -146,7 +145,6 @@ const methods: Record<string, (...args: any[]) => any> = {
       onDirectoryChange: () => pushEvent('directoryChange'),
       onBookmarksChange: () => pushEvent('bookmarksChange'),
       onIncomingMessage: (roomId, message) => pushEvent('incomingMessage', { roomId, message }),
-      onCallSignal: (m) => pushEvent('callSignal', m),
       onTyping: (m) => pushEvent('typing', m),
       onReadReceipt: (m) => pushEvent('readReceipt', m)
     }
@@ -237,14 +235,6 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.unmuteMember': (roomId: string, identityId: string) => requireSession().unmuteMember(roomId, identityId),
   'session.promoteToModerator': (roomId: string, identityId: string) => requireSession().promoteToModerator(roomId, identityId),
   'session.demoteModerator': (roomId: string, identityId: string) => requireSession().demoteModerator(roomId, identityId),
-
-  'session.listConnectedPeerIds': () => [...requireSession().peers.keys()],
-
-  'session.sendCallSignal': (targetUserId: string, message: CallSignalMessage) => {
-    const peer = requireSession().peers.get(targetUserId)
-    if (!peer) throw new Error('peer not connected')
-    peer.rpc.sendCallSignal(message)
-  },
 
   // Explicit pull, not just the 'roomState' push from wireRoom — that push fires the instant
   // the room is created/joined, before RN has had a chance to construct the RoomProxy that

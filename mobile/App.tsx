@@ -1,26 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { StatusBar, View } from 'react-native'
-import { registerGlobals } from 'react-native-webrtc'
 import * as Notifications from 'expo-notifications'
 import { SessionProvider } from './src/hooks/useSession'
 import { ThemeProvider, useTheme } from './src/theme-context'
 import Navigation from './src/navigation'
 import { identityExists } from './src/bare/identity-client'
 import { storageDir } from './src/bare/storage-dir'
-
-// RN's New Architecture ships `navigator` with non-writable properties;
-// registerGlobals() assigns onto it directly and throws "property is not
-// writable". Replace it with a plain mutable object (copying existing
-// props like `product`) before letting react-native-webrtc patch it.
-Object.defineProperty(global, 'navigator', {
-  value: { ...global.navigator },
-  writable: true,
-  configurable: true,
-})
-
-// Shims global RTCPeerConnection/MediaStream/navigator.mediaDevices so
-// @core/calls/call.ts (written against browser WebRTC globals, shared with desktop) runs unmodified.
-registerGlobals()
 
 // Without this, a push arriving while the app is foregrounded is silently swallowed —
 // Expo requires an explicit handler to opt into showing it as a banner/alert.
