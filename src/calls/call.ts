@@ -15,12 +15,11 @@ export interface CallHandlers {
  * only reachable through a TURN relay that actually forwards the media — no amount of
  * candidate exchange gets around that, it's a property of the NAT itself.
  *
- * ponytail: openrelay.metered.ca is a free, unauthenticated-signup public TURN (shared
- * pool, ~20GB/mo) — good enough to confirm TURN is really what carrier-to-carrier calls
- * need, not good enough to depend on long-term (rate-limited, third-party sees call
- * metadata though never content — DTLS-SRTP stays end-to-end through a relay same as
- * direct). Swap for a real TURN deployment once confirmed; skip this whole exercise if
- * it turns out STUN was already enough.
+ * ponytail: openrelay.metered.ca is a free public TURN (shared pool, ~20GB/mo) — kept
+ * deliberately instead of self-hosting (no server this app owns is a well-fitted TURN
+ * host — CapRover's HTTP(S) proxying doesn't suit a raw UDP relay port range). Third
+ * party sees call metadata, never content (DTLS-SRTP stays end-to-end through a relay
+ * same as direct). Revisit only if the shared pool's rate limit actually bites.
  */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -43,6 +42,10 @@ export class PeerCall {
   private makingOffer = false
   private ignoreOffer = false
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null
+  /** Candidates that arrived before there was a remote description to attach them to.
+   * `addIceCandidate` throws in that state, and a thrown-away candidate is gone for good —
+   * see `flushPendingCandidates` for why that's fatal on a symmetric NAT specifically. */
+  private pendingCandidates: RTCIceCandidateInit[] = []
 
   constructor(
     private readonly rpc: RpcChannel,
@@ -139,6 +142,7 @@ export class PeerCall {
           await this.pc.setLocalDescription({ type: 'rollback' })
         }
         await this.pc.setRemoteDescription(JSON.parse(message.payload))
+        await this.flushPendingCandidates()
         const answer = await this.pc.createAnswer()
         await this.pc.setLocalDescription(answer)
         this.signal('answer', JSON.stringify(answer))
@@ -146,14 +150,21 @@ export class PeerCall {
       }
       case 'answer':
         await this.pc.setRemoteDescription(JSON.parse(message.payload))
+        await this.flushPendingCandidates()
         break
-      case 'candidate':
+      case 'candidate': {
+        const candidate = JSON.parse(message.payload) as RTCIceCandidateInit
+        // Candidates routinely arrive before the description they belong to — the peer starts
+        // gathering the instant it sets its local description, while this side may still be
+        // waiting on getUserMedia. Hold them instead of letting addIceCandidate throw them away.
+        if (!this.pc.remoteDescription) { this.pendingCandidates.push(candidate); break }
         try {
-          await this.pc.addIceCandidate(JSON.parse(message.payload))
+          await this.pc.addIceCandidate(candidate)
         } catch (err) {
           if (!this.ignoreOffer) throw err
         }
         break
+      }
       case 'hangup':
         // pc.close() doesn't reliably fire onconnectionstatechange in every runtime — call
         // the handler directly so the remote side's call UI closes every time, not just when
@@ -162,6 +173,21 @@ export class PeerCall {
         this.pc.close()
         this.handlers.onClose?.()
         break
+    }
+  }
+
+  /** Losing a peer's candidates isn't fatal on a cone NAT: our own connectivity checks reach
+   * them anyway, and they learn our address peer-reflexively from the incoming check. On a
+   * symmetric NAT that recovery doesn't exist — the mapping differs per destination — so the
+   * relay candidates each side sends are the only ones that can ever pair up, and dropping
+   * them is exactly the difference between "works on wifi" and "never connects on cellular". */
+  private async flushPendingCandidates(): Promise<void> {
+    const pending = this.pendingCandidates
+    this.pendingCandidates = []
+    for (const candidate of pending) {
+      // Individually guarded: one stale candidate (e.g. from a negotiation that got rolled
+      // back) must not discard the rest of the batch.
+      try { await this.pc.addIceCandidate(candidate) } catch { /* stale candidate */ }
     }
   }
 

@@ -33,10 +33,13 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const callsRef = useRef<Map<string, PeerCall>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
+  /** Signals for a peer whose PeerCall doesn't exist yet — see the onCallSignal handler. */
+  const pendingSignalsRef = useRef<Map<string, CallSignalMessage[]>>(new Map())
 
   const endPeerCall = useCallback((peerId: string) => {
     callsRef.current.get(peerId)?.hangup()
     callsRef.current.delete(peerId)
+    pendingSignalsRef.current.delete(peerId)
     setRemoteStreams((prev) => {
       if (!prev.has(peerId)) return prev
       const next = new Map(prev)
@@ -88,7 +91,18 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
       if (message.roomId !== roomId) return
       void (async () => {
         let call = callsRef.current.get(message.fromUserId)
-        if (!call && message.kind === 'offer') {
+        if (!call) {
+          // Only an 'offer' builds the PeerCall these are handled by, and that path awaits
+          // getUserMedia — seconds, when it puts up a permission dialog. Every candidate the
+          // caller sends in that window used to land here with nothing to hand it to and was
+          // dropped; queue them for replay instead (see PeerCall.flushPendingCandidates for
+          // why silently losing them breaks cellular calls specifically).
+          if (message.kind !== 'offer') {
+            const queued = pendingSignalsRef.current.get(message.fromUserId) ?? []
+            queued.push(message)
+            pendingSignalsRef.current.set(message.fromUserId, queued)
+            return
+          }
           // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
           // which one it was (no separate signaling field needed), so read it from there instead
           // of always grabbing the camera regardless of what kind of call this is.
@@ -100,6 +114,7 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
             // Permission denied, camera busy, etc. — without this, the offer is silently dropped
             // (an unhandled rejection) and the caller's side just keeps ringing forever with
             // nothing ever telling them why. 'hangup' doubles as "can't take this call".
+            pendingSignalsRef.current.delete(message.fromUserId)
             void sendCallSignal(message.fromUserId, { roomId: message.roomId, fromUserId: localUserId, kind: 'hangup', payload: '' })
             return
           }
@@ -109,7 +124,12 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
           })
           callsRef.current.set(message.fromUserId, call)
         }
-        await call?.handleSignal(message)
+        await call.handleSignal(message)
+        const queued = pendingSignalsRef.current.get(message.fromUserId)
+        if (queued) {
+          pendingSignalsRef.current.delete(message.fromUserId)
+          for (const signal of queued) await call.handleSignal(signal)
+        }
       })()
     })
   }, [room, localUserId, ensureLocalStream, endPeerCall])

@@ -193,6 +193,8 @@ export class AppShell extends HTMLElement {
   private nickname = ''
   private avatar = ''
   private activeCalls = new Map<string, PeerCall>()
+  /** Signals for a peer whose PeerCall doesn't exist yet — see `onCallSignal`. */
+  private pendingCallSignals = new Map<string, CallSignalMessage[]>()
   private localCallStream: MediaStream | null = null
   private screenStream: MediaStream | null = null
   private remoteVideoStreams = new Map<string, MediaStream>()
@@ -1708,7 +1710,17 @@ export class AppShell extends HTMLElement {
     if (!peer) return
 
     let call = this.activeCalls.get(message.fromUserId)
-    if (!call && message.kind === 'offer') {
+    if (!call) {
+      // Only an 'offer' builds the PeerCall these are handled by, and that path can await
+      // getUserMedia. Every candidate the caller sends in that window used to land here with
+      // nothing to hand it to and was dropped; queue them for replay instead (see
+      // PeerCall.flushPendingCandidates for why losing them breaks cellular calls specifically).
+      if (message.kind !== 'offer') {
+        const queued = this.pendingCallSignals.get(message.fromUserId) ?? []
+        queued.push(message)
+        this.pendingCallSignals.set(message.fromUserId, queued)
+        return
+      }
       if (!this.localCallStream) {
         // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
         // which one it was (no separate signaling field needed), so read it from there instead
@@ -1719,6 +1731,7 @@ export class AppShell extends HTMLElement {
         } catch {
           // Without this, the caller's side just keeps ringing forever with nothing ever telling
           // them why. 'hangup' doubles as "can't take this call".
+          this.pendingCallSignals.delete(message.fromUserId)
           peer.rpc.sendCallSignal({ roomId: message.roomId, fromUserId: this.identity!.id, kind: 'hangup', payload: '' })
           return
         }
@@ -1731,7 +1744,12 @@ export class AppShell extends HTMLElement {
       this.activeCalls.set(message.fromUserId, call)
       this.renderApp()
     }
-    await call?.handleSignal(message)
+    await call.handleSignal(message)
+    const queued = this.pendingCallSignals.get(message.fromUserId)
+    if (queued) {
+      this.pendingCallSignals.delete(message.fromUserId)
+      for (const signal of queued) await call.handleSignal(signal)
+    }
   }
 
   /** `renderApp()` replaces `#call-area`'s innerHTML on every re-render (a message, typing indicator, read receipt — anything), so a tile inserted only once on `ontrack` would otherwise vanish the next time anything else in the room re-renders. `remoteVideoStreams`/`remoteScreenStreams` remember the live streams so `restoreCallTiles()` (called from `wireRoom()`, i.e. after every render) can re-insert them. */
@@ -1765,6 +1783,7 @@ export class AppShell extends HTMLElement {
   private endPeerCall(peerId: string): void {
     this.activeCalls.get(peerId)?.hangup()
     this.activeCalls.delete(peerId)
+    this.pendingCallSignals.delete(peerId)
     this.remoteVideoStreams.delete(peerId)
     this.remoteScreenStreams.delete(peerId)
     this.querySelector(`#remote-${peerId}`)?.remove()
