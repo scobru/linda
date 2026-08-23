@@ -837,6 +837,15 @@ export class Session {
     await this.profileStore.saveBookmark(bookmark)
   }
 
+  /** Local-only "Clear Chat History": hides every message up to now from this device's view of
+   * the room. Doesn't touch the replicated log — nothing is deleted for other members, or for
+   * this identity on another device (see RoomBookmark.clearedAt). */
+  clearRoomHistory(roomId: string): void {
+    const bookmark = this.bookmarks.get(roomId)
+    if (!bookmark) return
+    void this.saveBookmark({ ...bookmark, clearedAt: Date.now() })
+  }
+
   /** Stamps a room as viewed "now" so it drops out of the unread filter until its next message. */
   markRoomRead(roomId: string): void {
     const bookmark = this.bookmarks.get(roomId)

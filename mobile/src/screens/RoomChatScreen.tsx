@@ -34,9 +34,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
-  const { session, identity, nicknames, avatars, refresh: refreshSession, setActiveRoomId } = useSession()
+  const { session, identity, nicknames, avatars, bookmarks, refresh: refreshSession, setActiveRoomId } = useSession()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
+  const clearedAt = bookmarks.find((b) => b.id === roomId)?.clearedAt ?? 0
 
   // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
   // instead, in the background. `room` stays undefined until this resolves, so useRoom below
@@ -54,7 +55,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     })
     return () => { cancelled = true }
   }, [pendingJoin, session])
-  const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, hasMore, loadOlder, typingUsers, notifyTyping, readBy } = useRoom(room, identityId)
+  const { messages, loading, sendMessage, sendFile, editMessage, deleteMessage, toggleReaction, refreshMessages, hasMore, loadOlder, typingUsers, notifyTyping, readBy } = useRoom(room, identityId, clearedAt)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const lastTailIdRef = useRef<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
@@ -209,8 +210,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
-          <Pressable onPress={() => startCall().catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
+          <Pressable onPress={() => startCall(false).catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
             <Ionicons name="call-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
+          <Pressable onPress={() => startCall(true).catch((err) => Alert.alert('Call failed', (err as Error).message))} style={styles.headerBtn}>
+            <Ionicons name="videocam-outline" size={20} color={colors.textPrimary} />
           </Pressable>
           <Pressable onPress={() => setShowSearch(!showSearch)} style={styles.headerBtn}>
             <Ionicons name="search-outline" size={20} color={colors.textPrimary} />

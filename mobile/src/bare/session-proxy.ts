@@ -46,6 +46,10 @@ export class SessionProxy {
     return bareClient.call('session.getNetworkStatus')
   }
 
+  clearRoomHistory(roomId: string): Promise<void> {
+    return bareClient.call('session.clearRoomHistory', roomId)
+  }
+
   listRoomSummaries(): Promise<RoomSummary[]> {
     return bareClient.call('session.listRoomSummaries')
   }

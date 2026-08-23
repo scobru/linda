@@ -8,10 +8,19 @@ export interface CallHandlers {
 }
 
 /**
- * No STUN/TURN: the Hyperswarm socket already did NAT traversal, so ICE
- * candidates only need to be exchanged (not gathered from external servers).
+ * Hyperswarm's hole-punch only covers its own signaling socket — WebRTC opens a
+ * separate UDP flow for media, with its own local port, that needs its own NAT
+ * traversal. On cone NATs (most home wifi) direct candidates often connect anyway;
+ * on symmetric NAT (most mobile carrier CGNAT, e.g. 5G) each new destination gets a
+ * different external port, so a peer can't even discover its own reflexive address
+ * without asking a STUN server. Public STUN fixes cone-vs-cone and most cone-vs-symmetric
+ * pairings; a fully symmetric-NAT peer (carrier-to-carrier) still needs a TURN relay,
+ * which is a real server dependency this app doesn't have yet.
  */
-const ICE_SERVERS: RTCIceServer[] = []
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' }
+]
 
 export class PeerCall {
   private readonly pc: RTCPeerConnection

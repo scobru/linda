@@ -170,6 +170,8 @@ const methods: Record<string, (...args: any[]) => any> = {
 
   'session.getNetworkStatus': () => requireSession().getNetworkStatus(),
 
+  'session.clearRoomHistory': (roomId: string) => requireSession().clearRoomHistory(roomId),
+
   // Bookmark + latest-message-time per room, for the room list's unread dot/preview/sort.
   // Mirrors desktop's own full-history scan (app-shell.ts notifyIncomingMessage backfill) — same cost, same result.
   'session.listRoomSummaries': async () => {

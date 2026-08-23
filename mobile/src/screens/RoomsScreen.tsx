@@ -86,6 +86,32 @@ export default function RoomsScreen({ navigation }: Props) {
     ])
   }, [session, refresh])
 
+  // Local-only cutoff (see Session.clearRoomHistory) — hides this device's view of the room's
+  // history, doesn't touch the replicated log, so other members/devices are unaffected.
+  const handleClearHistory = useCallback((id: string, name: string) => {
+    if (!session) return
+    Alert.alert(
+      'Clear chat history?',
+      `This clears all messages in "${name}" from this device only — other members keep their copy.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear', style: 'destructive', onPress: () => {
+            void session.clearRoomHistory(id).then(refresh)
+          },
+        },
+      ]
+    )
+  }, [session, refresh])
+
+  const handleRoomOptions = useCallback((id: string, name: string) => {
+    Alert.alert(name, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear Chat History', style: 'destructive', onPress: () => handleClearHistory(id, name) },
+      { text: 'Leave Room', style: 'destructive', onPress: () => handleLeaveRoom(id, name) },
+    ])
+  }, [handleClearHistory, handleLeaveRoom])
+
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread'>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -161,7 +187,7 @@ export default function RoomsScreen({ navigation }: Props) {
             timestamp={item.lastMessageTime ?? undefined}
             unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
             onPress={() => openRoom(item.id, item.name)}
-            onLongPress={() => handleLeaveRoom(item.id, item.name)}
+            onLongPress={() => handleRoomOptions(item.id, item.name)}
           />
         )}
         ListEmptyComponent={

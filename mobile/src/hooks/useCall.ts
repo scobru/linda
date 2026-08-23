@@ -12,20 +12,19 @@ function rpcAdapter(peerId: string): RpcChannel {
   return { sendCallSignal: (message: CallSignalMessage) => void sendCallSignal(peerId, message) } as unknown as RpcChannel
 }
 
-async function requestMediaPermissions(): Promise<boolean> {
+async function requestMediaPermissions(withVideo: boolean): Promise<boolean> {
   if (Platform.OS !== 'android') return true
-  const granted = await PermissionsAndroid.requestMultiple([
-    PermissionsAndroid.PERMISSIONS.CAMERA,
-    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
-  ])
-  return granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
-    granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED
+  const permissions = withVideo
+    ? [PermissionsAndroid.PERMISSIONS.CAMERA, PermissionsAndroid.PERMISSIONS.RECORD_AUDIO]
+    : [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO]
+  const granted = await PermissionsAndroid.requestMultiple(permissions)
+  return permissions.every((p) => granted[p] === PermissionsAndroid.RESULTS.GRANTED)
 }
 
 export interface UseCallResult {
   callActive: boolean
   remoteStreams: Map<string, MediaStream>
-  startCall: () => Promise<void>
+  startCall: (withVideo: boolean) => Promise<void>
   endCall: () => void
 }
 
@@ -55,23 +54,23 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
     for (const peerId of [...callsRef.current.keys()]) endPeerCall(peerId)
   }, [endPeerCall])
 
-  const ensureLocalStream = useCallback(async (): Promise<MediaStream> => {
+  const ensureLocalStream = useCallback(async (withVideo: boolean): Promise<MediaStream> => {
     if (localStreamRef.current) return localStreamRef.current
-    if (!(await requestMediaPermissions())) throw new Error('Camera/microphone permission denied')
-    const stream = await mediaDevices.getUserMedia({ audio: true, video: true }) as unknown as MediaStream
+    if (!(await requestMediaPermissions(withVideo))) throw new Error(withVideo ? 'Camera/microphone permission denied' : 'Microphone permission denied')
+    const stream = await mediaDevices.getUserMedia({ audio: true, video: withVideo }) as unknown as MediaStream
     localStreamRef.current = stream
     setCallActive(true)
     return stream
   }, [])
 
-  const startCall = useCallback(async () => {
+  const startCall = useCallback(async (withVideo: boolean) => {
     if (!room) return
     const { members } = await room.listMembers()
     const connected = new Set(await listConnectedPeerIds())
     const targets = members.map((m) => m.identityId).filter((id) => id !== localUserId && connected.has(id))
     if (targets.length === 0) throw new Error('No connected room member to call')
 
-    const stream = await ensureLocalStream()
+    const stream = await ensureLocalStream(withVideo)
     for (const peerId of targets) {
       const call = new PeerCall(rpcAdapter(peerId), room.id, localUserId, peerId, stream, {
         onRemoteStream: (remote) => setRemoteStreams((prev) => new Map(prev).set(peerId, remote)),
@@ -90,9 +89,13 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
       void (async () => {
         let call = callsRef.current.get(message.fromUserId)
         if (!call && message.kind === 'offer') {
+          // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
+          // which one it was (no separate signaling field needed), so read it from there instead
+          // of always grabbing the camera regardless of what kind of call this is.
+          const offerHasVideo = (JSON.parse(message.payload) as { sdp?: string }).sdp?.includes('m=video') ?? true
           let stream: MediaStream
           try {
-            stream = await ensureLocalStream()
+            stream = await ensureLocalStream(offerHasVideo)
           } catch {
             // Permission denied, camera busy, etc. — without this, the offer is silently dropped
             // (an unhandled rejection) and the caller's side just keeps ringing forever with

@@ -1115,7 +1115,8 @@ export class AppShell extends HTMLElement {
         <div class="room-header-tools">
           ${this.activeCalls.size > 0
             ? `<button class="room-header-btn active" id="hangupBtn" title="End call">${ICONS.phoneOff}</button>`
-            : `<button class="room-header-btn" id="callBtn" title="Start voice/video call">${ICONS.phone}</button>`}
+            : `<button class="room-header-btn" id="callBtn" title="Start voice call">${ICONS.phone}</button>
+               <button class="room-header-btn" id="videoCallBtn" title="Start video call">${ICONS.camera}</button>`}
           ${this.activeCalls.size > 0 ? `<button class="room-header-btn ${this.screenStream ? 'active' : ''}" id="screenShareBtn" title="${this.screenStream ? 'Stop sharing' : 'Share screen'}">🖥️</button>` : ''}
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
@@ -1207,7 +1208,8 @@ export class AppShell extends HTMLElement {
     this.querySelector('#roomSettingsBtn')?.addEventListener('click', () => this.openRoomSettingsPage(room))
     this.querySelector('#roomMembersBtn')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#roomMembersSubtitleTrigger')?.addEventListener('click', () => this.openMembersPage(room))
-    this.querySelector('#callBtn')?.addEventListener('click', () => void this.startCall())
+    this.querySelector('#callBtn')?.addEventListener('click', () => void this.startCall(false))
+    this.querySelector('#videoCallBtn')?.addEventListener('click', () => void this.startCall(true))
     this.querySelector('#hangupBtn')?.addEventListener('click', () => this.hangupAll())
     this.querySelector('#screenShareBtn')?.addEventListener('click', () => void this.toggleScreenShare())
     this.querySelector('#inviteHeaderBtn')?.addEventListener('click', () => void this.openInvitePage(room))
@@ -1319,8 +1321,9 @@ export class AppShell extends HTMLElement {
     const wasNearBottom = this.forceScrollOnNextRender || container.scrollHeight - container.scrollTop - container.clientHeight < 100
     this.forceScrollOnNextRender = false
 
+    const clearedAt = this.session!.listBookmarks().find((b) => b.id === room.id)?.clearedAt ?? 0
     const all: ChatMessage[] = []
-    for await (const message of room.messages()) all.push(message)
+    for await (const message of room.messages()) if (message.timestamp > clearedAt) all.push(message)
     const byId = new Map(all.map((m) => [m.id, m]))
 
     const filter = this.messageFilter.trim().toLowerCase()
@@ -1672,7 +1675,7 @@ export class AppShell extends HTMLElement {
     return this.nicknames.get(userId) || userId.slice(0, 8)
   }
 
-  private async startCall(): Promise<void> {
+  private async startCall(withVideo: boolean): Promise<void> {
     const room = this.activeRoom
     if (!room || !this.session || this.activeCalls.size > 0) return
     const memberIds = new Set(room.listMembers().map((m) => m.identityId))
@@ -1681,9 +1684,9 @@ export class AppShell extends HTMLElement {
 
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo })
     } catch {
-      return alert('Camera/microphone unavailable')
+      return alert(withVideo ? 'Camera/microphone unavailable' : 'Microphone unavailable')
     }
     this.localCallStream = stream
 
@@ -1707,8 +1710,12 @@ export class AppShell extends HTMLElement {
     let call = this.activeCalls.get(message.fromUserId)
     if (!call && message.kind === 'offer') {
       if (!this.localCallStream) {
+        // Mirror the caller's own choice of audio-only vs video — the offer's SDP already says
+        // which one it was (no separate signaling field needed), so read it from there instead
+        // of always grabbing the camera regardless of what kind of call this is.
+        const offerHasVideo = (JSON.parse(message.payload) as { sdp?: string }).sdp?.includes('m=video') ?? true
         try {
-          this.localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          this.localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: offerHasVideo })
         } catch {
           // Without this, the caller's side just keeps ringing forever with nothing ever telling
           // them why. 'hangup' doubles as "can't take this call".
@@ -2120,6 +2127,12 @@ export class AppShell extends HTMLElement {
             </div>
 
             <div class="form-group" style="margin-top:0.25rem;">
+              <button id="clearHistoryBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--danger);border-radius:var(--radius-md);color:var(--danger);">
+                ${ICONS.trash} Clear Chat History
+              </button>
+            </div>
+
+            <div class="form-group" style="margin-top:0.25rem;">
               <button id="leaveRoomBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--danger);border-radius:var(--radius-md);color:var(--danger);">
                 ${ICONS.trash} Leave Room
               </button>
@@ -2136,6 +2149,14 @@ export class AppShell extends HTMLElement {
     this.wirePageBack()
     this.querySelector('#manageMembersFromSettingsBtn')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#cancelRoomBtn')?.addEventListener('click', () => { this.view = 'app'; this.render() })
+
+    this.querySelector('#clearHistoryBtn')?.addEventListener('click', () => {
+      if (!confirm(`Clear all messages in "${this.activeRoomName}"? This only clears your own view — other members keep their copy, and history reappears if you rejoin from a backup.`)) return
+      this.session!.clearRoomHistory(room.id)
+      this.view = 'app'
+      this.forceScrollOnNextRender = true
+      this.render()
+    })
 
     this.querySelector('#leaveRoomBtn')?.addEventListener('click', () => {
       if (!confirm(`Leave "${this.activeRoomName}"? You'll need a new invite to rejoin.`)) return

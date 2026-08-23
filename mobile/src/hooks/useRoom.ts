@@ -42,7 +42,7 @@ export interface UseRoomResult {
   readBy: Set<string>
 }
 
-export function useRoom(room: Room | null | undefined, identityId: string): UseRoomResult {
+export function useRoom(room: Room | null | undefined, identityId: string, clearedAt = 0): UseRoomResult {
   const cached = room ? roomCache.get(room.id) : undefined
   const [messages, setMessages] = useState<LocalChatMessage[]>(cached?.messages ?? [])
   const [loading, setLoading] = useState(!cached)
@@ -70,20 +70,25 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     }
     if (!mountedRef.current) return
 
+    // "Clear Chat History" is a local-only cutoff (see Session.clearRoomHistory) — the log
+    // itself is untouched, this just drops anything at or before it from what's shown.
+    const visibleTail = tail.filter((m) => m.timestamp > clearedAt)
+    const clippedByClear = visibleTail.length < tail.length
+
     if (cachedEntry && cachedEntry.oldestLoaded <= tailStart) {
       const olderCount = tailStart - cachedEntry.oldestLoaded
       oldestLoadedRef.current = cachedEntry.oldestLoaded
-      setHasMore(cachedEntry.hasMore || tailStart > 0)
-      setMessages([...cachedEntry.messages.slice(0, olderCount), ...tail])
+      setHasMore((cachedEntry.hasMore || tailStart > 0) && !clippedByClear)
+      setMessages([...cachedEntry.messages.slice(0, olderCount), ...visibleTail])
     } else {
       // No cache, or it starts later than the tail page we just fetched (e.g. a view truncation
       // shrank the room) — the tail fetch alone is the full trustworthy picture.
       oldestLoadedRef.current = tailStart
-      setHasMore(tailStart > 0)
-      setMessages(tail)
+      setHasMore(tailStart > 0 && !clippedByClear)
+      setMessages(visibleTail)
     }
     setLoading(false)
-  }, [room])
+  }, [room, clearedAt])
 
   const refreshMessages = useCallback(async () => {
     if (room) roomCache.delete(room.id)
@@ -99,9 +104,10 @@ export function useRoom(room: Room | null | undefined, identityId: string): UseR
     for await (const msg of room.messages(start, end)) older.push(msg)
     if (!mountedRef.current) return
     oldestLoadedRef.current = start
-    setHasMore(start > 0)
-    setMessages((prev) => [...older, ...prev])
-  }, [room])
+    const visibleOlder = older.filter((m) => m.timestamp > clearedAt)
+    setHasMore(start > 0 && visibleOlder.length === older.length)
+    setMessages((prev) => [...visibleOlder, ...prev])
+  }, [room, clearedAt])
 
   useEffect(() => {
     mountedRef.current = true
