@@ -10,16 +10,24 @@ export interface CallHandlers {
 /**
  * Hyperswarm's hole-punch only covers its own signaling socket — WebRTC opens a
  * separate UDP flow for media, with its own local port, that needs its own NAT
- * traversal. On cone NATs (most home wifi) direct candidates often connect anyway;
- * on symmetric NAT (most mobile carrier CGNAT, e.g. 5G) each new destination gets a
- * different external port, so a peer can't even discover its own reflexive address
- * without asking a STUN server. Public STUN fixes cone-vs-cone and most cone-vs-symmetric
- * pairings; a fully symmetric-NAT peer (carrier-to-carrier) still needs a TURN relay,
- * which is a real server dependency this app doesn't have yet.
+ * traversal. STUN alone fixes cone-vs-cone and most cone-vs-symmetric pairings, but a
+ * fully symmetric NAT on both ends (carrier-to-carrier, e.g. two phones both on 5G) is
+ * only reachable through a TURN relay that actually forwards the media — no amount of
+ * candidate exchange gets around that, it's a property of the NAT itself.
+ *
+ * ponytail: openrelay.metered.ca is a free, unauthenticated-signup public TURN (shared
+ * pool, ~20GB/mo) — good enough to confirm TURN is really what carrier-to-carrier calls
+ * need, not good enough to depend on long-term (rate-limited, third-party sees call
+ * metadata though never content — DTLS-SRTP stays end-to-end through a relay same as
+ * direct). Swap for a real TURN deployment once confirmed; skip this whole exercise if
+ * it turns out STUN was already enough.
  */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' }
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
 ]
 
 export class PeerCall {
