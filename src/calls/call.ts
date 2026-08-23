@@ -15,18 +15,20 @@ export interface CallHandlers {
  * only reachable through a TURN relay that actually forwards the media — no amount of
  * candidate exchange gets around that, it's a property of the NAT itself.
  *
- * ponytail: openrelay.metered.ca is a free public TURN (shared pool, ~20GB/mo) — kept
- * deliberately instead of self-hosting (no server this app owns is a well-fitted TURN
- * host — CapRover's HTTP(S) proxying doesn't suit a raw UDP relay port range). Third
- * party sees call metadata, never content (DTLS-SRTP stays end-to-end through a relay
- * same as direct). Revisit only if the shared pool's rate limit actually bites.
+ * No TURN here, deliberately. A previous version listed openrelay.metered.ca, which turns
+ * out to have no DNS record at all — verified by probe, along with every other free
+ * no-signup public TURN we could find (all dead or STUN-only). A relay entry that can't
+ * resolve is worse than none: it buys nothing and makes ICE wait on a doomed lookup.
+ *
+ * The practical consequence: one peer behind a symmetric NAT still connects to a peer on a
+ * normal cone NAT (phone-on-cellular to desktop-on-wifi), because the cone side is directly
+ * addressable — provided no candidates are lost on the way, which is what the buffering in
+ * `flushPendingCandidates` is there to guarantee. Symmetric on *both* ends (two phones, both
+ * on cellular) cannot work without a relay, and needs a real TURN deployment to fix.
  */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  { urls: 'stun:stun1.l.google.com:19302' }
 ]
 
 export class PeerCall {
@@ -46,12 +48,15 @@ export class PeerCall {
    * `addIceCandidate` throws in that state, and a thrown-away candidate is gone for good —
    * see `flushPendingCandidates` for why that's fatal on a symmetric NAT specifically. */
   private pendingCandidates: RTCIceCandidateInit[] = []
+  /** Diagnostics only — see `onicecandidate`/`oniceconnectionstatechange`. */
+  private readonly localCandidateTypes = new Set<string>()
+  private remoteCandidateCount = 0
 
   constructor(
     private readonly rpc: RpcChannel,
     private readonly roomId: string,
     private readonly localUserId: string,
-    remoteUserId: string,
+    private readonly remoteUserId: string,
     localStream: MediaStream,
     private readonly handlers: CallHandlers = {}
   ) {
@@ -61,8 +66,23 @@ export class PeerCall {
     for (const track of localStream.getTracks()) this.pc.addTrack(track, localStream)
 
     this.pc.onicecandidate = (event) => {
-      if (!event.candidate) return
+      if (!event.candidate) {
+        // Null candidate = gathering finished. What we managed to gather is the single most
+        // diagnostic fact when a call won't connect: no `srflx` means STUN itself didn't answer
+        // on this network, and no `relay` means no TURN (see ICE_SERVERS) — which is the
+        // difference between "can reach a cone NAT" and "can reach anything".
+        console.log(`[call] ICE gathering done for ${this.remoteUserId.slice(0, 8)}; local candidate types: ${[...this.localCandidateTypes].join(', ') || 'none'}`)
+        return
+      }
+      const type = /typ (\w+)/.exec(event.candidate.candidate ?? '')?.[1]
+      if (type) this.localCandidateTypes.add(type)
       this.signal('candidate', JSON.stringify(event.candidate))
+    }
+
+    this.pc.oniceconnectionstatechange = () => {
+      // 'checking' -> 'failed' means candidates were exchanged but no pair ever worked (the
+      // NAT-traversal failure); never reaching 'checking' means they weren't exchanged at all.
+      console.log(`[call] ICE ${this.pc.iceConnectionState} with ${this.remoteUserId.slice(0, 8)} (remote candidates seen: ${this.remoteCandidateCount})`)
     }
 
     this.pc.ontrack = (event) => {
@@ -154,6 +174,7 @@ export class PeerCall {
         break
       case 'candidate': {
         const candidate = JSON.parse(message.payload) as RTCIceCandidateInit
+        this.remoteCandidateCount++
         // Candidates routinely arrive before the description they belong to — the peer starts
         // gathering the instant it sets its local description, while this side may still be
         // waiting on getUserMedia. Hold them instead of letting addIceCandidate throw them away.
