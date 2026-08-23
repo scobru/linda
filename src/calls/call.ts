@@ -5,6 +5,11 @@ export interface CallHandlers {
   onRemoteStream?(stream: MediaStream): void
   onRemoteScreenShare?(stream: MediaStream): void
   onClose?(): void
+  /** One line of ICE progress, for showing the user why a call did or didn't connect.
+   * Deliberately a callback rather than console.log: release builds strip `console.*`
+   * entirely (verified — zero occurrences survive in the shipped Android bundle), so
+   * anything logged that way is invisible exactly where diagnosing matters most. */
+  onDiagnostic?(line: string): void
 }
 
 /**
@@ -71,7 +76,7 @@ export class PeerCall {
         // diagnostic fact when a call won't connect: no `srflx` means STUN itself didn't answer
         // on this network, and no `relay` means no TURN (see ICE_SERVERS) — which is the
         // difference between "can reach a cone NAT" and "can reach anything".
-        console.log(`[call] ICE gathering done for ${this.remoteUserId.slice(0, 8)}; local candidate types: ${[...this.localCandidateTypes].join(', ') || 'none'}`)
+        handlers.onDiagnostic?.(`gathered: ${[...this.localCandidateTypes].join(', ') || 'none'}`)
         return
       }
       const type = /typ (\w+)/.exec(event.candidate.candidate ?? '')?.[1]
@@ -82,7 +87,7 @@ export class PeerCall {
     this.pc.oniceconnectionstatechange = () => {
       // 'checking' -> 'failed' means candidates were exchanged but no pair ever worked (the
       // NAT-traversal failure); never reaching 'checking' means they weren't exchanged at all.
-      console.log(`[call] ICE ${this.pc.iceConnectionState} with ${this.remoteUserId.slice(0, 8)} (remote candidates seen: ${this.remoteCandidateCount})`)
+      handlers.onDiagnostic?.(`ICE ${this.pc.iceConnectionState} (remote candidates: ${this.remoteCandidateCount})`)
     }
 
     this.pc.ontrack = (event) => {
@@ -98,6 +103,7 @@ export class PeerCall {
 
     this.pc.onconnectionstatechange = () => {
       const state = this.pc.connectionState
+      handlers.onDiagnostic?.(`connection ${state}`)
       if (state === 'connected' && this.disconnectTimer) {
         clearTimeout(this.disconnectTimer)
         this.disconnectTimer = null
@@ -187,6 +193,9 @@ export class PeerCall {
         break
       }
       case 'hangup':
+        // Distinguishes "the peer hung up on us" from "our own connection died" — the two look
+        // identical from the UI, and they have completely different causes.
+        this.handlers.onDiagnostic?.('hangup received from peer')
         // pc.close() doesn't reliably fire onconnectionstatechange in every runtime — call
         // the handler directly so the remote side's call UI closes every time, not just when
         // the event happens to fire.

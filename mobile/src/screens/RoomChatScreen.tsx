@@ -62,7 +62,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null)
   const audioPlayerRef = useRef<AudioPlayer | null>(null)
-  const { remoteStreams, startCall } = useCall(room, identityId)
+  const { remoteStreams, startCall, diagnostics } = useCall(room, identityId)
 
   // Mirrors desktop's openRoom: stamp read on open, and again for each message that
   // arrives while this screen is focused (mute the badge, not just a one-time clear).
@@ -363,6 +363,17 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       )}
 
+      {/* Why a call did or didn't connect. Shown on the device because release builds strip
+          console.*, so there is otherwise no way to see this without a cable and adb. Stays up
+          after the call ends — a call that drops instantly is exactly the case worth reading. */}
+      {diagnostics.length > 0 && (
+        <View style={styles.callDiagnostics}>
+          {diagnostics.slice(-6).map((line, i) => (
+            <Text key={i} style={styles.callDiagnosticsText}>{line}</Text>
+          ))}
+        </View>
+      )}
+
       {/* Search bar */}
       {showSearch && (
         <View style={styles.searchBar}>
@@ -557,6 +568,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: spacing.sm, backgroundColor: colors.bgSecondary,
   },
   callTile: { width: 160, height: 120, borderRadius: radii.md, backgroundColor: '#000' },
+  callDiagnostics: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    backgroundColor: colors.bgSecondary, borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  callDiagnosticsText: { color: colors.textTertiary, fontSize: typography.xs, fontFamily: 'monospace' },
   searchBar: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: colors.bgSecondary, paddingHorizontal: spacing.md,

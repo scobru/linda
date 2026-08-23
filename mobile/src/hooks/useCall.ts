@@ -26,11 +26,19 @@ export interface UseCallResult {
   remoteStreams: Map<string, MediaStream>
   startCall: (withVideo: boolean) => Promise<void>
   endCall: () => void
+  /** ICE progress lines for the current call — shown in the call UI so a failure is
+   * diagnosable on the device itself (release builds strip console.*, so logcat shows
+   * nothing). Cleared when a new call starts. */
+  diagnostics: string[]
 }
 
 export function useCall(room: RoomProxy | null | undefined, localUserId: string): UseCallResult {
   const [callActive, setCallActive] = useState(false)
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
+  const [diagnostics, setDiagnostics] = useState<string[]>([])
+  const addDiagnostic = useCallback((peerId: string, line: string) => {
+    setDiagnostics((prev) => [...prev, `${peerId.slice(0, 6)} ${line}`])
+  }, [])
   const callsRef = useRef<Map<string, PeerCall>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   /** Signals for a peer whose PeerCall doesn't exist yet — see the onCallSignal handler. */
@@ -77,12 +85,13 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
     for (const peerId of targets) {
       const call = new PeerCall(rpcAdapter(peerId), room.id, localUserId, peerId, stream, {
         onRemoteStream: (remote) => setRemoteStreams((prev) => new Map(prev).set(peerId, remote)),
+        onDiagnostic: (line) => addDiagnostic(peerId, line),
         onClose: () => endPeerCall(peerId)
       })
       callsRef.current.set(peerId, call)
       void call.call()
     }
-  }, [room, localUserId, ensureLocalStream, endPeerCall])
+  }, [room, localUserId, ensureLocalStream, endPeerCall, addDiagnostic])
 
   useEffect(() => {
     if (!room) return
@@ -120,6 +129,7 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
           }
           call = new PeerCall(rpcAdapter(message.fromUserId), message.roomId, localUserId, message.fromUserId, stream, {
             onRemoteStream: (remote) => setRemoteStreams((prev) => new Map(prev).set(message.fromUserId, remote)),
+            onDiagnostic: (line) => addDiagnostic(message.fromUserId, line),
             onClose: () => endPeerCall(message.fromUserId)
           })
           callsRef.current.set(message.fromUserId, call)
@@ -132,10 +142,10 @@ export function useCall(room: RoomProxy | null | undefined, localUserId: string)
         }
       })()
     })
-  }, [room, localUserId, ensureLocalStream, endPeerCall])
+  }, [room, localUserId, ensureLocalStream, endPeerCall, addDiagnostic])
 
   // Hang up when leaving the room's chat screen.
   useEffect(() => () => endCall(), [room?.id, endCall])
 
-  return { callActive, remoteStreams, startCall, endCall }
+  return { callActive, remoteStreams, startCall, endCall, diagnostics }
 }

@@ -1695,6 +1695,7 @@ export class AppShell extends HTMLElement {
     for (const [peerId, peer] of targets) {
       const call = new PeerCall(peer.rpc, room.id, this.identity!.id, peerId, stream, {
         onRemoteStream: (remote) => this.showRemoteVideo(peerId, remote),
+        onDiagnostic: (line) => console.log(`[call ${peerId.slice(0, 6)}] ${line}`),
         onRemoteScreenShare: (remote) => this.showRemoteScreen(peerId, remote),
         onClose: () => this.endPeerCall(peerId)
       })
@@ -1738,6 +1739,7 @@ export class AppShell extends HTMLElement {
       }
       call = new PeerCall(peer.rpc, message.roomId, this.identity!.id, message.fromUserId, this.localCallStream, {
         onRemoteStream: (remote) => this.showRemoteVideo(message.fromUserId, remote),
+        onDiagnostic: (line) => console.log(`[call ${message.fromUserId.slice(0, 6)}] ${line}`),
         onRemoteScreenShare: (remote) => this.showRemoteScreen(message.fromUserId, remote),
         onClose: () => this.endPeerCall(message.fromUserId)
       })
