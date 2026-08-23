@@ -35,6 +35,16 @@ export interface MemberInfo {
   identityId: string
 }
 
+export interface VaultFile {
+  path: string
+  name: string
+  size: number
+  mimeType?: string
+  authorId: string
+  timestamp: number
+  driveKey?: string
+}
+
 type RoomEntry =
   | { type: 'message'; message: ChatMessage }
   | { type: 'edit'; messageId: string; body: string; keyEpoch: number }
@@ -54,6 +64,9 @@ type RoomEntry =
   | { type: 'demote'; identityId: string }
   | { type: 'setMeta'; name?: string; avatar?: string; description?: string }
   | { type: 'setBroadcast'; enabled: boolean }
+  | { type: 'setVault'; enabled: boolean; driveKey?: string }
+  | { type: 'vaultAdd'; file: VaultFile }
+  | { type: 'vaultRemove'; path: string }
 
 interface OwnerRef {
   writerKey: string | null
@@ -72,6 +85,8 @@ interface RoomModeRef {
   /** Only the owner and moderators may post. Enforced in `apply()`, so a patched client that
    * appends a message anyway just has it dropped when peers linearize the log. */
   broadcast: boolean
+  vaultEnabled: boolean
+  vaultDriveKey: string | null
 }
 
 /** The room's membership/moderation/meta state as derived by `apply()`, stored as one record in the
@@ -82,6 +97,8 @@ interface PersistedRoomState {
   meta: RoomMetaRef
   /** Absent on records written before broadcast rooms existed; read as `false`. */
   broadcast?: boolean
+  vaultEnabled?: boolean
+  vaultDriveKey?: string | null
   writerIdentities: Array<[string, string]>
   moderatorIdentities: string[]
   mutedIdentities: string[]
@@ -94,6 +111,8 @@ function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRe
     ownerIdentityId: owner.identityId,
     meta: { ...meta },
     broadcast: mode.broadcast,
+    vaultEnabled: mode.vaultEnabled,
+    vaultDriveKey: mode.vaultDriveKey,
     writerIdentities: [...writerIdentities.entries()],
     moderatorIdentities: [...moderatorIdentities],
     mutedIdentities: [...mutedIdentities],
@@ -109,6 +128,8 @@ function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: Room
   meta.avatar = state.meta.avatar
   meta.description = state.meta.description
   mode.broadcast = state.broadcast ?? false
+  mode.vaultEnabled = state.vaultEnabled ?? false
+  mode.vaultDriveKey = state.vaultDriveKey ?? null
   writerIdentities.clear()
   for (const [key, id] of state.writerIdentities) writerIdentities.set(key, id)
   moderatorIdentities.clear()
@@ -135,6 +156,7 @@ type RoomStateRecord =
    * unforgeable message-to-author binding there is, and what edit/delete authorization checks. */
   | { kind: 'author'; writerKey: string }
   | { kind: 'overlay'; overlay: PersistedOverlay }
+  | { kind: 'vaultFile'; file: VaultFile }
 
 const ROOM_KEY = 'room'
 const authorKeyFor = (messageId: string) => `author/${messageId}`
@@ -183,6 +205,7 @@ function makeApply(
    * that entry; omitted means "something broader changed, assume everything is stale". */
   onMessageMutation: (messageId?: string) => void,
   onMetaChange: () => void,
+  onVaultChange: () => void,
   /** Reloads the in-memory mirror if Autobase rewound the state view under it. Awaited before any
    * entry is processed, so a reorg can never land halfway through a re-apply. */
   refreshState: (state: Hyperbee<RoomStateRecord>) => Promise<void>
@@ -316,6 +339,31 @@ function makeApply(
         mode.broadcast = entry.enabled
         await persist()
         onMetaChange()
+      } else if (entry.type === 'setVault') {
+        const role = roleOf(authorKey)
+        if (role === 'owner' || role === 'mod') {
+          mode.vaultEnabled = entry.enabled
+          if (entry.driveKey !== undefined) mode.vaultDriveKey = entry.driveKey
+          await persist()
+          onMetaChange()
+          onVaultChange()
+        }
+      } else if (entry.type === 'vaultAdd') {
+        const authorIdentity = writerIdentities.get(authorKey)
+        if (authorIdentity && (mutedIdentities.has(authorIdentity) || bannedIdentities.has(authorIdentity))) continue
+        if (mode.broadcast && roleOf(authorKey) === 'member') continue
+        if (!mode.vaultEnabled) continue
+        await state.put(`vault/${entry.file.path}`, { kind: 'vaultFile', file: entry.file })
+        onVaultChange()
+      } else if (entry.type === 'vaultRemove') {
+        const role = roleOf(authorKey)
+        const existing = (await state.get(`vault/${entry.path}`))?.value
+        if (existing?.kind === 'vaultFile') {
+          const authorIdentity = writerIdentities.get(authorKey)
+          if (role === 'member' && authorIdentity !== existing.file.authorId) continue
+          await state.del(`vault/${entry.path}`)
+          onVaultChange()
+        }
       }
     }
   }
@@ -390,6 +438,14 @@ export class Room {
     return this.mode.broadcast
   }
 
+  get isVaultEnabled(): boolean {
+    return this.mode.vaultEnabled
+  }
+
+  get vaultDriveKey(): string | null {
+    return this.mode.vaultDriveKey
+  }
+
   /** Whether this identity's messages would survive `apply()`. Mirrors the gates there, so the UI
    * can hide the composer instead of letting a message be appended and silently dropped. */
   canPost(identityId: string): boolean {
@@ -400,6 +456,11 @@ export class Room {
   /** Owner-only (enforced in `apply()`). */
   async setBroadcast(enabled: boolean): Promise<void> {
     await this.base.append({ type: 'setBroadcast', enabled })
+  }
+
+  /** Owner or moderator only (enforced in `apply()`). */
+  async setVault(enabled: boolean, driveKey?: string): Promise<void> {
+    await this.base.append({ type: 'setVault', enabled, driveKey })
   }
 
   /** `parentStore` is the identity's single shared Corestore; the room lives in its own namespace so one Hyperswarm connection can replicate every room and drive together. */
@@ -415,7 +476,7 @@ export class Room {
     const store = parentStore.namespace(tempId)
     const owner: OwnerRef = { writerKey: null, identityId: null }
     const meta: RoomMetaRef = { name: '', avatar: '', description: '' }
-    const mode: RoomModeRef = { broadcast: false }
+    const mode: RoomModeRef = { broadcast: false, vaultEnabled: false, vaultDriveKey: null }
     const writerIdentities = new Map<string, string>()
     const mutedIdentities = new Set<string>()
     const bannedIdentities = new Set<string>()
@@ -442,7 +503,7 @@ export class Room {
     const base = new Autobase<RoomEntry, RoomView>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), (state) => room.refreshState(state))
+      apply: makeApply(owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyVaultChange(), (state) => room.refreshState(state))
     })
     room.base = base
     // The mirror starts empty, and Autobase never replays checkpointed entries that would refill
@@ -767,6 +828,41 @@ export class Room {
 
   private notifyMetaChange(): void {
     this.events.emit('meta')
+  }
+
+  async addVaultFile(file: VaultFile): Promise<void> {
+    if (this.mutedIdentities.has(file.authorId)) throw new Error('You are muted in this room')
+    if (this.bannedIdentities.has(file.authorId)) throw new Error('You are banned from this room')
+    if (!this.canPost(file.authorId)) throw new Error('Only admins can post in a broadcast room')
+    if (!this.mode.vaultEnabled) throw new Error('Vault is not enabled in this room')
+    await this.base.append({ type: 'vaultAdd', file })
+  }
+
+  async removeVaultFile(filePath: string): Promise<void> {
+    await this.base.append({ type: 'vaultRemove', path: filePath })
+  }
+
+  async listVaultFiles(): Promise<VaultFile[]> {
+    const files: VaultFile[] = []
+    const stream = this.base.view.state.createReadStream({
+      gte: 'vault/',
+      lte: 'vault/\xff'
+    })
+    for await (const node of stream) {
+      if (node.value && node.value.kind === 'vaultFile') {
+        files.push(node.value.file)
+      }
+    }
+    return files.sort((a, b) => b.timestamp - a.timestamp)
+  }
+
+  onVaultChange(listener: () => void): () => void {
+    this.events.on('vault', listener)
+    return () => { this.events.off('vault', listener) }
+  }
+
+  private notifyVaultChange(): void {
+    this.events.emit('vault')
   }
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */

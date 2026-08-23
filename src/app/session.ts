@@ -9,8 +9,9 @@ import { loadProfile } from '../identity/profile.js'
 import { createSwarm, joinRoom, type PeerConnection } from '../network/swarm.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
-import { Room, type ChatMessage } from '../rooms/room.js'
+import { Room, type ChatMessage, type VaultFile } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
+import { RoomVault } from '../files/vault.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 
@@ -75,6 +76,7 @@ export class Session {
   private readonly pendingInviteCodes = new Map<string, string>()
   private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
+  private readonly roomVaults = new Map<string, RoomVault>()
   private nickname = ''
   private avatar = ''
   private readonly peerAvatars = new Map<string, string>()
@@ -385,6 +387,75 @@ export class Session {
     await room.setBroadcast(enabled)
   }
 
+  async setRoomVault(roomId: string, enabled: boolean): Promise<void> {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    if (enabled && !room.vaultDriveKey) {
+      const vault = await RoomVault.open(this.store, room.id)
+      await room.setVault(true, vault.keyHex)
+      this.swarm.join(vault.discoveryKey, { server: true, client: true })
+      this.roomVaults.set(roomId, vault)
+    } else {
+      await room.setVault(enabled)
+      if (enabled) {
+        await this.roomVault(roomId)
+      }
+    }
+  }
+
+  async roomVault(roomId: string): Promise<RoomVault | null> {
+    const room = this.rooms.get(roomId)
+    if (!room) return null
+    let vault = this.roomVaults.get(roomId)
+    if (!vault) {
+      if (!room.isVaultEnabled && !room.isOwner(this.identity.id)) return null
+      vault = await RoomVault.open(this.store, room.id, room.vaultDriveKey)
+      if (!room.vaultDriveKey && room.isOwner(this.identity.id)) {
+        await room.setVault(true, vault.keyHex)
+      }
+      this.swarm.join(vault.discoveryKey, { server: true, client: true })
+      this.roomVaults.set(roomId, vault)
+    }
+    return vault
+  }
+
+  async uploadToVault(roomId: string, name: string, buffer: Buffer, mimeType?: string): Promise<VaultFile> {
+    const room = this.rooms.get(roomId)
+    if (!room) throw new Error('Room not found')
+    if (!room.isVaultEnabled) throw new Error('Vault is not enabled in this room')
+    const vault = await this.roomVault(roomId)
+    if (!vault) throw new Error('Could not open room vault')
+    const drivePath = `/${Date.now()}-${name}`
+    const result = await vault.put(drivePath, buffer)
+    const vaultFile: VaultFile = {
+      path: result.path,
+      name,
+      size: result.size,
+      mimeType: mimeType || 'application/octet-stream',
+      authorId: this.identity.id,
+      timestamp: Date.now(),
+      driveKey: vault.keyHex
+    }
+    await room.addVaultFile(vaultFile)
+    return vaultFile
+  }
+
+  async downloadFromVault(roomId: string, filePath: string): Promise<Buffer | null> {
+    const vault = await this.roomVault(roomId)
+    if (!vault) throw new Error('Could not open room vault')
+    return await vault.get(filePath)
+  }
+
+  async deleteFromVault(roomId: string, filePath: string): Promise<void> {
+    const room = this.rooms.get(roomId)
+    if (!room) throw new Error('Room not found')
+    const vault = await this.roomVault(roomId)
+    if (vault && vault.writable) {
+      await vault.del(filePath)
+    }
+    await room.removeVaultFile(filePath)
+  }
+
   async updateRoomMeta(roomId: string, opts: { name?: string; avatar?: string; description?: string }): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return
@@ -644,6 +715,14 @@ export class Session {
       if (message.authorId === this.identity.id) return
       this.events.onIncomingMessage?.(room.id, message)
     })
+    room.onVaultChange(() => {
+      if (room.isVaultEnabled && !this.roomVaults.has(room.id)) {
+        void this.roomVault(room.id)
+      }
+    })
+    if (room.isVaultEnabled) {
+      void this.roomVault(room.id)
+    }
     // A room's name/avatar/description replicate through Autobase to every member on their
     // own, but the bookmark (what the room list actually renders) is a separate local cache
     // that only the device making the change updates on its own — so it never picked up a
@@ -913,6 +992,7 @@ export class Session {
   }
 
   async close(): Promise<void> {
+    for (const vault of this.roomVaults.values()) await vault.close()
     for (const room of this.rooms.values()) await room.close()
     await this.swarm.destroy()
     await this.store.close()

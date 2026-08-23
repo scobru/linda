@@ -25,6 +25,23 @@ This is a **deliberate product stance**, not a missing feature:
 
 By eliminating real-time call plumbing entirely, Linda guarantees that all interactions—chat, encrypted file sharing, and identity discovery—operate exclusively over pure P2P primitives (Hyperswarm DHT, Autobase, Corestore, Hyperdrive) with zero centralized infrastructure.
 
+## Unique Features
+
+### 📁 P2P Room Vault (Decentralized Collaborative Drive)
+
+Instead of relying on centralized cloud storage (Dropbox, Google Drive) or transient chat file attachments, Linda rooms can host an integrated **P2P Room Vault**:
+- **Admin-Controlled Activation**: The room Owner or Moderator can toggle the Vault on or off per room via Room Settings / Members screen.
+- **Dedicated Hyperdrive Swarm**: Each enabled room vault operates as an independent Hyperdrive namespaced under `vault-${roomId}`, joining Hyperswarm on its own discovery key.
+- **Multi-Seeder P2P Replication**: Every room member with the vault open automatically seeds and caches files for the swarm, enabling ultra-fast local LAN / swarm transfers and persistent availability without central servers.
+- **Linearized Indexing in Autobase**: File metadata records (`name`, `size`, `mimeType`, `authorId`, `timestamp`, `driveKey`) are stored directly in the linearized Hyperbee `state` log (`vault/${path}`), ensuring immediate index sync across all devices.
+- **Granular Moderation & Permissions**:
+  - **Enable/Disable**: Room Owner and Moderators only.
+  - **Upload & Read**: All non-muted room members.
+  - **Delete**: File author or Room Owner/Moderators.
+- **Full Cross-Platform UI**:
+  - **Desktop**: Fast tab switching `[ 💬 Chat ]` / `[ 📁 Vault ]`, live search, instant upload, and direct downloads.
+  - **Mobile**: Segmented room controls, native document picker (`expo-document-picker`), native sharing and streaming support.
+
 ## Desktop (Electron)
 
 ```bash

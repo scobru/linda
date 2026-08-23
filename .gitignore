@@ -34,3 +34,9 @@ mobile/.expo/
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+.cache/
+
+# Pix Agent
+.pi/
+.pi-lens/
+

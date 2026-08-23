@@ -1,7 +1,7 @@
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
-import type { Room, ChatMessage } from '../rooms/room.js'
+import type { Room, ChatMessage, VaultFile } from '../rooms/room.js'
 import { RemoteDrive } from '../files/remote.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
@@ -163,6 +163,8 @@ export class AppShell extends HTMLElement {
   private selectionMode = false
   private selectedMessageIds = new Set<string>()
   private messageFilter = ''
+  private activeRoomTab: 'chat' | 'vault' = 'chat'
+  private vaultSearchQuery = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
   private sidebarSearchQuery = ''
@@ -1104,6 +1106,13 @@ export class AppShell extends HTMLElement {
           </div>
         </div>
 
+        ${room.isVaultEnabled ? `
+          <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
+            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">💬 Chat</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'vault' ? 'active' : ''}" id="roomTabVault" style="background:${this.activeRoomTab === 'vault' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'vault' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">📁 Vault</button>
+          </div>
+        ` : ''}
+
         <div class="room-header-tools">
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
@@ -1123,60 +1132,115 @@ export class AppShell extends HTMLElement {
         </div>
       ` : ''}
 
-      <!-- Messages Stream Canvas -->
-      <div id="messages" class="messages"></div>
-      <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" title="Scroll to latest">↓</button>
-
-      <div id="seenBy" class="status-bar"></div>
-      <div id="typing" class="status-bar"></div>
-
-      ${this.selectionMode ? `
-        <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>${this.selectedMessageIds.size} selected</span>
-          </div>
-          <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
-          <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
-        </div>
-      ` : this.editingMessage ? `
-        <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>Editing message</span>
-          </div>
-          <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
-        </div>
-      ` : this.replyingTo ? `
-        <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
-            <span class="reply-snippet">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
-          </div>
-          <button class="cancel" id="cancelReply" title="Cancel reply">✕</button>
-        </div>
-      ` : ''}
-
-      <!-- Composer Bar -->
-      <footer class="composer">
-        ${writable ? `
-          <div class="composer-capsule">
-            <button class="composer-plus-btn" id="attachBtn" title="Attach file or image via Hyperdrive">+</button>
-            <input id="file" type="file" style="display:none" />
-            <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
-            <div class="composer-tools-group">
-              <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">😊</button>
-              <button class="composer-send-btn" id="send" title="Send">${ICONS.send}</button>
+      ${room.isVaultEnabled && this.activeRoomTab === 'vault' ? `
+        <!-- Vault View Canvas -->
+        <div id="vaultContainer" class="vault-container" style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);">
+          <!-- Vault Toolbar -->
+          <div class="vault-toolbar" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-subtle);">
+            <div style="display:flex;align-items:center;gap:0.5rem;flex:1;max-width:320px;">
+              <input type="text" id="vaultSearchInput" placeholder="Search vault files..." value="${escapeHtml(this.vaultSearchQuery)}" class="keet-input" style="padding:0.35rem 0.65rem;font-size:0.8rem;width:100%;" />
+            </div>
+            <div style="display:flex;align-items:center;gap:0.6rem;">
+              ${writable ? `
+                <label class="primary" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600;">
+                  <span>⬆️ Upload to Vault</span>
+                  <input type="file" id="vaultFileInput" style="display:none;" />
+                </label>
+              ` : `<span style="font-size:0.75rem;color:var(--text-muted);">Read-only vault</span>`}
             </div>
           </div>
-        ` : `
-          <div class="broadcast-disabled-bar">${composerBlockedReason}</div>
-        `}
-      </footer>
+
+          <!-- Vault Files Stream -->
+          <div id="vaultFilesList" style="flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:0.75rem;">
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;">Loading vault files…</div>
+          </div>
+        </div>
+      ` : `
+        <!-- Messages Stream Canvas -->
+        <div id="messages" class="messages"></div>
+        <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" title="Scroll to latest">↓</button>
+
+        <div id="seenBy" class="status-bar"></div>
+        <div id="typing" class="status-bar"></div>
+
+        ${this.selectionMode ? `
+          <div class="reply-bar">
+            <div class="reply-bar-text">
+              <span>${this.selectedMessageIds.size} selected</span>
+            </div>
+            <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
+            <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
+          </div>
+        ` : this.editingMessage ? `
+          <div class="reply-bar">
+            <div class="reply-bar-text">
+              <span>Editing message</span>
+            </div>
+            <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
+          </div>
+        ` : this.replyingTo ? `
+          <div class="reply-bar">
+            <div class="reply-bar-text">
+              <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
+              <span class="reply-snippet">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
+            </div>
+            <button class="cancel" id="cancelReply" title="Cancel reply">✕</button>
+          </div>
+        ` : ''}
+
+        <!-- Composer Bar -->
+        <footer class="composer">
+          ${writable ? `
+            <div class="composer-capsule">
+              <button class="composer-plus-btn" id="attachBtn" title="Attach file or image via Hyperdrive">+</button>
+              <input id="file" type="file" style="display:none" />
+              <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
+              <div class="composer-tools-group">
+                <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">😊</button>
+                <button class="composer-send-btn" id="send" title="Send">${ICONS.send}</button>
+              </div>
+            </div>
+          ` : `
+            <div class="broadcast-disabled-bar">${composerBlockedReason}</div>
+          `}
+        </footer>
+      `}
     `
   }
 
   private wireRoom(): void {
     const room = this.activeRoom
     if (!room) return
+
+    this.querySelector('#roomTabChat')?.addEventListener('click', () => {
+      this.activeRoomTab = 'chat'
+      this.renderApp()
+    })
+    this.querySelector('#roomTabVault')?.addEventListener('click', () => {
+      this.activeRoomTab = 'vault'
+      this.renderApp()
+    })
+
+    if (this.activeRoomTab === 'vault' && room.isVaultEnabled) {
+      void this.renderVaultFiles()
+      const searchInput = this.querySelector('#vaultSearchInput') as HTMLInputElement
+      searchInput?.addEventListener('input', () => {
+        this.vaultSearchQuery = searchInput.value
+        void this.renderVaultFiles()
+      })
+      const vaultFileInput = this.querySelector('#vaultFileInput') as HTMLInputElement
+      vaultFileInput?.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0]
+        if (!file) return
+        try {
+          const buffer = Buffer.from(await file.arrayBuffer())
+          await this.session!.uploadToVault(room.id, file.name, buffer, file.type)
+          void this.renderVaultFiles()
+        } catch (err) {
+          alert(`Upload error: ${(err as Error).message}`)
+        }
+      })
+    }
 
     void this.renderMessages()
 
@@ -1260,6 +1324,8 @@ export class AppShell extends HTMLElement {
     this.view = 'app'
     this.activeRoom = room
     this.activeRoomName = name
+    this.activeRoomTab = 'chat'
+    this.vaultSearchQuery = ''
     this.typingPeers.clear()
     this.readBy.clear()
     this.lastReadSent = null
@@ -1275,7 +1341,11 @@ export class AppShell extends HTMLElement {
         this.scheduleRenderApp()
       }),
       room.onWritableChange(() => this.scheduleRenderApp()),
-      room.onKeyChange(() => this.scheduleRenderApp())
+      room.onKeyChange(() => this.scheduleRenderApp()),
+      room.onVaultChange(() => {
+        if (this.activeRoomTab === 'vault') void this.renderVaultFiles()
+        this.scheduleRenderApp()
+      })
     ]
     this.renderApp()
   }
@@ -1592,6 +1662,101 @@ export class AppShell extends HTMLElement {
     a.download = name
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  private async downloadVaultFile(filePath: string, name: string): Promise<void> {
+    if (!this.activeRoom || !this.session) return
+    try {
+      const buffer = await this.session.downloadFromVault(this.activeRoom.id, filePath)
+      if (!buffer) return alert('File not yet available on connected peers')
+      const blob = new Blob([new Uint8Array(buffer)])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(`Download error: ${(err as Error).message}`)
+    }
+  }
+
+  private async renderVaultFiles(): Promise<void> {
+    const room = this.activeRoom
+    if (!room || !this.session) return
+    const container = this.querySelector('#vaultFilesList')
+    if (!container) return
+
+    const files = await room.listVaultFiles()
+    const filter = this.vaultSearchQuery.trim().toLowerCase()
+    const visible = filter ? files.filter((f) => f.name.toLowerCase().includes(filter)) : files
+
+    if (visible.length === 0) {
+      container.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;color:var(--text-muted);text-align:center;">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">📁</div>
+          <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">${filter ? 'No matching files found' : 'P2P Room Vault is Empty'}</div>
+          <div style="font-size:0.8rem;max-width:340px;">${filter ? 'Try a different search query.' : 'Upload documents, videos, audio, or archives to share directly with the swarm.'}</div>
+        </div>
+      `
+      return
+    }
+
+    const html = visible.map((f) => {
+      const isMine = f.authorId === this.identity!.id
+      const canDelete = isMine || room.isOwner(this.identity!.id) || room.isModerator(this.identity!.id)
+      const isImg = f.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)
+      const isAudio = f.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name)
+      const isVideo = f.mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(f.name)
+      const isZip = /\.(zip|tar|gz|7z|rar)$/i.test(f.name)
+      const isPdf = /\.pdf$/i.test(f.name) || f.mimeType === 'application/pdf'
+      const icon = isImg ? '🖼️' : isAudio ? '🎵' : isVideo ? '🎬' : isZip ? '📦' : isPdf ? '📄' : '📁'
+      const timeStr = new Date(f.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+      return `
+        <div class="vault-file-card" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:8px;gap:1rem;">
+          <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
+            <div style="font-size:1.6rem;flex-shrink:0;">${icon}</div>
+            <div style="min-width:0;flex:1;">
+              <div style="font-weight:600;font-size:0.85rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+              <div style="font-size:0.7rem;color:var(--text-muted);display:flex;gap:0.6rem;align-items:center;margin-top:0.15rem;">
+                <span>${formatBytes(f.size)}</span>
+                <span>•</span>
+                <span>By ${escapeHtml(this.displayName(f.authorId))}</span>
+                <span>•</span>
+                <span>${timeStr}</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
+            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}">⬇️ Download</button>
+            ${canDelete ? `
+              <button class="ghost" style="color:var(--danger);padding:0.3rem 0.5rem;font-size:0.75rem;" data-vault-delete="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" title="Delete file from vault">${ICONS.trash}</button>
+            ` : ''}
+          </div>
+        </div>
+      `
+    }).join('')
+
+    container.innerHTML = html
+
+    container.querySelectorAll<HTMLButtonElement>('[data-vault-download]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!)
+      })
+    })
+
+    container.querySelectorAll<HTMLButtonElement>('[data-vault-delete]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Delete "${btn.dataset.vaultName || 'this file'}" from Room Vault?`)) return
+        try {
+          await this.session!.deleteFromVault(room.id, btn.dataset.vaultDelete!)
+          void this.renderVaultFiles()
+        } catch (err) {
+          alert(`Delete error: ${(err as Error).message}`)
+        }
+      })
+    })
   }
 
   private async playAudio(driveKeyHex: string, drivePath: string, slot: HTMLElement): Promise<void> {
@@ -1962,6 +2127,19 @@ export class AppShell extends HTMLElement {
               </div>
             ` : ''}
 
+            ${room.isOwner(this.identity!.id) || room.isModerator(this.identity!.id) ? `
+              <div class="keet-switch-row" style="margin-top:0.5rem;">
+                <div class="switch-label-wrap">
+                  <span>P2P Room Vault (Shared Drive)</span>
+                  <span class="info-tooltip-icon" title="Enables a decentralized collaborative drive for all room members">&#9432;</span>
+                </div>
+                <label class="keet-switch">
+                  <input type="checkbox" id="roomVaultToggle" ${room.isVaultEnabled ? 'checked' : ''} />
+                  <span class="keet-slider"></span>
+                </label>
+              </div>
+            ` : ''}
+
             <div class="form-group" style="margin-top:0.25rem;">
               <button id="manageMembersFromSettingsBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--border);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:space-between;background:var(--bg-subtle);">
                 <span style="display:flex;align-items:center;gap:0.5rem;font-weight:600;color:var(--text);font-size:0.85rem;">
@@ -2042,8 +2220,6 @@ export class AppShell extends HTMLElement {
       })
     })
 
-    // Applied on toggle rather than on Save: it is an owner-only log entry, not part of the meta
-    // record the Save button writes, and the checkbox already shows the new state.
     const broadcastToggle = this.querySelector('#roomBroadcastToggle') as HTMLInputElement | null
     broadcastToggle?.addEventListener('change', async () => {
       try {
@@ -2051,6 +2227,16 @@ export class AppShell extends HTMLElement {
       } catch (err) {
         broadcastToggle.checked = !broadcastToggle.checked
         alert((err as Error).message || 'Could not change broadcast mode')
+      }
+    })
+
+    const vaultToggle = this.querySelector('#roomVaultToggle') as HTMLInputElement | null
+    vaultToggle?.addEventListener('change', async () => {
+      try {
+        await this.session!.setRoomVault(room.id, vaultToggle.checked)
+      } catch (err) {
+        vaultToggle.checked = !vaultToggle.checked
+        alert((err as Error).message || 'Could not toggle room vault')
       }
     })
 

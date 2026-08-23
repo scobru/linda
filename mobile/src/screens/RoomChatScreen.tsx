@@ -9,18 +9,36 @@ import { useFocusEffect } from '@react-navigation/native'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import * as Clipboard from 'expo-clipboard'
+import * as DocumentPicker from 'expo-document-picker'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
 import { downloadFile } from '../bare/room-proxy'
-import type { ChatMessage } from '@core/rooms/room'
+import type { ChatMessage, VaultFile } from '@core/rooms/room'
 import ChatBubble, { isAudioFile } from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+}
+
+function getFileEmoji(name: string, mimeType?: string): string {
+  if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return '🖼️'
+  if (mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(name)) return '🎵'
+  if (mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(name)) return '🎬'
+  if (/\.(zip|tar|gz|7z|rar)$/i.test(name)) return '📦'
+  if (/\.pdf$/i.test(name) || mimeType === 'application/pdf') return '📄'
+  return '📁'
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
 
@@ -83,17 +101,117 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // False when muted or in a broadcast room without admin rights — the two cases where the worklet
   // would accept the message and every peer would then drop it while linearizing the log.
   const [canPost, setCanPost] = useState(false)
+  const [activeTab, setActiveTab] = useState<'chat' | 'vault'>('chat')
+  const [vaultEnabled, setVaultEnabled] = useState(false)
+  const [vaultFiles, setVaultFiles] = useState<VaultFile[]>([])
+  const [vaultLoading, setVaultLoading] = useState(false)
+  const [vaultSearchQuery, setVaultSearchQuery] = useState('')
+  const [downloadingVaultPath, setDownloadingVaultPath] = useState<string | null>(null)
+  const [uploadingVault, setUploadingVault] = useState(false)
+
+  const refreshVault = useCallback(async () => {
+    if (!room) return
+    setVaultLoading(true)
+    try {
+      const list = await room.listVaultFiles()
+      setVaultFiles(list)
+    } catch {
+      // ignore
+    } finally {
+      setVaultLoading(false)
+    }
+  }, [room])
+
   useEffect(() => {
     if (!room) return
-    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean }) => {
+    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean; vaultEnabled?: boolean }) => {
       setWritable(s.writable)
       setHasKey(s.hasKey)
       setCanPost(s.canPost)
+      setVaultEnabled(s.vaultEnabled ?? false)
     }
     apply(room)
     void room.refreshState().then(apply)
-    return room.onStateChange(apply)
+    const unsubState = room.onStateChange(apply)
+    const unsubVault = room.onVaultChange(() => {
+      void refreshVault()
+    })
+    return () => {
+      unsubState()
+      unsubVault()
+    }
+  }, [room, refreshVault])
+
+  useEffect(() => {
+    if (activeTab === 'vault') {
+      void refreshVault()
+    }
+  }, [activeTab, refreshVault])
+
+  const handleUploadVault = useCallback(async () => {
+    if (!room) return
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
+      if (result.canceled || !result.assets?.[0]) return
+      const asset = result.assets[0]
+      setUploadingVault(true)
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 })
+      await room.uploadToVault(asset.name, asset.mimeType || 'application/octet-stream', base64)
+      await refreshVault()
+    } catch (err) {
+      Alert.alert('Upload failed', (err as Error).message)
+    } finally {
+      setUploadingVault(false)
+    }
+  }, [room, refreshVault])
+
+  const handleDownloadVault = useCallback(async (file: VaultFile) => {
+    if (!room) return
+    setDownloadingVaultPath(file.path)
+    try {
+      const base64 = await room.downloadFromVault(file.path)
+      if (!base64) {
+        Alert.alert('Download failed', 'File not available on connected peers')
+        return
+      }
+      const localUri = `${FileSystem.cacheDirectory}${file.name}`
+      await FileSystem.writeAsStringAsync(localUri, base64, { encoding: FileSystem.EncodingType.Base64 })
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(localUri)
+      } else {
+        Alert.alert('Downloaded', `Saved to ${file.name}`)
+      }
+    } catch (err) {
+      Alert.alert('Download error', (err as Error).message)
+    } finally {
+      setDownloadingVaultPath(null)
+    }
   }, [room])
+
+  const handleDeleteVault = useCallback((file: VaultFile) => {
+    if (!room) return
+    Alert.alert(`Delete "${file.name}"?`, 'This will remove the file from the Room Vault.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await room.deleteFromVault(file.path)
+            await refreshVault()
+          } catch (err) {
+            Alert.alert('Delete failed', (err as Error).message)
+          }
+        }
+      }
+    ])
+  }, [room, refreshVault])
+
+  const filteredVaultFiles = useMemo(() => {
+    const q = vaultSearchQuery.trim().toLowerCase()
+    if (!q) return vaultFiles
+    return vaultFiles.filter((f) => f.name.toLowerCase().includes(q))
+  }, [vaultFiles, vaultSearchQuery])
 
   const [replyTo, setReplyTo] = useState<{ id: string; body: string; authorName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null)
@@ -360,105 +478,195 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={filteredMessages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ChatBubble
-            message={item}
-            isSelf={item.authorId === identityId}
-            authorName={getAuthorName(item.authorId)}
-            replyPreview={getReplyPreview(item.replyTo)}
-            onLongPress={() => selectionMode ? (item.authorId === identityId && toggleSelected(item.id)) : handleLongPress(item)}
-            onPress={selectionMode && item.authorId === identityId ? () => toggleSelected(item.id) : undefined}
-            selected={selectedIds.has(item.id)}
-            selectable={selectionMode && item.authorId === identityId}
-            onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
-            onFilePress={() => handleFilePress(item)}
-            fileDownloading={downloadingId === item.id}
-            isAudioPlaying={playingAudioId === item.id}
-            isAudioLoading={loadingAudioId === item.id}
-          />
-        )}
-        contentContainerStyle={styles.messageList}
-        // Keeps fewer off-screen bubbles mounted at once — a long/media-heavy room otherwise
-        // renders most of its loaded page regardless of what's actually visible, which both
-        // scrolling and leaving the screen (everything mounted has to unmount) pay for.
-        windowSize={7}
-        maxToRenderPerBatch={16}
-        initialNumToRender={16}
-        removeClippedSubviews
-        onScroll={handleListScroll}
-        scrollEventThrottle={100}
-        onContentSizeChange={() => {
-          // Only snap to bottom when a message actually landed at the tail — loadOlder()
-          // prepends to the top and must not yank the view back down.
-          const tail = filteredMessages[filteredMessages.length - 1]
-          if (tail && tail.id !== lastTailIdRef.current) {
-            lastTailIdRef.current = tail.id
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
-        }}
-        ListHeaderComponent={hasMore ? (
+      {vaultEnabled && (
+        <View style={styles.tabContainer}>
           <Pressable
-            style={styles.loadEarlier}
-            disabled={loadingOlder}
-            onPress={async () => {
-              setLoadingOlder(true)
-              try { await loadOlder() } finally { setLoadingOlder(false) }
-            }}
+            style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('chat')}
           >
-            <Text style={styles.loadEarlierText}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</Text>
+            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>💬 Chat</Text>
           </Pressable>
-        ) : undefined}
-        ListEmptyComponent={
-          loading ? (
-            <View style={styles.emptyCenter}>
-              <Text style={styles.emptyText}>Loading messages...</Text>
-            </View>
-          ) : (
-            <View style={styles.emptyCenter}>
-              <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
-              <Text style={styles.emptyText}>No messages yet. Say hello!</Text>
-            </View>
-          )
-        }
-      />
-
-      {showScrollToBottom && (
-        <Pressable
-          style={styles.scrollToBottomBtn}
-          onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        >
-          <Ionicons name="chevron-down" size={22} color={colors.textPrimary} />
-        </Pressable>
+          <Pressable
+            style={[styles.tabButton, activeTab === 'vault' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('vault')}
+          >
+            <Text style={[styles.tabText, activeTab === 'vault' && styles.tabTextActive]}>📁 Vault ({vaultFiles.length})</Text>
+          </Pressable>
+        </View>
       )}
 
-      {/* Typing / seen-by status */}
-      {typingUsers.size > 0 ? (
-        <Text style={styles.statusBar}>{[...typingUsers].map(getAuthorName).join(', ')} typing…</Text>
-      ) : readBy.size > 0 ? (
-        <Text style={styles.statusBar}>Seen by {[...readBy].map(getAuthorName).join(', ')}</Text>
-      ) : null}
+      {activeTab === 'vault' && vaultEnabled ? (
+        <View style={{ flex: 1 }}>
+          <View style={styles.vaultToolbar}>
+            <TextInput
+              style={styles.vaultSearchInput}
+              placeholder="Search vault files..."
+              placeholderTextColor={colors.textTertiary}
+              value={vaultSearchQuery}
+              onChangeText={setVaultSearchQuery}
+            />
+            {writable && hasKey && canPost && (
+              <Pressable
+                style={[styles.vaultUploadBtn, uploadingVault && { opacity: 0.6 }]}
+                disabled={uploadingVault}
+                onPress={handleUploadVault}
+              >
+                <Ionicons name="cloud-upload-outline" size={16} color="#000" />
+                <Text style={styles.vaultUploadText}>{uploadingVault ? 'Uploading…' : 'Upload'}</Text>
+              </Pressable>
+            )}
+          </View>
 
-      {writable && hasKey && !canPost && (
-        <Text style={styles.statusBar}>Only admins can send messages in this broadcast room</Text>
+          <FlatList
+            data={filteredVaultFiles}
+            keyExtractor={(item) => item.path}
+            contentContainerStyle={styles.vaultList}
+            renderItem={({ item }) => {
+              const isMine = item.authorId === identityId
+              const isDownloading = downloadingVaultPath === item.path
+              return (
+                <View style={styles.vaultCard}>
+                  <View style={styles.vaultCardIcon}>
+                    <Text style={{ fontSize: 24 }}>{getFileEmoji(item.name, item.mimeType)}</Text>
+                  </View>
+                  <View style={styles.vaultCardInfo}>
+                    <Text style={styles.vaultCardName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.vaultCardMeta}>
+                      {formatBytes(item.size)} • {getAuthorName(item.authorId)} • {new Date(item.timestamp).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <View style={styles.vaultCardActions}>
+                    <Pressable
+                      style={styles.vaultActionBtn}
+                      disabled={isDownloading}
+                      onPress={() => handleDownloadVault(item)}
+                    >
+                      <Ionicons
+                        name={isDownloading ? 'hourglass-outline' : 'download-outline'}
+                        size={18}
+                        color={colors.accent}
+                      />
+                    </Pressable>
+                    {isMine && (
+                      <Pressable
+                        style={styles.vaultActionBtn}
+                        onPress={() => handleDeleteVault(item)}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              )
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyCenter}>
+                <Text style={styles.emptyEmoji}>📁</Text>
+                <Text style={styles.emptyText}>
+                  {vaultLoading ? 'Loading vault files…' : vaultSearchQuery ? 'No matching files found' : 'P2P Room Vault is empty'}
+                </Text>
+              </View>
+            }
+          />
+        </View>
+      ) : (
+        <>
+          {/* Messages */}
+          <FlatList
+            ref={flatListRef}
+            data={filteredMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ChatBubble
+                message={item}
+                isSelf={item.authorId === identityId}
+                authorName={getAuthorName(item.authorId)}
+                replyPreview={getReplyPreview(item.replyTo)}
+                onLongPress={() => selectionMode ? (item.authorId === identityId && toggleSelected(item.id)) : handleLongPress(item)}
+                onPress={selectionMode && item.authorId === identityId ? () => toggleSelected(item.id) : undefined}
+                selected={selectedIds.has(item.id)}
+                selectable={selectionMode && item.authorId === identityId}
+                onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
+                onFilePress={() => handleFilePress(item)}
+                fileDownloading={downloadingId === item.id}
+                isAudioPlaying={playingAudioId === item.id}
+                isAudioLoading={loadingAudioId === item.id}
+              />
+            )}
+            contentContainerStyle={styles.messageList}
+            windowSize={7}
+            maxToRenderPerBatch={16}
+            initialNumToRender={16}
+            removeClippedSubviews
+            onScroll={handleListScroll}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              const tail = filteredMessages[filteredMessages.length - 1]
+              if (tail && tail.id !== lastTailIdRef.current) {
+                lastTailIdRef.current = tail.id
+                flatListRef.current?.scrollToEnd({ animated: false })
+              }
+            }}
+            ListHeaderComponent={hasMore ? (
+              <Pressable
+                style={styles.loadEarlier}
+                disabled={loadingOlder}
+                onPress={async () => {
+                  setLoadingOlder(true)
+                  try { await loadOlder() } finally { setLoadingOlder(false) }
+                }}
+              >
+                <Text style={styles.loadEarlierText}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</Text>
+              </Pressable>
+            ) : undefined}
+            ListEmptyComponent={
+              loading ? (
+                <View style={styles.emptyCenter}>
+                  <Text style={styles.emptyText}>Loading messages...</Text>
+                </View>
+              ) : (
+                <View style={styles.emptyCenter}>
+                  <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
+                  <Text style={styles.emptyText}>No messages yet. Say hello!</Text>
+                </View>
+              )
+            }
+          />
+
+          {showScrollToBottom && (
+            <Pressable
+              style={styles.scrollToBottomBtn}
+              onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            >
+              <Ionicons name="chevron-down" size={22} color={colors.textPrimary} />
+            </Pressable>
+          )}
+
+          {/* Typing / seen-by status */}
+          {typingUsers.size > 0 ? (
+            <Text style={styles.statusBar}>{[...typingUsers].map(getAuthorName).join(', ')} typing…</Text>
+          ) : readBy.size > 0 ? (
+            <Text style={styles.statusBar}>Seen by {[...readBy].map(getAuthorName).join(', ')}</Text>
+          ) : null}
+
+          {writable && hasKey && !canPost && (
+            <Text style={styles.statusBar}>Only admins can send messages in this broadcast room</Text>
+          )}
+
+          {/* Composer */}
+          <MessageComposer
+            onSend={handleSend}
+            onAttach={handleAttach}
+            onChangeText={notifyTyping}
+            replyTo={replyTo}
+            editingMessage={editingMessage}
+            onCancelReply={() => setReplyTo(null)}
+            onCancelEdit={() => setEditingMessage(null)}
+            onSubmitEdit={handleEdit}
+            disabled={!writable || !hasKey || !canPost}
+          />
+        </>
       )}
-
-      {/* Composer */}
-      <MessageComposer
-        onSend={handleSend}
-        onAttach={handleAttach}
-        onChangeText={notifyTyping}
-        replyTo={replyTo}
-        editingMessage={editingMessage}
-        onCancelReply={() => setReplyTo(null)}
-        onCancelEdit={() => setEditingMessage(null)}
-        onSubmitEdit={handleEdit}
-        disabled={!writable || !hasKey || !canPost}
-      />
 
       {/* Action sheet modal (cross-platform) */}
       <Modal visible={!!selectedMessage} transparent animationType="fade">
@@ -595,4 +803,107 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: spacing.sm, paddingTop: spacing.lg,
   },
   actionCancelText: { color: colors.textTertiary, fontSize: typography.md, textAlign: 'center' },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.bgSecondary,
+    padding: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.xs,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderRadius: radii.md,
+  },
+  tabButtonActive: {
+    backgroundColor: colors.accent,
+  },
+  tabText: {
+    color: colors.textSecondary,
+    fontSize: typography.sm,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: '#000000',
+  },
+  vaultToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  vaultSearchInput: {
+    flex: 1,
+    backgroundColor: colors.inputBg,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+  },
+  vaultUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+  },
+  vaultUploadText: {
+    color: '#000000',
+    fontSize: typography.sm,
+    fontWeight: '700',
+  },
+  vaultList: {
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  vaultCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bgSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  vaultCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radii.md,
+    backgroundColor: colors.bgTertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vaultCardInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  vaultCardName: {
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+    fontWeight: '600',
+  },
+  vaultCardMeta: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+    marginTop: 2,
+  },
+  vaultCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  vaultActionBtn: {
+    padding: spacing.xs,
+  },
 })

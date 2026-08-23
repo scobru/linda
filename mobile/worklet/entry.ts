@@ -62,6 +62,8 @@ function roomState(room: Room) {
     writable: room.writable,
     hasKey: room.hasKey,
     broadcast: room.isBroadcast,
+    vaultEnabled: room.isVaultEnabled,
+    vaultDriveKey: room.vaultDriveKey,
     canPost: identity ? room.canPost(identity.id) : false
   }
 }
@@ -76,6 +78,10 @@ function wireRoom(room: Room): void {
   room.onMessage((index) => pushEvent('roomMessage', { roomId: room.id, index }))
   room.onWritableChange(() => pushRoomState(room))
   room.onKeyChange(() => pushRoomState(room))
+  room.onVaultChange(() => {
+    pushRoomState(room)
+    pushEvent('roomVaultChange', { roomId: room.id })
+  })
   // Broadcast mode and mutes both change who may post without touching writable/hasKey.
   room.onMetaChange(() => pushRoomState(room))
   pushRoomState(room)
@@ -235,6 +241,7 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.unmuteMember': (roomId: string, identityId: string) => requireSession().unmuteMember(roomId, identityId),
   'session.promoteToModerator': (roomId: string, identityId: string) => requireSession().promoteToModerator(roomId, identityId),
   'session.demoteModerator': (roomId: string, identityId: string) => requireSession().demoteModerator(roomId, identityId),
+  'session.setRoomVault': (roomId: string, enabled: boolean) => requireSession().setRoomVault(roomId, enabled),
 
   // Explicit pull, not just the 'roomState' push from wireRoom — that push fires the instant
   // the room is created/joined, before RN has had a chance to construct the RoomProxy that
@@ -290,6 +297,20 @@ const methods: Record<string, (...args: any[]) => any> = {
   'room.sendReadReceipt': (roomId: string, userId: string, messageId: string) => {
     for (const peer of requireSession().peers.values()) peer.rpc.sendReadReceipt({ roomId, userId, messageId })
   },
+
+  'room.listVaultFiles': (roomId: string) => requireRoom(roomId).listVaultFiles(),
+
+  'room.uploadToVault': async (roomId: string, name: string, mimeType: string, binary: Uint8Array) => {
+    const session = requireSession()
+    return session.uploadToVault(roomId, name, b4a.from(binary), mimeType)
+  },
+
+  'room.downloadFromVault': async (roomId: string, filePath: string) => {
+    const buffer = await requireSession().downloadFromVault(roomId, filePath)
+    return buffer ? { __binary: true as const, result: { found: true }, binary: buffer } : { found: false }
+  },
+
+  'room.deleteFromVault': (roomId: string, filePath: string) => requireSession().deleteFromVault(roomId, filePath),
 
   // Returns the file's raw bytes as the reply's binary tail instead of a base64 string —
   // see the __binary convention in handleRequest() above.

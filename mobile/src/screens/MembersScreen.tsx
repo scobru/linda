@@ -38,6 +38,8 @@ export default function MembersScreen({ route, navigation }: Props) {
   const [state, setState] = useState<ModerationState | null>(null)
   const [broadcast, setBroadcast] = useState(false)
 
+  const [vaultEnabled, setVaultEnabled] = useState(false)
+
   const room = session?.getRoom(roomId)
 
   const refresh = useCallback(async () => {
@@ -48,8 +50,14 @@ export default function MembersScreen({ route, navigation }: Props) {
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
     if (!room) return
-    void room.refreshState().then((s) => setBroadcast(s.broadcast))
-    return room.onStateChange((s) => setBroadcast(s.broadcast))
+    void room.refreshState().then((s) => {
+      setBroadcast(s.broadcast)
+      setVaultEnabled(s.vaultEnabled ?? false)
+    })
+    return room.onStateChange((s) => {
+      setBroadcast(s.broadcast)
+      setVaultEnabled(s.vaultEnabled ?? false)
+    })
   }, [room])
 
   const toggleBroadcast = useCallback((enabled: boolean) => {
@@ -59,6 +67,14 @@ export default function MembersScreen({ route, navigation }: Props) {
       Alert.alert('Error', (err as Error).message)
     })
   }, [room])
+
+  const toggleVault = useCallback((enabled: boolean) => {
+    setVaultEnabled(enabled)
+    session?.setRoomVault(roomId, enabled).catch((err) => {
+      setVaultEnabled(!enabled)
+      Alert.alert('Error', (err as Error).message)
+    })
+  }, [session, roomId])
 
   const myId = identity?.id ?? ''
   const iAmOwner = state?.ownerId === myId
@@ -112,13 +128,24 @@ export default function MembersScreen({ route, navigation }: Props) {
       <FlatList
         data={state.members}
         keyExtractor={(m) => m.writerKey}
-        ListHeaderComponent={iAmOwner ? (
-          <View style={styles.row}>
-            <View style={styles.info}>
-              <Text style={styles.name}>Broadcast</Text>
-              <Text style={styles.sectionTitle}>Only you and moderators can post</Text>
+        ListHeaderComponent={iCanModerate ? (
+          <View style={{ paddingBottom: spacing.sm }}>
+            {iAmOwner && (
+              <View style={styles.row}>
+                <View style={styles.info}>
+                  <Text style={styles.name}>Broadcast</Text>
+                  <Text style={styles.sectionTitle}>Only you and moderators can post</Text>
+                </View>
+                <Switch value={broadcast} onValueChange={toggleBroadcast} />
+              </View>
+            )}
+            <View style={styles.row}>
+              <View style={styles.info}>
+                <Text style={styles.name}>P2P Room Vault</Text>
+                <Text style={styles.sectionTitle}>Decentralized shared file drive</Text>
+              </View>
+              <Switch value={vaultEnabled} onValueChange={toggleVault} />
             </View>
-            <Switch value={broadcast} onValueChange={toggleBroadcast} />
           </View>
         ) : null}
         ListFooterComponent={bannedList.length > 0 ? (
