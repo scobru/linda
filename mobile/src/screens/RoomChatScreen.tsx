@@ -5,6 +5,7 @@ import {
   SafeAreaView,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { useFocusEffect } from '@react-navigation/native'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import * as Clipboard from 'expo-clipboard'
@@ -33,7 +34,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
-  const { session, identity, nicknames, avatars, refresh: refreshSession } = useSession()
+  const { session, identity, nicknames, avatars, refresh: refreshSession, setActiveRoomId } = useSession()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
 
@@ -72,6 +73,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     if (!room || !session) return
     return room.onMessage(() => { void session.markRoomRead(room.id).then(refreshSession) })
   }, [room, session, roomId])
+  // Suppresses this room's own local notifications while it's the screen actually on top —
+  // native-stack keeps it mounted underneath other pushed screens, so mount/unmount alone
+  // isn't a reliable signal of visibility.
+  useFocusEffect(useCallback(() => {
+    setActiveRoomId(roomId ?? null)
+    return () => setActiveRoomId(null)
+  }, [roomId, setActiveRoomId]))
 
   const [writable, setWritable] = useState(false)
   const [hasKey, setHasKey] = useState(false)

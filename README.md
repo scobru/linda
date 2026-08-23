@@ -77,8 +77,8 @@ cd mobile/android
 
 ## Known issues
 
-- **Push notifications are not configured.** Chat works in real-time over Hyperswarm while the app is running.
 - Release APK is unsigned beyond the RN debug keystore — fine for beta distribution, not for a Play Store submission.
+- Push notifications only fire while the app process is alive (foreground or backgrounded, not force-quit) — there's no server, so nothing can wake a fully-killed app. A relay to fix that would need to be opt-in and content-blind to keep the P2P privacy model.
 
 ## Testing
 

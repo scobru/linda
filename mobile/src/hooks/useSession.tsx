@@ -1,9 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from 'react'
+import { AppState } from 'react-native'
+import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
+import type { ChatMessage } from '@core/rooms/room'
 
 interface SessionContextValue {
   session: SessionProxy | null
@@ -17,8 +20,11 @@ interface SessionContextValue {
   avatars: Map<string, string>
 
   // Actions
-  initSession: (identity: Identity, storageDir: string) => Promise<void>
+  initSession: (identity: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string } }) => Promise<void>
   refresh: () => void
+  /** Marks a room as the one currently on screen, so its own new-message notifications are
+   * suppressed while the user is already looking at it (mirrors desktop's document-focus check). */
+  setActiveRoomId: (roomId: string | null) => void
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
@@ -44,6 +50,17 @@ export function SessionProvider({ children }: Props) {
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const [avatars, setAvatars] = useState<Map<string, string>>(new Map())
   const [, setTick] = useState(0)
+  const nicknamesRef = useRef(nicknames)
+  useEffect(() => { nicknamesRef.current = nicknames }, [nicknames])
+  const activeRoomIdRef = useRef<string | null>(null)
+  const setActiveRoomId = useCallback((roomId: string | null) => { activeRoomIdRef.current = roomId }, [])
+
+  // App icon badge = count of unread rooms, same "latest message postdates lastReadAt" rule
+  // RoomsScreen uses for its own unread dot/filter.
+  useEffect(() => {
+    const unreadCount = bookmarks.filter((b) => !!b.lastMessageTime && b.lastMessageTime > (b.lastReadAt ?? 0)).length
+    void Notifications.setBadgeCountAsync(unreadCount)
+  }, [bookmarks])
 
   const refresh = useCallback(() => {
     if (!session) return
@@ -56,7 +73,9 @@ export function SessionProvider({ children }: Props) {
     })()
   }, [session])
 
-  const initSession = useCallback(async (id: Identity, storageDir: string) => {
+  const initSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string } }) => {
+    void Notifications.requestPermissionsAsync()
+
     bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string }) => {
       if (msg.online) {
         setOnlineUsers((prev) => new Set(prev).add(msg.userId))
@@ -83,6 +102,14 @@ export function SessionProvider({ children }: Props) {
 
     const { session: s, info } = await SessionProxy.create(storageDir)
     await s.reopenBookmarkedRooms()
+    // Fire-and-forget: joinRoomByKey can block ~30s waiting on the swarm (see RoomsScreen's
+    // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in
+    // time — fine either way, don't hold up onboarding for it. Refreshes bookmarks on success
+    // since a join doesn't otherwise emit any change event mobile listens for.
+    if (opts?.autoJoinInvite) {
+      const invite = opts.autoJoinInvite
+      void s.joinRoomByKey(invite.name, invite.key).then(() => s.listRoomSummaries()).then(setBookmarks).catch(() => {})
+    }
 
     // The swarm's socket stays bound to whatever network was active when it was created — a
     // wifi <-> cellular switch otherwise leaves it trying to talk over an interface that no
@@ -100,8 +127,23 @@ export function SessionProvider({ children }: Props) {
       resyncTimer = setTimeout(() => { resyncTimer = null; void s.resumeNetwork() }, 800)
     })
 
-    // Refreshes the room-list preview/unread-dot for any room, active or backgrounded.
-    bareClient.on('incomingMessage', () => { void s.listRoomSummaries().then(setBookmarks) })
+    // Refreshes the room-list preview/unread-dot for any room, active or backgrounded, and
+    // fires a local notification unless the user is already looking at that exact room.
+    bareClient.on('incomingMessage', (payload: { roomId: string; message: ChatMessage }) => {
+      void s.listRoomSummaries().then((summaries) => {
+        setBookmarks(summaries)
+        if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
+        const roomName = summaries.find((b) => b.id === payload.roomId)?.name ?? 'linda-pear'
+        const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: `${author} in ${roomName}`,
+            body: payload.message.file ? 'Shared an image 🖼️' : payload.message.body.slice(0, 200),
+          },
+          trigger: null,
+        })
+      })
+    })
     // A room's name/avatar/description edited on another device replicates in, but the local
     // bookmark cache the room list renders from only updates itself in response to this event.
     bareClient.on('bookmarksChange', () => { void s.listRoomSummaries().then(setBookmarks) })
@@ -131,7 +173,8 @@ export function SessionProvider({ children }: Props) {
     avatars,
     initSession,
     refresh,
-  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh])
+    setActiveRoomId,
+  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh, setActiveRoomId])
 
   return (
     <SessionContext.Provider value={value}>

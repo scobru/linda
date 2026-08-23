@@ -9,6 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { createIdentity, identityExists } from '../bare/identity-client'
 import { storageDir } from '../bare/storage-dir'
 import { useSession } from '../hooks/useSession'
+import { DEFAULT_CHANNEL } from '@core/ui/qr-core'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
@@ -44,7 +45,7 @@ export default function CreateScreen({ navigation }: Props) {
     try {
       const { identity, mnemonic: m } = await createIdentity(passphrase, storageDir())
       setMnemonic(m)
-      await initSession(identity, storageDir())
+      await initSession(identity, storageDir(), { autoJoinInvite: DEFAULT_CHANNEL })
     } catch (err) {
       Alert.alert('Error', (err as Error).message)
       setLoading(false)

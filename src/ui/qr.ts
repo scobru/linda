@@ -2,7 +2,7 @@ import QRCode from 'qrcode'
 import jsQR from 'jsqr'
 
 // Re-export platform-agnostic invite logic from shared module
-export { encodeInvite, decodeInvite, type RoomInvite } from './qr-core.js'
+export { encodeInvite, decodeInvite, DEFAULT_CHANNEL, type RoomInvite } from './qr-core.js'
 import { encodeInvite, type RoomInvite } from './qr-core.js'
 
 export async function textToDataUrl(text: string): Promise<string> {

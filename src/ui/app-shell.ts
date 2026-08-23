@@ -5,7 +5,7 @@ import type { Room, ChatMessage } from '../rooms/room.js'
 import { RemoteDrive } from '../files/remote.js'
 import { PeerCall } from '../calls/call.js'
 import type { CallSignalMessage } from '../network/encoding.js'
-import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, textToDataUrl, decodeTextFromImageFile } from './qr.js'
+import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 
@@ -330,7 +330,7 @@ export class AppShell extends HTMLElement {
     confirm.addEventListener('change', () => {
       btn.disabled = !confirm.checked
     })
-    btn.addEventListener('click', () => this.enterApp())
+    btn.addEventListener('click', () => this.enterApp(true))
     this.querySelector('#copyMnemonic')!.addEventListener('click', () => {
       navigator.clipboard.writeText(this.pendingMnemonic!)
       const c = this.querySelector('#copyMnemonic')!
@@ -471,7 +471,7 @@ export class AppShell extends HTMLElement {
     })
   }
 
-  private async enterApp(): Promise<void> {
+  private async enterApp(isNewIdentity = false): Promise<void> {
     if (!this.identity) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
     try {
@@ -510,6 +510,16 @@ export class AppShell extends HTMLElement {
       if (c.avatar) this.avatars.set(c.userId, c.avatar)
     }
     await this.session.reopenBookmarkedRooms()
+
+    // Fire-and-forget: joinRoomByKey can block up to ~30s waiting on the swarm, and a
+    // brand-new identity with no peers yet may not even reach it in time — fine either way,
+    // don't hold up onboarding for it. Re-renders the room list on success since a join
+    // doesn't otherwise emit any change event this shell listens for.
+    if (isNewIdentity) {
+      this.session.joinRoomByKey(DEFAULT_CHANNEL.name, DEFAULT_CHANNEL.key)
+        .then(() => this.scheduleRenderApp())
+        .catch(() => {})
+    }
 
     // Pre-populate last messages from rooms
     for (const b of this.session.listBookmarks()) {

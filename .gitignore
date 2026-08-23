@@ -6,6 +6,7 @@ dist/
 out/
 electron/dist/
 mobile/worklet/dist/entry.flat.cjs
+release-artifacts/
 
 # Pear local staging cache (mirrors what's already published at the `upgrade` link)
 linda-pear-1.0.0/
