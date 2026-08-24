@@ -1414,7 +1414,18 @@ export class AppShell extends HTMLElement {
     })
 
     container.querySelectorAll<HTMLButtonElement>('[data-download]').forEach((btn) => {
-      btn.addEventListener('click', () => void this.downloadFile(btn.dataset.download!, btn.dataset.name!, btn.dataset.path!))
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return
+        // A P2P fetch from a peer that isn't already connected can take tens of seconds — without
+        // this the button just sits there looking inert the whole time.
+        const original = btn.textContent
+        btn.disabled = true
+        btn.textContent = 'Downloading…'
+        void this.downloadFile(btn.dataset.download!, btn.dataset.name!, btn.dataset.path!).finally(() => {
+          btn.disabled = false
+          btn.textContent = original
+        })
+      })
     })
 
     container.querySelectorAll<HTMLButtonElement>('[data-copy-msg]').forEach((btn) => {
@@ -1753,7 +1764,14 @@ export class AppShell extends HTMLElement {
 
     container.querySelectorAll<HTMLButtonElement>('[data-vault-download]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!)
+        if (btn.disabled) return
+        const original = btn.textContent
+        btn.disabled = true
+        btn.textContent = 'Downloading…'
+        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!).finally(() => {
+          btn.disabled = false
+          btn.textContent = original
+        })
       })
     })
 
