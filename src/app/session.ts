@@ -76,6 +76,8 @@ export class Session {
   private readonly pendingInviteCodes = new Map<string, string>()
   private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
+  /** Foreign drives we download from, keyed by hex drive key — see `remoteDrive`. */
+  private readonly remoteDrives = new Map<string, Promise<Hyperdrive>>()
   private nickname = ''
   private avatar = ''
   private readonly peerAvatars = new Map<string, string>()
@@ -357,6 +359,40 @@ export class Session {
   }
 
   /**
+   * One long-lived Hyperdrive per foreign drive key, opened on first use and kept until the
+   * session closes.
+   *
+   * Opening a fresh `new Hyperdrive(store, key)` per download — which is what this used to do —
+   * deadlocks on the second download from any given peer. Hyperdrive opens its metadata core
+   * with `exclusive: true`, which takes a mutex on that core, and a drive only releases it when
+   * it is closed; these drives were never closed. So the first download from a peer worked and
+   * every later one hung forever inside `drive.ready()`, waiting on a lock the previous
+   * download still held: no request ever went out, no retry ran, no error was thrown, and the
+   * UI just sat there. Reusing the open drive sidesteps the lock entirely, and also stops us
+   * re-joining the same swarm topic on every single download.
+   */
+  private remoteDrive(keyBuf: Buffer): Promise<Hyperdrive> {
+    const keyHex = b4a.toString(keyBuf, 'hex')
+    let pending = this.remoteDrives.get(keyHex)
+    if (!pending) {
+      pending = (async () => {
+        const drive = new Hyperdrive(this.store, keyBuf)
+        await drive.ready()
+        // Held open across the join so a `get()` waits for the peer still being looked up
+        // instead of resolving against empty local storage the moment it finds nothing.
+        const done = this.store.findingPeers()
+        this.swarm.join(drive.discoveryKey, { client: true, server: true })
+        this.swarm.flush().then(done, done)
+        return drive
+      })()
+      // A failed open must not be cached, or every later attempt replays the same failure.
+      pending.catch(() => this.remoteDrives.delete(keyHex))
+      this.remoteDrives.set(keyHex, pending)
+    }
+    return pending
+  }
+
+  /**
    * Downloads a file from any Hyperdrive key on the network or from local store.
    * Utilizes the existing session store replication (already active on all peer connections)
    * and joins the discovery key on Hyperswarm.
@@ -379,14 +415,9 @@ export class Session {
     // own interface that hasn't caught up yet.
     if (this.resumeNetworkPromise) await this.resumeNetworkPromise.catch(() => {})
 
-    // 3. Open drive in our session's corestore which already replicates with connected peers
-    const drive = new Hyperdrive(this.store, keyBuf)
-    await drive.ready()
-
-    // 4. Join discovery key on swarm to find any additional peers serving this drive
-    const done = this.store.findingPeers()
-    this.swarm.join(drive.discoveryKey, { client: true, server: true })
-    this.swarm.flush().then(done, done)
+    // 3. Open the drive in our session's corestore, which already replicates with connected
+    // peers — reusing the one we opened last time for this key if there is one.
+    const drive = await this.remoteDrive(keyBuf)
 
     // 5. Retry fetching with backoff. Generous enough to outlast a DHT re-announce and hole-punch
     // after a network handoff, which routinely takes well past 10s on cellular NATs — the old
@@ -1032,6 +1063,12 @@ export class Session {
   }
 
   async close(): Promise<void> {
+    for (const pending of this.remoteDrives.values()) {
+      try {
+        await (await pending).close()
+      } catch { /* a drive that never opened has nothing to release */ }
+    }
+    this.remoteDrives.clear()
     for (const room of this.rooms.values()) await room.close()
     await this.swarm.destroy()
     await this.store.close()

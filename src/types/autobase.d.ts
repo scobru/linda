@@ -102,6 +102,7 @@ declare module 'hyperdrive' {
     createReadStream(path: string, opts?: { start?: number; end?: number }): Readable
     del(path: string): Promise<void>
     replicate(stream: Duplex | boolean): Duplex
+    close(): Promise<void>
     readonly key: Buffer
     readonly discoveryKey: Buffer
   }
