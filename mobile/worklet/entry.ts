@@ -12,7 +12,6 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
-import { RemoteDrive } from '../../src/files/remote.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
 
 declare const BareKit: { IPC: unknown }
@@ -315,13 +314,8 @@ const methods: Record<string, (...args: any[]) => any> = {
   // Returns the file's raw bytes as the reply's binary tail instead of a base64 string —
   // see the __binary convention in handleRequest() above.
   'files.download': async (driveKeyHex: string, drivePath: string) => {
-    const drive = await RemoteDrive.connect(storageDir, b4a.from(driveKeyHex, 'hex'))
-    try {
-      const buffer = await drive.downloadFile(drivePath)
-      return buffer ? { __binary: true as const, result: { found: true }, binary: buffer } : { found: false }
-    } finally {
-      await drive.close()
-    }
+    const buffer = await requireSession().downloadFile(driveKeyHex, drivePath)
+    return buffer ? { __binary: true as const, result: { found: true }, binary: buffer } : { found: false }
   }
 }
 

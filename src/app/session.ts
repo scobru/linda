@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import Corestore, { type HyperCore } from 'corestore'
+import Hyperdrive from 'hyperdrive'
 import hypercoreCrypto from 'hypercore-crypto'
 import type Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
@@ -11,7 +12,6 @@ import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMe
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage, type VaultFile } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
-import { RoomVault } from '../files/vault.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 
@@ -76,7 +76,6 @@ export class Session {
   private readonly pendingInviteCodes = new Map<string, string>()
   private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
-  private readonly roomVaults = new Map<string, RoomVault>()
   private nickname = ''
   private avatar = ''
   private readonly peerAvatars = new Map<string, string>()
@@ -347,6 +346,54 @@ export class Session {
     return this.fileStoreInstance
   }
 
+  /**
+   * Downloads a file from any Hyperdrive key on the network or from local store.
+   * Utilizes the existing session store replication (already active on all peer connections)
+   * and joins the discovery key on Hyperswarm.
+   */
+  async downloadFile(driveKey: string | Buffer, filePath: string): Promise<Buffer | null> {
+    const keyBuf = typeof driveKey === 'string' ? b4a.from(driveKey, 'hex') : driveKey
+    const cleanPath = filePath.startsWith('/') ? filePath : `/${filePath}`
+
+    // 1. Check if this drive is our own local fileStore
+    if (this.fileStoreInstance && b4a.equals(this.fileStoreInstance.key, keyBuf)) {
+      try {
+        const localBuf = await this.fileStoreInstance.drive.get(cleanPath)
+        if (localBuf) return localBuf
+      } catch {}
+    }
+
+    // 2. If a network resync (wifi <-> cellular handoff, see resumeNetwork) is already in
+    // flight, wait for it — otherwise every attempt below races a socket that's actively being
+    // torn down/rebound and fails fast, reporting the peer as offline when it's really just our
+    // own interface that hasn't caught up yet.
+    if (this.resumeNetworkPromise) await this.resumeNetworkPromise.catch(() => {})
+
+    // 3. Open drive in our session's corestore which already replicates with connected peers
+    const drive = new Hyperdrive(this.store, keyBuf)
+    await drive.ready()
+
+    // 4. Join discovery key on swarm to find any additional peers serving this drive
+    const done = this.store.findingPeers()
+    this.swarm.join(drive.discoveryKey, { client: true, server: true })
+    this.swarm.flush().then(done, done)
+
+    // 5. Retry fetching with backoff. Generous enough to outlast a DHT re-announce and hole-punch
+    // after a network handoff, which routinely takes well past 10s on cellular NATs — the old
+    // 8-attempt/~12s budget gave up before reconnection finished, misreporting a reachable peer
+    // as offline.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try {
+        const buffer = await drive.get(cleanPath)
+        if (buffer) return buffer
+      } catch (err) {
+        if (attempt >= 11) throw err
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800 * Math.min(attempt + 1, 5)))
+    }
+    return null
+  }
+
   async createRoom(name: string, isPublic = false, avatar = '', description = '', broadcast = false): Promise<Room> {
     const trimmed = name.trim()
     if (!trimmed) throw new Error('Room name required')
@@ -390,43 +437,16 @@ export class Session {
   async setRoomVault(roomId: string, enabled: boolean): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return
-    if (enabled && !room.vaultDriveKey) {
-      const vault = await RoomVault.open(this.store, room.id)
-      await room.setVault(true, vault.keyHex)
-      this.swarm.join(vault.discoveryKey, { server: true, client: true })
-      this.roomVaults.set(roomId, vault)
-    } else {
-      await room.setVault(enabled)
-      if (enabled) {
-        await this.roomVault(roomId)
-      }
-    }
-  }
-
-  async roomVault(roomId: string): Promise<RoomVault | null> {
-    const room = this.rooms.get(roomId)
-    if (!room) return null
-    let vault = this.roomVaults.get(roomId)
-    if (!vault) {
-      if (!room.isVaultEnabled && !room.isOwner(this.identity.id)) return null
-      vault = await RoomVault.open(this.store, room.id, room.vaultDriveKey)
-      if (!room.vaultDriveKey && room.isOwner(this.identity.id)) {
-        await room.setVault(true, vault.keyHex)
-      }
-      this.swarm.join(vault.discoveryKey, { server: true, client: true })
-      this.roomVaults.set(roomId, vault)
-    }
-    return vault
+    await room.setVault(enabled)
   }
 
   async uploadToVault(roomId: string, name: string, buffer: Buffer, mimeType?: string): Promise<VaultFile> {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('Room not found')
     if (!room.isVaultEnabled) throw new Error('Vault is not enabled in this room')
-    const vault = await this.roomVault(roomId)
-    if (!vault) throw new Error('Could not open room vault')
-    const drivePath = `/${Date.now()}-${name}`
-    const result = await vault.put(drivePath, buffer)
+    const fileStore = await this.fileStore()
+    const drivePath = `/vault/${roomId}/${Date.now()}-${name}`
+    const result = await fileStore.addBuffer(drivePath, buffer)
     const vaultFile: VaultFile = {
       path: result.path,
       name,
@@ -434,26 +454,35 @@ export class Session {
       mimeType: mimeType || 'application/octet-stream',
       authorId: this.identity.id,
       timestamp: Date.now(),
-      driveKey: vault.keyHex
+      driveKey: b4a.toString(fileStore.key, 'hex')
     }
     await room.addVaultFile(vaultFile)
     return vaultFile
   }
 
   async downloadFromVault(roomId: string, filePath: string): Promise<Buffer | null> {
-    const vault = await this.roomVault(roomId)
-    if (!vault) throw new Error('Could not open room vault')
-    return await vault.get(filePath)
+    const room = this.rooms.get(roomId)
+    if (!room) throw new Error('Room not found')
+    const files = await room.listVaultFiles()
+    const file = files.find((f) => f.path === filePath)
+    if (file && file.driveKey) {
+      return await this.downloadFile(file.driveKey, file.path)
+    }
+    if (room.vaultDriveKey) {
+      return await this.downloadFile(room.vaultDriveKey, filePath)
+    }
+    return null
   }
 
   async deleteFromVault(roomId: string, filePath: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('Room not found')
-    const vault = await this.roomVault(roomId)
-    if (vault && vault.writable) {
-      await vault.del(filePath)
-    }
     await room.removeVaultFile(filePath)
+    if (this.fileStoreInstance) {
+      try {
+        await this.fileStoreInstance.drive.del(filePath)
+      } catch {}
+    }
   }
 
   async updateRoomMeta(roomId: string, opts: { name?: string; avatar?: string; description?: string }): Promise<void> {
@@ -715,14 +744,6 @@ export class Session {
       if (message.authorId === this.identity.id) return
       this.events.onIncomingMessage?.(room.id, message)
     })
-    room.onVaultChange(() => {
-      if (room.isVaultEnabled && !this.roomVaults.has(room.id)) {
-        void this.roomVault(room.id)
-      }
-    })
-    if (room.isVaultEnabled) {
-      void this.roomVault(room.id)
-    }
     // A room's name/avatar/description replicate through Autobase to every member on their
     // own, but the bookmark (what the room list actually renders) is a separate local cache
     // that only the device making the change updates on its own — so it never picked up a
@@ -992,7 +1013,6 @@ export class Session {
   }
 
   async close(): Promise<void> {
-    for (const vault of this.roomVaults.values()) await vault.close()
     for (const room of this.rooms.values()) await room.close()
     await this.swarm.destroy()
     await this.store.close()

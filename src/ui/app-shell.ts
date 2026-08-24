@@ -2,7 +2,6 @@ import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
 import type { Room, ChatMessage, VaultFile } from '../rooms/room.js'
-import { RemoteDrive } from '../files/remote.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
@@ -858,6 +857,17 @@ export class AppShell extends HTMLElement {
               </label>
             </div>
 
+            <div class="keet-switch-row">
+              <div class="switch-label-wrap">
+                <span>Publish to Discovery Directory</span>
+                <span class="info-tooltip-icon" title="Allow any peer on the network to discover and request access to this room">ⓘ</span>
+              </div>
+              <label class="keet-switch">
+                <input type="checkbox" id="newGroupPublic" />
+                <span class="keet-slider"></span>
+              </label>
+            </div>
+
             <button class="keet-pill-btn active" id="createGroupSubmit">Create group chat</button>
           </div>
         </div>
@@ -1019,7 +1029,8 @@ export class AppShell extends HTMLElement {
       if (!name) return alert('Please enter a group name')
       try {
         const broadcast = (this.querySelector('#newGroupBroadcast') as HTMLInputElement)?.checked ?? false
-        const room = await this.session!.createRoom(name, true, '', desc, broadcast)
+        const isPublic = (this.querySelector('#newGroupPublic') as HTMLInputElement)?.checked ?? false
+        const room = await this.session!.createRoom(name, isPublic, '', desc, broadcast)
         this.activeModal = 'none'
         this.openRoom(room.id, name)
       } catch (err) {
@@ -1644,12 +1655,12 @@ export class AppShell extends HTMLElement {
   }
 
   private async fetchFileBlob(driveKeyHex: string, drivePath: string): Promise<Blob | null> {
-    const drive = await RemoteDrive.connect(storageDir(), b4a.from(driveKeyHex, 'hex'))
+    if (!this.session) return null
     try {
-      const buffer = await drive.downloadFile(drivePath)
+      const buffer = await this.session.downloadFile(driveKeyHex, drivePath)
       return buffer ? new Blob([new Uint8Array(buffer)]) : null
-    } finally {
-      await drive.close()
+    } catch {
+      return null
     }
   }
 
