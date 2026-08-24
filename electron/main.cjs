@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, session, desktopCapturer, shell } = require('electron')
+const { app, BrowserWindow, Menu, session, desktopCapturer, shell, clipboard, ipcMain } = require('electron')
 const path = require('node:path')
 
 function createWindow() {
@@ -56,12 +56,28 @@ app.whenReady().then(() => {
     })
   }, { useSystemPicker: true })
 
-  // getUserMedia({ audio: true }) for voice messages. Electron denies media permission
-  // requests by default, so without this the recorder rejects and the mic button does nothing.
-  // Only media is granted — anything else keeps the default deny.
+  // getUserMedia({ audio: true }) for voice messages needs an explicit grant. Installing a
+  // handler *replaces* Electron's default, which granted the rest — an earlier version of this
+  // handler returned false for everything but media and so silently revoked clipboard writes
+  // and notifications along with it. Everything the app actually uses has to be listed here.
+  const ALLOWED_PERMISSIONS = new Set([
+    'media',            // microphone, for voice messages
+    'audioCapture',
+    'clipboard-read',
+    'clipboard-write',
+    'clipboard-sanitized-write',
+    'notifications'
+  ])
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(permission === 'media' || permission === 'audioCapture')
+    callback(ALLOWED_PERMISSIONS.has(permission))
   })
+  // Some clipboard/notification paths go through the synchronous check instead, which has its
+  // own default and would otherwise still refuse.
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
+
+  // Copy requests from the renderer (see preload.cjs) — the main process is the only place
+  // Electron still supports touching the clipboard from.
+  ipcMain.on('clipboard:write', (_event, text) => clipboard.writeText(String(text)))
 
   createWindow()
 })

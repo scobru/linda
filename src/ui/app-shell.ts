@@ -355,7 +355,7 @@ export class AppShell extends HTMLElement {
     })
     btn.addEventListener('click', () => this.enterApp(true))
     this.querySelector('#copyMnemonic')!.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.pendingMnemonic!)
+      copyToClipboard(this.pendingMnemonic!)
       const c = this.querySelector('#copyMnemonic')!
       c.textContent = '✓ Copied!'
       setTimeout(() => { c.innerHTML = `${ICONS.copy} Copy to clipboard` }, 2000)
@@ -1551,7 +1551,7 @@ export class AppShell extends HTMLElement {
     container.querySelectorAll<HTMLButtonElement>('[data-copy-msg]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const msg = byId.get(btn.dataset.copyMsg!)
-        if (msg) navigator.clipboard.writeText(msg.body)
+        if (msg) copyToClipboard(msg.body)
       })
     })
 
@@ -2185,8 +2185,8 @@ export class AppShell extends HTMLElement {
     this.querySelector('#resetDeviceBtn')?.addEventListener('click', () => void this.resetDevice())
 
     this.querySelector('#openNetworkStatus')?.addEventListener('click', () => { this.view = 'network-status'; this.render() })
-    this.querySelector('#copyPublicKey')?.addEventListener('click', () => navigator.clipboard.writeText(this.identity!.id))
-    this.querySelector('#copySecretKey')?.addEventListener('click', () => navigator.clipboard.writeText(b4a.toString(this.identity!.secretKey, 'hex')))
+    this.querySelector('#copyPublicKey')?.addEventListener('click', () => copyToClipboard(this.identity!.id))
+    this.querySelector('#copySecretKey')?.addEventListener('click', () => copyToClipboard(b4a.toString(this.identity!.secretKey, 'hex')))
     this.querySelector('#toggleSecretKey')?.addEventListener('click', () => {
       this.profileShowSecretKey = !this.profileShowSecretKey
       this.renderProfilePage()
@@ -2282,8 +2282,8 @@ export class AppShell extends HTMLElement {
       </div>
     `
     this.wirePageBack()
-    this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => navigator.clipboard.writeText(status.publicKey))
-    this.querySelector('#copyNetworkInfo')?.addEventListener('click', () => navigator.clipboard.writeText(
+    this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => copyToClipboard(status.publicKey))
+    this.querySelector('#copyNetworkInfo')?.addEventListener('click', () => copyToClipboard(
       `connections: ${status.connections}\naddress: ${status.host ?? 'unknown'}:${status.port}\nfirewalled: ${status.firewalled}\npublicKey: ${status.publicKey}`
     ))
   }
@@ -2853,7 +2853,7 @@ export class AppShell extends HTMLElement {
       // Same linda-pear://room?... format the QR code and mobile's share sheet use — both are
       // parsed identically by decodeInvite either way, but matching formats avoids the "these
       // look like two different links" confusion when comparing a copied link across devices.
-      navigator.clipboard.writeText(encodeInvite({ name: this.activeRoomName, key: this.session!.inviteLinkFor(room.id) }))
+      copyToClipboard(encodeInvite({ name: this.activeRoomName, key: this.session!.inviteLinkFor(room.id) }))
       alert('Invite link copied to clipboard!')
     })
   }
@@ -2886,6 +2886,19 @@ function triggerBlobDownload(blob: Blob, name: string): void {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
+
+/**
+ * `navigator.clipboard` is the wrong tool inside Electron: it is gated on a permission grant
+ * *and* refuses outright with "Document is not focused" whenever the window isn't the focused
+ * one — which includes the common case of DevTools holding focus. Electron's clipboard has
+ * neither restriction and is bridged in as `window.lindaClipboard` by the preload script.
+ * Falls back to the web API so the UI still works if this is ever run in a plain browser.
+ */
+function copyToClipboard(text: string): void {
+  const bridged = (window as unknown as { lindaClipboard?: { writeText(t: string): void } }).lindaClipboard
+  if (bridged) return bridged.writeText(text)
+  void navigator.clipboard?.writeText(text).catch(() => { /* nothing better to offer */ })
 }
 
 function escapeHtml(input: string): string {
