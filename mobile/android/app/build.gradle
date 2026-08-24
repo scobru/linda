@@ -69,6 +69,17 @@ react {
     autolinkLibrariesWithApp()
 }
 
+// The Bare worklet bundle (worklet/dist/) is a build artifact and is not checked in, but nothing
+// regenerated it: an Android build packaged whatever that directory happened to contain, so edits
+// to the shared src/ never reached the device and the app silently ran stale core logic — which
+// shipped in several releases before it was noticed. Regenerating it here means an APK can no
+// longer be built from a stale bundle.
+tasks.register("buildBareWorklet", Exec) {
+    workingDir file(projectRoot)
+    commandLine "node", "scripts/build-worklet.mjs"
+}
+tasks.named("preBuild") { dependsOn("buildBareWorklet") }
+
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
