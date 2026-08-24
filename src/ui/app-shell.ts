@@ -934,6 +934,12 @@ export class AppShell extends HTMLElement {
       this.openPairPage()
     })
 
+    this.querySelector('#networkCardBtn')?.addEventListener('click', () => {
+      this.isProfileDrawerOpen = false
+      this.view = 'network-status'
+      this.render()
+    })
+
     this.querySelector('#drawerSettingsBtn')?.addEventListener('click', () => {
       this.isProfileDrawerOpen = false
       this.openProfilePage()
