@@ -437,11 +437,33 @@ export class Session {
       }
       await new Promise((resolve) => setTimeout(resolve, 800 * Math.min(attempt + 1, 5)))
     }
-    // Every attempt resolved (no throw) but never found the path — distinct from "gave up
-    // retrying on a network error" above. Logged rather than silently returned as null so a
-    // report of "file not available" can be told apart from "we never actually connected".
-    console.warn(`[session] downloadFile: exhausted retries for ${cleanPath} on drive ${b4a.toString(keyBuf, 'hex')}${lastErr ? ` (last error: ${lastErr.message})` : ' (core never reported the path, no transport error — peer likely unreachable for this drive)'}`)
-    return null
+    // Out of retries. Returning a bare null here just surfaced as "file not available" no matter
+    // what actually went wrong, which is useless on mobile where the console isn't reachable —
+    // so report what state we ended up in. `length === 0` means the drive's metadata never
+    // replicated to us at all (we never really connected to whoever serves it); a non-zero
+    // length with no entry means we are talking to that drive but it does not have this path.
+    const detail = await this.describeStalledDrive(drive, cleanPath)
+    throw new Error(
+      `Could not fetch ${cleanPath} after ${12} attempts — ${detail}` +
+      (lastErr ? ` (last error: ${lastErr.message})` : '')
+    )
+  }
+
+  /** Best-effort snapshot of why a `downloadFile` gave up, for the message shown to the user. */
+  private async describeStalledDrive(drive: Hyperdrive, cleanPath: string): Promise<string> {
+    const peers = this.peers.size
+    try {
+      const length = drive.core.length
+      if (length === 0) {
+        return `the drive's index never reached us (0 entries synced, ${peers} peer(s) connected), so nothing is serving it right now`
+      }
+      const entry = await drive.entry(cleanPath)
+      if (!entry) return `the drive synced (${length} entries) but has no such path`
+      if (!entry.value.blob) return `the drive lists this path but it carries no data`
+      return `the file is listed but its contents never transferred (${length} entries synced, ${peers} peer(s) connected)`
+    } catch (err) {
+      return `could not inspect the drive: ${(err as Error).message} (${peers} peer(s) connected)`
+    }
   }
 
   async createRoom(name: string, isPublic = false, avatar = '', description = '', broadcast = false): Promise<Room> {

@@ -105,5 +105,7 @@ declare module 'hyperdrive' {
     close(): Promise<void>
     readonly key: Buffer
     readonly discoveryKey: Buffer
+    /** The drive's metadata core; `length` is 0 until its index has replicated to us. */
+    readonly core: { length: number }
   }
 }

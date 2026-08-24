@@ -1671,6 +1671,9 @@ export class AppShell extends HTMLElement {
     input.value = ''
   }
 
+  /** Swallows the reason a fetch failed — only for callers with nowhere useful to show it
+   * (inline image previews, audio slots). Anything the user explicitly asked for should call
+   * `session.downloadFile` directly so the diagnostic in the error survives. */
   private async fetchFileBlob(driveKeyHex: string, drivePath: string): Promise<Blob | null> {
     if (!this.session) return null
     try {
@@ -1682,9 +1685,14 @@ export class AppShell extends HTMLElement {
   }
 
   private async downloadFile(driveKeyHex: string, name: string, drivePath: string): Promise<void> {
-    const blob = await this.fetchFileBlob(driveKeyHex, drivePath)
-    if (!blob) return alert('File not found on peer')
-    triggerBlobDownload(blob, name)
+    if (!this.session) return
+    try {
+      const buffer = await this.session.downloadFile(driveKeyHex, drivePath)
+      if (!buffer) return alert('File not found on peer')
+      triggerBlobDownload(new Blob([new Uint8Array(buffer)]), name)
+    } catch (err) {
+      alert(`Download failed: ${(err as Error).message}`)
+    }
   }
 
   private async downloadVaultFile(filePath: string, name: string): Promise<void> {
