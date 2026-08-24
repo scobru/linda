@@ -37,6 +37,14 @@ export function isAudioFile(file: { name: string; mimeType?: string }): boolean 
   return !!file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(file.name)
 }
 
+/** Matches the name the composers generate for a recording (see MessageComposer). */
+export function isVoiceMessage(file: { name: string }): boolean {
+  return /^voice-\d{4}-/.test(file.name)
+}
+
+/** Static bar heights — decoding the clip just to draw a real waveform isn't worth it. */
+const VOICE_WAVE_HEIGHTS = [7, 12, 18, 10, 15, 20, 9, 14, 18, 11, 16, 8, 13, 6]
+
 function formatTime(ts: number): string {
   const d = new Date(ts)
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -101,6 +109,25 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
         {/* File attachment */}
         {message.file && (
           isAudioFile(message.file) ? (
+            // A voice message is a recording, not a file the sender picked, so its generated
+            // filename is noise — show a player instead. A real audio file keeps its name.
+            isVoiceMessage(message.file) ? (
+              <Pressable style={styles.voiceChip} onPress={onFilePress} disabled={isAudioLoading}>
+                <View style={styles.voicePlayBtn}>
+                  <Ionicons
+                    name={isAudioLoading ? 'hourglass-outline' : isAudioPlaying ? 'pause' : 'play'}
+                    size={16}
+                    color="#fff"
+                  />
+                </View>
+                <View style={styles.voiceWave}>
+                  {VOICE_WAVE_HEIGHTS.map((h, i) => (
+                    <View key={i} style={[styles.voiceWaveBar, { height: h }]} />
+                  ))}
+                </View>
+                <Text style={styles.voiceLabel}>Voice</Text>
+              </Pressable>
+            ) : (
             <Pressable style={styles.fileAttachment} onPress={onFilePress} disabled={isAudioLoading}>
               <View style={styles.fileNameRow}>
                 <Ionicons
@@ -112,6 +139,7 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
               </View>
               <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
             </Pressable>
+            )
           ) : message.file.thumbnail ? (
             <Pressable onPress={onFilePress} disabled={fileDownloading} style={styles.imageAttachment}>
               <Image source={{ uri: message.file.thumbnail }} style={styles.imageThumb} resizeMode="cover" />
@@ -257,6 +285,41 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: radii.sm,
     padding: spacing.sm,
     marginBottom: spacing.xs,
+  },
+  voiceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: radii.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  voicePlayBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceWave: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 20,
+  },
+  voiceWaveBar: {
+    width: 2,
+    borderRadius: 1,
+    backgroundColor: colors.textSecondary,
+    opacity: 0.55,
+  },
+  voiceLabel: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
   },
   imageAttachment: {
     marginBottom: spacing.xs,

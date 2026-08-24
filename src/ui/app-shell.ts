@@ -1542,7 +1542,16 @@ export class AppShell extends HTMLElement {
       const isImg = message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name)
       const isAudio = !isImg && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
       if (isAudio) {
-        fileHtml = `
+        // A voice message has no filename worth showing — it's a recording, not a file the
+        // sender chose. An actual audio file someone attached still shows its name.
+        const isVoice = /^voice-\d{4}-/.test(message.file.name)
+        fileHtml = isVoice ? `
+          <div class="voice-chip" data-audio-slot="${message.id}">
+            <button class="voice-play-btn" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}" title="Play voice message">${ICONS.play}</button>
+            <span class="voice-wave" aria-hidden="true">${'<i></i>'.repeat(14)}</span>
+            <span class="voice-label">Voice message</span>
+          </div>
+        ` : `
           <div class="file-chip" style="display:flex;flex-direction:column;gap:0.4rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
             <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
             <div data-audio-slot="${message.id}">

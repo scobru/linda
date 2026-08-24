@@ -2076,3 +2076,61 @@ input:checked + .keet-slider:before {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
+
+/* --- voice messages ---------------------------------------------------- */
+.voice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+  padding: 0.45rem 0.85rem 0.45rem 0.45rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-full);
+  min-width: 200px;
+}
+
+.voice-play-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.voice-play-btn:hover { filter: brightness(1.1); }
+
+/* Decorative level meter — the real waveform isn't known without decoding the clip. */
+.voice-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+}
+.voice-wave i {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+.voice-wave i:nth-child(3n)   { height: 40%; }
+.voice-wave i:nth-child(3n+1) { height: 70%; }
+.voice-wave i:nth-child(3n+2) { height: 100%; }
+
+.voice-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Once playback starts the chip is replaced by the native player. */
+.voice-chip audio {
+  height: 32px;
+  max-width: 260px;
+}

@@ -324,6 +324,16 @@ export default function ProfileScreen({ navigation }: Props) {
           </Pressable>
         </View>
 
+        {/* Device pairing — the screen existed and was registered in the navigator, but nothing
+            ever navigated to it, so it was unreachable on mobile. Desktop offers it from the
+            profile drawer. */}
+        <View style={styles.field}>
+          <Pressable onPress={() => navigation.navigate('Pair')} style={styles.keyRow}>
+            <Text style={[styles.value, { flex: 1 }]}>Pair Device</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
+        </View>
+
         {/* About */}
         <View style={styles.field}>
           <Text style={styles.label}>About</Text>
