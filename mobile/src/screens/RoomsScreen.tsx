@@ -21,6 +21,7 @@ export default function RoomsScreen({ navigation }: Props) {
   const { session, identity, nickname, avatar, bookmarks, contacts, avatars, refresh } = useSession()
   const [showCreate, setShowCreate] = useState(false)
   const [newRoomBroadcast, setNewRoomBroadcast] = useState(false)
+  const [newRoomPublic, setNewRoomPublic] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
   const [roomName, setRoomName] = useState('')
   const [inviteLink, setInviteLink] = useState('')
@@ -43,17 +44,18 @@ export default function RoomsScreen({ navigation }: Props) {
     if (!session || !roomName.trim()) return
     setLoading(true)
     try {
-      const room = await session.createRoom(roomName.trim(), false, '', '', newRoomBroadcast)
+      const room = await session.createRoom(roomName.trim(), newRoomPublic, '', '', newRoomBroadcast)
       refresh()
       setShowCreate(false)
       setRoomName('')
       setNewRoomBroadcast(false)
+      setNewRoomPublic(false)
       navigation.navigate('RoomChat', { roomId: room.id, roomName: roomName.trim() })
     } catch (err) {
       Alert.alert('Error', (err as Error).message)
     }
     setLoading(false)
-  }, [session, roomName, newRoomBroadcast, refresh, navigation])
+  }, [session, roomName, newRoomPublic, newRoomBroadcast, refresh, navigation])
 
   // Navigates immediately and lets RoomChatScreen run the actual join in the background —
   // joinRoomByKey can block for up to ~30s waiting on the swarm (see session.ts's
@@ -233,8 +235,12 @@ export default function RoomsScreen({ navigation }: Props) {
               <Text style={styles.switchLabel}>Broadcast (only admins can post)</Text>
               <Switch value={newRoomBroadcast} onValueChange={setNewRoomBroadcast} />
             </View>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Publish to Discovery Directory</Text>
+              <Switch value={newRoomPublic} onValueChange={setNewRoomPublic} />
+            </View>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => { setShowCreate(false); setRoomName(''); setNewRoomBroadcast(false) }} style={styles.modalCancel}>
+              <Pressable onPress={() => { setShowCreate(false); setRoomName(''); setNewRoomBroadcast(false); setNewRoomPublic(false) }} style={styles.modalCancel}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
