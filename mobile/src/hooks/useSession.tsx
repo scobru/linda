@@ -136,7 +136,7 @@ export function SessionProvider({ children }: Props) {
         void Notifications.scheduleNotificationAsync({
           content: {
             title: `${author} in ${roomName}`,
-            body: payload.message.file ? 'Shared an image 🖼️' : payload.message.body.slice(0, 200),
+            body: payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
           },
           trigger: null,
         })

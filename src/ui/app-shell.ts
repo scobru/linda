@@ -138,7 +138,36 @@ const ICONS = {
   settings: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
   check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
   search: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
-  verified: `<svg width="14" height="14" viewBox="0 0 24 24" fill="#38bdf8" stroke="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`
+  verified: `<svg width="14" height="14" viewBox="0 0 24 24" fill="#38bdf8" stroke="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
+  globe: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+  moon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  sun: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  user: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  userPlus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
+  folder: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+  folderLarge: `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+  upload: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
+  download: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  image: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+  music: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+  video: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`,
+  archive: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`,
+  file: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+  eye: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+  crown: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18h20l-2-11-5 4-3-6-3 6-5-4z"/></svg>`,
+  volumeOff: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`,
+  volumeOn: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`,
+  ban: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
+  kick: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  externalLink: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
+  star: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  mic: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
+  stopCircle: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>`,
+  play: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  starFilled: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  chatSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+  shieldSmall: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -530,7 +559,7 @@ export class AppShell extends HTMLElement {
           if (lastMsg) {
             this.lastMessages.set(b.id, {
               author: this.displayName(lastMsg.authorId),
-              text: lastMsg.file ? `Shared an image 🖼️` : lastMsg.body,
+              text: lastMsg.file ? `Shared an image` : lastMsg.body,
               time: lastMsg.timestamp
             })
             this.scheduleRenderApp()
@@ -547,7 +576,7 @@ export class AppShell extends HTMLElement {
   private notifyIncomingMessage(roomId: string, message: ChatMessage): void {
     this.lastMessages.set(roomId, {
       author: this.displayName(message.authorId),
-      text: message.file ? `Shared an image 🖼️` : message.body,
+      text: message.file ? `Shared an image` : message.body,
       time: message.timestamp
     })
 
@@ -617,12 +646,12 @@ export class AppShell extends HTMLElement {
           <div class="topbar-left">
             <div class="topbar-user-badge" id="topbarUserBtn" title="Open Profile">
               <div class="topbar-avatar">${this.avatar ? `<img src="${this.avatar}" />` : userInitial}</div>
-              <span class="topbar-globe ${peerCount > 0 ? 'connected' : ''}" title="${peerCount} connected peer(s)">🌐</span>
+              <span class="topbar-globe ${peerCount > 0 ? 'connected' : ''}" title="${peerCount} connected peer(s)">${ICONS.globe}</span>
               <span class="keet-beta-badge">BETA</span>
             </div>
           </div>
           <div class="topbar-window-controls">
-            <button class="win-ctrl-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">${isLight ? '🌙' : '☀️'}</button>
+            <button class="win-ctrl-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">${isLight ? ICONS.moon : ICONS.sun}</button>
           </div>
         </header>
 
@@ -632,7 +661,7 @@ export class AppShell extends HTMLElement {
           <aside class="sidebar">
             <div class="sidebar-search-container">
               <div class="sidebar-search-box">
-                <span class="search-icon">🔍</span>
+                <span class="search-icon">${ICONS.search}</span>
                 <input id="sidebarSearch" placeholder="Search or join with a link" value="${escapeHtml(this.sidebarSearchQuery)}" />
               </div>
               <button class="compose-icon-btn" id="composeBtn" title="New group chat">
@@ -714,35 +743,35 @@ export class AppShell extends HTMLElement {
             <div class="drawer-menu-list">
               <div class="drawer-menu-item" id="drawerThemeToggleBtn">
                 <div class="drawer-menu-item-left">
-                  <span class="drawer-menu-item-icon">${isLight ? '🌙' : '☀️'}</span>
+                  <span class="drawer-menu-item-icon">${isLight ? ICONS.moon : ICONS.sun}</span>
                   <span>Theme: ${isLight ? 'Light Mode' : 'Dark Mode'}</span>
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
               <div class="drawer-menu-item" id="drawerSettingsBtn">
                 <div class="drawer-menu-item-left">
-                  <span class="drawer-menu-item-icon">⚙️</span>
+                  <span class="drawer-menu-item-icon">${ICONS.settings}</span>
                   <span>Profile &amp; Avatar Gallery</span>
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
               <div class="drawer-menu-item" id="drawerContactsBtn">
                 <div class="drawer-menu-item-left">
-                  <span class="drawer-menu-item-icon">👤</span>
+                  <span class="drawer-menu-item-icon">${ICONS.users}</span>
                   <span>Contacts &amp; Swarm</span>
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
               <div class="drawer-menu-item" id="drawerDiscoverBtn">
                 <div class="drawer-menu-item-left">
-                  <span class="drawer-menu-item-icon">🧭</span>
+                  <span class="drawer-menu-item-icon">${ICONS.compass}</span>
                   <span>Discover Public Rooms</span>
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
               <div class="drawer-menu-item" id="drawerPairDeviceBtn">
                 <div class="drawer-menu-item-left">
-                  <span class="drawer-menu-item-icon">📱</span>
+                  <span class="drawer-menu-item-icon">${ICONS.device}</span>
                   <span>Pair Another Device</span>
                 </div>
                 <span class="drawer-chevron">&gt;</span>
@@ -1116,7 +1145,7 @@ export class AppShell extends HTMLElement {
               <span class="verified-badge">${ICONS.verified}</span>
             </div>
             <div class="room-header-subtitle" id="roomMembersSubtitleTrigger" style="cursor:pointer;" title="View and manage room members">
-              <span class="member-count-text">👥 ${memberCount} member(s)</span>
+              <span class="member-count-text">${ICONS.users} ${memberCount} member(s)</span>
               <span>•</span>
               <span style="color:var(--success);">${this.onlineUsers.size} online</span>
             </div>
@@ -1125,17 +1154,17 @@ export class AppShell extends HTMLElement {
 
         ${room.isVaultEnabled ? `
           <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
-            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">💬 Chat</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'vault' ? 'active' : ''}" id="roomTabVault" style="background:${this.activeRoomTab === 'vault' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'vault' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">📁 Vault</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.chatSmall} Chat</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'vault' ? 'active' : ''}" id="roomTabVault" style="background:${this.activeRoomTab === 'vault' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'vault' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.folder} Vault</button>
           </div>
         ` : ''}
 
         <div class="room-header-tools">
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
-          <button class="room-header-btn ${isFavorite ? 'active' : ''}" id="toggleFavoriteBtn" title="${isFavorite ? 'Remove from favorites' : 'Add to favorites'}">★</button>
+          <button class="room-header-btn ${isFavorite ? 'active' : ''}" id="toggleFavoriteBtn" title="${isFavorite ? 'Remove from favorites' : 'Add to favorites'}">${isFavorite ? ICONS.starFilled : ICONS.star}</button>
           <button class="room-header-btn" id="roomSettingsBtn" title="Room Settings">${ICONS.settings}</button>
-          <button class="room-header-btn" id="openDrawerFromRoomBtn" title="Open Profile Drawer">👤</button>
+          <button class="room-header-btn" id="openDrawerFromRoomBtn" title="Open Profile Drawer">${ICONS.user}</button>
         </div>
       </header>
 
@@ -1143,7 +1172,7 @@ export class AppShell extends HTMLElement {
         <!-- Announcement Banner -->
         <div class="pinned-banner" id="pinnedBanner">
           <div class="pinned-banner-content">
-            <span class="pinned-badge">★ Topic</span>
+            <span class="pinned-badge">${ICONS.starFilled} Topic</span>
             <span class="pinned-text">${escapeHtml(roomDesc)}</span>
           </div>
         </div>
@@ -1160,7 +1189,7 @@ export class AppShell extends HTMLElement {
             <div style="display:flex;align-items:center;gap:0.6rem;">
               ${writable ? `
                 <label class="primary" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600;">
-                  <span>⬆️ Upload to Vault</span>
+                  <span>${ICONS.upload} Upload to Vault</span>
                   <input type="file" id="vaultFileInput" style="display:none;" />
                 </label>
               ` : `<span style="font-size:0.75rem;color:var(--text-muted);">Read-only vault</span>`}
@@ -1213,7 +1242,7 @@ export class AppShell extends HTMLElement {
               <input id="file" type="file" style="display:none" />
               <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
               <div class="composer-tools-group">
-                <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">😊</button>
+                <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">${ICONS.smile}</button>
                 <button class="composer-send-btn" id="send" title="Send">${ICONS.send}</button>
               </div>
             </div>
@@ -1512,7 +1541,7 @@ export class AppShell extends HTMLElement {
           <div class="file-chip" style="display:flex;flex-direction:column;gap:0.4rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
             <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
             <div data-audio-slot="${message.id}">
-              <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}">▶ Play</button>
+              <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}">${ICONS.play} Play</button>
             </div>
           </div>
         `
@@ -1553,7 +1582,7 @@ export class AppShell extends HTMLElement {
           return `
             <div class="keet-quote-card" title="Click to view quoted message">
               <span class="quote-title">${escapeHtml(this.displayName(repliedMsg.authorId))}</span>
-              <span class="quote-body">${escapeHtml(repliedMsg.body.slice(0, 60) || (repliedMsg.file ? `📎 ${repliedMsg.file.name}` : 'Message'))}</span>
+              <span class="quote-body">${escapeHtml(repliedMsg.body.slice(0, 60) || (repliedMsg.file ? `${ICONS.attach} ${repliedMsg.file.name}` : 'Message'))}</span>
             </div>
           `
         })()
@@ -1584,8 +1613,8 @@ export class AppShell extends HTMLElement {
     const authorIsOwner = room?.isOwner(message.authorId)
     const authorIsMod = room?.isModerator(message.authorId)
     const authorRoleBadge = authorIsOwner 
-      ? `<span class="member-role-badge owner" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Room Owner">👑 Owner</span>`
-      : (authorIsMod ? `<span class="member-role-badge mod" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Moderator">🛡️ Mod</span>` : '')
+      ? `<span class="member-role-badge owner" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Room Owner">${ICONS.crown} Owner</span>`
+      : (authorIsMod ? `<span class="member-role-badge mod" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Moderator">${ICONS.shieldSmall} Mod</span>` : '')
 
     const selected = this.selectedMessageIds.has(message.id)
     const selectCheckbox = this.selectionMode && mine
@@ -1719,7 +1748,7 @@ export class AppShell extends HTMLElement {
     if (visible.length === 0) {
       container.innerHTML = `
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;color:var(--text-muted);text-align:center;">
-          <div style="font-size:2.5rem;margin-bottom:0.75rem;">📁</div>
+          <div style="margin-bottom:0.75rem;color:var(--text-muted);">${ICONS.folderLarge}</div>
           <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">${filter ? 'No matching files found' : 'P2P Room Vault is Empty'}</div>
           <div style="font-size:0.8rem;max-width:340px;">${filter ? 'Try a different search query.' : 'Upload documents, videos, audio, or archives to share directly with the swarm.'}</div>
         </div>
@@ -1735,13 +1764,13 @@ export class AppShell extends HTMLElement {
       const isVideo = f.mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(f.name)
       const isZip = /\.(zip|tar|gz|7z|rar)$/i.test(f.name)
       const isPdf = /\.pdf$/i.test(f.name) || f.mimeType === 'application/pdf'
-      const icon = isImg ? '🖼️' : isAudio ? '🎵' : isVideo ? '🎬' : isZip ? '📦' : isPdf ? '📄' : '📁'
+      const icon = isImg ? ICONS.image : isAudio ? ICONS.music : isVideo ? ICONS.video : isZip ? ICONS.archive : isPdf ? ICONS.file : ICONS.file
       const timeStr = new Date(f.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
       return `
         <div class="vault-file-card" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:8px;gap:1rem;">
           <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
-            <div style="font-size:1.6rem;flex-shrink:0;">${icon}</div>
+            <div style="flex-shrink:0;display:flex;color:var(--text-muted);">${icon}</div>
             <div style="min-width:0;flex:1;">
               <div style="font-weight:600;font-size:0.85rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
               <div style="font-size:0.7rem;color:var(--text-muted);display:flex;gap:0.6rem;align-items:center;margin-top:0.15rem;">
@@ -1754,7 +1783,7 @@ export class AppShell extends HTMLElement {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
-            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" data-vault-drive-key="${escapeHtml(f.driveKey ?? '')}">⬇️ Download</button>
+            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" data-vault-drive-key="${escapeHtml(f.driveKey ?? '')}">${ICONS.download} Download</button>
             ${canDelete ? `
               <button class="ghost" style="color:var(--danger);padding:0.3rem 0.5rem;font-size:0.75rem;" data-vault-delete="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" title="Delete file from vault">${ICONS.trash}</button>
             ` : ''}
@@ -1934,7 +1963,7 @@ export class AppShell extends HTMLElement {
               </div>
               <div class="key-display-row" style="margin-top:0.3rem;">
                 <code>${showSecretKey ? b4a.toString(this.identity.secretKey, 'hex') : '•'.repeat(64)}</code>
-                <button class="icon ghost icon-sm" id="toggleSecretKey" title="${showSecretKey ? 'Hide' : 'Reveal'} secret key">${showSecretKey ? '🙈' : '👁'}</button>
+                <button class="icon ghost icon-sm" id="toggleSecretKey" title="${showSecretKey ? 'Hide' : 'Reveal'} secret key">${showSecretKey ? ICONS.eyeOff : ICONS.eye}</button>
                 ${showSecretKey ? `<button class="icon ghost icon-sm" id="copySecretKey" title="Copy secret key">${ICONS.copy}</button>` : ''}
               </div>
             </div>
@@ -1947,11 +1976,11 @@ export class AppShell extends HTMLElement {
                     ${this.profileMnemonicWords.split(' ').map((w, i) => `<div class="mnemonic-word"><span>${i + 1}</span>${escapeHtml(w)}</div>`).join('')}
                   </div>
                 </div>
-                <button class="icon ghost icon-sm" id="hideMnemonicBtn" style="margin-top:0.3rem;">🙈 Hide</button>
+                <button class="icon ghost icon-sm" id="hideMnemonicBtn" style="margin-top:0.3rem;">${ICONS.eyeOff} Hide</button>
               ` : `
                 <div style="display:flex;gap:0.4rem;">
                   <input id="mnemonicPassInput" type="password" placeholder="Passphrase to reveal" style="flex:1;" />
-                  <button class="ghost icon-sm" id="revealMnemonicBtn">👁 Reveal</button>
+                  <button class="ghost icon-sm" id="revealMnemonicBtn">${ICONS.eye} Reveal</button>
                 </div>
                 ${this.profileMnemonicError ? `<p style="color:var(--danger);font-size:0.75rem;margin-top:0.25rem;">${escapeHtml(this.profileMnemonicError)}</p>` : ''}
               `}
@@ -1968,7 +1997,7 @@ export class AppShell extends HTMLElement {
             <div class="form-group">
               <label>About</label>
               <a href="https://github.com/scobru/linda" target="_blank" rel="noopener" class="ghost" style="display:block;width:fit-content;font-size:0.8rem;text-decoration:none;color:var(--text);padding:0.25rem 0.5rem;">
-                linda-pear is open source — view on GitHub ↗
+                linda-pear is open source — view on GitHub ${ICONS.externalLink}
               </a>
             </div>
 
@@ -2468,7 +2497,7 @@ export class AppShell extends HTMLElement {
                 <div>
                   <div style="font-weight:700;font-size:0.95rem;color:var(--text);">${escapeHtml(this.activeRoomName)}</div>
                   <div style="font-size:0.75rem;color:var(--text-dim);">
-                    <span>👥 ${members.length} Member${members.length !== 1 ? 's' : ''}</span>
+                    <span>${ICONS.users} ${members.length} Member${members.length !== 1 ? 's' : ''}</span>
                     <span> • </span>
                     <span style="color:var(--success);">${this.onlineUsers.size} Online</span>
                   </div>
@@ -2482,12 +2511,12 @@ export class AppShell extends HTMLElement {
             <!-- Moderation notice banner -->
             ${iAmOwner ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#f59e0b;display:flex;align-items:center;gap:0.4rem;">
-                <span>👑</span>
+                <span>${ICONS.crown}</span>
                 <span>You are the <strong>Owner</strong> of this room. You have full control over roles, membership, and encryption keys.</span>
               </div>
             ` : (iCanModerate ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(2,132,199,0.1);border:1px solid rgba(2,132,199,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#38bdf8;display:flex;align-items:center;gap:0.4rem;">
-                <span>🛡️</span>
+                <span>${ICONS.shieldSmall}</span>
                 <span>You are a <strong>Moderator</strong>. You can kick, ban, and mute members in this room.</span>
               </div>
             ` : '')}
@@ -2516,15 +2545,15 @@ export class AppShell extends HTMLElement {
                       <div class="member-card-title-row">
                         <span class="member-card-name">${escapeHtml(name)}</span>
                         ${isMe ? '<span style="color:var(--accent);font-size:0.75rem;font-weight:600;">(you)</span>' : ''}
-                        ${isOwner ? '<span class="member-role-badge owner">👑 Owner</span>' : (isMod ? '<span class="member-role-badge mod">🛡️ Mod</span>' : '<span class="member-role-badge member">Member</span>')}
-                        ${isMuted ? '<span class="member-role-badge muted">🔇 Muted</span>' : ''}
-                        ${isBanned ? '<span class="member-role-badge banned">🚫 Banned</span>' : ''}
+                        ${isOwner ? `<span class="member-role-badge owner">${ICONS.crown} Owner</span>` : (isMod ? `<span class="member-role-badge mod">${ICONS.shieldSmall} Mod</span>` : '<span class="member-role-badge member">Member</span>')}
+                        ${isMuted ? `<span class="member-role-badge muted">${ICONS.volumeOff} Muted</span>` : ''}
+                        ${isBanned ? `<span class="member-role-badge banned">${ICONS.ban} Banned</span>` : ''}
                       </div>
                       <div class="member-card-id" title="${m.identityId}">${m.identityId.slice(0, 16)}…${m.identityId.slice(-6)}</div>
                     </div>
 
                     ${!isMe && !contactIds.has(m.identityId) ? `
-                      <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-add-contact-id="${m.identityId}" data-add-contact-name="${escapeHtml(name)}" title="Send contact request">➕ Add contact</button>
+                      <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-add-contact-id="${m.identityId}" data-add-contact-name="${escapeHtml(name)}" title="Send contact request">${ICONS.userPlus} Add contact</button>
                     ` : ''}
 
                     ${canModerateThis ? `
@@ -2532,21 +2561,21 @@ export class AppShell extends HTMLElement {
                         ${iAmOwner ? (isMod ? `
                           <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-id="${m.identityId}" title="Demote from Moderator">Demote</button>
                         ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-promote-id="${m.identityId}" title="Promote to Moderator">🛡️ Promote</button>
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-promote-id="${m.identityId}" title="Promote to Moderator">${ICONS.shieldSmall} Promote</button>
                         `) : ''}
 
                         ${isMuted ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">🔊 Unmute</button>
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">${ICONS.volumeOn} Unmute</button>
                         ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-mute-id="${m.identityId}" title="Mute user in this room">🔇 Mute</button>
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-mute-id="${m.identityId}" title="Mute user in this room">${ICONS.volumeOff} Mute</button>
                         `}
 
-                        <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-kick-writer="${m.writerKey}" data-kick-name="${escapeHtml(name)}" title="Kick member and rotate room encryption keys">👢 Kick</button>
+                        <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-kick-writer="${m.writerKey}" data-kick-name="${escapeHtml(name)}" title="Kick member and rotate room encryption keys">${ICONS.kick} Kick</button>
 
                         ${isBanned ? `
                           <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unban-id="${m.identityId}" title="Unban member">Unban</button>
                         ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-ban-writer="${m.writerKey}" data-ban-id="${m.identityId}" data-ban-name="${escapeHtml(name)}" title="Kick and ban user permanently">🚫 Ban</button>
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-ban-writer="${m.writerKey}" data-ban-id="${m.identityId}" data-ban-name="${escapeHtml(name)}" title="Kick and ban user permanently">${ICONS.ban} Ban</button>
                         `}
                       </div>
                     ` : ''}

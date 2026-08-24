@@ -31,13 +31,13 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
-function getFileEmoji(name: string, mimeType?: string): string {
-  if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return '🖼️'
-  if (mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(name)) return '🎵'
-  if (mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(name)) return '🎬'
-  if (/\.(zip|tar|gz|7z|rar)$/i.test(name)) return '📦'
-  if (/\.pdf$/i.test(name) || mimeType === 'application/pdf') return '📄'
-  return '📁'
+function getFileIcon(name: string, mimeType?: string): keyof typeof Ionicons.glyphMap {
+  if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return 'image-outline'
+  if (mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(name)) return 'musical-notes-outline'
+  if (mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(name)) return 'videocam-outline'
+  if (/\.(zip|tar|gz|7z|rar)$/i.test(name)) return 'archive-outline'
+  if (/\.pdf$/i.test(name) || mimeType === 'application/pdf') return 'document-text-outline'
+  return 'document-outline'
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
@@ -484,13 +484,15 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
             onPress={() => setActiveTab('chat')}
           >
-            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>💬 Chat</Text>
+            <Ionicons name="chatbubble-outline" size={15} color={activeTab === 'chat' ? colors.accent : colors.textSecondary} />
+            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>Chat</Text>
           </Pressable>
           <Pressable
             style={[styles.tabButton, activeTab === 'vault' && styles.tabButtonActive]}
             onPress={() => setActiveTab('vault')}
           >
-            <Text style={[styles.tabText, activeTab === 'vault' && styles.tabTextActive]}>📁 Vault ({vaultFiles.length})</Text>
+            <Ionicons name="folder-outline" size={15} color={activeTab === 'vault' ? colors.accent : colors.textSecondary} />
+            <Text style={[styles.tabText, activeTab === 'vault' && styles.tabTextActive]}>Vault ({vaultFiles.length})</Text>
           </Pressable>
         </View>
       )}
@@ -527,7 +529,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               return (
                 <View style={styles.vaultCard}>
                   <View style={styles.vaultCardIcon}>
-                    <Text style={{ fontSize: 24 }}>{getFileEmoji(item.name, item.mimeType)}</Text>
+                    <Ionicons name={getFileIcon(item.name, item.mimeType)} size={24} color={colors.textSecondary} />
                   </View>
                   <View style={styles.vaultCardInfo}>
                     <Text style={styles.vaultCardName} numberOfLines={1}>{item.name}</Text>
@@ -561,7 +563,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             }}
             ListEmptyComponent={
               <View style={styles.emptyCenter}>
-                <Text style={styles.emptyEmoji}>📁</Text>
+                <Ionicons name="folder-open-outline" size={44} color={colors.textSecondary} style={styles.emptyIcon} />
                 <Text style={styles.emptyText}>
                   {vaultLoading ? 'Loading vault files…' : vaultSearchQuery ? 'No matching files found' : 'P2P Room Vault is empty'}
                 </Text>
@@ -626,7 +628,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 </View>
               ) : (
                 <View style={styles.emptyCenter}>
-                  <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />
+                  <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} style={styles.emptyIcon} />
                   <Text style={styles.emptyText}>No messages yet. Say hello!</Text>
                 </View>
               )
@@ -764,7 +766,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     ...shadows.md,
   },
-  emptyEmoji: { fontSize: 48, opacity: 0.5 },
+  emptyIcon: { opacity: 0.5, marginBottom: spacing.sm },
   emptyText: { color: colors.textTertiary, fontSize: typography.md },
   statusBar: {
     color: colors.textTertiary, fontSize: typography.xs,
@@ -816,7 +818,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   tabButton: {
     flex: 1,
     paddingVertical: spacing.sm,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
     borderRadius: radii.md,
   },
   tabButtonActive: {

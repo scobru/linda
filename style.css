@@ -2036,3 +2036,33 @@ input:checked + .keet-slider:before {
   flex-wrap: wrap;
 }
 
+
+/* --- inline SVG icons -------------------------------------------------- */
+/* These slots used to hold emoji glyphs, sized and centred as text. They now
+   carry inline SVGs, which need box alignment rather than font metrics. */
+.drawer-menu-item-icon,
+.search-icon,
+.topbar-globe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Buttons and pills that pair an icon with a label. */
+.room-tab-pill,
+.vault-file-card button,
+.member-actions button,
+.member-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Keep icons on the text baseline wherever one sits inside a run of text. */
+.pinned-badge svg,
+.member-count-text svg,
+.member-role-badge svg,
+.room-tab-pill svg,
+.quote-body svg {
+  flex-shrink: 0;
+}
