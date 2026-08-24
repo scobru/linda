@@ -8,6 +8,7 @@ import CreateScreen from '../screens/CreateScreen'
 import UnlockScreen from '../screens/UnlockScreen'
 import RecoverScreen from '../screens/RecoverScreen'
 import PairScreen from '../screens/PairScreen'
+import PairDeviceScreen from '../screens/PairDeviceScreen'
 import RoomsScreen from '../screens/RoomsScreen'
 import RoomChatScreen from '../screens/RoomChatScreen'
 import ContactsScreen from '../screens/ContactsScreen'
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   Unlock: undefined
   Recover: undefined
   Pair: undefined
+  PairDevice: undefined
   Rooms: undefined
   RoomChat: { roomId?: string; roomName: string; pendingJoin?: { name: string; key: string } }
   Contacts: undefined
@@ -77,7 +79,7 @@ export default function Navigation({ initialRoute }: Props) {
         <Stack.Screen name="Create" component={CreateScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Unlock" component={UnlockScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Recover" component={RecoverScreen} options={{ title: 'Recover Identity' }} />
-        <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Pair Device' }} />
+        <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Pair This Device' }} />
 
         {/* Main app screens */}
         <Stack.Screen name="Rooms" component={RoomsScreen} options={{ title: 'Linda', headerBackVisible: false }} />
@@ -88,6 +90,7 @@ export default function Navigation({ initialRoute }: Props) {
         />
         <Stack.Screen name="Contacts" component={ContactsScreen} options={{ title: 'Contacts' }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+        <Stack.Screen name="PairDevice" component={PairDeviceScreen} options={{ title: 'Pair a Device' }} />
         <Stack.Screen
           name="Invite"
           component={InviteScreen}

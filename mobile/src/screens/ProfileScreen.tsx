@@ -328,7 +328,7 @@ export default function ProfileScreen({ navigation }: Props) {
             ever navigated to it, so it was unreachable on mobile. Desktop offers it from the
             profile drawer. */}
         <View style={styles.field}>
-          <Pressable onPress={() => navigation.navigate('Pair')} style={styles.keyRow}>
+          <Pressable onPress={() => navigation.navigate('PairDevice')} style={styles.keyRow}>
             <Text style={[styles.value, { flex: 1 }]}>Pair Device</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
           </Pressable>

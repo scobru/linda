@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import RPC from 'bare-rpc'
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, validateMnemonic, revealMnemonic, WrongPassphraseError, type Identity } from '../../src/identity/index.js'
-import { joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
+import { hostPairing, joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
@@ -22,6 +22,8 @@ let identity: Identity | null = null
 let session: Session | null = null
 let storageDir = ''
 const wiredRooms = new Set<string>()
+/** Cancels an in-flight hosted pairing; see identity.hostPairing. */
+let stopHostedPairing: (() => void) | null = null
 
 const rpc = new RPC(IPC as any, (req: any) => {
   if (!req.reply) return // stray incoming event; RN never sends one
@@ -131,6 +133,26 @@ const methods: Record<string, (...args: any[]) => any> = {
     }
     identity = null
     fs.rmSync(dir, { recursive: true, force: true })
+  },
+
+  // Hosting the other half of pairing: this device already holds the identity and hands it to
+  // a new one. Can't be a plain request/reply — the code appears first and the hand-off lands
+  // later — so progress goes back as events, the way the desktop's callbacks do.
+  'identity.hostPairing': () => {
+    stopHostedPairing?.()
+    stopHostedPairing = hostPairing(
+      requireIdentity(),
+      (code) => pushEvent('pairingCode', { code }),
+      () => {
+        pushEvent('pairingDone')
+        stopHostedPairing = null
+      }
+    )
+  },
+
+  'identity.stopPairing': () => {
+    stopHostedPairing?.()
+    stopHostedPairing = null
   },
 
   'identity.pair': async (code: string, passphrase: string, dir: string) => {

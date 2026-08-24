@@ -54,3 +54,28 @@ export async function pairAndSave(code: string, passphrase: string, dir: string)
   const { id } = await bareClient.call<{ id: string }>('identity.pair', code, passphrase, dir)
   return { id }
 }
+
+/**
+ * Hosts a pairing so another device can adopt this one's identity — the half the desktop has
+ * always had. Resolves once the code exists (show it as a QR); `onPaired` fires later, when the
+ * other device has actually taken it. Call the returned function to stop hosting.
+ */
+export async function startHostedPairing(
+  onCode: (code: string) => void,
+  onPaired: () => void
+): Promise<() => void> {
+  const offCode = bareClient.on('pairingCode', (payload: { code: string }) => onCode(payload.code))
+  const offDone = bareClient.on('pairingDone', () => onPaired())
+  try {
+    await bareClient.call('identity.hostPairing')
+  } catch (err) {
+    offCode()
+    offDone()
+    throw err
+  }
+  return () => {
+    offCode()
+    offDone()
+    void bareClient.call('identity.stopPairing').catch(() => { /* already torn down */ })
+  }
+}
