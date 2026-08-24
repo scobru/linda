@@ -4,6 +4,7 @@ import { Session, type RoomBookmark } from '../app/session.js'
 import type { Room, ChatMessage, VaultFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
+import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 
 function storageDir(): string {
@@ -167,7 +168,8 @@ const ICONS = {
   play: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
   starFilled: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   chatSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
-  shieldSmall: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
+  shieldSmall: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  hash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -191,6 +193,8 @@ export class AppShell extends HTMLElement {
   private selectionMode = false
   private selectedMessageIds = new Set<string>()
   private messageFilter = ''
+  /** Non-null while the message list is narrowed to one hashtag — see renderHashtagBar. */
+  private activeHashtag: string | null = null
   private activeRoomTab: 'chat' | 'vault' = 'chat'
   private vaultSearchQuery = ''
   private editingMessageId: string | null = null
@@ -1210,6 +1214,10 @@ export class AppShell extends HTMLElement {
           </div>
         </div>
       ` : `
+        <!-- Hashtag notes: one pill per tag used in this room, filtering the stream below.
+             Populated by renderHashtagBar, and stays empty when nobody has tagged anything. -->
+        <div id="hashtagBar" class="hashtag-bar"></div>
+
         <!-- Messages Stream Canvas -->
         <div id="messages" class="messages"></div>
         <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" title="Scroll to latest">↓</button>
@@ -1269,6 +1277,7 @@ export class AppShell extends HTMLElement {
 
     this.querySelector('#roomTabChat')?.addEventListener('click', () => {
       this.activeRoomTab = 'chat'
+    this.activeHashtag = null
       this.renderApp()
     })
     this.querySelector('#roomTabVault')?.addEventListener('click', () => {
@@ -1415,6 +1424,57 @@ export class AppShell extends HTMLElement {
     btn.classList.toggle('visible', distanceFromBottom > 200)
   }
 
+  /**
+   * One pill per hashtag used anywhere in the room, newest tag first, so a chat doubles as a
+   * scratch notes board: "buy milk #todo" becomes reachable later by tapping #todo. Selecting a
+   * pill narrows the stream to that tag; selecting it again clears the filter.
+   */
+  private renderHashtagBar(all: ChatMessage[]): void {
+    const bar = this.querySelector('#hashtagBar') as HTMLElement | null
+    if (!bar) return
+
+    const counts = new Map<string, number>()
+    for (const message of all) {
+      if (message.deleted) continue
+      for (const tag of extractHashtags(message.body)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+    // A tag the room no longer contains (its only message was deleted or cleared) must not stay
+    // selected, or the stream would sit empty with no pill to switch off.
+    if (this.activeHashtag && !counts.has(this.activeHashtag)) this.activeHashtag = null
+
+    if (counts.size === 0) {
+      bar.innerHTML = ''
+      bar.classList.remove('has-tags')
+      return
+    }
+    bar.classList.add('has-tags')
+
+    const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    bar.innerHTML = `
+      <span class="hashtag-bar-label" title="Messages tagged with a hashtag">${ICONS.hash}</span>
+      ${tags.map(([tag, count]) => `
+        <button class="hashtag-pill ${this.activeHashtag === tag ? 'active' : ''}" data-hashtag-pill="${escapeHtml(tag)}">
+          #${escapeHtml(tag)}<span class="hashtag-count">${count}</span>
+        </button>
+      `).join('')}
+      ${this.activeHashtag ? `<button class="hashtag-clear" id="clearHashtag" title="Show all messages">Clear</button>` : ''}
+    `
+
+    for (const btn of bar.querySelectorAll<HTMLButtonElement>('[data-hashtag-pill]')) {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.hashtagPill!
+        this.activeHashtag = this.activeHashtag === tag ? null : tag
+        this.forceScrollOnNextRender = this.activeHashtag === null
+        void this.renderMessages()
+      })
+    }
+    bar.querySelector('#clearHashtag')?.addEventListener('click', () => {
+      this.activeHashtag = null
+      this.forceScrollOnNextRender = true
+      void this.renderMessages()
+    })
+  }
+
   private async renderMessages(): Promise<void> {
     const room = this.activeRoom
     if (!room) return
@@ -1434,7 +1494,11 @@ export class AppShell extends HTMLElement {
     const byId = new Map(all.map((m) => [m.id, m]))
 
     const filter = this.messageFilter.trim().toLowerCase()
-    const visible = filter ? all.filter((m) => !m.deleted && m.body.toLowerCase().includes(filter)) : all
+    let visible = filter ? all.filter((m) => !m.deleted && m.body.toLowerCase().includes(filter)) : all
+    if (this.activeHashtag) {
+      visible = visible.filter((m) => !m.deleted && hasHashtag(m.body, this.activeHashtag!))
+    }
+    this.renderHashtagBar(all)
 
     const htmlChunks: string[] = []
 
@@ -1471,6 +1535,16 @@ export class AppShell extends HTMLElement {
           btn.disabled = false
           btn.textContent = original
         })
+      })
+    })
+
+    // Tapping a tag inside a message is the same action as tapping its pill above.
+    container.querySelectorAll<HTMLElement>('[data-hashtag]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const tag = el.dataset.hashtag!
+        this.activeHashtag = this.activeHashtag === tag ? null : tag
+        this.forceScrollOnNextRender = this.activeHashtag === null
+        void this.renderMessages()
       })
     })
 
@@ -1628,7 +1702,7 @@ export class AppShell extends HTMLElement {
       </div>
     `
 
-    const bodyText = message.body ? linkify(escapeHtml(message.body)) : ''
+    const bodyText = message.body ? linkifyHashtags(linkify(escapeHtml(message.body))) : ''
     const room = this.activeRoom
     const authorIsOwner = room?.isOwner(message.authorId)
     const authorIsMod = room?.isModerator(message.authorId)

@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, Text, StyleSheet, Pressable, Image } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { splitOnHashtags } from '@core/util/hashtag'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
@@ -25,6 +26,8 @@ interface Props {
   onPress?: () => void
   onReactionPress?: (emoji: string) => void
   onFilePress?: () => void
+  /** Tapping a #tag in the body filters the room to that tag. */
+  onHashtagPress?: (tag: string) => void
   fileDownloading?: boolean
   isAudioPlaying?: boolean
   isAudioLoading?: boolean
@@ -56,7 +59,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
+export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   if (message.deleted) {
@@ -165,7 +168,17 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
         {/* Message body */}
         {message.body.trim() !== '' && (
           <Text style={[styles.body, isSelf ? styles.bodySelf : styles.bodyOther]}>
-            {message.body}
+            {onHashtagPress
+              ? splitOnHashtags(message.body).map((part, i) =>
+                  part.tag ? (
+                    <Text key={i} style={styles.hashtag} onPress={() => onHashtagPress(part.tag!)}>
+                      {part.text}
+                    </Text>
+                  ) : (
+                    <Text key={i}>{part.text}</Text>
+                  )
+                )
+              : message.body}
           </Text>
         )}
 
@@ -317,6 +330,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.textSecondary,
     opacity: 0.55,
   },
+  hashtag: { fontWeight: typography.semibold, textDecorationLine: 'underline' },
   voiceLabel: {
     color: colors.textTertiary,
     fontSize: typography.xs,

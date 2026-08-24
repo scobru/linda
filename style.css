@@ -2134,3 +2134,74 @@ input:checked + .keet-slider:before {
   height: 32px;
   max-width: 260px;
 }
+
+/* --- hashtag notes ----------------------------------------------------- */
+/* One pill per tag used in the room; the bar collapses when nothing is tagged. */
+.hashtag-bar {
+  display: none;
+}
+.hashtag-bar.has-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.25rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--border-card);
+  background: var(--bg-panel);
+}
+.hashtag-bar::-webkit-scrollbar { height: 4px; }
+
+.hashtag-bar-label {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.hashtag-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.hashtag-pill:hover { color: var(--text); border-color: var(--accent); }
+.hashtag-pill.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.hashtag-count {
+  font-size: 0.65rem;
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+.hashtag-clear {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.hashtag-clear:hover { color: var(--text); }
+
+/* The tag as it appears inside a message body. */
+.hashtag {
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.hashtag:hover { text-decoration: underline; }

@@ -20,6 +20,7 @@ import type { ChatMessage, VaultFile } from '@core/rooms/room'
 import ChatBubble, { isAudioFile } from '../components/ChatBubble'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
+import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
@@ -216,6 +217,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [replyTo, setReplyTo] = useState<{ id: string; body: string; authorName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
@@ -349,9 +351,29 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     return nicknames.get(authorId) || authorId.slice(0, 8)
   }, [identityId, nicknames])
 
-  const filteredMessages = searchQuery
-    ? messages.filter((m) => m.body.toLowerCase().includes(searchQuery.toLowerCase()))
-    : messages
+  // Hashtag notes: every tag used in the room, most-used first, so "buy milk #todo" stays
+  // findable later by tapping #todo. Selecting a tag narrows the list; tapping it again clears.
+  const hashtagCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of messages) {
+      if (m.deleted) continue
+      for (const tag of extractHashtags(m.body)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  }, [messages])
+
+  // A tag whose last message was deleted must not stay selected, or the list sits empty.
+  useEffect(() => {
+    if (activeHashtag && !hashtagCounts.some(([tag]) => tag === activeHashtag)) setActiveHashtag(null)
+  }, [hashtagCounts, activeHashtag])
+
+  const filteredMessages = useMemo(() => {
+    let list = searchQuery
+      ? messages.filter((m) => m.body.toLowerCase().includes(searchQuery.toLowerCase()))
+      : messages
+    if (activeHashtag) list = list.filter((m) => !m.deleted && hasHashtag(m.body, activeHashtag))
+    return list
+  }, [messages, searchQuery, activeHashtag])
 
   const handleSend = useCallback(async (text: string) => {
     await sendMessage(text, replyTo?.id)
@@ -573,6 +595,39 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ) : (
         <>
+          {/* Hashtag notes — one pill per tag used in this room, filtering the list below. */}
+          {hashtagCounts.length > 0 && (
+            <View style={styles.hashtagBar}>
+              <Ionicons name="pricetags-outline" size={14} color={colors.textTertiary} />
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={hashtagCounts}
+                keyExtractor={([tag]) => tag}
+                contentContainerStyle={styles.hashtagBarContent}
+                renderItem={({ item: [tag, count] }) => {
+                  const active = activeHashtag === tag
+                  return (
+                    <Pressable
+                      onPress={() => setActiveHashtag(active ? null : tag)}
+                      style={[styles.hashtagPill, active && styles.hashtagPillActive]}
+                    >
+                      <Text style={[styles.hashtagPillText, active && styles.hashtagPillTextActive]}>
+                        #{tag}
+                      </Text>
+                      <Text style={[styles.hashtagCount, active && styles.hashtagPillTextActive]}>{count}</Text>
+                    </Pressable>
+                  )
+                }}
+              />
+              {activeHashtag && (
+                <Pressable onPress={() => setActiveHashtag(null)} style={styles.hashtagClear}>
+                  <Ionicons name="close" size={14} color={colors.textTertiary} />
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {/* Messages */}
           <FlatList
             ref={flatListRef}
@@ -590,6 +645,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 selectable={selectionMode && item.authorId === identityId}
                 onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
                 onFilePress={() => handleFilePress(item)}
+                onHashtagPress={(tag) => setActiveHashtag((cur) => (cur === tag ? null : tag))}
                 fileDownloading={downloadingId === item.id}
                 isAudioPlaying={playingAudioId === item.id}
                 isAudioLoading={loadingAudioId === item.id}
@@ -805,6 +861,39 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: spacing.sm, paddingTop: spacing.lg,
   },
   actionCancelText: { color: colors.textTertiary, fontSize: typography.md, textAlign: 'center' },
+  hashtagBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.bgSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  hashtagBarContent: { gap: spacing.xs, alignItems: 'center' },
+  hashtagPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  hashtagPillActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  hashtagPillText: {
+    color: colors.textSecondary,
+    fontSize: typography.xs,
+    fontWeight: typography.semibold,
+  },
+  hashtagPillTextActive: { color: '#fff' },
+  hashtagCount: { color: colors.textTertiary, fontSize: 10 },
+  hashtagClear: { padding: 2 },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: colors.bgSecondary,
