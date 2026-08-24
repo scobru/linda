@@ -532,18 +532,25 @@ export class Session {
     return vaultFile
   }
 
-  async downloadFromVault(roomId: string, filePath: string): Promise<Buffer | null> {
+  /**
+   * `driveKey` comes from the `VaultFile` the caller is already showing, the same way chat
+   * attachments pass the key straight from the message. It used to be re-derived here by
+   * matching `filePath` against a fresh `listVaultFiles()`, and when that match came up empty
+   * this returned null without ever reaching `downloadFile` — so the download reported a flat
+   * "file not available" and none of downloadFile's diagnostics ran, while chat transfers over
+   * the very same drive kept working. The lookup remains only as a fallback for callers that
+   * have a path and nothing else.
+   */
+  async downloadFromVault(roomId: string, filePath: string, driveKey?: string): Promise<Buffer | null> {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('Room not found')
+    if (driveKey) return await this.downloadFile(driveKey, filePath)
+
     const files = await room.listVaultFiles()
     const file = files.find((f) => f.path === filePath)
-    if (file && file.driveKey) {
-      return await this.downloadFile(file.driveKey, file.path)
-    }
-    if (room.vaultDriveKey) {
-      return await this.downloadFile(room.vaultDriveKey, filePath)
-    }
-    return null
+    if (file?.driveKey) return await this.downloadFile(file.driveKey, file.path)
+    if (room.vaultDriveKey) return await this.downloadFile(room.vaultDriveKey, filePath)
+    throw new Error(`No drive is recorded for ${filePath} — the vault lists ${files.length} file(s), none matching that path`)
   }
 
   async deleteFromVault(roomId: string, filePath: string): Promise<void> {

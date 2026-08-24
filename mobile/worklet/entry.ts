@@ -304,8 +304,8 @@ const methods: Record<string, (...args: any[]) => any> = {
     return session.uploadToVault(roomId, name, b4a.from(binary), mimeType)
   },
 
-  'room.downloadFromVault': async (roomId: string, filePath: string) => {
-    const buffer = await requireSession().downloadFromVault(roomId, filePath)
+  'room.downloadFromVault': async (roomId: string, filePath: string, driveKey?: string) => {
+    const buffer = await requireSession().downloadFromVault(roomId, filePath, driveKey)
     return buffer ? { __binary: true as const, result: { found: true }, binary: buffer } : { found: false }
   },
 

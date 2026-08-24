@@ -169,7 +169,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     if (!room) return
     setDownloadingVaultPath(file.path)
     try {
-      const base64 = await room.downloadFromVault(file.path)
+      const base64 = await room.downloadFromVault(file.path, file.driveKey)
       if (!base64) {
         Alert.alert('Download failed', 'File not available on connected peers')
         return

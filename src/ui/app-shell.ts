@@ -1695,10 +1695,10 @@ export class AppShell extends HTMLElement {
     }
   }
 
-  private async downloadVaultFile(filePath: string, name: string): Promise<void> {
+  private async downloadVaultFile(filePath: string, name: string, driveKey?: string): Promise<void> {
     if (!this.activeRoom || !this.session) return
     try {
-      const buffer = await this.session.downloadFromVault(this.activeRoom.id, filePath)
+      const buffer = await this.session.downloadFromVault(this.activeRoom.id, filePath, driveKey)
       if (!buffer) return alert('File not yet available on connected peers')
       triggerBlobDownload(new Blob([new Uint8Array(buffer)]), name)
     } catch (err) {
@@ -1754,7 +1754,7 @@ export class AppShell extends HTMLElement {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
-            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}">⬇️ Download</button>
+            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" data-vault-drive-key="${escapeHtml(f.driveKey ?? '')}">⬇️ Download</button>
             ${canDelete ? `
               <button class="ghost" style="color:var(--danger);padding:0.3rem 0.5rem;font-size:0.75rem;" data-vault-delete="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" title="Delete file from vault">${ICONS.trash}</button>
             ` : ''}
@@ -1771,7 +1771,7 @@ export class AppShell extends HTMLElement {
         const original = btn.textContent
         btn.disabled = true
         btn.textContent = 'Downloading…'
-        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!).finally(() => {
+        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!, btn.dataset.vaultDriveKey || undefined).finally(() => {
           btn.disabled = false
           btn.textContent = original
         })

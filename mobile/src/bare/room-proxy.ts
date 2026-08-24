@@ -136,8 +136,8 @@ export class RoomProxy {
     return result
   }
 
-  async downloadFromVault(filePath: string): Promise<string | null> {
-    const { result, binary } = await bareClient.callBinary<{ found: boolean }>('room.downloadFromVault', [this.id, filePath], new Uint8Array(0))
+  async downloadFromVault(filePath: string, driveKey?: string): Promise<string | null> {
+    const { result, binary } = await bareClient.callBinary<{ found: boolean }>('room.downloadFromVault', [this.id, filePath, driveKey], new Uint8Array(0))
     return result.found ? b4a.toString(binary, 'base64') : null
   }
 
