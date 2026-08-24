@@ -97,6 +97,66 @@ cd mobile/android
 - `/index.js` at the repo root (bridges to `mobile/index.js`)
 - `root`/`entryFile` overrides in `mobile/android/app/build.gradle`
 
+## Roadmap
+
+Neither of these exists yet. Both are about the same gap: today Linda needs the public internet
+to *find* a peer, even when that peer is sitting in the same room.
+
+### Offline discovery on a local network
+
+**Status:** not implemented. **Feasible, well-scoped.**
+
+Discovery is currently the only part of Linda that depends on the internet. Peers find each other
+through the Hyperswarm DHT, which bootstraps from three hardcoded hosts (`node1..3.hyperdht.org`).
+There is no mDNS or broadcast fallback, so on a LAN with no internet — a router with no uplink, a
+field deployment, a locked-down network — two devices cannot find each other even though nothing
+would stop them talking once they had.
+
+Worth being precise about which half of the claim this affects: **transport** is already direct
+peer-to-peer with no relay (see *Zero Relay Dependency* above). It is only **rendezvous** that
+needs the DHT. The fix is a second discovery channel — mDNS/DNS-SD, or plain UDP broadcast on the
+subnet — announcing the same topic keys the DHT announces, running alongside it rather than
+replacing it, so a peer found either way ends up in the same `onConnection` path.
+
+Main things to get right:
+- Announcing a room topic on the LAN reveals that topic to everyone on that network. Topics are
+  derived from the bootstrap key, so this is a real privacy trade-off and should be opt-in.
+- Both channels can surface the same peer; the existing dedupe by noise public key covers it, but
+  it needs verifying rather than assuming.
+
+### Bluetooth mesh
+
+**Status:** not implemented. **Partly feasible — with the caveat that "mesh" is the expensive word.**
+
+One thing is unusually favourable here: **Linda's replication is transport-agnostic.**
+`corestore.replicate()` takes any Node duplex stream — `Session` happens to hand it a
+Hyperswarm socket, but nothing in the sync logic knows or cares. Any Bluetooth channel that can be
+presented as a duplex stream would replicate rooms, messages and vault files with the existing code
+unchanged. That is the hard part of most such projects, and it is already done.
+
+What that leaves:
+
+- **The channel.** BLE L2CAP connection-oriented channels give a real bidirectional byte stream —
+  `createL2capChannel()` on Android (API 29, and this app's `minSdkVersion` is already 29) and
+  `CBL2CAPChannel` on iOS 11+. Neither is exposed by `react-native-ble-plx`, so this needs a native
+  module, plus a bridge into the Bare worklet where the networking actually lives.
+- **Throughput.** BLE realistically lands in the tens of KB/s. Fine for text and presence; the Room
+  Vault and image attachments would be painful and would need to be gated or deprioritised.
+- **Desktop.** The weakest link. BLE *peripheral* support in Node/Electron is poor and largely
+  unmaintained. Phone-to-phone is plausible well before phone-to-desktop is.
+- **iOS background.** CoreBluetooth heavily restricts background advertising and connection, so an
+  iOS device would mostly work only with the app foregrounded.
+- **"Mesh" specifically.** A single BLE hop between two devices in range is a different order of
+  problem from multi-hop routing between devices that are *not* in range of each other. Multi-hop
+  needs routing, store-and-forward, loop prevention and a story for what happens when the graph
+  partitions. Briar does this and it is a substantial part of that project. Note also that
+  *Bluetooth Mesh* is a specific BT SIG specification aimed at IoT sensor networks — it is not the
+  right substrate for this, so the name is misleading for what is actually wanted here.
+
+Honest framing: **single-hop BLE between two phones is a plausible piece of work.** Cross-platform
+multi-hop mesh is a research-grade project, not a feature — worth splitting the two so the first
+can ship without waiting on the second.
+
 ## Distribution
 
 - **Desktop**: [GitHub Releases](https://github.com/scobru/linda-pear/releases) (`.msix`, self-signed — Windows will warn on install) or `pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno`
