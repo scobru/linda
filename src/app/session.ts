@@ -382,15 +382,21 @@ export class Session {
     // after a network handoff, which routinely takes well past 10s on cellular NATs — the old
     // 8-attempt/~12s budget gave up before reconnection finished, misreporting a reachable peer
     // as offline.
+    let lastErr: Error | null = null
     for (let attempt = 0; attempt < 12; attempt++) {
       try {
         const buffer = await drive.get(cleanPath)
         if (buffer) return buffer
       } catch (err) {
+        lastErr = err as Error
         if (attempt >= 11) throw err
       }
       await new Promise((resolve) => setTimeout(resolve, 800 * Math.min(attempt + 1, 5)))
     }
+    // Every attempt resolved (no throw) but never found the path — distinct from "gave up
+    // retrying on a network error" above. Logged rather than silently returned as null so a
+    // report of "file not available" can be told apart from "we never actually connected".
+    console.warn(`[session] downloadFile: exhausted retries for ${cleanPath} on drive ${b4a.toString(keyBuf, 'hex')}${lastErr ? ` (last error: ${lastErr.message})` : ' (core never reported the path, no transport error — peer likely unreachable for this drive)'}`)
     return null
   }
 
