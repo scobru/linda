@@ -1678,12 +1678,7 @@ export class AppShell extends HTMLElement {
   private async downloadFile(driveKeyHex: string, name: string, drivePath: string): Promise<void> {
     const blob = await this.fetchFileBlob(driveKeyHex, drivePath)
     if (!blob) return alert('File not found on peer')
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, name)
   }
 
   private async downloadVaultFile(filePath: string, name: string): Promise<void> {
@@ -1691,13 +1686,7 @@ export class AppShell extends HTMLElement {
     try {
       const buffer = await this.session.downloadFromVault(this.activeRoom.id, filePath)
       if (!buffer) return alert('File not yet available on connected peers')
-      const blob = new Blob([new Uint8Array(buffer)])
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(new Blob([new Uint8Array(buffer)]), name)
     } catch (err) {
       alert(`Download error: ${(err as Error).message}`)
     }
@@ -2673,6 +2662,22 @@ export class AppShell extends HTMLElement {
     const el = this.querySelector('#error')
     if (el) el.textContent = message
   }
+}
+
+/** Revoking the blob: URL right after `a.click()` (the previous code) races Electron/Chromium's
+ * async download pipeline — for anything but a tiny file the URL can go dead before the browser
+ * has actually read it, silently dropping the download with no error anywhere. Delaying the
+ * revoke gives it time to finish; appending the anchor to the DOM matches what triggers reliably
+ * across Chromium versions (a detached anchor's click is not guaranteed to be honored). */
+function triggerBlobDownload(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 function escapeHtml(input: string): string {
