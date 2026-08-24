@@ -1243,6 +1243,7 @@ export class AppShell extends HTMLElement {
               <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
               <div class="composer-tools-group">
                 <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">${ICONS.smile}</button>
+                <button class="composer-tool-btn" id="recordVoiceBtn" title="Record a voice message">${ICONS.mic}</button>
                 <button class="composer-send-btn" id="send" title="Send">${ICONS.send}</button>
               </div>
             </div>
@@ -1336,6 +1337,8 @@ export class AppShell extends HTMLElement {
     })
     this.querySelector('#file')?.addEventListener('change', () => void this.sendFile())
 
+    this.querySelector('#recordVoiceBtn')?.addEventListener('click', () => void this.toggleVoiceRecording())
+
     this.querySelector('#cancelReply')?.addEventListener('click', () => {
       this.replyingTo = null
       this.renderApp()
@@ -1367,6 +1370,8 @@ export class AppShell extends HTMLElement {
   private openRoom(roomId: string, name: string): void {
     const room = this.session!.getRoom(roomId)
     if (!room) return
+    // Switching rooms mid-recording would otherwise leave the mic open with nowhere to send to.
+    if (this.voiceRecorder) void this.stopVoiceRecording(false)
     this.view = 'app'
     this.activeRoom = room
     this.activeRoomName = name
@@ -1669,6 +1674,77 @@ export class AppShell extends HTMLElement {
       if (current) current.value = body
       throw err
     }
+  }
+
+  /** Voice messages are sent as an ordinary audio attachment — the receiving side already
+   * recognises audio by extension and renders a player, on both desktop and mobile. */
+  private voiceRecorder: { recorder: MediaRecorder; chunks: Blob[]; stream: MediaStream } | null = null
+
+  private async toggleVoiceRecording(): Promise<void> {
+    if (this.voiceRecorder) return this.stopVoiceRecording(true)
+
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      alert(`Could not access the microphone: ${(err as Error).message}`)
+      return
+    }
+    const recorder = new MediaRecorder(stream)
+    const chunks: Blob[] = []
+    recorder.addEventListener('dataavailable', (e) => { if (e.data.size > 0) chunks.push(e.data) })
+    this.voiceRecorder = { recorder, chunks, stream }
+    recorder.start()
+    this.setVoiceRecordingUi(true)
+  }
+
+  private async stopVoiceRecording(send: boolean): Promise<void> {
+    const active = this.voiceRecorder
+    if (!active) return
+    this.voiceRecorder = null
+    this.setVoiceRecordingUi(false)
+
+    const finished = new Promise<void>((resolve) => active.recorder.addEventListener('stop', () => resolve(), { once: true }))
+    active.recorder.stop()
+    await finished
+    // Releases the OS mic indicator; without it the tab keeps holding the device open.
+    for (const track of active.stream.getTracks()) track.stop()
+    if (!send || active.chunks.length === 0) return
+
+    const type = active.recorder.mimeType || 'audio/webm'
+    const blob = new Blob(active.chunks, { type })
+    const room = this.activeRoom
+    if (!room || !this.session) return
+    try {
+      const buffer = b4a.from(new Uint8Array(await blob.arrayBuffer()))
+      const fileStore = await this.session.fileStore()
+      // The extension has to match what the players sniff for, and MediaRecorder's mimeType
+      // carries a codecs= suffix that would otherwise end up in the filename.
+      const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm'
+      const name = `voice-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`
+      const drivePath = `/${room.id}/${Date.now()}-${name}`
+      const shared = await fileStore.addBuffer(drivePath, buffer)
+      this.forceScrollOnNextRender = true
+      await room.sendFile(this.identity!.id, {
+        driveKey: b4a.toString(fileStore.key, 'hex'),
+        path: shared.path,
+        size: shared.size,
+        name,
+        mimeType: type.split(';')[0]
+      })
+    } catch (err) {
+      alert(`Could not send the voice message: ${(err as Error).message}`)
+    }
+  }
+
+  private setVoiceRecordingUi(active: boolean): void {
+    const btn = this.querySelector('#recordVoiceBtn') as HTMLButtonElement | null
+    if (!btn) return
+    btn.innerHTML = active ? ICONS.stopCircle : ICONS.mic
+    btn.title = active ? 'Stop and send voice message' : 'Record a voice message'
+    btn.classList.toggle('recording', active)
+    const input = this.querySelector('#body') as HTMLInputElement | null
+    if (input) input.placeholder = active ? 'Recording… click again to send' : 'Message'
   }
 
   private async sendFile(): Promise<void> {

@@ -55,6 +55,14 @@ app.whenReady().then(() => {
       callback(sources[0] ? { video: sources[0] } : {})
     })
   }, { useSystemPicker: true })
+
+  // getUserMedia({ audio: true }) for voice messages. Electron denies media permission
+  // requests by default, so without this the recorder rejects and the mic button does nothing.
+  // Only media is granted — anything else keeps the default deny.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'audioCapture')
+  })
+
   createWindow()
 })
 

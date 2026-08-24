@@ -2066,3 +2066,13 @@ input:checked + .keet-slider:before {
 .quote-body svg {
   flex-shrink: 0;
 }
+
+/* Voice recording — the mic button turns into a stop control while capturing. */
+.composer-tool-btn.recording {
+  color: var(--danger);
+  animation: recording-pulse 1.4s ease-in-out infinite;
+}
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

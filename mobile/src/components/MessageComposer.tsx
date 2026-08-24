@@ -1,11 +1,14 @@
-import React, { useState, useRef, useMemo } from 'react'
+import React, { useState, useRef, useMemo, useEffect } from 'react'
 import {
   View, TextInput, Pressable, Text, StyleSheet,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Alert,
 } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system'
 import * as ImageManipulator from 'expo-image-manipulator'
+import {
+  useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync,
+} from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
@@ -67,6 +70,52 @@ export default function MessageComposer({
     setText('')
   }
 
+  // Voice messages ride the same path as any other attachment — the receiving side already
+  // recognises audio by extension and renders a player for it (see ChatBubble's isAudioFile).
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
+
+  useEffect(() => {
+    if (!recording) return
+    const timer = setInterval(() => setRecordSeconds((s) => s + 1), 1000)
+    return () => clearInterval(timer)
+  }, [recording])
+
+  const startRecording = async () => {
+    try {
+      const permission = await requestRecordingPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Microphone blocked', 'Allow microphone access to record a voice message.')
+        return
+      }
+      // Without this the recorder is silent on iOS, where capture is off by default.
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+      await recorder.prepareToRecordAsync()
+      recorder.record()
+      setRecordSeconds(0)
+      setRecording(true)
+    } catch (err) {
+      Alert.alert('Could not start recording', (err as Error).message)
+    }
+  }
+
+  const stopRecording = async (send: boolean) => {
+    setRecording(false)
+    try {
+      await recorder.stop()
+      // Restores playback routing — left on, the earpiece stays selected and playback is quiet.
+      await setAudioModeAsync({ allowsRecording: false })
+      const uri = recorder.uri
+      if (!send || !uri) return
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
+      const name = `voice-${new Date().toISOString().replace(/[:.]/g, '-')}.m4a`
+      onAttach?.(name, 'audio/m4a', base64)
+    } catch (err) {
+      Alert.alert('Could not save recording', (err as Error).message)
+    }
+  }
+
   const handleAttach = async () => {
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
     const asset = result.assets?.[0]
@@ -113,7 +162,24 @@ export default function MessageComposer({
         </View>
       )}
 
-      {/* Input row */}
+      {/* Recording row — replaces the composer while a voice message is being captured */}
+      {recording ? (
+        <View style={styles.container}>
+          <Pressable onPress={() => void stopRecording(false)} style={styles.attachButton}>
+            <Ionicons name="trash-outline" size={20} color={colors.error} />
+          </Pressable>
+          <View style={styles.recordingStatus}>
+            <View style={styles.recordingDot} />
+            <Text style={styles.recordingText}>
+              Recording  {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
+            </Text>
+          </View>
+          <Pressable onPress={() => void stopRecording(true)} style={[styles.sendButton, styles.sendButtonPressed]}>
+            <Ionicons name="send" size={16} color="#061e27" />
+          </Pressable>
+        </View>
+      ) : (
+      /* Input row */
       <View style={styles.container}>
         {onAttach && !editingMessage && (
           <Pressable
@@ -137,6 +203,16 @@ export default function MessageComposer({
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
         />
+        {/* With nothing typed the send button has nothing to do, so it becomes the mic. */}
+        {onAttach && !editingMessage && text.trim().length === 0 ? (
+          <Pressable
+            onPress={() => void startRecording()}
+            disabled={disabled}
+            style={({ pressed }) => [styles.sendButton, styles.sendButtonDisabled, pressed && styles.sendButtonPressed]}
+          >
+            <Ionicons name="mic" size={18} color={colors.textSecondary} />
+          </Pressable>
+        ) : (
         <Pressable
           onPress={handleSend}
           disabled={disabled || text.trim().length === 0}
@@ -148,7 +224,9 @@ export default function MessageComposer({
         >
           <Ionicons name={editingMessage ? 'checkmark' : 'send'} size={16} color={text.trim().length > 0 ? '#061e27' : colors.textTertiary} />
         </Pressable>
+        )}
       </View>
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -175,6 +253,29 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     maxHeight: 120,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  recordingStatus: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.inputBg,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: Platform.OS === 'ios' ? spacing.sm : 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  recordingDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.error,
+  },
+  recordingText: {
+    color: colors.textSecondary,
+    fontSize: typography.md,
+    fontVariant: ['tabular-nums'],
   },
   sendButton: {
     width: 36,
