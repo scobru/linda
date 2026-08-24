@@ -221,7 +221,6 @@ export class AppShell extends HTMLElement {
   private nickname = ''
   private avatar = ''
   private remoteImageCache = new Map<string, string>()
-  private favoriteRooms = new Set<string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
   private renderAppQueued = false
   /** Torn down when the active room changes — a room fires its listeners for the lifetime of the
@@ -234,10 +233,6 @@ export class AppShell extends HTMLElement {
     if (localStorage.getItem('linda-private-mode') === 'true') {
       this.privateMode = true
       document.body.classList.add('private-mode-active')
-    }
-    const savedFavorites = localStorage.getItem('linda-favorites')
-    if (savedFavorites) {
-      try { this.favoriteRooms = new Set(JSON.parse(savedFavorites)) } catch { /* ignore */ }
     }
 
     this.view = identityExists(storageDir()) ? 'unlock' : 'create'
@@ -523,6 +518,19 @@ export class AppShell extends HTMLElement {
       return
     }
 
+    // Favourites used to live in localStorage, which mobile has no equivalent of; they are on
+    // the bookmark now so both platforms share one flag. Carry any existing ones over rather
+    // than silently dropping them, then retire the key.
+    const legacyFavorites = localStorage.getItem('linda-favorites')
+    if (legacyFavorites) {
+      try {
+        for (const roomId of JSON.parse(legacyFavorites) as string[]) {
+          await this.session.setRoomFavorite(roomId, true)
+        }
+      } catch { /* malformed value from an old build — nothing worth recovering */ }
+      localStorage.removeItem('linda-favorites')
+    }
+
     this.nickname = this.session.getNickname()
     this.avatar = this.session.getAvatar()
     if (this.avatar) this.avatars.set(this.identity.id, this.avatar)
@@ -597,7 +605,7 @@ export class AppShell extends HTMLElement {
   private matchesSidebarFilter(b: RoomBookmark): boolean {
     const query = this.sidebarSearchQuery.trim().toLowerCase()
     if (query && !b.name.toLowerCase().includes(query) && !b.description?.toLowerCase().includes(query)) return false
-    if (this.activeFilter === 'favorites') return this.favoriteRooms.has(b.id)
+    if (this.activeFilter === 'favorites') return this.session!.isRoomFavorite(b.id)
     if (this.activeFilter === 'unread') return this.isRoomUnread(b)
     return true
   }
@@ -1130,7 +1138,7 @@ export class AppShell extends HTMLElement {
         ? 'Only admins can send messages in this broadcast room'
         : 'You do not have write access to this room yet'
     const memberCount = room.listMembers().length || 1
-    const isFavorite = this.favoriteRooms.has(room.id)
+    const isFavorite = this.session!.isRoomFavorite(room.id)
 
     return `
       <!-- Header -->
@@ -1311,10 +1319,8 @@ export class AppShell extends HTMLElement {
 
     // Toggle favorite room
     this.querySelector('#toggleFavoriteBtn')?.addEventListener('click', () => {
-      if (this.favoriteRooms.has(room.id)) this.favoriteRooms.delete(room.id)
-      else this.favoriteRooms.add(room.id)
-      localStorage.setItem('linda-favorites', JSON.stringify([...this.favoriteRooms]))
-      this.renderApp()
+      const next = !this.session!.isRoomFavorite(room.id)
+      void this.session!.setRoomFavorite(room.id, next).then(() => this.renderApp())
     })
 
     // Composer interactions

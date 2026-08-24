@@ -106,15 +106,16 @@ export default function RoomsScreen({ navigation }: Props) {
     )
   }, [session, refresh])
 
-  const handleRoomOptions = useCallback((id: string, name: string) => {
+  const handleRoomOptions = useCallback((id: string, name: string, isFavorite: boolean) => {
     Alert.alert(name, undefined, [
       { text: 'Cancel', style: 'cancel' },
+      { text: isFavorite ? 'Remove from Favorites' : 'Add to Favorites', onPress: () => { void session?.setRoomFavorite(id, !isFavorite).then(refresh) } },
       { text: 'Clear Chat History', style: 'destructive', onPress: () => handleClearHistory(id, name) },
       { text: 'Leave Room', style: 'destructive', onPress: () => handleLeaveRoom(id, name) },
     ])
-  }, [handleClearHistory, handleLeaveRoom])
+  }, [handleClearHistory, handleLeaveRoom, session, refresh])
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'unread'>('all')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'favorites'>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredBookmarks = useMemo(() => {
@@ -125,6 +126,9 @@ export default function RoomsScreen({ navigation }: Props) {
     }
     if (activeFilter === 'unread') {
       list = list.filter((b) => !!b.lastMessageTime && b.lastMessageTime > (b.lastReadAt ?? 0))
+    }
+    if (activeFilter === 'favorites') {
+      list = list.filter((b) => b.favorite)
     }
     return list
   }, [bookmarks, searchQuery, activeFilter])
@@ -171,6 +175,12 @@ export default function RoomsScreen({ navigation }: Props) {
         >
           <Text style={[styles.filterPillText, activeFilter === 'unread' && styles.filterPillTextActive]}>Unread</Text>
         </Pressable>
+        <Pressable
+          onPress={() => setActiveFilter('favorites')}
+          style={[styles.filterPill, activeFilter === 'favorites' && styles.filterPillActive]}
+        >
+          <Text style={[styles.filterPillText, activeFilter === 'favorites' && styles.filterPillTextActive]}>Favorites</Text>
+        </Pressable>
       </View>
 
       {/* Room list */}
@@ -189,7 +199,7 @@ export default function RoomsScreen({ navigation }: Props) {
             timestamp={item.lastMessageTime ?? undefined}
             unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
             onPress={() => openRoom(item.id, item.name)}
-            onLongPress={() => handleRoomOptions(item.id, item.name)}
+            onLongPress={() => handleRoomOptions(item.id, item.name, !!item.favorite)}
           />
         )}
         ListEmptyComponent={

@@ -11,6 +11,9 @@ export interface RoomBookmark {
   storeId?: string
   /** Epoch ms this room was last opened/viewed. A room is unread when its latest message postdates this. Absent = never read. */
   lastReadAt?: number
+  /** Pins the room to the Favorites filter. Local to this device, like `lastReadAt` — it is a
+   * view preference, not something the room's other members have any business seeing. */
+  favorite?: boolean
   /** Epoch ms of the last "Clear Chat History" — local-only, this device's view of the room only. Messages
    * at or before this point are hidden from the message list; the replicated log itself is untouched, so
    * they're still there for other members/devices and reappear here if this bookmark is ever reset. */

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert, Switch } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert, Switch, TextInput } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -33,7 +33,7 @@ export default function MembersScreen({ route, navigation }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomId } = route.params
-  const { session, identity, nicknames, avatars, onlineUsers, refresh: refreshSession } = useSession()
+  const { session, identity, nicknames, avatars, onlineUsers, bookmarks, refresh: refreshSession } = useSession()
   const { contacts, sendRequest } = useContacts()
   const [state, setState] = useState<ModerationState | null>(null)
   const [broadcast, setBroadcast] = useState(false)
@@ -67,6 +67,32 @@ export default function MembersScreen({ route, navigation }: Props) {
       Alert.alert('Error', (err as Error).message)
     })
   }, [room])
+
+  // Seeded from the bookmark, which mirrors the room's replicated meta.
+  const bookmark = bookmarks.find((b) => b.id === roomId)
+  const [metaName, setMetaName] = useState('')
+  const [metaDescription, setMetaDescription] = useState('')
+  const [savingMeta, setSavingMeta] = useState(false)
+  const [metaLoaded, setMetaLoaded] = useState(false)
+  useEffect(() => {
+    if (metaLoaded || !bookmark) return
+    setMetaName(bookmark.name ?? '')
+    setMetaDescription(bookmark.description ?? '')
+    setMetaLoaded(true)
+  }, [bookmark, metaLoaded])
+
+  const metaDirty = metaLoaded && (
+    metaName.trim() !== (bookmark?.name ?? '') || metaDescription !== (bookmark?.description ?? '')
+  )
+
+  const saveMeta = useCallback(() => {
+    if (!session || !metaName.trim()) return
+    setSavingMeta(true)
+    session.updateRoomMeta(roomId, { name: metaName.trim(), description: metaDescription })
+      .then(() => { refreshSession() })
+      .catch((err) => Alert.alert('Could not save', (err as Error).message))
+      .finally(() => setSavingMeta(false))
+  }, [session, roomId, metaName, metaDescription, refreshSession])
 
   const toggleVault = useCallback((enabled: boolean) => {
     setVaultEnabled(enabled)
@@ -130,6 +156,36 @@ export default function MembersScreen({ route, navigation }: Props) {
         keyExtractor={(m) => m.writerKey}
         ListHeaderComponent={iCanModerate ? (
           <View style={{ paddingBottom: spacing.sm }}>
+            {/* Room name/description were only editable from desktop — a room created on a
+                phone could never be renamed there. Owner/moderator only, as apply() enforces. */}
+            <View style={styles.settingsBlock}>
+              <Text style={styles.sectionTitle}>Room name</Text>
+              <TextInput
+                style={styles.settingsInput}
+                value={metaName}
+                onChangeText={setMetaName}
+                placeholder="Room name"
+                placeholderTextColor={colors.textTertiary}
+                maxLength={80}
+              />
+              <Text style={styles.sectionTitle}>Description</Text>
+              <TextInput
+                style={[styles.settingsInput, styles.settingsInputMultiline]}
+                value={metaDescription}
+                onChangeText={setMetaDescription}
+                placeholder="What is this room about?"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                maxLength={280}
+              />
+              <Pressable
+                onPress={saveMeta}
+                disabled={!metaDirty || savingMeta}
+                style={[styles.saveMetaBtn, (!metaDirty || savingMeta) && styles.saveMetaBtnDisabled]}
+              >
+                <Text style={styles.saveMetaText}>{savingMeta ? 'Saving…' : 'Save changes'}</Text>
+              </Pressable>
+            </View>
             {iAmOwner && (
               <View style={styles.row}>
                 <View style={styles.info}>
@@ -259,6 +315,33 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 1,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, backgroundColor: colors.bgSecondary,
   },
+  settingsBlock: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  settingsInput: {
+    backgroundColor: colors.inputBg,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: colors.textPrimary,
+    fontSize: typography.md,
+    marginBottom: spacing.sm,
+  },
+  settingsInputMultiline: {
+    minHeight: 68,
+    textAlignVertical: 'top',
+  },
+  saveMetaBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  saveMetaBtnDisabled: { opacity: 0.4 },
+  saveMetaText: { color: '#fff', fontSize: typography.sm, fontWeight: typography.semibold },
   leaveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
     paddingVertical: spacing.md, margin: spacing.lg,

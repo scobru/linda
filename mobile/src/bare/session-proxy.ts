@@ -58,6 +58,15 @@ export class SessionProxy {
     return bareClient.call('session.markRoomRead', roomId)
   }
 
+  setRoomFavorite(roomId: string, favorite: boolean): Promise<void> {
+    return bareClient.call('session.setRoomFavorite', roomId, favorite)
+  }
+
+  /** Owner/moderator only — enforced in the room's apply(). */
+  updateRoomMeta(roomId: string, opts: { name?: string; avatar?: string; description?: string }): Promise<void> {
+    return bareClient.call('session.updateRoomMeta', roomId, opts)
+  }
+
   /** Call after the OS reports a network change (wifi <-> cellular) — see Session.resumeNetwork. */
   resumeNetwork(): Promise<void> {
     return bareClient.call('session.resumeNetwork')

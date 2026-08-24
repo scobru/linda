@@ -205,6 +205,9 @@ const methods: Record<string, (...args: any[]) => any> = {
   },
 
   'session.markRoomRead': (roomId: string) => requireSession().markRoomRead(roomId),
+  'session.setRoomFavorite': (roomId: string, favorite: boolean) => requireSession().setRoomFavorite(roomId, favorite),
+  'session.updateRoomMeta': (roomId: string, opts: { name?: string; avatar?: string; description?: string }) =>
+    requireSession().updateRoomMeta(roomId, opts),
   'session.resumeNetwork': () => requireSession().resumeNetwork(),
   'session.listContacts': () => requireSession().listContacts(),
   'session.getNickname': () => requireSession().getNickname(),

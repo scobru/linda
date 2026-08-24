@@ -1030,6 +1030,18 @@ export class Session {
     void this.saveBookmark({ ...bookmark, lastReadAt: Date.now() })
   }
 
+  /** Favourites live on the bookmark rather than in each UI's own local storage, so both
+   * platforms read the same flag and it survives independently of the renderer. */
+  async setRoomFavorite(roomId: string, favorite: boolean): Promise<void> {
+    const bookmark = this.bookmarks.get(roomId)
+    if (!bookmark) return
+    await this.saveBookmark({ ...bookmark, favorite })
+  }
+
+  isRoomFavorite(roomId: string): boolean {
+    return this.bookmarks.get(roomId)?.favorite === true
+  }
+
   private loadDirectory(): RoomAnnounceMessage[] {
     const file = path.join(this.storageDir, DIRECTORY_FILE)
     if (!fs.existsSync(file)) return []
