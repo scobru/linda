@@ -50,7 +50,14 @@
           "microphonePermission": "Linda needs microphone access to record voice messages"
         }
       ],
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/notification.wav"
+          ]
+        }
+      ]
     ]
   }
 }

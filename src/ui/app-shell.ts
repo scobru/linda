@@ -600,6 +600,26 @@ export class AppShell extends HTMLElement {
     this.render()
   }
 
+  /**
+   * The Notification API's `sound` option is ignored by Chromium, so a custom tone has to be
+   * played alongside the notification rather than through it. One reused element: a fresh Audio
+   * per message would stack up on a burst, and rewinding gives a retrigger instead of an overlap.
+   */
+  private notificationAudio: HTMLAudioElement | null = null
+
+  private playNotificationSound(): void {
+    try {
+      if (!this.notificationAudio) {
+        this.notificationAudio = new Audio('./assets/notification.wav')
+        this.notificationAudio.volume = 0.5
+      }
+      this.notificationAudio.currentTime = 0
+      // Rejects when the window has never been interacted with (autoplay policy) — not worth
+      // surfacing, the notification itself still appears.
+      void this.notificationAudio.play().catch(() => {})
+    } catch { /* no audio device */ }
+  }
+
   private notifyIncomingMessage(roomId: string, message: ChatMessage): void {
     this.lastMessages.set(roomId, {
       author: this.displayName(message.authorId),
@@ -609,6 +629,7 @@ export class AppShell extends HTMLElement {
 
     if (document.hasFocus() && this.activeRoom?.id === roomId) return
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    this.playNotificationSound()
     const roomName = this.session?.listBookmarks().find((b) => b.id === roomId)?.name ?? 'linda-pear'
     const notification = new Notification(`${this.displayName(message.authorId)} in ${roomName}`, { body: message.body.slice(0, 200) })
     notification.onclick = () => {

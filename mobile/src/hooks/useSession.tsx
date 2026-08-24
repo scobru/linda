@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
+import { NOTIFICATION_CHANNEL_ID } from '../notifications'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
@@ -137,8 +138,15 @@ export function SessionProvider({ children }: Props) {
           content: {
             title: `${author} in ${roomName}`,
             body: payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
+            // iOS takes the sound per-notification; Android ignores this and uses the channel's.
+            sound: 'notification_ping.wav',
           },
-          trigger: null,
+          // Android needs the channel named to pick up its sound, and only a trigger can carry
+          // one — so a date trigger of "now" rather than the plain immediate `null`, which has
+          // nowhere to put it. iOS has no channels and delivers immediately.
+          trigger: Platform.OS === 'android'
+            ? { type: Notifications.SchedulableTriggerInputTypes.DATE, date: Date.now(), channelId: NOTIFICATION_CHANNEL_ID }
+            : null,
         })
       })
     })

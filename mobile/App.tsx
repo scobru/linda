@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from './src/theme-context'
 import Navigation from './src/navigation'
 import { identityExists } from './src/bare/identity-client'
 import { storageDir } from './src/bare/storage-dir'
+import { ensureNotificationChannel } from './src/notifications'
 
 // Without this, a push arriving while the app is foregrounded is silently swallowed —
 // Expo requires an explicit handler to opt into showing it as a banner/alert.
@@ -17,6 +18,8 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 })
+
+ensureNotificationChannel()
 
 function AppShell() {
   const { colors, isDark } = useTheme()
