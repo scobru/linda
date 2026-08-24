@@ -22,6 +22,15 @@ function createWindow() {
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     console.log(`[renderer] ${message} (${sourceId}:${line})`)
   })
+  // Menu.setApplicationMenu(null) above also removes the default menu's "Toggle Developer
+  // Tools" item, which is what F12/Ctrl+Shift+I are normally wired to — without this they do
+  // nothing and there's no way to see renderer console output in a packaged build.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      win.webContents.toggleDevTools()
+    }
+  })
   win.webContents.on('render-process-gone', (_event, details) => {
     console.log('[renderer crashed]', details)
   })
