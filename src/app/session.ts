@@ -299,6 +299,16 @@ export class Session {
       session.peerAvatars.set(uid, av)
     }
     session.broadcastPresence(true)
+    // Opens and announces our own file drive up front rather than on first use. It used to be
+    // created lazily by `fileStore()`, so after a restart a peer served none of the files it had
+    // previously shared until it happened to upload something new: the drive's topic was never
+    // re-announced and its core was never opened, so it was neither discoverable nor eligible to
+    // be attached to an existing peer connection's replication stream. Rooms kept replicating
+    // regardless (separate topic), which is why chat and presence looked perfectly healthy while
+    // every download from that peer failed as "file unavailable / peer offline".
+    void session.fileStore().catch((err) => {
+      console.warn('[session] could not open local file drive:', (err as Error).message)
+    })
     return session
   }
 
@@ -382,10 +392,13 @@ export class Session {
     // after a network handoff, which routinely takes well past 10s on cellular NATs — the old
     // 8-attempt/~12s budget gave up before reconnection finished, misreporting a reachable peer
     // as offline.
+    // The per-attempt timeout matters as much as the retries: hypercore's `get` waits forever by
+    // default, so once the metadata said the file exists but its blob blocks stalled, the very
+    // first attempt hung indefinitely — no retry, no error, no alert, the UI just sat there.
     let lastErr: Error | null = null
     for (let attempt = 0; attempt < 12; attempt++) {
       try {
-        const buffer = await drive.get(cleanPath)
+        const buffer = await drive.get(cleanPath, { timeout: 5000 })
         if (buffer) return buffer
       } catch (err) {
         lastErr = err as Error

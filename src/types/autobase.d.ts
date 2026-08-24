@@ -97,7 +97,7 @@ declare module 'hyperdrive' {
     constructor(store: Corestore, key?: Buffer)
     ready(): Promise<void>
     put(path: string, buffer: Buffer, opts?: { executable?: boolean }): Promise<void>
-    get(path: string): Promise<Buffer | null>
+    get(path: string, opts?: { timeout?: number }): Promise<Buffer | null>
     entry(path: string): Promise<DriveEntry | null>
     createReadStream(path: string, opts?: { start?: number; end?: number }): Readable
     del(path: string): Promise<void>
