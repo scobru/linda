@@ -376,6 +376,10 @@ export class AppShell extends HTMLElement {
           </div>
           <button id="submit" class="primary">Unlock</button>
           <p class="link" id="showRecover" style="color:var(--accent);cursor:pointer;text-align:center;margin-top:1rem;font-size:0.85rem;">Lost passphrase? Recover from phrase</p>
+          <!-- Joining a pairing replaces whatever identity is on this device, so it lived only on
+               the first-run screen. That left no way to adopt another device's identity here
+               without wiping the install first, and no hint that this was even possible. -->
+          <p class="link" id="showPairFromUnlock" style="color:var(--text-muted);cursor:pointer;text-align:center;margin-top:0.5rem;font-size:0.8rem;">Pair with another device instead</p>
           <p class="toast" id="error"></p>
         </div>
       </div>
@@ -394,6 +398,17 @@ export class AppShell extends HTMLElement {
     const passInput = this.querySelector('#pass') as HTMLInputElement
     passInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submit()
+    })
+    this.querySelector('#showPairFromUnlock')!.addEventListener('click', () => {
+      // Destructive: the identity already stored here is overwritten by the one being adopted,
+      // and its rooms go with it. Worth a confirmation the first-run screen doesn't need.
+      if (!confirm(
+        'Pairing adopts another device’s identity and replaces the one already on this device.\n\n' +
+        'The rooms and contacts stored here will no longer be reachable unless you have that ' +
+        'identity’s recovery phrase.\n\nContinue?'
+      )) return
+      this.view = 'pair'
+      this.render()
     })
     this.querySelector('#showRecover')!.addEventListener('click', () => {
       this.view = 'recover'
