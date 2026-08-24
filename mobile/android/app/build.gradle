@@ -80,6 +80,16 @@ tasks.register("buildBareWorklet", Exec) {
 }
 tasks.named("preBuild") { dependsOn("buildBareWorklet") }
 
+// Regenerating the worklet is not enough on its own: client.ts imports the bundle as a module, so
+// it is inlined into the JS bundle, and that task does not track worklet/dist/ among its inputs.
+// It therefore reported UP-TO-DATE and reused a JS bundle built from the previous worklet, which
+// is how a freshly regenerated worklet still shipped stale. Declaring the directory as an input
+// ties the two together.
+tasks.matching { it.name ==~ /create(Debug|Release)BundleJsAndAssets|createBundle(Debug|Release)JsAndAssets/ }.configureEach {
+    dependsOn("buildBareWorklet")
+    inputs.dir(file("${projectRoot}/worklet/dist"))
+}
+
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
