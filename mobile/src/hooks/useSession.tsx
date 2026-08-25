@@ -142,11 +142,10 @@ export function SessionProvider({ children }: Props) {
             sound: 'notification_ping.wav',
           },
           // Android needs the channel named to pick up its sound, and only a trigger can carry
-          // one — so a date trigger of "now" rather than the plain immediate `null`, which has
-          // nowhere to put it. iOS has no channels and delivers immediately.
-          trigger: Platform.OS === 'android'
-            ? { type: Notifications.SchedulableTriggerInputTypes.DATE, date: Date.now(), channelId: NOTIFICATION_CHANNEL_ID }
-            : null,
+          // one — a channel-only trigger still delivers immediately. Not a date trigger of "now":
+          // native drops any date already in the past, which "now" is by the time it lands there.
+          // iOS has no channels and delivers immediately.
+          trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
         })
       })
     })
