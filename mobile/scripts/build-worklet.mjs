@@ -80,4 +80,20 @@ const hosts = ['android-arm64', 'android-arm', 'android-ia32', 'android-x64']
 const args = ['bare-pack', '--linked', ...hosts.flatMap((h) => ['--host', h]), '-o', bundleOut, flatOut]
 execFileSync('npx', args, { stdio: 'inherit', cwd: mobileRoot, shell: true })
 
-console.log('Wrote', bundleOut)
+// bare-pack rewrites every native addon to a `linked:lib<name>.<version>.so` specifier, which
+// resolves at runtime against what react-native-bare-kit compiled into the APK. Its link step
+// walks the ROOT package.json, so an addon reachable only from mobile/package.json is asked for
+// but never shipped — and the failure is a module load inside the worklet, which on a release
+// build reads as "the app does not start" with nothing pointing at the cause. v1.10.0 shipped
+// exactly that. Cross-check here instead, where the error can say what is missing.
+const linkedDir = path.join(mobileRoot, '..', 'node_modules', 'react-native-bare-kit', 'android', 'src', 'main', 'addons', 'arm64-v8a')
+const required = [...new Set([...fs.readFileSync(bundleOut, 'utf8').matchAll(/linked:(lib[\w.-]+\.so)/g)].map((m) => m[1]))]
+const missing = required.filter((lib) => !fs.existsSync(path.join(linkedDir, lib)))
+if (missing.length > 0) {
+  console.error(`\nMissing native addons the worklet requires: ${missing.join(', ')}`)
+  console.error('The app will crash on startup. Add the owning package to the ROOT package.json,')
+  console.error('then re-run: node node_modules/react-native-bare-kit/android/link.mjs\n')
+  process.exit(1)
+}
+
+console.log(`Wrote ${bundleOut} (${required.length} native addons, all linked)`)

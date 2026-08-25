@@ -41,6 +41,7 @@
     "@react-native/js-polyfills": "^0.79.6",
     "autobase": "^7.28.1",
     "b4a": "^1.8.1",
+    "bare-http1": "^4.5.8",
     "bip39": "^3.1.0",
     "compact-encoding": "^3.3.0",
     "corestore": "^7.12.0",

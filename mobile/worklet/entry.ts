@@ -13,7 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../../src/identity/
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
-import { WorkletMediaServer } from './media-server.js'
+import type { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
 
@@ -201,7 +201,14 @@ const methods: Record<string, (...args: any[]) => any> = {
   /** Loopback URL a native player can stream from — see worklet/media-server.ts. The bytes
    * never cross the IPC bridge; only this address does. */
   'media.url': async (driveKey: string, filePath: string) => {
-    if (!mediaServer) mediaServer = WorkletMediaServer.start(requireSession())
+    if (!mediaServer) {
+      // Loaded here rather than at the top of the file. The server pulls in bare-http1, whose
+      // transport addons have to be compiled into the app — and when they are not, the failure
+      // is a module load. At the top that took the entire app down before it could start, over
+      // a feature that is optional; here it is just playback that fails.
+      const { WorkletMediaServer } = await import('./media-server.js')
+      mediaServer = WorkletMediaServer.start(requireSession())
+    }
     return (await mediaServer).url(driveKey, filePath)
   },
 
