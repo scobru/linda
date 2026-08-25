@@ -163,7 +163,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { id: identity.id }
   },
 
-  'session.create': async (dir: string) => {
+  'session.create': async (dir: string, dhtPort?: number) => {
     const events: SessionEvents = {
       onPresence: (m) => pushEvent('presence', m),
       onPeerConnected: () => pushEvent('peerConnected'),
@@ -176,7 +176,7 @@ const methods: Record<string, (...args: any[]) => any> = {
       onReadReceipt: (m) => pushEvent('readReceipt', m)
     }
     storageDir = dir
-    session = await Session.create(requireIdentity(), dir, events)
+    session = await Session.create(requireIdentity(), dir, events, dhtPort)
     return {
       nickname: session.getNickname(),
       avatar: session.getAvatar(),

@@ -83,7 +83,7 @@ export class Session {
   private readonly peerAvatars = new Map<string, string>()
   private readonly events: SessionEvents
 
-  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents) {
+  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, dhtPort?: number) {
     this.identity = identity
     this.storageDir = storageDir
     this.store = store
@@ -254,7 +254,7 @@ export class Session {
         this.peers.delete(b4a.toString(publicKey, 'hex'))
         events.onPeerDisconnected?.(publicKey)
       }
-    })
+    }, dhtPort)
 
     this.trackDiscovery(LOBBY_TOPIC)
   }
@@ -269,13 +269,15 @@ export class Session {
     }
   }
 
-  static async create(identity: Identity, storageDir: string, events: SessionEvents = {}): Promise<Session> {
+  /** `dhtPort` pins the swarm's UDP socket — see `createSwarm`; the UI surfaces it as the
+   * VPN port-forwarding setting on the network status page. */
+  static async create(identity: Identity, storageDir: string, events: SessionEvents = {}, dhtPort?: number): Promise<Session> {
     const storePath = path.join(storageDir, 'store')
     const store = fs.existsSync(storePath)
       ? new Corestore(storePath)
       : new Corestore(storePath, { primaryKey: hypercoreCrypto.hash(identity.secretKey), unsafe: true })
     const profileStore = await ProfileStore.open(store)
-    const session = new Session(identity, storageDir, store, profileStore, events)
+    const session = new Session(identity, storageDir, store, profileStore, events, dhtPort)
     await session.migrateJsonIfNeeded()
     for (const bookmark of await profileStore.listBookmarks()) session.bookmarks.set(bookmark.id, bookmark)
     // Self-heal directory entries orphaned by leaving/deleting a room you announced yourself,

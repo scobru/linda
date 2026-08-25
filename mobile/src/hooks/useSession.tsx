@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
 import { NOTIFICATION_CHANNEL_ID } from '../notifications'
+import { getDhtPort } from '../dht-port'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
@@ -99,7 +100,7 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('contactsChange', () => setTimeout(() => setTick((t) => t + 1), 0))
     bareClient.on('directoryChange', () => setTick((t) => t + 1))
 
-    const { session: s, info } = await SessionProxy.create(storageDir)
+    const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort())
     await s.reopenBookmarkedRooms()
     // Fire-and-forget: joinRoomByKey can block ~30s waiting on the swarm (see RoomsScreen's
     // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in

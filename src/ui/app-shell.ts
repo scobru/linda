@@ -15,6 +15,15 @@ function storageDir(): string {
   return path.join(os.homedir(), '.linda-pear', 'storage')
 }
 
+/** User-set UDP port for the DHT socket, for VPN port forwarding — see `createSwarm`.
+ * Out-of-range or unset means hyperdht's default. */
+function dhtPort(): number | undefined {
+  const value = Number(localStorage.getItem(DHT_PORT_KEY))
+  return Number.isInteger(value) && value > 0 && value < 65536 ? value : undefined
+}
+
+const DHT_PORT_KEY = 'linda-dht-port'
+
 function svgToDataUrl(svg: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
@@ -526,7 +535,7 @@ export class AppShell extends HTMLElement {
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
-      })
+      }, dhtPort())
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {
@@ -2306,6 +2315,11 @@ export class AppShell extends HTMLElement {
               </div>
             </div>
             <div class="form-group">
+              <label>DHT Port</label>
+              <input id="dhtPortInput" type="number" min="1" max="65535" class="keet-input" placeholder="Automatic" value="${dhtPort() ?? ''}" />
+              <p style="font-size:0.75rem;color:var(--text-dim);margin:0.35rem 0 0;">If you run a VPN, set this to the port it forwards — otherwise peers cannot reach you while the VPN is on. Leave empty for automatic. Restart Linda to apply.</p>
+            </div>
+            <div class="form-group">
               <label>Public Key</label>
               <div class="key-display-row">
                 <code>${status.publicKey}</code>
@@ -2318,6 +2332,19 @@ export class AppShell extends HTMLElement {
       </div>
     `
     this.wirePageBack()
+    const portInput = this.querySelector('#dhtPortInput') as HTMLInputElement
+    portInput.addEventListener('change', () => {
+      const value = Number(portInput.value)
+      if (Number.isInteger(value) && value > 0 && value < 65536) {
+        localStorage.setItem(DHT_PORT_KEY, String(value))
+      } else {
+        // Covers both "cleared the field" and "typed something out of range" — either way there
+        // is no usable port, so fall back to automatic rather than storing a value that silently
+        // would not be applied.
+        localStorage.removeItem(DHT_PORT_KEY)
+        portInput.value = ''
+      }
+    })
     this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => copyToClipboard(status.publicKey))
     this.querySelector('#copyNetworkInfo')?.addEventListener('click', () => copyToClipboard(
       `connections: ${status.connections}\naddress: ${status.host ?? 'unknown'}:${status.port}\nfirewalled: ${status.firewalled}\npublicKey: ${status.publicKey}`

@@ -9,6 +9,8 @@ declare module 'hyperswarm' {
 
   export interface HyperswarmOptions {
     keyPair?: { publicKey: Buffer; secretKey: Buffer }
+    /** UDP port hyperdht binds its socket to. Defaults to 49737. */
+    port?: number
   }
 
   export interface JoinOptions {

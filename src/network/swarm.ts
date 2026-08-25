@@ -15,8 +15,13 @@ export interface SwarmHandlers extends RpcHandlers {
   onDisconnection?(remotePublicKey: Buffer): void
 }
 
-export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}): Hyperswarm {
-  const swarm = new Hyperswarm({ keyPair: identity })
+/** Behind a VPN the DHT's default UDP port is unreachable from outside, so holepunching fails and
+ * peers never connect. Pinning the socket to a port the VPN forwards makes it reachable again.
+ * `dhtPort` comes from the user's network settings; the env var is the headless/dev equivalent.
+ * Unset (the normal case) keeps hyperdht's own default. */
+export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, dhtPort?: number): Hyperswarm {
+  const port = dhtPort || Number(globalThis.process?.env?.LINDA_DHT_PORT) || undefined
+  const swarm = new Hyperswarm({ keyPair: identity, port })
 
   swarm.on('connection', (socket, info) => {
     // `fromId` is self-declared, but the connection's noise key is the same key the app uses as
