@@ -35,6 +35,7 @@
     "expo-secure-store": "~14.2.4",
     "expo-sharing": "~13.1.5",
     "expo-video": "~2.2.2",
+    "expo-video-thumbnails": "~9.1.3",
     "hyperbee": "^2.27.3",
     "hypercore": "^11.35.1",
     "hypercore-crypto": "^3.7.0",

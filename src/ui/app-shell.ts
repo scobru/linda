@@ -115,6 +115,42 @@ function resizeImageToDataUrl(file: File, maxDim = 128): Promise<string> {
   })
 }
 
+/**
+ * First frame of a video as a JPEG data URL, for the poster shown in chat.
+ *
+ * Seeks a little way in rather than using frame zero: the opening frame of a phone recording is
+ * very often black, which makes every video look like a broken image.
+ */
+function videoPosterDataUrl(file: File, maxWidth = 360): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    const done = (poster?: string) => {
+      URL.revokeObjectURL(url)
+      resolve(poster)
+    }
+    video.preload = 'metadata'
+    video.muted = true
+    video.onerror = () => done()
+    video.onloadeddata = () => {
+      // A codec the browser cannot decode still fires loadeddata with no dimensions.
+      if (!video.videoWidth) return done()
+      video.currentTime = Math.min(1, (video.duration || 1) / 2)
+    }
+    video.onseeked = () => {
+      const scale = Math.min(1, maxWidth / video.videoWidth)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(video.videoWidth * scale)
+      canvas.height = Math.round(video.videoHeight * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return done()
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      done(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    video.src = url
+  })
+}
+
 function avatarHtml(id: string, size: 'sm' | 'md' | 'lg' | 'xl' | '' = '', label?: string, avatarUrl?: string): string {
   const bg = avatarColor(id || 'default')
   const text = avatarInitials(label || id)
@@ -1584,7 +1620,7 @@ export class AppShell extends HTMLElement {
       })
     })
 
-    container.querySelectorAll<HTMLButtonElement>('[data-play-video]').forEach((btn) => {
+    container.querySelectorAll<HTMLElement>('[data-play-video]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.openVideoPlayer(btn.dataset.playVideo!, btn.dataset.path!, btn.dataset.name!)
       })
@@ -1671,9 +1707,11 @@ export class AppShell extends HTMLElement {
 
     let fileHtml = ''
     if (message.file) {
-      const isImg = message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name)
-      const isAudio = !isImg && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
-      const isVideo = !isImg && !isAudio && (message.file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name))
+      // Video is decided first: it carries a thumbnail too (its poster frame), so testing for
+      // an image by "has a thumbnail" would swallow every video that has one.
+      const isVideo = message.file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
+      const isImg = !isVideo && (message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name))
+      const isAudio = !isImg && !isVideo && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
       if (isAudio) {
         // A voice message has no filename worth showing — it's a recording, not a file the
         // sender chose. An actual audio file someone attached still shows its name.
@@ -1707,16 +1745,19 @@ export class AppShell extends HTMLElement {
         `
       } else if (isVideo) {
         // Streamed, not downloaded: playback starts on the first range the player asks for
-        // rather than after the whole file has arrived.
+        // rather than after the whole file has arrived. Videos sent before posters existed have
+        // no thumbnail, so the card falls back to a plain plate behind the play button.
+        const poster = message.file.thumbnail
         fileHtml = `
-          <div class="file-chip" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
-            <span style="color:var(--text-dim);flex-shrink:0;">${ICONS.video}</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
-              <div style="color:var(--text-muted);font-size:0.7rem;">${formatBytes(message.file.size)} • P2P</div>
+          <div class="msg-video-card" data-play-video="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}">
+            <div class="msg-video-frame">
+              ${poster ? `<img src="${poster}" alt="${escapeHtml(message.file.name)}" class="msg-video-poster" />` : ''}
+              <span class="msg-video-play">${ICONS.play}</span>
             </div>
-            <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-video="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}">${ICONS.video} Play</button>
-            <button class="ghost" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">${ICONS.download}</button>
+            <div class="msg-video-footer">
+              <span class="file-name">${escapeHtml(message.file.name)}</span>
+              <span class="msg-video-size">${formatBytes(message.file.size)}</span>
+            </div>
           </div>
         `
       } else {
@@ -1918,6 +1959,10 @@ export class AppShell extends HTMLElement {
     let thumbnail: string | undefined = undefined
     if (file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name)) {
       try { thumbnail = await resizeImageToDataUrl(file, 360) } catch { /* ignore */ }
+    } else if (file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file.name)) {
+      // Rides in the same `thumbnail` field images use, so it replicates to peers with the
+      // message and every client that already understood thumbnails shows something.
+      try { thumbnail = await videoPosterDataUrl(file) } catch { /* ignore */ }
     }
 
     this.forceScrollOnNextRender = true

@@ -149,12 +149,21 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
             )
           ) : isVideoFile(message.file) ? (
             // Streamed on tap, not downloaded first — see RoomChatScreen's handleFilePress.
-            <Pressable style={styles.fileAttachment} onPress={onFilePress}>
-              <View style={styles.fileNameRow}>
-                <Ionicons name="play-circle" size={22} color={colors.textPrimary} />
-                <Text style={styles.fileName}>{message.file.name}</Text>
+            // Videos sent before posters existed carry no thumbnail; the play badge then sits on
+            // a plain black plate rather than a frame.
+            <Pressable style={styles.videoAttachment} onPress={onFilePress}>
+              <View style={styles.videoFrame}>
+                {message.file.thumbnail && (
+                  <Image source={{ uri: message.file.thumbnail }} style={styles.videoPoster} resizeMode="cover" />
+                )}
+                <View style={styles.videoPlayBadge}>
+                  <Ionicons name="play" size={20} color="#fff" style={{ marginLeft: 2 }} />
+                </View>
               </View>
-              <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+              <View style={styles.videoFooter}>
+                <Text style={styles.fileName} numberOfLines={1}>{message.file.name}</Text>
+                <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+              </View>
             </Pressable>
           ) : message.file.thumbnail ? (
             <Pressable onPress={onFilePress} disabled={fileDownloading} style={styles.imageAttachment}>
@@ -352,6 +361,39 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: spacing.xs,
     borderRadius: radii.md,
     overflow: 'hidden',
+  },
+  videoAttachment: {
+    marginTop: spacing.xs,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    backgroundColor: colors.inputBg,
+  },
+  videoFrame: {
+    width: 220,
+    height: 150,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  videoPoster: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  // Sits over the poster, so it carries its own contrast instead of the theme's.
+  videoPlayBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
+  videoFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   imageThumb: {
     width: 220,

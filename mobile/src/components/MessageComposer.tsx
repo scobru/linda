@@ -6,6 +6,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system'
 import * as ImageManipulator from 'expo-image-manipulator'
+import * as VideoThumbnails from 'expo-video-thumbnails'
 import {
   useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync,
 } from 'expo-audio'
@@ -25,6 +26,24 @@ async function makeThumbnail(uri: string): Promise<string | undefined> {
     )
     return result.base64 ? `data:image/jpeg;base64,${result.base64}` : undefined
   } catch {
+    return undefined
+  }
+}
+
+/**
+ * Poster frame for a video, resized through the same path as an image thumbnail so both travel
+ * as one small data URL in the message.
+ *
+ * Grabbed a second in rather than at frame zero: recordings very often open on a black frame,
+ * which would make every video look like a broken image in the chat.
+ */
+async function makeVideoPoster(uri: string): Promise<string | undefined> {
+  try {
+    const { uri: frame } = await VideoThumbnails.getThumbnailAsync(uri, { time: 1000, quality: 0.7 })
+    return await makeThumbnail(frame)
+  } catch {
+    // Codecs this device cannot decode, and video too short to seek into, both land here; the
+    // message still sends, just without a poster.
     return undefined
   }
 }
@@ -124,7 +143,11 @@ export default function MessageComposer({
     try {
       const mimeType = asset.mimeType || 'application/octet-stream'
       const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 })
-      const thumbnail = mimeType.startsWith('image/') ? await makeThumbnail(asset.uri) : undefined
+      const thumbnail = mimeType.startsWith('image/')
+        ? await makeThumbnail(asset.uri)
+        : mimeType.startsWith('video/')
+          ? await makeVideoPoster(asset.uri)
+          : undefined
       onAttach?.(asset.name, mimeType, base64, thumbnail)
     } finally {
       setAttaching(false)
