@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The media server streams over plain HTTP on loopback (see mobile/worklet/media-server.ts).
+  Android blocks cleartext by default from targetSdk 28 on, so playback would fail with no
+  useful error. Scoped to 127.0.0.1 rather than flipping usesCleartextTraffic app-wide: the
+  only cleartext this app has any business speaking is to itself.
+-->
+<network-security-config>
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="false">127.0.0.1</domain>
+  </domain-config>
+</network-security-config>

@@ -1,6 +1,7 @@
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
+import { LocalMediaServer } from '../files/media-server-node.js'
 import type { Room, ChatMessage, VaultFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
@@ -1583,6 +1584,12 @@ export class AppShell extends HTMLElement {
       })
     })
 
+    container.querySelectorAll<HTMLButtonElement>('[data-play-video]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.openVideoPlayer(btn.dataset.playVideo!, btn.dataset.path!, btn.dataset.name!)
+      })
+    })
+
     // Tapping a tag inside a message is the same action as tapping its pill above.
     container.querySelectorAll<HTMLElement>('[data-hashtag]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -1666,6 +1673,7 @@ export class AppShell extends HTMLElement {
     if (message.file) {
       const isImg = message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name)
       const isAudio = !isImg && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
+      const isVideo = !isImg && !isAudio && (message.file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name))
       if (isAudio) {
         // A voice message has no filename worth showing — it's a recording, not a file the
         // sender chose. An actual audio file someone attached still shows its name.
@@ -1695,6 +1703,20 @@ export class AppShell extends HTMLElement {
               <span class="file-name" style="font-size:0.75rem;color:var(--text-dim);">${escapeHtml(message.file.name)}</span>
               <button class="primary" style="padding:0.25rem 0.55rem;font-size:0.7rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
             </div>
+          </div>
+        `
+      } else if (isVideo) {
+        // Streamed, not downloaded: playback starts on the first range the player asks for
+        // rather than after the whole file has arrived.
+        fileHtml = `
+          <div class="file-chip" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
+            <span style="color:var(--text-dim);flex-shrink:0;">${ICONS.video}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
+              <div style="color:var(--text-muted);font-size:0.7rem;">${formatBytes(message.file.size)} • P2P</div>
+            </div>
+            <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-video="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}">${ICONS.video} Play</button>
+            <button class="ghost" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">${ICONS.download}</button>
           </div>
         `
       } else {
@@ -1910,6 +1932,48 @@ export class AppShell extends HTMLElement {
     input.value = ''
   }
 
+  /** Started on first playback, never before: a session that opens no media opens no socket
+   * either. Kept for the lifetime of the window — the URLs handed to players stay valid. */
+  private mediaServer: LocalMediaServer | null = null
+
+  private async mediaUrl(driveKeyHex: string, drivePath: string): Promise<string> {
+    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this.session!)
+    return this.mediaServer.url(driveKeyHex, drivePath)
+  }
+
+  /**
+   * Full-window player, appended straight to the body rather than rendered as part of the app.
+   * Anything inside the component tree is thrown away and rebuilt on the next re-render — a peer
+   * connecting mid-video would restart playback from zero.
+   */
+  private openVideoPlayer(driveKeyHex: string, drivePath: string, name: string): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'video-overlay'
+    overlay.innerHTML = `
+      <div class="video-overlay-bar">
+        <span class="video-overlay-name">${escapeHtml(name)}</span>
+        <button class="icon ghost" title="Close">✕</button>
+      </div>
+      <video controls autoplay playsinline></video>
+    `
+    const video = overlay.querySelector('video') as HTMLVideoElement
+    const close = () => {
+      // Dropping the source ends the range request, so the drive stops pulling blocks for a
+      // player that no longer exists.
+      video.removeAttribute('src')
+      video.load()
+      overlay.remove()
+      document.removeEventListener('keydown', onKey)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    overlay.querySelector('button')!.addEventListener('click', close)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+    document.addEventListener('keydown', onKey)
+    document.body.appendChild(overlay)
+
+    void this.mediaUrl(driveKeyHex, drivePath).then((url) => { video.src = url })
+  }
+
   /** Swallows the reason a fetch failed — only for callers with nowhere useful to show it
    * (inline image previews, audio slots). Anything the user explicitly asked for should call
    * `session.downloadFile` directly so the diagnostic in the error survives. */
@@ -2032,16 +2096,25 @@ export class AppShell extends HTMLElement {
 
   private async playAudio(driveKeyHex: string, drivePath: string, slot: HTMLElement): Promise<void> {
     slot.innerHTML = `<span style="font-size:0.7rem;color:var(--text-muted);">Loading…</span>`
-    const blob = await this.fetchFileBlob(driveKeyHex, drivePath)
-    if (!blob) { slot.innerHTML = `<span style="font-size:0.7rem;color:var(--danger);">Unavailable</span>`; return }
-    const url = URL.createObjectURL(blob)
+    // Streamed through the local media server rather than fetched whole first: a long recording
+    // starts playing immediately, and seeking pulls only the blocks it lands on.
+    let url: string
+    try {
+      url = await this.mediaUrl(driveKeyHex, drivePath)
+    } catch {
+      slot.innerHTML = `<span style="font-size:0.7rem;color:var(--danger);">Unavailable</span>`
+      return
+    }
     slot.innerHTML = ''
     const audio = document.createElement('audio')
     audio.controls = true
     audio.autoplay = true
     audio.src = url
     audio.style.height = '32px'
-    audio.addEventListener('emptied', () => URL.revokeObjectURL(url))
+    // The file may not have replicated yet; the server answers 404 and the element errors.
+    audio.addEventListener('error', () => {
+      slot.innerHTML = `<span style="font-size:0.7rem;color:var(--danger);">Unavailable</span>`
+    })
     slot.appendChild(audio)
   }
 

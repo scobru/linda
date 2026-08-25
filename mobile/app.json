@@ -57,7 +57,8 @@
             "./assets/notification.wav"
           ]
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

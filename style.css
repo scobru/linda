@@ -2205,3 +2205,37 @@ input:checked + .keet-slider:before {
   cursor: pointer;
 }
 .hashtag:hover { text-decoration: underline; }
+
+/* Full-window video player. Lives directly on the body, outside the app's render tree, so a
+   re-render mid-playback cannot tear the element down and restart the video. */
+.video-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.88);
+}
+.video-overlay-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.video-overlay-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.video-overlay video {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #000;
+}

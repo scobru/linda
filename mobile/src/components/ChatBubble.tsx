@@ -36,6 +36,10 @@ interface Props {
   selected?: boolean
 }
 
+export function isVideoFile(file: { name: string; mimeType?: string }): boolean {
+  return !!file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file.name)
+}
+
 export function isAudioFile(file: { name: string; mimeType?: string }): boolean {
   return !!file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(file.name)
 }
@@ -143,6 +147,15 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
               <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
             </Pressable>
             )
+          ) : isVideoFile(message.file) ? (
+            // Streamed on tap, not downloaded first — see RoomChatScreen's handleFilePress.
+            <Pressable style={styles.fileAttachment} onPress={onFilePress}>
+              <View style={styles.fileNameRow}>
+                <Ionicons name="play-circle" size={22} color={colors.textPrimary} />
+                <Text style={styles.fileName}>{message.file.name}</Text>
+              </View>
+              <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+            </Pressable>
           ) : message.file.thumbnail ? (
             <Pressable onPress={onFilePress} disabled={fileDownloading} style={styles.imageAttachment}>
               <Image source={{ uri: message.file.thumbnail }} style={styles.imageThumb} resizeMode="cover" />

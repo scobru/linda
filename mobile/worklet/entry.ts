@@ -13,6 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../../src/identity/
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
+import { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
 
@@ -24,6 +25,8 @@ let storageDir = ''
 const wiredRooms = new Set<string>()
 /** Cancels an in-flight hosted pairing; see identity.hostPairing. */
 let stopHostedPairing: (() => void) | null = null
+/** Started on the first play, so a session that opens no media opens no socket. */
+let mediaServer: Promise<WorkletMediaServer> | null = null
 
 const rpc = new RPC(IPC as any, (req: any) => {
   if (!req.reply) return // stray incoming event; RN never sends one
@@ -194,6 +197,13 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.listBookmarks': () => requireSession().listBookmarks(),
 
   'session.getNetworkStatus': () => requireSession().getNetworkStatus(),
+
+  /** Loopback URL a native player can stream from — see worklet/media-server.ts. The bytes
+   * never cross the IPC bridge; only this address does. */
+  'media.url': async (driveKey: string, filePath: string) => {
+    if (!mediaServer) mediaServer = WorkletMediaServer.start(requireSession())
+    return (await mediaServer).url(driveKey, filePath)
+  },
 
   'session.clearRoomHistory': (roomId: string) => requireSession().clearRoomHistory(roomId),
 

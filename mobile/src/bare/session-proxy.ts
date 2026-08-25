@@ -46,6 +46,12 @@ export class SessionProxy {
     return bareClient.call('session.getNetworkStatus')
   }
 
+  /** Loopback URL for streaming a shared file, served from inside the worklet. Use this for
+   * playback; `downloadFile` is for saving or sharing a file whole. */
+  mediaUrl(driveKey: string, filePath: string): Promise<string> {
+    return bareClient.call('media.url', driveKey, filePath)
+  }
+
   clearRoomHistory(roomId: string): Promise<void> {
     return bareClient.call('session.clearRoomHistory', roomId)
   }

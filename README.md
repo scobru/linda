@@ -97,6 +97,26 @@ cd mobile/android
 - `/index.js` at the repo root (bridges to `mobile/index.js`)
 - `root`/`entryFile` overrides in `mobile/android/app/build.gradle`
 
+**Cleartext gotcha:** media playback streams over plain HTTP on loopback (see below), which
+Android blocks by default. `mobile/android/app/src/main/res/xml/network_security_config.xml`
+permits it for `127.0.0.1` only, wired up by `android:networkSecurityConfig` in the manifest.
+An `expo prebuild` regenerates the manifest and will drop that attribute — put it back, or
+video and audio simply fail to start with no useful error.
+
+## Media streaming
+
+Audio and video play without downloading the file first. A small HTTP server bound to loopback
+serves byte ranges straight out of the Hyperdrive, and the platform's own player does the
+seeking — `node:http` in the Electron renderer (`src/files/media-server-node.ts`),
+`bare-http1` inside the worklet on mobile (`mobile/worklet/media-server.ts`), both driving the
+same handler in `src/files/media-server.ts`.
+
+The URL carries a per-session token, since loopback is shared with every other process on the
+machine. Requests without it are answered 404, exactly like a wrong path.
+
+Streaming is why videos are practical at all: the previous path read the whole file into memory
+(base64 across the IPC bridge on mobile), which a phone-recorded video will not survive.
+
 ## Roadmap
 
 Neither of these exists yet. Both are about the same gap: today Linda needs the public internet

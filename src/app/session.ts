@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import type { Readable } from 'node:stream'
 import Corestore, { type HyperCore } from 'corestore'
 import Hyperdrive from 'hyperdrive'
 import hypercoreCrypto from 'hypercore-crypto'
@@ -27,6 +28,11 @@ export interface SessionEvents {
   onPeerConnected?(peer: PeerConnection): void
   onPeerDisconnected?(publicKey: Buffer): void
   onIncomingMessage?(roomId: string, message: ChatMessage): void
+}
+
+/** Drive paths are absolute; callers hand us both shapes. */
+function drivePath(filePath: string): string {
+  return filePath.startsWith('/') ? filePath : `/${filePath}`
 }
 
 const BOOKMARKS_FILE = 'rooms.json'
@@ -449,6 +455,36 @@ export class Session {
       `Could not fetch ${cleanPath} after ${12} attempts — ${detail}` +
       (lastErr ? ` (last error: ${lastErr.message})` : '')
     )
+  }
+
+  /** The drive a key refers to: our own file store when the key is ours, a remote drive
+   * otherwise. The same resolution `downloadFile` does, minus the fetching. */
+  private async driveFor(driveKey: string): Promise<Hyperdrive> {
+    const keyBuf = b4a.from(driveKey, 'hex')
+    const own = await this.fileStore()
+    if (b4a.equals(own.key, keyBuf)) return own.drive
+    return this.remoteDrive(keyBuf)
+  }
+
+  /**
+   * File size straight from drive metadata, without fetching any content — what a range request
+   * has to be answered against. Null when the entry has not replicated to us yet.
+   */
+  async statFile(driveKey: string, filePath: string): Promise<{ size: number } | null> {
+    const drive = await this.driveFor(driveKey)
+    const entry = await drive.entry(drivePath(filePath))
+    const size = entry?.value.blob?.byteLength
+    return typeof size === 'number' ? { size } : null
+  }
+
+  /**
+   * A byte range of a shared file as a stream, pulled from peers on demand — the piece that lets
+   * playback start before the whole file has arrived. `downloadFile` stays the way to get a file
+   * whole (saving it, previewing an image); this one feeds the media server.
+   */
+  async createFileStream(driveKey: string, filePath: string, range?: { start: number; end: number }): Promise<Readable> {
+    const drive = await this.driveFor(driveKey)
+    return drive.createReadStream(drivePath(filePath), range)
   }
 
   /** Best-effort snapshot of why a `downloadFile` gave up, for the message shown to the user. */

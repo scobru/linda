@@ -17,7 +17,8 @@ import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
 import { downloadFile } from '../bare/room-proxy'
 import type { ChatMessage, VaultFile } from '@core/rooms/room'
-import ChatBubble, { isAudioFile } from '../components/ChatBubble'
+import ChatBubble, { isAudioFile, isVideoFile } from '../components/ChatBubble'
+import VideoPlayerModal from '../components/VideoPlayerModal'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
@@ -77,6 +78,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null)
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null)
+  const [playingVideo, setPlayingVideo] = useState<{ uri: string; name: string } | null>(null)
   const audioPlayerRef = useRef<AudioPlayer | null>(null)
 
   // Mirrors desktop's openRoom: stamp read on open, and again for each message that
@@ -398,11 +400,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     setPlayingAudioId(null)
     setLoadingAudioId(message.id)
     try {
-      const base64 = await downloadFile(message.file.driveKey, message.file.path)
-      if (!base64) return Alert.alert('File unavailable', 'The peer sharing this file is offline.')
-      const dest = FileSystem.cacheDirectory + message.file.name
-      await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 })
-      const player = createAudioPlayer(dest)
+      // Streamed from the worklet's media server rather than pulled whole through the IPC
+      // bridge: playback starts on the first blocks, and a long recording no longer has to
+      // exist as one base64 string in memory before it can be heard.
+      const url = await session!.mediaUrl(message.file.driveKey, message.file.path)
+      const player = createAudioPlayer(url)
       player.addListener('playbackStatusUpdate', (status) => {
         if (status.didJustFinish) setPlayingAudioId(null)
       })
@@ -414,13 +416,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     } finally {
       setLoadingAudioId(null)
     }
-  }, [playingAudioId, loadingAudioId])
+  }, [playingAudioId, loadingAudioId, session])
 
   useEffect(() => () => { audioPlayerRef.current?.remove() }, [])
 
   const handleFilePress = useCallback(async (message: ChatMessage) => {
     if (!message.file || downloadingId) return
     if (isAudioFile(message.file)) return handlePlayAudio(message)
+    if (isVideoFile(message.file)) {
+      const file = message.file
+      return void session!.mediaUrl(file.driveKey, file.path)
+        .then((uri) => setPlayingVideo({ uri, name: file.name }))
+        .catch(() => Alert.alert('Playback failed', 'Could not open this video.'))
+    }
     setDownloadingId(message.id)
     try {
       const base64 = await downloadFile(message.file.driveKey, message.file.path)
@@ -433,7 +441,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     } finally {
       setDownloadingId(null)
     }
-  }, [downloadingId])
+  }, [downloadingId, session, handlePlayAudio])
 
   const handleEdit = useCallback(async (id: string, body: string) => {
     await editMessage(id, body)
@@ -789,6 +797,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           </View>
         </Pressable>
       </Modal>
+
+      {playingVideo && (
+        <VideoPlayerModal uri={playingVideo.uri} name={playingVideo.name} onClose={() => setPlayingVideo(null)} />
+      )}
     </SafeAreaView>
   )
 }

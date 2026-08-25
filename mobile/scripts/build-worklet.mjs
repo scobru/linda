@@ -25,7 +25,7 @@ const bundleOut = path.join(distDir, 'worklet.bundle.cjs')
 // react-native-bare-kit's own Gradle `link` task — stay external for bare-pack --linked
 // to resolve), and remap Node builtins to real bare-* packages/stubs esbuild can reach.
 const NATIVE_ADDON_PACKAGES = [
-  'bare-buffer', 'bare-fs', 'bare-inspect', 'bare-path', 'bare-type', 'bare-url',
+  'bare-buffer', 'bare-dns', 'bare-fs', 'bare-inspect', 'bare-path', 'bare-tcp', 'bare-type', 'bare-url',
   'fs-native-extensions', 'quickbit-native', 'rabin-native', 'rocksdb-native',
   'simdle-native', 'sodium-native', 'udx-native'
 ]
