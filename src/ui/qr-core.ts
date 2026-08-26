@@ -6,9 +6,21 @@
 export interface RoomInvite {
   name: string
   key: string
+  /**
+   * `'contact'` marks a link whose room exists only to introduce two people: whoever opens it
+   * joins and both sides record each other as contacts, with no visible "join this room" step.
+   * Absent or `'room'` on every link written before contact links existed, and on ordinary room
+   * invites — callers that only ever join rooms can keep ignoring this.
+   */
+  kind?: 'room' | 'contact'
+  /** Identity that issued a contact link. Present only when `kind` is `'contact'`. */
+  from?: string
 }
 
 export function encodeInvite(invite: RoomInvite): string {
+  if (invite.kind === 'contact') {
+    return `linda-pear://contact?name=${encodeURIComponent(invite.name)}&key=${invite.key}&from=${invite.from ?? ''}`
+  }
   return `linda-pear://room?name=${encodeURIComponent(invite.name)}&key=${invite.key}`
 }
 
@@ -25,7 +37,12 @@ export function decodeInvite(text: string): RoomInvite | null {
     const key = url.searchParams.get('key')
     const name = url.searchParams.get('name')
     if (!key || !name) return null
-    return { name, key }
+    // `linda-pear://contact?...` carries the issuer so the opener can record them as a contact.
+    // Without a `from` it is only a room invite wearing the wrong hostname, so treat it as one
+    // rather than half-completing a handshake with nobody.
+    const from = url.searchParams.get('from')
+    if (url.hostname === 'contact' && from) return { name, key, kind: 'contact', from }
+    return { name, key, kind: 'room' }
   } catch {
     return null
   }

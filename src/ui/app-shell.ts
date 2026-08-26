@@ -220,6 +220,7 @@ const ICONS = {
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
   | 'profile' | 'room-settings' | 'members' | 'invite' | 'discover' | 'people' | 'pair-device' | 'network-status'
+  | 'contact-invite'
 
 type FilterTab = 'all' | 'unread' | 'favorites'
 
@@ -259,6 +260,7 @@ export class AppShell extends HTMLElement {
   private roomSettingsWorkingAvatar = ''
   private roomSettingsWorkingDesc = ''
   private inviteQrDataUrl = ''
+  private contactInviteLink = ''
   private pairStep: 'starting' | 'code' | 'done' = 'starting'
   private pairDataUrl = ''
   private pairStop: (() => void) | null = null
@@ -325,6 +327,7 @@ export class AppShell extends HTMLElement {
     if (this.view === 'room-settings') return this.renderRoomSettingsPage()
     if (this.view === 'members') return this.renderMembersPage()
     if (this.view === 'invite') return this.renderInvitePage()
+    if (this.view === 'contact-invite') return this.renderContactInvitePage()
     if (this.view === 'discover') return this.renderDiscoverPage()
     if (this.view === 'people') return this.renderPeoplePage()
     if (this.view === 'pair-device') return this.renderPairDevicePage()
@@ -870,6 +873,13 @@ export class AppShell extends HTMLElement {
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
+              <div class="drawer-menu-item" id="drawerContactLinkBtn">
+                <div class="drawer-menu-item-left">
+                  <span class="drawer-menu-item-icon">${ICONS.userPlus}</span>
+                  <span>Invite Someone to Chat</span>
+                </div>
+                <span class="drawer-chevron">&gt;</span>
+              </div>
               <div class="drawer-menu-item" id="drawerSweepBlobsBtn">
                 <div class="drawer-menu-item-left">
                   <span class="drawer-menu-item-icon">${ICONS.trash}</span>
@@ -1096,6 +1106,11 @@ export class AppShell extends HTMLElement {
       void this.sweepOrphanBlobs()
     })
 
+    this.querySelector('#drawerContactLinkBtn')?.addEventListener('click', () => {
+      this.isProfileDrawerOpen = false
+      void this.openContactInvitePage()
+    })
+
     // Private mode toggle switch
     const privateToggle = this.querySelector('#privateModeToggle') as HTMLInputElement
     privateToggle?.addEventListener('change', () => {
@@ -1192,11 +1207,20 @@ export class AppShell extends HTMLElement {
       const key = pastedInvite?.key || rawKey
 
       try {
+        // A contact link is a room invite plus the issuer's identity, so it lands in this same
+        // field — but joining it silently would leave the two of them sharing a room and still
+        // not knowing each other, which is the whole point of the link.
+        if (pastedInvite?.kind === 'contact' && pastedInvite.from) {
+          const room = await this.session!.acceptContactInvite({ from: pastedInvite.from, name, key })
+          this.activeModal = 'none'
+          this.openRoom(room.id, name)
+          return
+        }
         const room = await this.session!.joinRoomByKey(name, key)
         this.activeModal = 'none'
         this.openRoom(room.id, name)
-      } catch {
-        alert('Invalid room key or invite')
+      } catch (err) {
+        alert((err as Error).message || 'Invalid room key or invite')
       }
     })
 
@@ -3007,6 +3031,52 @@ export class AppShell extends HTMLElement {
         await this.session!.unbanMember(room.id, btn.dataset.unbanId!)
         this.renderMembersPage()
       })
+    })
+  }
+
+  private async openContactInvitePage(): Promise<void> {
+    if (!this.session) return
+    try {
+      const { key } = await this.session.createContactInvite()
+      this.contactInviteLink = encodeInvite({
+        kind: 'contact',
+        name: this.session.getNickname() || this.identity!.id.slice(0, 8),
+        key,
+        from: this.identity!.id
+      })
+      this.inviteQrDataUrl = await textToDataUrl(this.contactInviteLink)
+      this.view = 'contact-invite'
+      this.render()
+    } catch (err) {
+      alert(`Could not create the invite: ${(err as Error).message}`)
+    }
+  }
+
+  private renderContactInvitePage(): void {
+    this.innerHTML = `
+      <div class="page-view">
+        ${this.pageTopbarHtml('Invite Someone to Chat')}
+        <div class="page-view-body">
+          <div class="modal" style="text-align:center;">
+            <img src="${this.inviteQrDataUrl}" width="220" height="220" style="margin:0 auto;background:#fff;padding:8px;border-radius:12px;" />
+            <p style="font-size:0.85rem;color:var(--text-dim);margin:0.75rem 0 0.25rem;">
+              Send this to one person, through any app. Opening it puts the two of you straight into
+              a private chat — they do not need to be online now, and you do not need to find each
+              other in Linda first.
+            </p>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.5rem;">
+              It works once. Anyone else who opens it just joins the same chat, so treat it like a
+              one-to-one invitation.
+            </p>
+            <button id="copyContactLinkBtn" class="primary" style="margin:0.5rem auto;">${ICONS.copy} Copy Link</button>
+          </div>
+        </div>
+      </div>
+    `
+    this.wirePageBack()
+    this.querySelector('#copyContactLinkBtn')?.addEventListener('click', () => {
+      copyToClipboard(this.contactInviteLink)
+      alert('Invite link copied to clipboard!')
     })
   }
 

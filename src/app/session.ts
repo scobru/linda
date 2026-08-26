@@ -87,6 +87,7 @@ export class Session {
   private nickname = ''
   private avatar = ''
   private readonly peerAvatars = new Map<string, string>()
+  private readonly peerNicknames = new Map<string, string>()
   private readonly events: SessionEvents
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, dhtPort?: number) {
@@ -103,6 +104,12 @@ export class Session {
         if (message.avatar) {
           this.peerAvatars.set(message.userId, message.avatar)
           void this.profileStore.setPeerAvatar(message.userId, message.avatar)
+        }
+        if (message.nickname) {
+          this.peerNicknames.set(message.userId, message.nickname)
+          // A contact bound from a link starts with a placeholder name, because the join gives us
+          // an identity id and nothing else. Presence is where the real name shows up.
+          void this.adoptPeerNickname(message.userId, message.nickname)
         }
         events.onPresence?.(message)
       },
@@ -122,6 +129,7 @@ export class Session {
           if (!isExistingWriter) {
             await room.addWriter(b4a.from(message.writerKey, 'hex'), message.identityId)
           }
+          await this.claimContactInvite(room.id, message.identityId)
           const keyHex = room.currentKeyHex
           if (keyHex) channel.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
         })()
@@ -684,6 +692,75 @@ export class Session {
     this.contacts.set(userId, contact)
     void this.profileStore.saveContact(contact)
     return true
+  }
+
+  /**
+   * Creates the room behind a contact link and returns its `bootstrapKey:inviteCode`. The room is
+   * a placeholder until someone opens the link — see `claimContactInvite`.
+   *
+   * Contact requests need the other person online *right now* (`sendContactRequest` gives up
+   * without a live peer) and can only be sent from a room you already share, which leaves two
+   * strangers with no way to reach each other at all. A link works while they are offline and
+   * travels through any other app.
+   */
+  async createContactInvite(): Promise<{ key: string; roomId: string }> {
+    const room = await this.createRoom(this.uniqueRoomName('New direct chat'), false)
+    const bookmark = this.bookmarks.get(room.id)
+    if (bookmark) await this.saveBookmark({ ...bookmark, contactInvite: true })
+    return { key: this.inviteLinkFor(room.id), roomId: room.id }
+  }
+
+  /** Joins the room a contact link points at and records its issuer as an accepted contact. */
+  async acceptContactInvite(invite: { from: string; name: string; key: string }): Promise<Room> {
+    if (invite.from === this.identity.id) throw new Error('That is your own contact link')
+    const nickname = invite.name || invite.from.slice(0, 8)
+    const room = await this.joinRoomByKey(this.uniqueRoomName(nickname), invite.key)
+    const contact: ContactEntry = {
+      userId: invite.from,
+      nickname,
+      status: 'accepted',
+      roomId: room.id,
+      avatar: this.peerAvatars.get(invite.from)
+    }
+    this.contacts.set(invite.from, contact)
+    await this.profileStore.saveContact(contact)
+    this.events.onContactsChange?.()
+    return room
+  }
+
+  /**
+   * The other half of `createContactInvite`, run on the issuer when someone asks to write to the
+   * placeholder room. That request is the first and only proof of who took the link up.
+   *
+   * Only the first claimant binds: the link doubles as an ordinary room invite, so a second joiner
+   * would otherwise overwrite the contact and quietly repoint it at a room now holding three people.
+   */
+  private async claimContactInvite(roomId: string, identityId: string): Promise<void> {
+    const bookmark = this.bookmarks.get(roomId)
+    if (!bookmark?.contactInvite || identityId === this.identity.id) return
+    const nickname = this.peerNicknames.get(identityId) || identityId.slice(0, 8)
+    const contact: ContactEntry = {
+      userId: identityId,
+      nickname,
+      status: 'accepted',
+      roomId,
+      avatar: this.peerAvatars.get(identityId)
+    }
+    this.contacts.set(identityId, contact)
+    await this.profileStore.saveContact(contact)
+    await this.saveBookmark({ ...bookmark, name: this.uniqueRoomName(nickname), contactInvite: undefined })
+    this.events.onContactsChange?.()
+  }
+
+  /** Replaces the placeholder name a link-bound contact starts with once presence reveals the real one. */
+  private async adoptPeerNickname(userId: string, nickname: string): Promise<void> {
+    const contact = this.contacts.get(userId)
+    if (!contact || contact.nickname === nickname) return
+    if (contact.nickname !== userId.slice(0, 8)) return
+    const updated: ContactEntry = { ...contact, nickname }
+    this.contacts.set(userId, updated)
+    await this.profileStore.saveContact(updated)
+    this.events.onContactsChange?.()
   }
 
   async respondToContact(userId: string, accept: boolean): Promise<void> {
