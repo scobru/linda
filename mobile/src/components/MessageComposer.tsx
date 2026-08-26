@@ -57,11 +57,10 @@ interface Props {
   onCancelEdit?: () => void
   onSubmitEdit?: (id: string, body: string) => void
   onChangeText?: (text: string) => void
-  disabled?: boolean
 }
 
 export default function MessageComposer({
-  onSend, onAttach, replyTo, editingMessage, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText, disabled,
+  onSend, onAttach, replyTo, editingMessage, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText,
 }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
@@ -207,7 +206,7 @@ export default function MessageComposer({
         {onAttach && !editingMessage && (
           <Pressable
             onPress={handleAttach}
-            disabled={disabled || attaching}
+            disabled={attaching}
             style={({ pressed }) => [styles.attachButton, pressed && styles.attachButtonPressed]}
           >
             {attaching ? <Text style={styles.attachIcon}>...</Text> : <Ionicons name="add" size={22} color={colors.textPrimary} />}
@@ -222,7 +221,6 @@ export default function MessageComposer({
           placeholderTextColor={colors.textTertiary}
           multiline
           maxLength={4000}
-          editable={!disabled}
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
         />
@@ -230,7 +228,6 @@ export default function MessageComposer({
         {onAttach && !editingMessage && text.trim().length === 0 ? (
           <Pressable
             onPress={() => void startRecording()}
-            disabled={disabled}
             style={({ pressed }) => [styles.sendButton, styles.sendButtonDisabled, pressed && styles.sendButtonPressed]}
           >
             <Ionicons name="mic" size={18} color={colors.textSecondary} />
@@ -238,10 +235,10 @@ export default function MessageComposer({
         ) : (
         <Pressable
           onPress={handleSend}
-          disabled={disabled || text.trim().length === 0}
+          disabled={text.trim().length === 0}
           style={({ pressed }) => [
             styles.sendButton,
-            (disabled || text.trim().length === 0) && styles.sendButtonDisabled,
+            text.trim().length === 0 && styles.sendButtonDisabled,
             pressed && styles.sendButtonPressed,
           ]}
         >

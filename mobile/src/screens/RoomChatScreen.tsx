@@ -99,6 +99,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // False when muted or in a broadcast room without admin rights — the two cases where the worklet
   // would accept the message and every peer would then drop it while linearizing the log.
   const [canPost, setCanPost] = useState(false)
+  const [broadcast, setBroadcast] = useState(false)
   const [activeTab, setActiveTab] = useState<'chat' | 'files'>('chat')
   const [roomFiles, setRoomFiles] = useState<RoomFile[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
@@ -127,10 +128,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!room) return
-    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean }) => {
+    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean; broadcast?: boolean }) => {
       setWritable(s.writable)
       setHasKey(s.hasKey)
       setCanPost(s.canPost)
+      setBroadcast(s.broadcast ?? false)
     }
     apply(room)
     void room.refreshState().then(apply)
@@ -696,22 +698,34 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             <Text style={styles.statusBar}>Seen by {[...readBy].map(getAuthorName).join(', ')}</Text>
           ) : null}
 
-          {writable && hasKey && !canPost && (
-            <Text style={styles.statusBar}>Only admins can send messages in this broadcast room</Text>
+          {/* Composer, or why there isn't one */}
+          {writable && hasKey && canPost ? (
+            <MessageComposer
+              onSend={handleSend}
+              onAttach={handleAttach}
+              onChangeText={notifyTyping}
+              replyTo={replyTo}
+              editingMessage={editingMessage}
+              onCancelReply={() => setReplyTo(null)}
+              onCancelEdit={() => setEditingMessage(null)}
+              onSubmitEdit={handleEdit}
+            />
+          ) : (
+            <View style={styles.composerBlocked}>
+              <Ionicons
+                name={!writable || !hasKey ? 'time-outline' : broadcast ? 'megaphone-outline' : 'volume-mute-outline'}
+                size={15}
+                color={colors.textTertiary}
+              />
+              <Text style={styles.composerBlockedText}>
+                {!writable || !hasKey
+                  ? 'You do not have write access to this room yet'
+                  : broadcast
+                    ? 'Only admins can send messages in this broadcast room'
+                    : 'You are muted in this room'}
+              </Text>
+            </View>
           )}
-
-          {/* Composer */}
-          <MessageComposer
-            onSend={handleSend}
-            onAttach={handleAttach}
-            onChangeText={notifyTyping}
-            replyTo={replyTo}
-            editingMessage={editingMessage}
-            onCancelReply={() => setReplyTo(null)}
-            onCancelEdit={() => setEditingMessage(null)}
-            onSubmitEdit={handleEdit}
-            disabled={!writable || !hasKey || !canPost}
-          />
         </>
       )}
 
@@ -821,6 +835,16 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textTertiary, fontSize: typography.xs,
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
     backgroundColor: colors.bgSecondary,
+  },
+  composerBlocked: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+    backgroundColor: colors.bgSecondary,
+    borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  composerBlockedText: {
+    color: colors.textTertiary, fontSize: typography.sm, textAlign: 'center',
   },
   actionOverlay: {
     flex: 1, backgroundColor: colors.overlay,
