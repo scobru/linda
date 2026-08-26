@@ -30,7 +30,7 @@
     "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
     "start:b": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/b electron ./electron/main.cjs",
     "make": "node build.js && electron-forge make",
-    "pear:stage": "pear stage pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno . --ignore node_modules,mobile/node_modules,.dev-storage,.claude,.git,out,test,electron-smoke.mjs,mobile/android,mobile/.expo,.headroom,.serena --purge",
+    "pear:stage": "pear stage pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno . --ignore node_modules,mobile/node_modules,.dev-storage,.claude,.git,out,test,release-artifacts,.cache,electron-smoke.mjs,mobile/android,mobile/.expo,.headroom,.serena --purge",
     "pear:seed": "pear seed pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno"
   },
   "keywords": [],
