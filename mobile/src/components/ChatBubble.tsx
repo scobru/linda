@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { splitOnHashtags } from '@core/util/hashtag'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { formatBytes } from '@core/util/bytes'
 
 interface Props {
   message: {
@@ -57,11 +58,6 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1048576).toFixed(1)} MB`
-}
 
 export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
@@ -144,7 +140,7 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
                 />
                 <Text style={styles.fileName}>{message.file.name}</Text>
               </View>
-              <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+              <Text style={styles.fileSize}>{formatBytes(message.file.size)}</Text>
             </Pressable>
             )
           ) : isVideoFile(message.file) ? (
@@ -162,7 +158,7 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
               </View>
               <View style={styles.videoFooter}>
                 <Text style={styles.fileName} numberOfLines={1}>{message.file.name}</Text>
-                <Text style={styles.fileSize}>{formatFileSize(message.file.size)}</Text>
+                <Text style={styles.fileSize}>{formatBytes(message.file.size)}</Text>
               </View>
             </Pressable>
           ) : message.file.thumbnail ? (
@@ -181,7 +177,7 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
                 <Text style={styles.fileName}>{message.file.name}</Text>
               </View>
               <Text style={styles.fileSize}>
-                {fileDownloading ? 'Downloading…' : formatFileSize(message.file.size)}
+                {fileDownloading ? 'Downloading…' : formatBytes(message.file.size)}
               </Text>
             </Pressable>
           )

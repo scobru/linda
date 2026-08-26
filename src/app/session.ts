@@ -86,6 +86,7 @@ export class Session {
   private readonly remoteDrives = new Map<string, Promise<Hyperdrive>>()
   private nickname = ''
   private avatar = ''
+  private wallpaper = ''
   private readonly peerAvatars = new Map<string, string>()
   private readonly peerNicknames = new Map<string, string>()
   private readonly events: SessionEvents
@@ -322,6 +323,7 @@ export class Session {
         usedCount: token.usedCount
       })
     }
+    session.wallpaper = await profileStore.getWallpaper()
     session.nickname = await profileStore.getNickname()
     session.avatar = await profileStore.getAvatar()
     for (const [uid, av] of await profileStore.listPeerAvatars()) {
@@ -343,6 +345,15 @@ export class Session {
 
   getNickname(): string {
     return this.nickname
+  }
+
+  getWallpaper(): string {
+    return this.wallpaper
+  }
+
+  async setWallpaper(id: string): Promise<void> {
+    this.wallpaper = id
+    await this.profileStore.setWallpaper(id)
   }
 
   async setNickname(nickname: string): Promise<void> {

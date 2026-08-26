@@ -28,7 +28,9 @@ export type RootStackParamList = {
   RoomChat: { roomId?: string; roomName: string; pendingJoin?: { name: string; key: string } }
   Contacts: undefined
   Profile: undefined
-  Invite: { roomId: string; roomName: string }
+  /** `contact: true` invites one person straight into a private chat, creating the room on the
+   * way — no `roomId` to pass in, because it does not exist until the screen opens. */
+  Invite: { roomId?: string; roomName?: string; contact?: boolean }
   Members: { roomId: string; roomName: string }
   Discover: undefined
   NetworkStatus: undefined

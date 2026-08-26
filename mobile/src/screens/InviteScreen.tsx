@@ -21,22 +21,37 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Invite'>
 export default function InviteScreen({ route }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
-  const { roomId, roomName } = route.params
-  const { session } = useSession()
+  const { roomId, roomName, contact } = route.params
+  const { session, identity, nickname } = useSession()
   const [inviteLink, setInviteLink] = useState('')
+  const title = contact ? 'Invite Someone to Chat' : `Invite to ${roomName ?? 'Room'}`
 
   useEffect(() => {
     if (!session) return
     void (async () => {
       try {
+        // Contact mode has no room yet — creating one is what produces the link.
+        if (contact) {
+          if (!identity) return
+          const { key } = await session.createContactInvite()
+          const invite: RoomInvite = {
+            kind: 'contact',
+            name: nickname || identity.id.slice(0, 8),
+            key,
+            from: identity.id,
+          }
+          setInviteLink(encodeInvite(invite))
+          return
+        }
+        if (!roomId) return
         const link = await session.inviteLinkFor(roomId)
-        const invite: RoomInvite = { name: roomName, key: link }
+        const invite: RoomInvite = { name: roomName ?? 'Room', key: link }
         setInviteLink(encodeInvite(invite))
       } catch (err) {
         Alert.alert('Error', (err as Error).message)
       }
     })()
-  }, [session, roomId, roomName])
+  }, [session, roomId, roomName, contact, identity, nickname])
 
   const handleShare = useCallback(async () => {
     if (!inviteLink) return
@@ -51,7 +66,7 @@ export default function InviteScreen({ route }: Props) {
   }, [inviteLink])
 
   const handleRegenerate = useCallback(() => {
-    if (!session) return
+    if (!session || !roomId) return
     Alert.alert(
       'Regenerate invite?',
       'The current invite link will stop working.',
@@ -61,7 +76,7 @@ export default function InviteScreen({ route }: Props) {
           text: 'Regenerate',
           onPress: () => {
             void session.regenerateInvite(roomId).then((link) => {
-              const invite: RoomInvite = { name: roomName, key: link }
+              const invite: RoomInvite = { name: roomName ?? 'Room', key: link }
               setInviteLink(encodeInvite(invite))
             })
           },
@@ -73,9 +88,11 @@ export default function InviteScreen({ route }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-        <Text style={styles.title}>Invite to {roomName}</Text>
+        <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>
-          Share this QR code or link to invite others
+          {contact
+            ? 'Send this to one person, through any app. Opening it puts the two of you straight into a private chat — they do not need to be online now. It works once.'
+            : 'Share this QR code or link to invite others'}
         </Text>
 
         {/* QR Code */}
@@ -122,12 +139,16 @@ export default function InviteScreen({ route }: Props) {
           </View>
         </Pressable>
 
-        <Pressable onPress={handleRegenerate} style={styles.regenBtn}>
-          <View style={styles.btnRow}>
-            <Ionicons name="refresh-outline" size={16} color={colors.textTertiary} />
-            <Text style={styles.regenText}>Regenerate Link</Text>
-          </View>
-        </Pressable>
+        {/* A contact link bakes in the invite code that was current when it was generated, so
+            rotating the code would only break the link already sent, not replace it. */}
+        {!contact && (
+          <Pressable onPress={handleRegenerate} style={styles.regenBtn}>
+            <View style={styles.btnRow}>
+              <Ionicons name="refresh-outline" size={16} color={colors.textTertiary} />
+              <Text style={styles.regenText}>Regenerate Link</Text>
+            </View>
+          </Pressable>
+        )}
       </View>
     </SafeAreaView>
   )

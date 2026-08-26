@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
   TextInput, Alert, ActionSheetIOS, Platform, Modal,
-  SafeAreaView,
+  SafeAreaView, ImageBackground,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useFocusEffect } from '@react-navigation/native'
@@ -16,6 +16,8 @@ import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
 import { downloadFile } from '../bare/room-proxy'
 import type { ChatMessage, RoomFile } from '@core/rooms/room'
+import { formatBytes } from '@core/util/bytes'
+import { wallpaperDataUrl, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
 import ChatBubble, { isAudioFile, isVideoFile } from '../components/ChatBubble'
 import VideoPlayerModal from '../components/VideoPlayerModal'
 import MessageComposer from '../components/MessageComposer'
@@ -24,13 +26,6 @@ import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
 
 function getFileIcon(name: string, mimeType?: string): keyof typeof Ionicons.glyphMap {
   if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return 'image-outline'
@@ -46,7 +41,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '🎉', '💯', '🙏']
 
 export default function RoomChatScreen({ route, navigation }: Props) {
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
@@ -108,6 +103,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [filesLoading, setFilesLoading] = useState(false)
   const [fileSearchQuery, setFileSearchQuery] = useState('')
   const [downloadingFilePath, setDownloadingFilePath] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!session) return
+    void session.getWallpaper()
+      .then((id) => setWallpaperUri(wallpaperDataUrl(id || DEFAULT_WALLPAPER, isDark ? 'rgba(226,232,240,0.06)' : 'rgba(15,23,42,0.07)')))
+      .catch(() => {})
+  }, [session, isDark])
 
   const refreshFiles = useCallback(async () => {
     if (!room) return
@@ -204,6 +206,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
+  const [wallpaperUri, setWallpaperUri] = useState<string | null>(null)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const handleListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
@@ -605,7 +608,12 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* Messages */}
+          {/* Messages — ImageBackground rather than a style, because only it can tile. */}
+          <ImageBackground
+            source={wallpaperUri ? { uri: wallpaperUri } : undefined}
+            imageStyle={{ resizeMode: 'repeat' }}
+            style={{ flex: 1 }}
+          >
           <FlatList
             ref={flatListRef}
             data={filteredMessages}
@@ -667,6 +675,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               )
             }
           />
+          </ImageBackground>
 
           {showScrollToBottom && (
             <Pressable

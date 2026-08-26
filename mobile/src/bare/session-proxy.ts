@@ -95,6 +95,14 @@ export class SessionProxy {
     return new Map(pairs)
   }
 
+  getWallpaper(): Promise<string> {
+    return bareClient.call('session.getWallpaper')
+  }
+
+  setWallpaper(id: string): Promise<void> {
+    return bareClient.call('session.setWallpaper', id)
+  }
+
   setNickname(nickname: string): Promise<void> {
     return bareClient.call('session.setNickname', nickname)
   }
@@ -111,6 +119,23 @@ export class SessionProxy {
   async joinRoomByKey(name: string, key: string): Promise<RoomProxy> {
     const { roomId } = await bareClient.call<{ roomId: string }>('session.joinRoomByKey', name, key)
     return this.getRoom(roomId)
+  }
+
+  createContactInvite(): Promise<{ key: string; roomId: string }> {
+    return bareClient.call('session.createContactInvite')
+  }
+
+  async acceptContactInvite(invite: { from: string; name: string; key: string }): Promise<RoomProxy> {
+    const { roomId } = await bareClient.call<{ roomId: string }>('session.acceptContactInvite', invite)
+    return this.getRoom(roomId)
+  }
+
+  findOrphanBlobs(): Promise<Array<{ path: string; bytes: number }>> {
+    return bareClient.call('session.findOrphanBlobs')
+  }
+
+  deleteBlobs(paths: string[]): Promise<number> {
+    return bareClient.call('session.deleteBlobs', paths)
   }
 
   sendContactRequest(userId: string, nickname: string): Promise<boolean> {

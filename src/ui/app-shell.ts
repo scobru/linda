@@ -7,6 +7,8 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
+import { formatBytes } from '../util/bytes.js'
+import { WALLPAPERS, wallpaperDataUrl, DEFAULT_WALLPAPER } from './wallpapers.js'
 
 function storageDir(): string {
   if (typeof Pear !== 'undefined') return Pear.config.storage
@@ -1331,7 +1333,7 @@ export class AppShell extends HTMLElement {
         <div id="hashtagBar" class="hashtag-bar"></div>
 
         <!-- Messages Stream Canvas -->
-        <div id="messages" class="messages"></div>
+        <div id="messages" class="messages" style="${this.wallpaperStyle()}"></div>
         <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" title="Scroll to latest">↓</button>
 
         <div id="seenBy" class="status-bar"></div>
@@ -2068,6 +2070,17 @@ export class AppShell extends HTMLElement {
 
   /** One-time cleanup of blobs on our own drive that no room references any more. Counts first and
    * shows what would go before deleting anything — the deletion is not reversible. */
+  /**
+   * Inline rather than a CSS class: the pattern's colour is derived from the live theme, so it has
+   * to be rebuilt whenever the palette flips rather than baked into the stylesheet.
+   */
+  private wallpaperStyle(): string {
+    const id = this.session?.getWallpaper() || DEFAULT_WALLPAPER
+    const isLight = document.documentElement.classList.contains('light')
+    const url = wallpaperDataUrl(id, isLight ? 'rgba(15,23,42,0.07)' : 'rgba(226,232,240,0.06)')
+    return url ? `background-image:url('${url}');background-repeat:repeat;` : ''
+  }
+
   private async sweepOrphanBlobs(): Promise<void> {
     if (!this.session) return
     try {
@@ -2334,6 +2347,22 @@ export class AppShell extends HTMLElement {
             </div>
 
             <div class="form-group">
+              <label>Chat Wallpaper</label>
+              <div class="preset-avatars-grid">
+                ${WALLPAPERS.map((w) => {
+                  const preview = wallpaperDataUrl(w.id, 'rgba(128,128,128,0.65)')
+                  const active = (this.session!.getWallpaper() || DEFAULT_WALLPAPER) === w.id
+                  return `
+                    <button class="preset-avatar-card ${active ? 'active' : ''}" data-wallpaper-id="${w.id}" title="${w.name}">
+                      <span style="display:block;width:100%;height:52px;border-radius:8px;background:var(--bg-subtle) ${preview ? `url('${preview}') repeat` : ''};"></span>
+                      <span class="preset-title">${w.name}</span>
+                    </button>
+                  `
+                }).join('')}
+              </div>
+            </div>
+
+            <div class="form-group">
               <label>Sovereign Keys</label>
               <div class="key-display-row">
                 <code>${this.identity.id}</code>
@@ -2436,6 +2465,16 @@ export class AppShell extends HTMLElement {
       } catch {
         alert('Could not load or resize image')
       }
+    })
+
+    // Wallpaper cards borrow `.preset-avatar-card` for its look, so they are matched by the
+    // avatar handler below too — it finds no preset for them and does nothing. Keyed on their own
+    // attribute here to keep the two apart.
+    this.querySelectorAll<HTMLButtonElement>('[data-wallpaper-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await this.session!.setWallpaper(btn.dataset.wallpaperId!)
+        this.renderProfilePage()
+      })
     })
 
     this.querySelectorAll<HTMLButtonElement>('.preset-avatar-card').forEach((btn) => {
@@ -3163,13 +3202,6 @@ function linkify(escaped: string): string {
   return escaped.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">${url}</a>`)
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
 
 function formatMessageTime(timestamp: number): string {
   if (!timestamp) return ''

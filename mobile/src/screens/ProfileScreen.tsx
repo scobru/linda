@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   View, Text, TextInput, Pressable, Switch, StyleSheet,
-  SafeAreaView, ScrollView, Alert, DevSettings, Linking,
+  SafeAreaView, ScrollView, Alert, DevSettings, Linking, Image,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
@@ -10,12 +10,14 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
+import { WALLPAPERS, wallpaperDataUrl, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
 import { revealSecretKey, revealMnemonic, resetDevice, unlockIdentity } from '../bare/identity-client'
 import { storageDir } from '../bare/storage-dir'
 import { isBiometricSupported, isBiometricLockEnabled, enableBiometricLock, disableBiometricLock } from '../bare/biometric-lock'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, PRESET_AVATARS, type ThemeColors } from '../theme'
 import { useTheme, type ThemeMode } from '../theme-context'
+import { formatBytes } from '@core/util/bytes'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>
 
@@ -118,6 +120,50 @@ export default function ProfileScreen({ navigation }: Props) {
     await Clipboard.setStringAsync(text)
     Alert.alert('Copied', `${label} copied to clipboard`)
   }, [])
+
+  const [wallpaper, setWallpaper] = useState('')
+
+  useEffect(() => {
+    if (!session) return
+    void session.getWallpaper().then(setWallpaper).catch(() => {})
+  }, [session])
+
+  const handleSelectWallpaper = useCallback((id: string) => {
+    if (!session) return
+    setWallpaper(id)
+    void session.setWallpaper(id).catch((err) => Alert.alert('Error', (err as Error).message))
+  }, [session])
+
+  // Counts before deleting and names what would go: removing blobs cannot be undone.
+  const handleSweepOrphans = useCallback(async () => {
+    if (!session) return
+    try {
+      const orphans = await session.findOrphanBlobs()
+      if (orphans.length === 0) {
+        Alert.alert('Nothing to clean up', 'Every file on your drive is still referenced by a room.')
+        return
+      }
+      const total = orphans.reduce((sum, o) => sum + o.bytes, 0)
+      Alert.alert(
+        `Delete ${orphans.length} orphaned file(s)?`,
+        `This frees ${formatBytes(total)} on this device. They are files no room points at any more. This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              void session.deleteBlobs(orphans.map((o) => o.path))
+                .then((deleted) => Alert.alert('Done', `Removed ${deleted} file(s), freeing ${formatBytes(total)}.`))
+                .catch((err) => Alert.alert('Cleanup failed', (err as Error).message))
+            },
+          },
+        ]
+      )
+    } catch (err) {
+      Alert.alert('Cleanup failed', (err as Error).message)
+    }
+  }, [session])
 
   const handleResetDevice = useCallback(() => {
     Alert.alert(
@@ -316,6 +362,49 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.value}>{onlineUsers.size}</Text>
         </View>
 
+        {/* Chat wallpaper */}
+        <View style={styles.field}>
+          <Text style={styles.label}>Chat Wallpaper</Text>
+          <View style={styles.wallpaperRow}>
+            {WALLPAPERS.map((w) => {
+              const preview = wallpaperDataUrl(w.id, 'rgba(128,128,128,0.65)')
+              const active = (wallpaper || DEFAULT_WALLPAPER) === w.id
+              return (
+                <Pressable
+                  key={w.id}
+                  onPress={() => handleSelectWallpaper(w.id)}
+                  style={[styles.wallpaperCard, active && styles.wallpaperCardActive]}
+                >
+                  {preview ? (
+                    <Image source={{ uri: preview }} style={styles.wallpaperPreview} resizeMode="repeat" />
+                  ) : (
+                    <View style={styles.wallpaperPreview} />
+                  )}
+                  <Text style={styles.wallpaperName}>{w.name}</Text>
+                </Pressable>
+              )
+            })}
+          </View>
+        </View>
+
+        {/* Contact link — desktop offers this from the profile drawer. */}
+        <View style={styles.field}>
+          <Pressable onPress={() => navigation.navigate('Invite', { contact: true })} style={styles.keyRow}>
+            <Ionicons name="person-add-outline" size={16} color={colors.textSecondary} />
+            <Text style={[styles.value, { flex: 1 }]}>Invite Someone to Chat</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
+        </View>
+
+        {/* Orphaned file cleanup */}
+        <View style={styles.field}>
+          <Pressable onPress={handleSweepOrphans} style={styles.keyRow}>
+            <Ionicons name="trash-bin-outline" size={16} color={colors.textSecondary} />
+            <Text style={[styles.value, { flex: 1 }]}>Clean Up Orphaned Files</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
+        </View>
+
         {/* Network status */}
         <View style={styles.field}>
           <Pressable onPress={() => navigation.navigate('NetworkStatus')} style={styles.keyRow}>
@@ -389,6 +478,35 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   presetName: { color: colors.textTertiary, fontSize: typography.xs },
   field: {
     marginBottom: spacing.xxl,
+  },
+  wallpaperRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  wallpaperCard: {
+    width: 78,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    backgroundColor: colors.bgSecondary,
+  },
+  wallpaperCardActive: {
+    borderColor: colors.accent,
+    borderWidth: 2,
+  },
+  wallpaperPreview: {
+    width: '100%',
+    height: 48,
+    backgroundColor: colors.bgPrimary,
+  },
+  wallpaperName: {
+    color: colors.textSecondary,
+    fontSize: typography.xs,
+    textAlign: 'center',
+    paddingVertical: 4,
   },
   label: {
     color: colors.textTertiary, fontSize: typography.xs,

@@ -69,8 +69,18 @@ export default function RoomsScreen({ navigation }: Props) {
     const name = invite?.name || 'Joined Room'
     setShowJoin(false)
     setInviteLink('')
+    // A contact link is a room invite plus the sender's identity. Joining it as a plain room
+    // would leave the two of them sharing a room and still not knowing each other, which is the
+    // entire point of the link.
+    if (invite?.kind === 'contact' && invite.from && session) {
+      const from = invite.from
+      void session.acceptContactInvite({ from, name, key })
+        .then((room) => navigation.navigate('RoomChat', { roomId: room.id, roomName: name }))
+        .catch((err) => Alert.alert('Could not open the invite', (err as Error).message))
+      return
+    }
     navigation.navigate('RoomChat', { roomName: name, pendingJoin: { name, key } })
-  }, [inviteLink, navigation])
+  }, [inviteLink, navigation, session])
 
   const openRoom = useCallback((id: string, name: string) => {
     navigation.navigate('RoomChat', { roomId: id, roomName: name })

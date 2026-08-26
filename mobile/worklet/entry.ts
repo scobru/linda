@@ -249,6 +249,8 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.getNickname': () => requireSession().getNickname(),
   'session.getAvatar': () => requireSession().getAvatar(),
   'session.listPeerAvatars': () => [...requireSession().listPeerAvatars()],
+  'session.getWallpaper': () => requireSession().getWallpaper(),
+  'session.setWallpaper': (id: string) => requireSession().setWallpaper(id),
   'session.setNickname': (nickname: string) => requireSession().setNickname(nickname),
   'session.setAvatar': (avatar: string) => requireSession().setAvatar(avatar),
 
@@ -263,6 +265,17 @@ const methods: Record<string, (...args: any[]) => any> = {
     wireRoom(room)
     return { roomId: room.id }
   },
+
+  'session.createContactInvite': () => requireSession().createContactInvite(),
+
+  'session.acceptContactInvite': async (invite: { from: string; name: string; key: string }) => {
+    const room = await requireSession().acceptContactInvite(invite)
+    wireRoom(room)
+    return { roomId: room.id }
+  },
+
+  'session.findOrphanBlobs': () => requireSession().findOrphanBlobs(),
+  'session.deleteBlobs': (paths: string[]) => requireSession().deleteBlobs(paths),
 
   'session.sendContactRequest': (userId: string, nickname: string) => requireSession().sendContactRequest(userId, nickname),
   'session.respondToContact': (userId: string, accept: boolean) => requireSession().respondToContact(userId, accept),

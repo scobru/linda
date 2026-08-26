@@ -85,6 +85,16 @@ export class ProfileStore {
     await this.profile.put('nickname', nickname)
   }
 
+  /** Chat background id (see `src/ui/wallpapers.ts`). Local to this device — nobody else's
+   * business what your chat looks like. */
+  async getWallpaper(): Promise<string> {
+    return (await this.profile.get('wallpaper'))?.value ?? ''
+  }
+
+  async setWallpaper(id: string): Promise<void> {
+    await this.profile.put('wallpaper', id)
+  }
+
   async getAvatar(): Promise<string> {
     return (await this.profile.get('avatar'))?.value ?? ''
   }
