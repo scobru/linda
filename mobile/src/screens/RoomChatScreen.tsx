@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
   TextInput, Alert, ActionSheetIOS, Platform, Modal,
-  SafeAreaView, ImageBackground,
+  SafeAreaView,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useFocusEffect } from '@react-navigation/native'
@@ -17,7 +17,8 @@ import { useRoom } from '../hooks/useRoom'
 import { downloadFile } from '../bare/room-proxy'
 import type { ChatMessage, RoomFile } from '@core/rooms/room'
 import { formatBytes } from '@core/util/bytes'
-import { wallpaperDataUrl, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
+import { SvgXml } from 'react-native-svg'
+import { wallpaperPatternSvg, wallpaperInk, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
 import ChatBubble, { isAudioFile, isVideoFile } from '../components/ChatBubble'
 import VideoPlayerModal from '../components/VideoPlayerModal'
 import MessageComposer from '../components/MessageComposer'
@@ -107,7 +108,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!session) return
     void session.getWallpaper()
-      .then((id) => setWallpaperUri(wallpaperDataUrl(id || DEFAULT_WALLPAPER, isDark ? 'rgba(226,232,240,0.06)' : 'rgba(15,23,42,0.07)')))
+      .then((id) => setWallpaperSvg(wallpaperPatternSvg(id || DEFAULT_WALLPAPER, wallpaperInk(isDark))))
       .catch(() => {})
   }, [session, isDark])
 
@@ -206,7 +207,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const flatListRef = useRef<FlatList>(null)
-  const [wallpaperUri, setWallpaperUri] = useState<string | null>(null)
+  const [wallpaperSvg, setWallpaperSvg] = useState<string | null>(null)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const handleListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
@@ -608,12 +609,14 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* Messages — ImageBackground rather than a style, because only it can tile. */}
-          <ImageBackground
-            source={wallpaperUri ? { uri: wallpaperUri } : undefined}
-            imageStyle={{ resizeMode: 'repeat' }}
-            style={{ flex: 1 }}
-          >
+          {/* Messages. The wallpaper is drawn with react-native-svg behind the list: RN's own
+              Image component cannot render SVG, so an ImageBackground showed nothing. */}
+          <View style={{ flex: 1 }}>
+          {wallpaperSvg && (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <SvgXml xml={wallpaperSvg} width="100%" height="100%" />
+            </View>
+          )}
           <FlatList
             ref={flatListRef}
             data={filteredMessages}
@@ -675,7 +678,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               )
             }
           />
-          </ImageBackground>
+          </View>
 
           {showScrollToBottom && (
             <Pressable

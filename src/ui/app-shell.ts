@@ -8,7 +8,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
-import { WALLPAPERS, wallpaperDataUrl, DEFAULT_WALLPAPER } from './wallpapers.js'
+import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
 
 function storageDir(): string {
   if (typeof Pear !== 'undefined') return Pear.config.storage
@@ -2076,8 +2076,10 @@ export class AppShell extends HTMLElement {
    */
   private wallpaperStyle(): string {
     const id = this.session?.getWallpaper() || DEFAULT_WALLPAPER
-    const isLight = document.documentElement.classList.contains('light')
-    const url = wallpaperDataUrl(id, isLight ? 'rgba(15,23,42,0.07)' : 'rgba(226,232,240,0.06)')
+    // The light theme is an attribute, not a class — reading it as a class meant every wallpaper
+    // was tinted for a dark background, which on the light theme is a near-white pattern on white.
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
+    const url = wallpaperDataUrl(id, wallpaperInk(isDark))
     return url ? `background-image:url('${url}');background-repeat:repeat;` : ''
   }
 
@@ -2350,7 +2352,7 @@ export class AppShell extends HTMLElement {
               <label>Chat Wallpaper</label>
               <div class="preset-avatars-grid">
                 ${WALLPAPERS.map((w) => {
-                  const preview = wallpaperDataUrl(w.id, 'rgba(128,128,128,0.65)')
+                  const preview = wallpaperDataUrl(w.id, 'rgba(128,128,128,0.7)')
                   const active = (this.session!.getWallpaper() || DEFAULT_WALLPAPER) === w.id
                   return `
                     <button class="preset-avatar-card ${active ? 'active' : ''}" data-wallpaper-id="${w.id}" title="${w.name}">

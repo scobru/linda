@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   View, Text, TextInput, Pressable, Switch, StyleSheet,
-  SafeAreaView, ScrollView, Alert, DevSettings, Linking, Image,
+  SafeAreaView, ScrollView, Alert, DevSettings, Linking,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
@@ -10,7 +10,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
-import { WALLPAPERS, wallpaperDataUrl, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
+import { SvgXml } from 'react-native-svg'
+import { WALLPAPERS, wallpaperPatternSvg, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
 import { revealSecretKey, revealMnemonic, resetDevice, unlockIdentity } from '../bare/identity-client'
 import { storageDir } from '../bare/storage-dir'
 import { isBiometricSupported, isBiometricLockEnabled, enableBiometricLock, disableBiometricLock } from '../bare/biometric-lock'
@@ -367,7 +368,9 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.label}>Chat Wallpaper</Text>
           <View style={styles.wallpaperRow}>
             {WALLPAPERS.map((w) => {
-              const preview = wallpaperDataUrl(w.id, 'rgba(128,128,128,0.65)')
+              // Deliberately stronger ink than the chat itself: at a thumbnail's size the real
+              // value is too sparse to tell the patterns apart.
+              const preview = wallpaperPatternSvg(w.id, 'rgba(128,128,128,0.7)')
               const active = (wallpaper || DEFAULT_WALLPAPER) === w.id
               return (
                 <Pressable
@@ -375,11 +378,9 @@ export default function ProfileScreen({ navigation }: Props) {
                   onPress={() => handleSelectWallpaper(w.id)}
                   style={[styles.wallpaperCard, active && styles.wallpaperCardActive]}
                 >
-                  {preview ? (
-                    <Image source={{ uri: preview }} style={styles.wallpaperPreview} resizeMode="repeat" />
-                  ) : (
-                    <View style={styles.wallpaperPreview} />
-                  )}
+                  <View style={styles.wallpaperPreview}>
+                    {preview ? <SvgXml xml={preview} width="100%" height="100%" /> : null}
+                  </View>
                   <Text style={styles.wallpaperName}>{w.name}</Text>
                 </Pressable>
               )
