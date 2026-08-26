@@ -1,0 +1,95 @@
+# Builds the macOS desktop app and attaches it to a GitHub release.
+#
+# This exists because macOS cannot be cross-built from the Windows machine the other artifacts come
+# from: packaging succeeds and even lays down the Electron framework symlinks correctly, but NTFS
+# has no executable bit, so every binary inside the .app lands non-executable and macOS refuses to
+# launch it. `chmod` does not stick either. A native runner is the only way to get a working bundle.
+#
+# The app is NOT signed or notarized. macOS will warn on first launch and the user has to allow it
+# from System Settings -> Privacy & Security. Fixing that needs an Apple Developer ID; see the note
+# at the bottom of this file.
+name: macOS release build
+
+on:
+  # Runs when a release is published rather than when the tag is pushed: the upload target has to
+  # exist first, and the tag is pushed before the release is created.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.14.1)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Resolve the tag being built
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Skips the mobile workspace: it pulls the whole React Native toolchain, and none of it goes
+      # into the desktop app.
+      - run: npm ci --workspaces=false --include-workspace-root
+
+      - run: npm run build
+
+      - name: Package for Apple Silicon and Intel
+        run: |
+          npx electron-forge make --platform=darwin --arch=arm64
+          npx electron-forge make --platform=darwin --arch=x64
+
+      # forge names every zip the same regardless of arch, so they are renamed to match the naming
+      # the Windows and Android artifacts already use on the releases page.
+      - name: Name the artifacts
+        id: artifacts
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p upload
+          for arch in arm64 x64; do
+            src="$(find "out/make/zip/darwin/$arch" -name '*.zip' -print -quit)"
+            if [ -z "$src" ]; then
+              echo "no zip produced for $arch" >&2
+              exit 1
+            fi
+            cp "$src" "upload/linda-pear-$TAG-mac-$arch.zip"
+          done
+          ls -la upload
+
+      # Proves the bundle is actually launchable, which is the exact thing the Windows build could
+      # not produce — a zip that unpacks to a non-executable binary would otherwise upload happily.
+      - name: Check the unpacked app is executable
+        run: |
+          set -euo pipefail
+          unzip -q "upload/linda-pear-${{ steps.tag.outputs.tag }}-mac-arm64.zip" -d verify
+          app="$(find verify -maxdepth 1 -name '*.app' -print -quit)"
+          bin="$app/Contents/MacOS/$(basename "$app" .app)"
+          test -x "$bin" || { echo "main binary is not executable: $bin" >&2; exit 1; }
+          echo "ok: $bin"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.zip --clobber
+
+# To sign and notarize instead of shipping an app Gatekeeper blocks:
+#   1. Apple Developer Program membership ($99/yr), then export a "Developer ID Application"
+#      certificate as .p12.
+#   2. Add repository secrets: MACOS_CERTIFICATE (base64 of the .p12), MACOS_CERTIFICATE_PWD,
+#      APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+#   3. Import the cert into a temporary keychain in this job, then set `osxSign` and `osxNotarize`
+#      in packagerConfig (forge.config.cjs) — Forge drives codesign and notarytool from there.
