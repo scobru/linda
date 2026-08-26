@@ -2,7 +2,7 @@ import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
-import type { Room, ChatMessage, VaultFile } from '../rooms/room.js'
+import type { Room, ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
@@ -241,8 +241,8 @@ export class AppShell extends HTMLElement {
   private messageFilter = ''
   /** Non-null while the message list is narrowed to one hashtag — see renderHashtagBar. */
   private activeHashtag: string | null = null
-  private activeRoomTab: 'chat' | 'vault' = 'chat'
-  private vaultSearchQuery = ''
+  private activeRoomTab: 'chat' | 'files' = 'chat'
+  private fileSearchQuery = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
   private sidebarSearchQuery = ''
@@ -870,6 +870,13 @@ export class AppShell extends HTMLElement {
                 </div>
                 <span class="drawer-chevron">&gt;</span>
               </div>
+              <div class="drawer-menu-item" id="drawerSweepBlobsBtn">
+                <div class="drawer-menu-item-left">
+                  <span class="drawer-menu-item-icon">${ICONS.trash}</span>
+                  <span>Clean Up Orphaned Files</span>
+                </div>
+                <span class="drawer-chevron">&gt;</span>
+              </div>
             </div>
           </aside>
         </div>
@@ -1085,6 +1092,10 @@ export class AppShell extends HTMLElement {
       this.openPairPage()
     })
 
+    this.querySelector('#drawerSweepBlobsBtn')?.addEventListener('click', () => {
+      void this.sweepOrphanBlobs()
+    })
+
     // Private mode toggle switch
     const privateToggle = this.querySelector('#privateModeToggle') as HTMLInputElement
     privateToggle?.addEventListener('change', () => {
@@ -1246,12 +1257,12 @@ export class AppShell extends HTMLElement {
           </div>
         </div>
 
-        ${room.isVaultEnabled ? `
+        ${`
           <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
             <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.chatSmall} Chat</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'vault' ? 'active' : ''}" id="roomTabVault" style="background:${this.activeRoomTab === 'vault' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'vault' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.folder} Vault</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'files' ? 'active' : ''}" id="roomTabFiles" style="background:${this.activeRoomTab === 'files' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'files' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.folder} Files</button>
           </div>
-        ` : ''}
+        `}
 
         <div class="room-header-tools">
           <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
@@ -1272,27 +1283,22 @@ export class AppShell extends HTMLElement {
         </div>
       ` : ''}
 
-      ${room.isVaultEnabled && this.activeRoomTab === 'vault' ? `
-        <!-- Vault View Canvas -->
-        <div id="vaultContainer" class="vault-container" style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);">
-          <!-- Vault Toolbar -->
-          <div class="vault-toolbar" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-subtle);">
+      ${this.activeRoomTab === 'files' ? `
+        <!-- Files View Canvas: a second view over the message log, not a separate store -->
+        <div id="filesContainer" class="files-container" style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);">
+          <!-- Files Toolbar -->
+          <div class="files-toolbar" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--bg-subtle);">
             <div style="display:flex;align-items:center;gap:0.5rem;flex:1;max-width:320px;">
-              <input type="text" id="vaultSearchInput" placeholder="Search vault files..." value="${escapeHtml(this.vaultSearchQuery)}" class="keet-input" style="padding:0.35rem 0.65rem;font-size:0.8rem;width:100%;" />
+              <input type="text" id="fileSearchInput" placeholder="Search files..." value="${escapeHtml(this.fileSearchQuery)}" class="keet-input" style="padding:0.35rem 0.65rem;font-size:0.8rem;width:100%;" />
             </div>
             <div style="display:flex;align-items:center;gap:0.6rem;">
-              ${writable ? `
-                <label class="primary" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600;">
-                  <span>${ICONS.upload} Upload to Vault</span>
-                  <input type="file" id="vaultFileInput" style="display:none;" />
-                </label>
-              ` : `<span style="font-size:0.75rem;color:var(--text-muted);">Read-only vault</span>`}
+              <span style="font-size:0.75rem;color:var(--text-muted);">Everything shared in the chat</span>
             </div>
           </div>
 
-          <!-- Vault Files Stream -->
-          <div id="vaultFilesList" style="flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:0.75rem;">
-            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;">Loading vault files…</div>
+          <!-- Shared Files Stream -->
+          <div id="roomFilesList" style="flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:0.75rem;">
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;">Loading files…</div>
           </div>
         </div>
       ` : `
@@ -1362,29 +1368,17 @@ export class AppShell extends HTMLElement {
     this.activeHashtag = null
       this.renderApp()
     })
-    this.querySelector('#roomTabVault')?.addEventListener('click', () => {
-      this.activeRoomTab = 'vault'
+    this.querySelector('#roomTabFiles')?.addEventListener('click', () => {
+      this.activeRoomTab = 'files'
       this.renderApp()
     })
 
-    if (this.activeRoomTab === 'vault' && room.isVaultEnabled) {
-      void this.renderVaultFiles()
-      const searchInput = this.querySelector('#vaultSearchInput') as HTMLInputElement
+    if (this.activeRoomTab === 'files') {
+      void this.renderFileList()
+      const searchInput = this.querySelector('#fileSearchInput') as HTMLInputElement
       searchInput?.addEventListener('input', () => {
-        this.vaultSearchQuery = searchInput.value
-        void this.renderVaultFiles()
-      })
-      const vaultFileInput = this.querySelector('#vaultFileInput') as HTMLInputElement
-      vaultFileInput?.addEventListener('change', async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0]
-        if (!file) return
-        try {
-          const buffer = Buffer.from(await file.arrayBuffer())
-          await this.session!.uploadToVault(room.id, file.name, buffer, file.type)
-          void this.renderVaultFiles()
-        } catch (err) {
-          alert(`Upload error: ${(err as Error).message}`)
-        }
+        this.fileSearchQuery = searchInput.value
+        void this.renderFileList()
       })
     }
 
@@ -1456,7 +1450,7 @@ export class AppShell extends HTMLElement {
       if (this.selectedMessageIds.size === 0) return
       if (!confirm(`Delete ${this.selectedMessageIds.size} message(s)? This cannot be undone.`)) return
       void (async () => {
-        for (const id of this.selectedMessageIds) await room.deleteMessage(id)
+        for (const id of this.selectedMessageIds) await this.session!.deleteMessage(room.id, id)
         this.selectionMode = false
         this.selectedMessageIds = new Set()
         this.renderApp()
@@ -1473,7 +1467,7 @@ export class AppShell extends HTMLElement {
     this.activeRoom = room
     this.activeRoomName = name
     this.activeRoomTab = 'chat'
-    this.vaultSearchQuery = ''
+    this.fileSearchQuery = ''
     this.typingPeers.clear()
     this.readBy.clear()
     this.lastReadSent = null
@@ -1490,8 +1484,8 @@ export class AppShell extends HTMLElement {
       }),
       room.onWritableChange(() => this.scheduleRenderApp()),
       room.onKeyChange(() => this.scheduleRenderApp()),
-      room.onVaultChange(() => {
-        if (this.activeRoomTab === 'vault') void this.renderVaultFiles()
+      room.onFilesChange(() => {
+        if (this.activeRoomTab === 'files') void this.renderFileList()
         this.scheduleRenderApp()
       })
     ]
@@ -1662,7 +1656,7 @@ export class AppShell extends HTMLElement {
     container.querySelectorAll<HTMLButtonElement>('[data-delete-msg]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!confirm('Delete this message? This cannot be undone.')) return
-        void room.deleteMessage(btn.dataset.deleteMsg!)
+        void this.session!.deleteMessage(room.id, btn.dataset.deleteMsg!)
       })
     })
 
@@ -1705,8 +1699,12 @@ export class AppShell extends HTMLElement {
     const mine = message.authorId === this.identity!.id
     const isSameAuthor = prev !== undefined && prev.authorId === message.authorId && (Math.abs(message.timestamp - prev.timestamp) < 5 * 60 * 1000)
 
+    // `message.file` survives a delete — `applyOverlay` only blanks the body — so without the
+    // `deleted` guard a deleted attachment kept rendering its full card, play and download
+    // buttons included. Videos made it obvious (the poster frame just stayed put), but images,
+    // voice notes and plain files were all still fetchable from peers after being "deleted".
     let fileHtml = ''
-    if (message.file) {
+    if (message.file && !message.deleted) {
       // Video is decided first: it carries a thumbnail too (its poster frame), so testing for
       // an image by "has a thumbnail" would swallow every video that has one.
       const isVideo = message.file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
@@ -1837,6 +1835,7 @@ export class AppShell extends HTMLElement {
           ` : ''}
           ${actions}
           ${replyQuote}
+          ${message.deleted ? `<div class="bubble" style="opacity:0.55;font-style:italic;"><span class="bubble-text">${ICONS.trash} Message deleted</span></div>` : ''}
           ${bodyText ? `<div class="bubble"><span class="bubble-text">${bodyText}</span></div>` : ''}
           ${fileHtml}
           ${reactions}
@@ -2043,10 +2042,35 @@ export class AppShell extends HTMLElement {
     }
   }
 
-  private async downloadVaultFile(filePath: string, name: string, driveKey?: string): Promise<void> {
+  /** One-time cleanup of blobs on our own drive that no room references any more. Counts first and
+   * shows what would go before deleting anything — the deletion is not reversible. */
+  private async sweepOrphanBlobs(): Promise<void> {
+    if (!this.session) return
+    try {
+      const orphans = await this.session.findOrphanBlobs()
+      if (orphans.length === 0) {
+        alert('Nothing to clean up — every file on your drive is still referenced by a room.')
+        return
+      }
+      const total = orphans.reduce((sum, o) => sum + o.bytes, 0)
+      const sample = orphans.slice(0, 10).map((o) => `  ${o.path}`).join('\n')
+      const more = orphans.length > 10 ? `\n  …and ${orphans.length - 10} more` : ''
+      if (!confirm(
+        `Delete ${orphans.length} orphaned file(s), freeing ${formatBytes(total)}?\n\n` +
+        `These are on your own drive and no room points at them any more.\n` +
+        `This cannot be undone.\n\n${sample}${more}`
+      )) return
+      const deleted = await this.session.deleteBlobs(orphans.map((o) => o.path))
+      alert(`Removed ${deleted} orphaned file(s), freeing ${formatBytes(total)}.`)
+    } catch (err) {
+      alert(`Cleanup failed: ${(err as Error).message}`)
+    }
+  }
+
+  private async downloadRoomFile(filePath: string, name: string, driveKey: string): Promise<void> {
     if (!this.activeRoom || !this.session) return
     try {
-      const buffer = await this.session.downloadFromVault(this.activeRoom.id, filePath, driveKey)
+      const buffer = await this.session.downloadFile(driveKey, filePath)
       if (!buffer) return alert('File not yet available on connected peers')
       triggerBlobDownload(new Blob([new Uint8Array(buffer)]), name)
     } catch (err) {
@@ -2054,28 +2078,28 @@ export class AppShell extends HTMLElement {
     }
   }
 
-  private async renderVaultFiles(): Promise<void> {
+  private async renderFileList(): Promise<void> {
     const room = this.activeRoom
     if (!room || !this.session) return
-    const container = this.querySelector('#vaultFilesList')
+    const container = this.querySelector('#roomFilesList')
     if (!container) return
 
-    const files = await room.listVaultFiles()
-    const filter = this.vaultSearchQuery.trim().toLowerCase()
-    const visible = filter ? files.filter((f) => f.name.toLowerCase().includes(filter)) : files
+    const files = await room.listFiles()
+    const filter = this.fileSearchQuery.trim().toLowerCase()
+    const visible = filter ? files.filter((f: RoomFile) => f.name.toLowerCase().includes(filter)) : files
 
     if (visible.length === 0) {
       container.innerHTML = `
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;color:var(--text-muted);text-align:center;">
           <div style="margin-bottom:0.75rem;color:var(--text-muted);">${ICONS.folderLarge}</div>
-          <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">${filter ? 'No matching files found' : 'P2P Room Vault is Empty'}</div>
-          <div style="font-size:0.8rem;max-width:340px;">${filter ? 'Try a different search query.' : 'Upload documents, videos, audio, or archives to share directly with the swarm.'}</div>
+          <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">${filter ? 'No matching files found' : 'No files shared yet'}</div>
+          <div style="font-size:0.8rem;max-width:340px;">${filter ? 'Try a different search query.' : 'Files sent in the chat show up here.'}</div>
         </div>
       `
       return
     }
 
-    const html = visible.map((f) => {
+    const html = visible.map((f: RoomFile) => {
       const isMine = f.authorId === this.identity!.id
       const canDelete = isMine || room.isOwner(this.identity!.id) || room.isModerator(this.identity!.id)
       const isImg = f.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)
@@ -2087,7 +2111,7 @@ export class AppShell extends HTMLElement {
       const timeStr = new Date(f.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
       return `
-        <div class="vault-file-card" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:8px;gap:1rem;">
+        <div class="room-file-card" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:8px;gap:1rem;">
           <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
             <div style="flex-shrink:0;display:flex;color:var(--text-muted);">${icon}</div>
             <div style="min-width:0;flex:1;">
@@ -2102,9 +2126,9 @@ export class AppShell extends HTMLElement {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
-            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-vault-download="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" data-vault-drive-key="${escapeHtml(f.driveKey ?? '')}">${ICONS.download} Download</button>
+            <button class="primary" style="padding:0.3rem 0.65rem;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.3rem;" data-file-download="${escapeHtml(f.path)}" data-file-name="${escapeHtml(f.name)}" data-file-drive-key="${escapeHtml(f.driveKey ?? '')}">${ICONS.download} Download</button>
             ${canDelete ? `
-              <button class="ghost" style="color:var(--danger);padding:0.3rem 0.5rem;font-size:0.75rem;" data-vault-delete="${escapeHtml(f.path)}" data-vault-name="${escapeHtml(f.name)}" title="Delete file from vault">${ICONS.trash}</button>
+              <button class="ghost" style="color:var(--danger);padding:0.3rem 0.5rem;font-size:0.75rem;" data-file-delete="${escapeHtml(f.messageId)}" data-file-name="${escapeHtml(f.name)}" title="Delete the message that shared this file">${ICONS.trash}</button>
             ` : ''}
           </div>
         </div>
@@ -2113,25 +2137,27 @@ export class AppShell extends HTMLElement {
 
     container.innerHTML = html
 
-    container.querySelectorAll<HTMLButtonElement>('[data-vault-download]').forEach((btn) => {
+    container.querySelectorAll<HTMLButtonElement>('[data-file-download]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.disabled) return
         const original = btn.textContent
         btn.disabled = true
         btn.textContent = 'Downloading…'
-        void this.downloadVaultFile(btn.dataset.vaultDownload!, btn.dataset.vaultName!, btn.dataset.vaultDriveKey || undefined).finally(() => {
+        void this.downloadRoomFile(btn.dataset.fileDownload!, btn.dataset.fileName!, btn.dataset.fileDriveKey!).finally(() => {
           btn.disabled = false
           btn.textContent = original
         })
       })
     })
 
-    container.querySelectorAll<HTMLButtonElement>('[data-vault-delete]').forEach((btn) => {
+    container.querySelectorAll<HTMLButtonElement>('[data-file-delete]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (!confirm(`Delete "${btn.dataset.vaultName || 'this file'}" from Room Vault?`)) return
+        // Deleting here deletes the chat message too — they are one object now, and saying so up
+        // front is the difference between a tidy-up and a surprise for the person who sent it.
+        if (!confirm(`Delete "${btn.dataset.fileName || 'this file'}"? This also removes the chat message that shared it.`)) return
         try {
-          await this.session!.deleteFromVault(room.id, btn.dataset.vaultDelete!)
-          void this.renderVaultFiles()
+          await this.session!.deleteMessage(room.id, btn.dataset.fileDelete!)
+          void this.renderFileList()
         } catch (err) {
           alert(`Delete error: ${(err as Error).message}`)
         }
@@ -2534,19 +2560,6 @@ export class AppShell extends HTMLElement {
               </div>
             ` : ''}
 
-            ${room.isOwner(this.identity!.id) || room.isModerator(this.identity!.id) ? `
-              <div class="keet-switch-row" style="margin-top:0.5rem;">
-                <div class="switch-label-wrap">
-                  <span>P2P Room Vault (Shared Drive)</span>
-                  <span class="info-tooltip-icon" title="Enables a decentralized collaborative drive for all room members">&#9432;</span>
-                </div>
-                <label class="keet-switch">
-                  <input type="checkbox" id="roomVaultToggle" ${room.isVaultEnabled ? 'checked' : ''} />
-                  <span class="keet-slider"></span>
-                </label>
-              </div>
-            ` : ''}
-
             <div class="form-group" style="margin-top:0.25rem;">
               <button id="manageMembersFromSettingsBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--border);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:space-between;background:var(--bg-subtle);">
                 <span style="display:flex;align-items:center;gap:0.5rem;font-weight:600;color:var(--text);font-size:0.85rem;">
@@ -2634,16 +2647,6 @@ export class AppShell extends HTMLElement {
       } catch (err) {
         broadcastToggle.checked = !broadcastToggle.checked
         alert((err as Error).message || 'Could not change broadcast mode')
-      }
-    })
-
-    const vaultToggle = this.querySelector('#roomVaultToggle') as HTMLInputElement | null
-    vaultToggle?.addEventListener('change', async () => {
-      try {
-        await this.session!.setRoomVault(room.id, vaultToggle.checked)
-      } catch (err) {
-        vaultToggle.checked = !vaultToggle.checked
-        alert((err as Error).message || 'Could not toggle room vault')
       }
     })
 

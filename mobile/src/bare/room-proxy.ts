@@ -1,14 +1,12 @@
 import b4a from 'b4a'
 import { bareClient } from './client'
-import type { ChatMessage, MemberInfo, VaultFile } from '@core/rooms/room'
+import type { ChatMessage, MemberInfo, RoomFile } from '@core/rooms/room'
 
 export interface RoomState {
   writable: boolean
   hasKey: boolean
   /** Only the owner and moderators may post. */
   broadcast: boolean
-  vaultEnabled?: boolean
-  vaultDriveKey?: string | null
   /** Whether this device's identity may post right now — false when muted, or in a broadcast room without admin rights. */
   canPost: boolean
 }
@@ -17,8 +15,6 @@ export class RoomProxy {
   writable = false
   hasKey = false
   broadcast = false
-  vaultEnabled = false
-  vaultDriveKey: string | null = null
   canPost = false
 
   constructor(readonly id: string) {
@@ -32,8 +28,6 @@ export class RoomProxy {
     this.writable = state.writable
     this.hasKey = state.hasKey
     this.broadcast = state.broadcast
-    this.vaultEnabled = state.vaultEnabled ?? false
-    this.vaultDriveKey = state.vaultDriveKey ?? null
     this.canPost = state.canPost
   }
 
@@ -125,28 +119,17 @@ export class RoomProxy {
     })
   }
 
-  listVaultFiles(): Promise<VaultFile[]> {
-    return bareClient.call('room.listVaultFiles', this.id)
+  listFiles(): Promise<RoomFile[]> {
+    return bareClient.call('room.listFiles', this.id)
   }
 
-  async uploadToVault(name: string, mimeType: string, base64: string): Promise<VaultFile> {
-    const { result } = await bareClient.callBinary<VaultFile>(
-      'room.uploadToVault', [this.id, name, mimeType], b4a.from(base64, 'base64')
-    )
-    return result
-  }
-
-  async downloadFromVault(filePath: string, driveKey?: string): Promise<string | null> {
-    const { result, binary } = await bareClient.callBinary<{ found: boolean }>('room.downloadFromVault', [this.id, filePath, driveKey], new Uint8Array(0))
+  async downloadRoomFile(filePath: string, driveKey: string): Promise<string | null> {
+    const { result, binary } = await bareClient.callBinary<{ found: boolean }>('room.downloadRoomFile', [this.id, filePath, driveKey], new Uint8Array(0))
     return result.found ? b4a.toString(binary, 'base64') : null
   }
 
-  deleteFromVault(filePath: string): Promise<void> {
-    return bareClient.call('room.deleteFromVault', this.id, filePath)
-  }
-
-  onVaultChange(listener: () => void): () => void {
-    return bareClient.on('roomVaultChange', (payload: { roomId: string }) => {
+  onFilesChange(listener: () => void): () => void {
+    return bareClient.on('roomFilesChange', (payload: { roomId: string }) => {
       if (payload.roomId === this.id) listener()
     })
   }

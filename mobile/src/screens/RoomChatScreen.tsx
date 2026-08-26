@@ -9,14 +9,13 @@ import { useFocusEffect } from '@react-navigation/native'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import * as Clipboard from 'expo-clipboard'
-import * as DocumentPicker from 'expo-document-picker'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
 import { downloadFile } from '../bare/room-proxy'
-import type { ChatMessage, VaultFile } from '@core/rooms/room'
+import type { ChatMessage, RoomFile } from '@core/rooms/room'
 import ChatBubble, { isAudioFile, isVideoFile } from '../components/ChatBubble'
 import VideoPlayerModal from '../components/VideoPlayerModal'
 import MessageComposer from '../components/MessageComposer'
@@ -104,75 +103,55 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // False when muted or in a broadcast room without admin rights — the two cases where the worklet
   // would accept the message and every peer would then drop it while linearizing the log.
   const [canPost, setCanPost] = useState(false)
-  const [activeTab, setActiveTab] = useState<'chat' | 'vault'>('chat')
-  const [vaultEnabled, setVaultEnabled] = useState(false)
-  const [vaultFiles, setVaultFiles] = useState<VaultFile[]>([])
-  const [vaultLoading, setVaultLoading] = useState(false)
-  const [vaultSearchQuery, setVaultSearchQuery] = useState('')
-  const [downloadingVaultPath, setDownloadingVaultPath] = useState<string | null>(null)
-  const [uploadingVault, setUploadingVault] = useState(false)
+  const [activeTab, setActiveTab] = useState<'chat' | 'files'>('chat')
+  const [roomFiles, setRoomFiles] = useState<RoomFile[]>([])
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [fileSearchQuery, setFileSearchQuery] = useState('')
+  const [downloadingFilePath, setDownloadingFilePath] = useState<string | null>(null)
 
-  const refreshVault = useCallback(async () => {
+  const refreshFiles = useCallback(async () => {
     if (!room) return
-    setVaultLoading(true)
+    setFilesLoading(true)
     try {
-      const list = await room.listVaultFiles()
-      setVaultFiles(list)
+      const list = await room.listFiles()
+      setRoomFiles(list)
     } catch {
       // ignore
     } finally {
-      setVaultLoading(false)
+      setFilesLoading(false)
     }
   }, [room])
 
   useEffect(() => {
     if (!room) return
-    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean; vaultEnabled?: boolean }) => {
+    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean }) => {
       setWritable(s.writable)
       setHasKey(s.hasKey)
       setCanPost(s.canPost)
-      setVaultEnabled(s.vaultEnabled ?? false)
     }
     apply(room)
     void room.refreshState().then(apply)
     const unsubState = room.onStateChange(apply)
-    const unsubVault = room.onVaultChange(() => {
-      void refreshVault()
+    const unsubFiles = room.onFilesChange(() => {
+      void refreshFiles()
     })
     return () => {
       unsubState()
-      unsubVault()
+      unsubFiles()
     }
-  }, [room, refreshVault])
+  }, [room, refreshFiles])
 
   useEffect(() => {
-    if (activeTab === 'vault') {
-      void refreshVault()
+    if (activeTab === 'files') {
+      void refreshFiles()
     }
-  }, [activeTab, refreshVault])
+  }, [activeTab, refreshFiles])
 
-  const handleUploadVault = useCallback(async () => {
-    if (!room) return
+  const handleDownloadFile = useCallback(async (file: RoomFile) => {
+    if (!room || !file.driveKey) return
+    setDownloadingFilePath(file.path)
     try {
-      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
-      if (result.canceled || !result.assets?.[0]) return
-      const asset = result.assets[0]
-      setUploadingVault(true)
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 })
-      await room.uploadToVault(asset.name, asset.mimeType || 'application/octet-stream', base64)
-      await refreshVault()
-    } catch (err) {
-      Alert.alert('Upload failed', (err as Error).message)
-    } finally {
-      setUploadingVault(false)
-    }
-  }, [room, refreshVault])
-
-  const handleDownloadVault = useCallback(async (file: VaultFile) => {
-    if (!room) return
-    setDownloadingVaultPath(file.path)
-    try {
-      const base64 = await room.downloadFromVault(file.path, file.driveKey)
+      const base64 = await room.downloadRoomFile(file.path, file.driveKey)
       if (!base64) {
         Alert.alert('Download failed', 'File not available on connected peers')
         return
@@ -187,34 +166,34 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     } catch (err) {
       Alert.alert('Download error', (err as Error).message)
     } finally {
-      setDownloadingVaultPath(null)
+      setDownloadingFilePath(null)
     }
   }, [room])
 
-  const handleDeleteVault = useCallback((file: VaultFile) => {
+  const handleDeleteFile = useCallback((file: RoomFile) => {
     if (!room) return
-    Alert.alert(`Delete "${file.name}"?`, 'This will remove the file from the Room Vault.', [
+    Alert.alert(`Delete "${file.name}"?`, 'This also removes the chat message that shared it.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           try {
-            await room.deleteFromVault(file.path)
-            await refreshVault()
+            await room.deleteMessage(file.messageId)
+            await refreshFiles()
           } catch (err) {
             Alert.alert('Delete failed', (err as Error).message)
           }
         }
       }
     ])
-  }, [room, refreshVault])
+  }, [room, refreshFiles])
 
-  const filteredVaultFiles = useMemo(() => {
-    const q = vaultSearchQuery.trim().toLowerCase()
-    if (!q) return vaultFiles
-    return vaultFiles.filter((f) => f.name.toLowerCase().includes(q))
-  }, [vaultFiles, vaultSearchQuery])
+  const filteredRoomFiles = useMemo(() => {
+    const q = fileSearchQuery.trim().toLowerCase()
+    if (!q) return roomFiles
+    return roomFiles.filter((f) => f.name.toLowerCase().includes(q))
+  }, [roomFiles, fileSearchQuery])
 
   const [replyTo, setReplyTo] = useState<{ id: string; body: string; authorName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null)
@@ -508,7 +487,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {vaultEnabled && (
+      {(
         <View style={styles.tabContainer}>
           <Pressable
             style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
@@ -518,60 +497,50 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>Chat</Text>
           </Pressable>
           <Pressable
-            style={[styles.tabButton, activeTab === 'vault' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('vault')}
+            style={[styles.tabButton, activeTab === 'files' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('files')}
           >
-            <Ionicons name="folder-outline" size={15} color={activeTab === 'vault' ? colors.accent : colors.textSecondary} />
-            <Text style={[styles.tabText, activeTab === 'vault' && styles.tabTextActive]}>Vault ({vaultFiles.length})</Text>
+            <Ionicons name="folder-outline" size={15} color={activeTab === 'files' ? colors.accent : colors.textSecondary} />
+            <Text style={[styles.tabText, activeTab === 'files' && styles.tabTextActive]}>Files ({roomFiles.length})</Text>
           </Pressable>
         </View>
       )}
 
-      {activeTab === 'vault' && vaultEnabled ? (
+      {activeTab === 'files' ? (
         <View style={{ flex: 1 }}>
-          <View style={styles.vaultToolbar}>
+          <View style={styles.filesToolbar}>
             <TextInput
-              style={styles.vaultSearchInput}
-              placeholder="Search vault files..."
+              style={styles.filesSearchInput}
+              placeholder="Search files..."
               placeholderTextColor={colors.textTertiary}
-              value={vaultSearchQuery}
-              onChangeText={setVaultSearchQuery}
+              value={fileSearchQuery}
+              onChangeText={setFileSearchQuery}
             />
-            {writable && hasKey && canPost && (
-              <Pressable
-                style={[styles.vaultUploadBtn, uploadingVault && { opacity: 0.6 }]}
-                disabled={uploadingVault}
-                onPress={handleUploadVault}
-              >
-                <Ionicons name="cloud-upload-outline" size={16} color="#000" />
-                <Text style={styles.vaultUploadText}>{uploadingVault ? 'Uploading…' : 'Upload'}</Text>
-              </Pressable>
-            )}
           </View>
 
           <FlatList
-            data={filteredVaultFiles}
-            keyExtractor={(item) => item.path}
-            contentContainerStyle={styles.vaultList}
+            data={filteredRoomFiles}
+            keyExtractor={(item) => item.messageId}
+            contentContainerStyle={styles.filesList}
             renderItem={({ item }) => {
               const isMine = item.authorId === identityId
-              const isDownloading = downloadingVaultPath === item.path
+              const isDownloading = downloadingFilePath === item.path
               return (
-                <View style={styles.vaultCard}>
-                  <View style={styles.vaultCardIcon}>
+                <View style={styles.fileCard}>
+                  <View style={styles.fileCardIcon}>
                     <Ionicons name={getFileIcon(item.name, item.mimeType)} size={24} color={colors.textSecondary} />
                   </View>
-                  <View style={styles.vaultCardInfo}>
-                    <Text style={styles.vaultCardName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.vaultCardMeta}>
+                  <View style={styles.fileCardInfo}>
+                    <Text style={styles.fileCardName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.fileCardMeta}>
                       {formatBytes(item.size)} • {getAuthorName(item.authorId)} • {new Date(item.timestamp).toLocaleDateString()}
                     </Text>
                   </View>
-                  <View style={styles.vaultCardActions}>
+                  <View style={styles.fileCardActions}>
                     <Pressable
-                      style={styles.vaultActionBtn}
+                      style={styles.fileActionBtn}
                       disabled={isDownloading}
-                      onPress={() => handleDownloadVault(item)}
+                      onPress={() => handleDownloadFile(item)}
                     >
                       <Ionicons
                         name={isDownloading ? 'hourglass-outline' : 'download-outline'}
@@ -581,8 +550,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                     </Pressable>
                     {isMine && (
                       <Pressable
-                        style={styles.vaultActionBtn}
-                        onPress={() => handleDeleteVault(item)}
+                        style={styles.fileActionBtn}
+                        onPress={() => handleDeleteFile(item)}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
                       </Pressable>
@@ -595,7 +564,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               <View style={styles.emptyCenter}>
                 <Ionicons name="folder-open-outline" size={44} color={colors.textSecondary} style={styles.emptyIcon} />
                 <Text style={styles.emptyText}>
-                  {vaultLoading ? 'Loading vault files…' : vaultSearchQuery ? 'No matching files found' : 'P2P Room Vault is empty'}
+                  {filesLoading ? 'Loading files…' : fileSearchQuery ? 'No matching files found' : 'No files shared yet'}
                 </Text>
               </View>
             }
@@ -936,7 +905,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   tabTextActive: {
     color: '#000000',
   },
-  vaultToolbar: {
+  filesToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
@@ -945,7 +914,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  vaultSearchInput: {
+  filesSearchInput: {
     flex: 1,
     backgroundColor: colors.inputBg,
     borderRadius: radii.md,
@@ -954,25 +923,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textPrimary,
     fontSize: typography.sm,
   },
-  vaultUploadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-  },
-  vaultUploadText: {
-    color: '#000000',
-    fontSize: typography.sm,
-    fontWeight: '700',
-  },
-  vaultList: {
+  filesList: {
     padding: spacing.md,
     gap: spacing.sm,
   },
-  vaultCard: {
+  fileCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.bgSecondary,
@@ -982,7 +937,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
   },
-  vaultCardIcon: {
+  fileCardIcon: {
     width: 40,
     height: 40,
     borderRadius: radii.md,
@@ -990,26 +945,26 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  vaultCardInfo: {
+  fileCardInfo: {
     flex: 1,
     minWidth: 0,
   },
-  vaultCardName: {
+  fileCardName: {
     color: colors.textPrimary,
     fontSize: typography.sm,
     fontWeight: '600',
   },
-  vaultCardMeta: {
+  fileCardMeta: {
     color: colors.textTertiary,
     fontSize: typography.xs,
     marginTop: 2,
   },
-  vaultCardActions: {
+  fileCardActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
-  vaultActionBtn: {
+  fileActionBtn: {
     padding: spacing.xs,
   },
 })

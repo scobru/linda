@@ -27,20 +27,27 @@ By eliminating real-time call plumbing entirely, Linda guarantees that all inter
 
 ## Unique Features
 
-### 📁 P2P Room Vault (Decentralized Collaborative Drive)
+### 📁 Room Files (a second view over the chat)
 
-Instead of relying on centralized cloud storage (Dropbox, Google Drive) or transient chat file attachments, Linda rooms can host an integrated **P2P Room Vault**:
-- **Admin-Controlled Activation**: The room Owner or Moderator can toggle the Vault on or off per room via Room Settings / Members screen.
-- **Dedicated Hyperdrive Swarm**: Each enabled room vault operates as an independent Hyperdrive namespaced under `vault-${roomId}`, joining Hyperswarm on its own discovery key.
-- **Multi-Seeder P2P Replication**: Every room member with the vault open automatically seeds and caches files for the swarm, enabling ultra-fast local LAN / swarm transfers and persistent availability without central servers.
-- **Linearized Indexing in Autobase**: File metadata records (`name`, `size`, `mimeType`, `authorId`, `timestamp`, `driveKey`) are stored directly in the linearized Hyperbee `state` log (`vault/${path}`), ensuring immediate index sync across all devices.
-- **Granular Moderation & Permissions**:
-  - **Enable/Disable**: Room Owner and Moderators only.
-  - **Upload & Read**: All non-muted room members.
-  - **Delete**: File author or Room Owner/Moderators.
-- **Full Cross-Platform UI**:
-  - **Desktop**: Fast tab switching `[ 💬 Chat ]` / `[ 📁 Vault ]`, live search, instant upload, and direct downloads.
-  - **Mobile**: Segmented room controls, native document picker (`expo-document-picker`), native sharing and streaming support.
+There is no separate upload channel and no per-room drive. A file becomes a room file by being
+sent in the chat, and the Files tab is an index over those messages:
+
+- **One store, two views**: `sendFile` writes the bytes to the sender's own Hyperdrive and appends
+  a chat message; `apply()` derives a file record (`name`, `size`, `mimeType`, `authorId`,
+  `timestamp`, `driveKey`) into the linearized Hyperbee `state` log under `file/${messageId}`. The
+  chat stream and the Files tab can never disagree about what the room holds, because they are the
+  same log.
+- **Multi-seeder P2P replication**: files ride the room's existing Hyperswarm connection — every
+  peer that fetches one caches and reseeds it. No central server, no per-room discovery key.
+- **Permissions**:
+  - **Share & read**: all non-muted room members.
+  - **Delete**: the message author, or the room Owner/Moderators.
+- **Deletion is honest about its limits**: deleting removes the message and its file record for
+  everyone, and removes the bytes from the deleter's own drive. Peers that already replicated the
+  file keep their copy — nothing in a P2P system can reach out and un-send it.
+- **Cross-platform UI**:
+  - **Desktop**: tab switching `[ 💬 Chat ]` / `[ 📁 Files ]`, live search, direct downloads.
+  - **Mobile**: segmented room controls, native sharing and streaming support.
 
 ## Desktop (Electron)
 
@@ -151,7 +158,7 @@ Main things to get right:
 One thing is unusually favourable here: **Linda's replication is transport-agnostic.**
 `corestore.replicate()` takes any Node duplex stream — `Session` happens to hand it a
 Hyperswarm socket, but nothing in the sync logic knows or cares. Any Bluetooth channel that can be
-presented as a duplex stream would replicate rooms, messages and vault files with the existing code
+presented as a duplex stream would replicate rooms, messages and shared files with the existing code
 unchanged. That is the hard part of most such projects, and it is already done.
 
 What that leaves:
@@ -160,8 +167,8 @@ What that leaves:
   `createL2capChannel()` on Android (API 29, and this app's `minSdkVersion` is already 29) and
   `CBL2CAPChannel` on iOS 11+. Neither is exposed by `react-native-ble-plx`, so this needs a native
   module, plus a bridge into the Bare worklet where the networking actually lives.
-- **Throughput.** BLE realistically lands in the tens of KB/s. Fine for text and presence; the Room
-  Vault and image attachments would be painful and would need to be gated or deprioritised.
+- **Throughput.** BLE realistically lands in the tens of KB/s. Fine for text and presence; file
+  and image attachments would be painful and would need to be gated or deprioritised.
 - **Desktop.** The weakest link. BLE *peripheral* support in Node/Electron is poor and largely
   unmaintained. Phone-to-phone is plausible well before phone-to-desktop is.
 - **iOS background.** CoreBluetooth heavily restricts background advertising and connection, so an

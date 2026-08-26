@@ -38,7 +38,6 @@ export default function MembersScreen({ route, navigation }: Props) {
   const [state, setState] = useState<ModerationState | null>(null)
   const [broadcast, setBroadcast] = useState(false)
 
-  const [vaultEnabled, setVaultEnabled] = useState(false)
 
   const room = session?.getRoom(roomId)
 
@@ -52,11 +51,9 @@ export default function MembersScreen({ route, navigation }: Props) {
     if (!room) return
     void room.refreshState().then((s) => {
       setBroadcast(s.broadcast)
-      setVaultEnabled(s.vaultEnabled ?? false)
     })
     return room.onStateChange((s) => {
       setBroadcast(s.broadcast)
-      setVaultEnabled(s.vaultEnabled ?? false)
     })
   }, [room])
 
@@ -93,14 +90,6 @@ export default function MembersScreen({ route, navigation }: Props) {
       .catch((err) => Alert.alert('Could not save', (err as Error).message))
       .finally(() => setSavingMeta(false))
   }, [session, roomId, metaName, metaDescription, refreshSession])
-
-  const toggleVault = useCallback((enabled: boolean) => {
-    setVaultEnabled(enabled)
-    session?.setRoomVault(roomId, enabled).catch((err) => {
-      setVaultEnabled(!enabled)
-      Alert.alert('Error', (err as Error).message)
-    })
-  }, [session, roomId])
 
   const myId = identity?.id ?? ''
   const iAmOwner = state?.ownerId === myId
@@ -195,13 +184,6 @@ export default function MembersScreen({ route, navigation }: Props) {
                 <Switch value={broadcast} onValueChange={toggleBroadcast} />
               </View>
             )}
-            <View style={styles.row}>
-              <View style={styles.info}>
-                <Text style={styles.name}>P2P Room Vault</Text>
-                <Text style={styles.sectionTitle}>Decentralized shared file drive</Text>
-              </View>
-              <Switch value={vaultEnabled} onValueChange={toggleVault} />
-            </View>
           </View>
         ) : null}
         ListFooterComponent={bannedList.length > 0 ? (

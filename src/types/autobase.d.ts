@@ -99,6 +99,7 @@ declare module 'hyperdrive' {
     put(path: string, buffer: Buffer, opts?: { executable?: boolean }): Promise<void>
     get(path: string, opts?: { timeout?: number }): Promise<Buffer | null>
     entry(path: string): Promise<DriveEntry | null>
+    list(folder?: string, opts?: { recursive?: boolean }): AsyncIterable<DriveEntry>
     createReadStream(path: string, opts?: { start?: number; end?: number }): Readable
     del(path: string): Promise<void>
     replicate(stream: Duplex | boolean): Duplex

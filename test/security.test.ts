@@ -205,6 +205,25 @@ test('security: a member cannot delete or edit someone else\'s message', async (
   await closeWriter(b)
 })
 
+test('security: a moderator can delete a member message, and its file record goes with it', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  const sent = await b.room.send(b.identityId, 'B said this')
+  await sync(a.store, b.store)
+
+  // A is the owner. Moderation over files only exists because delete is no longer author-only.
+  await reopen(a)
+  await a.room.deleteMessage(sent.id)
+  await sync(a.store, b.store)
+
+  await reopen(b)
+  const msg = await b.room.getMessage(0)
+  assert.equal(msg.deleted, true, 'an owner/moderator delete must apply to a member message')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
 test('security: a non-owner cannot grant write access to a third party', async () => {
   const { a, b } = await setupTwoWriterRoom()
 

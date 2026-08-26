@@ -11,7 +11,7 @@ import { loadProfile } from '../identity/profile.js'
 import { createSwarm, joinRoom, type PeerConnection } from '../network/swarm.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
-import { Room, type ChatMessage, type VaultFile } from '../rooms/room.js'
+import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
@@ -544,62 +544,68 @@ export class Session {
     await room.setBroadcast(enabled)
   }
 
-  async setRoomVault(roomId: string, enabled: boolean): Promise<void> {
-    const room = this.rooms.get(roomId)
-    if (!room) return
-    await room.setVault(enabled)
-  }
-
-  async uploadToVault(roomId: string, name: string, buffer: Buffer, mimeType?: string): Promise<VaultFile> {
+  /**
+   * Deletes the message and, when it carried a file that lives on our own drive, the bytes too.
+   * The blob removal is best-effort by nature: a moderator deleting someone else's file has no
+   * copy to remove, and peers that already replicated it keep theirs. What propagates reliably is
+   * the log entry, which drops the message and its Files-tab record for everyone.
+   */
+  async deleteMessage(roomId: string, messageId: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('Room not found')
-    if (!room.isVaultEnabled) throw new Error('Vault is not enabled in this room')
-    const fileStore = await this.fileStore()
-    const drivePath = `/vault/${roomId}/${Date.now()}-${name}`
-    const result = await fileStore.addBuffer(drivePath, buffer)
-    const vaultFile: VaultFile = {
-      path: result.path,
-      name,
-      size: result.size,
-      mimeType: mimeType || 'application/octet-stream',
-      authorId: this.identity.id,
-      timestamp: Date.now(),
-      driveKey: b4a.toString(fileStore.key, 'hex')
+    const file = await room.getFile(messageId)
+    await room.deleteMessage(messageId)
+    if (file && this.fileStoreInstance && file.driveKey === b4a.toString(this.fileStoreInstance.key, 'hex')) {
+      try {
+        await this.fileStoreInstance.drive.del(file.path)
+      } catch {}
     }
-    await room.addVaultFile(vaultFile)
-    return vaultFile
   }
 
   /**
-   * `driveKey` comes from the `VaultFile` the caller is already showing, the same way chat
-   * attachments pass the key straight from the message. It used to be re-derived here by
-   * matching `filePath` against a fresh `listVaultFiles()`, and when that match came up empty
-   * this returned null without ever reaching `downloadFile` — so the download reported a flat
-   * "file not available" and none of downloadFile's diagnostics ran, while chat transfers over
-   * the very same drive kept working. The lookup remains only as a fallback for callers that
-   * have a path and nothing else.
+   * Blobs on our own drive that no room's file index points at any more: bytes left behind by
+   * messages deleted before deletion removed them, and by the old Room Vault, whose records this
+   * build no longer reads.
+   *
+   * Throws unless every bookmarked room is open. A room that failed to open contributes no
+   * referenced paths, so sweeping without it would report its live files as orphans.
    */
-  async downloadFromVault(roomId: string, filePath: string, driveKey?: string): Promise<Buffer | null> {
-    const room = this.rooms.get(roomId)
-    if (!room) throw new Error('Room not found')
-    if (driveKey) return await this.downloadFile(driveKey, filePath)
+  async findOrphanBlobs(): Promise<Array<{ path: string; bytes: number }>> {
+    if (this.rooms.size < this.bookmarks.size) {
+      throw new Error(`Only ${this.rooms.size} of ${this.bookmarks.size} rooms are open — wait for them all to load, otherwise their files would look orphaned`)
+    }
+    const fileStore = await this.fileStore()
+    const ourDriveKey = b4a.toString(fileStore.key, 'hex')
 
-    const files = await room.listVaultFiles()
-    const file = files.find((f) => f.path === filePath)
-    if (file?.driveKey) return await this.downloadFile(file.driveKey, file.path)
-    if (room.vaultDriveKey) return await this.downloadFile(room.vaultDriveKey, filePath)
-    throw new Error(`No drive is recorded for ${filePath} — the vault lists ${files.length} file(s), none matching that path`)
+    const referenced = new Set<string>()
+    for (const room of this.rooms.values()) {
+      for (const file of await room.listFiles()) {
+        if (file.driveKey === ourDriveKey) referenced.add(drivePath(file.path))
+      }
+    }
+
+    const orphans: Array<{ path: string; bytes: number }> = []
+    for await (const entry of fileStore.drive.list('/')) {
+      if (!referenced.has(drivePath(entry.key))) {
+        orphans.push({ path: entry.key, bytes: entry.value.blob?.byteLength ?? 0 })
+      }
+    }
+    return orphans
   }
 
-  async deleteFromVault(roomId: string, filePath: string): Promise<void> {
-    const room = this.rooms.get(roomId)
-    if (!room) throw new Error('Room not found')
-    await room.removeVaultFile(filePath)
-    if (this.fileStoreInstance) {
+  /** Deletes blobs from our own drive. Paths are expected to come from `findOrphanBlobs`. */
+  async deleteBlobs(paths: string[]): Promise<number> {
+    const fileStore = await this.fileStore()
+    let deleted = 0
+    for (const path of paths) {
       try {
-        await this.fileStoreInstance.drive.del(filePath)
-      } catch {}
+        await fileStore.drive.del(path)
+        deleted++
+      } catch (err) {
+        console.warn('[session] could not delete blob', path, (err as Error).message)
+      }
     }
+    return deleted
   }
 
   async updateRoomMeta(roomId: string, opts: { name?: string; avatar?: string; description?: string }): Promise<void> {
