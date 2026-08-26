@@ -111,10 +111,15 @@ export class Session {
         const room = [...this.rooms.values()].find((r) => b4a.toString(r.bootstrapKey, 'hex') === message.bootstrapKey)
         if (!room || !room.writable || !room.isOwner(identity.id)) return
         if (room.isBanned(message.identityId)) return
-        const isExistingMember = room.listMembers().some((m) => m.identityId === message.identityId)
-        if (!isExistingMember && !this.redeemInvite(room.id, message.inviteCode)) return
+        // Two separate questions, and conflating them locked returning members out. A known
+        // identity needs no invite code to be let back in — but if it comes back on a writer key
+        // the room has never seen (it purged its copy and reopened, or it's a second device), that
+        // key still has to be added, or the peer reads the room fine and can never post to it.
+        const isKnownIdentity = room.listMembers().some((m) => m.identityId === message.identityId)
+        if (!isKnownIdentity && !this.redeemInvite(room.id, message.inviteCode)) return
+        const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
-          if (!isExistingMember) {
+          if (!isExistingWriter) {
             await room.addWriter(b4a.from(message.writerKey, 'hex'), message.identityId)
           }
           const keyHex = room.currentKeyHex
@@ -166,18 +171,24 @@ export class Session {
         // used to leave them stuck on 'outgoing' forever with no way back.
         if (existing?.status === 'accepted') {
           const room = existing.roomId ? this.rooms.get(existing.roomId) : undefined
-          if (!room || !room.isOwner(this.identity.id)) return
-          this.deliverContactResponse({
-            ...existing,
-            pendingResponse: {
-              accepted: true,
-              roomId: room.id,
-              name: this.nickname,
-              bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
-              inviteCode: this.invites.get(room.id)?.code ?? ''
-            }
-          })
-          return
+          if (room && room.isOwner(this.identity.id)) {
+            this.deliverContactResponse({
+              ...existing,
+              pendingResponse: {
+                accepted: true,
+                roomId: room.id,
+                name: this.nickname,
+                bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
+                inviteCode: this.invites.get(room.id)?.code ?? ''
+              }
+            })
+            return
+          }
+          // Their side is gone: they removed us (which purges their copy of the room) and asked
+          // again. We can't re-admit them to a room we don't own — only its owner can grant write
+          // access, and if they owned it, it died with their copy. Returning here left them stuck
+          // on 'outgoing' for good, so fall through and treat this as a fresh request instead:
+          // accepting creates a new room we own, which is the only room either of us can still use.
         }
 
         // Crossed requests: we each asked the other before either answer arrived. Both sides
