@@ -129,14 +129,14 @@ export default function RoomsScreen({ navigation }: Props) {
     )
   }, [session, refresh])
 
+  // A Modal rather than Alert.alert: Android's dialog renders at most three buttons and silently
+  // drops the rest, so the fourth — the one that removes the room — was invisible on every phone.
+  // A room that cannot be opened and cannot be removed is a dead entry the user is stuck with.
+  const [roomOptions, setRoomOptions] = useState<{ id: string; name: string; isFavorite: boolean } | null>(null)
+
   const handleRoomOptions = useCallback((id: string, name: string, isFavorite: boolean) => {
-    Alert.alert(name, undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: isFavorite ? 'Remove from Favorites' : 'Add to Favorites', onPress: () => { void session?.setRoomFavorite(id, !isFavorite).then(refresh) } },
-      { text: 'Clear Chat History', style: 'destructive', onPress: () => handleClearHistory(id, name) },
-      { text: 'Leave Room', style: 'destructive', onPress: () => handleLeaveRoom(id, name) },
-    ])
-  }, [handleClearHistory, handleLeaveRoom, session, refresh])
+    setRoomOptions({ id, name, isFavorite })
+  }, [])
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'favorites'>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -288,6 +288,58 @@ export default function RoomsScreen({ navigation }: Props) {
         </View>
       </Modal>
 
+      {/* Room options — see handleRoomOptions for why this is not an Alert */}
+      <Modal visible={!!roomOptions} transparent animationType="fade" onRequestClose={() => setRoomOptions(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setRoomOptions(null)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle} numberOfLines={1}>{roomOptions?.name}</Text>
+
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                const o = roomOptions
+                setRoomOptions(null)
+                if (o) void session?.setRoomFavorite(o.id, !o.isFavorite).then(refresh)
+              }}
+            >
+              <Ionicons name={roomOptions?.isFavorite ? 'star' : 'star-outline'} size={18} color={colors.textSecondary} />
+              <Text style={styles.optionText}>
+                {roomOptions?.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                const o = roomOptions
+                setRoomOptions(null)
+                if (o) handleClearHistory(o.id, o.name)
+              }}
+            >
+              <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+              <Text style={styles.optionText}>Clear Chat History</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                const o = roomOptions
+                setRoomOptions(null)
+                if (o) handleLeaveRoom(o.id, o.name)
+              }}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.error} />
+              <Text style={[styles.optionText, { color: colors.error }]}>Leave and Delete Room</Text>
+            </Pressable>
+
+            <Pressable style={styles.optionRow} onPress={() => setRoomOptions(null)}>
+              <Ionicons name="close" size={18} color={colors.textTertiary} />
+              <Text style={[styles.optionText, { color: colors.textTertiary }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
       {/* Join Room Modal */}
       <Modal visible={showJoin} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -410,6 +462,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: 'center', borderWidth: 1, borderColor: colors.border,
   },
   fabPressed: { transform: [{ scale: 0.93 }] },
+  optionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.md, paddingHorizontal: spacing.sm,
+  },
+  optionText: {
+    color: colors.textPrimary, fontSize: typography.md,
+  },
   modalOverlay: {
     flex: 1, backgroundColor: colors.overlay,
     justifyContent: 'flex-end',

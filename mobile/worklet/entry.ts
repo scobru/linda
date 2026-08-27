@@ -22,7 +22,10 @@ const { IPC } = BareKit
 let identity: Identity | null = null
 let session: Session | null = null
 let storageDir = ''
-const wiredRooms = new Set<string>()
+/** Keyed on the Room object, not its id: reopening a room (a rejoin rebuilds it under a fresh
+ * namespace) produces a new instance with the same id, and an id-keyed guard skipped wiring it —
+ * so the new room emitted no state at all and the UI kept showing whatever it had last seen. */
+const wiredRooms = new WeakSet<Room>()
 /** Cancels an in-flight hosted pairing; see identity.hostPairing. */
 let stopHostedPairing: (() => void) | null = null
 /** Started on the first play, so a session that opens no media opens no socket. */
@@ -75,8 +78,8 @@ function pushRoomState(room: Room): void {
 }
 
 function wireRoom(room: Room): void {
-  if (wiredRooms.has(room.id)) return
-  wiredRooms.add(room.id)
+  if (wiredRooms.has(room)) return
+  wiredRooms.add(room)
   room.onMessage((index) => pushEvent('roomMessage', { roomId: room.id, index }))
   room.onWritableChange(() => pushRoomState(room))
   room.onKeyChange(() => pushRoomState(room))
