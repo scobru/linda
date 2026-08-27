@@ -13,6 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../../src/identity/
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
+import { FORWARDED_SESSION_METHODS } from '../src/bare/session-contract.js'
 import type { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
@@ -98,7 +99,18 @@ function requireRoom(roomId: string): Room {
   return room
 }
 
+/** Everything on `Session` that is plain forwarding — see session-contract.ts. Built from the
+ * contract rather than typed out, so a method cannot exist on Session and be missing here. */
+const forwardedSession: Record<string, (...args: any[]) => any> = Object.fromEntries(
+  FORWARDED_SESSION_METHODS.map((name) => [
+    `session.${name}`,
+    (...args: any[]) => (requireSession() as any)[name](...args)
+  ])
+)
+
 const methods: Record<string, (...args: any[]) => any> = {
+  ...forwardedSession,
+
   'identity.exists': (dir: string) => identityExists(dir),
 
   'identity.create': (passphrase: string, dir: string) => {
@@ -194,9 +206,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     for (const room of rooms) wireRoom(room)
   },
 
-  'session.listBookmarks': () => requireSession().listBookmarks(),
 
-  'session.getNetworkStatus': () => requireSession().getNetworkStatus(),
 
   /** Loopback URL a native player can stream from — see worklet/media-server.ts. The bytes
    * never cross the IPC bridge; only this address does. */
@@ -212,7 +222,6 @@ const methods: Record<string, (...args: any[]) => any> = {
     return (await mediaServer).url(driveKey, filePath)
   },
 
-  'session.clearRoomHistory': (roomId: string) => requireSession().clearRoomHistory(roomId),
 
   // Bookmark + latest-message-time per room, for the room list's unread dot/preview/sort.
   // Mirrors desktop's own full-history scan (app-shell.ts notifyIncomingMessage backfill) — same cost, same result.
@@ -243,19 +252,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     return summaries
   },
 
-  'session.markRoomRead': (roomId: string) => requireSession().markRoomRead(roomId),
-  'session.setRoomFavorite': (roomId: string, favorite: boolean) => requireSession().setRoomFavorite(roomId, favorite),
-  'session.updateRoomMeta': (roomId: string, opts: { name?: string; avatar?: string; description?: string }) =>
-    requireSession().updateRoomMeta(roomId, opts),
-  'session.resumeNetwork': () => requireSession().resumeNetwork(),
-  'session.listContacts': () => requireSession().listContacts(),
-  'session.getNickname': () => requireSession().getNickname(),
-  'session.getAvatar': () => requireSession().getAvatar(),
   'session.listPeerAvatars': () => [...requireSession().listPeerAvatars()],
-  'session.getWallpaper': () => requireSession().getWallpaper(),
-  'session.setWallpaper': (id: string) => requireSession().setWallpaper(id),
-  'session.setNickname': (nickname: string) => requireSession().setNickname(nickname),
-  'session.setAvatar': (avatar: string) => requireSession().setAvatar(avatar),
 
   'session.createRoom': async (name: string, isPublic: boolean, avatar: string, description: string, broadcast = false) => {
     const room = await requireSession().createRoom(name, isPublic, avatar, description, broadcast)
@@ -269,7 +266,6 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { roomId: room.id }
   },
 
-  'session.createContactInvite': () => requireSession().createContactInvite(),
 
   'session.acceptContactInvite': async (invite: { from: string; name: string; key: string }) => {
     const room = await requireSession().acceptContactInvite(invite)
@@ -277,24 +273,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { roomId: room.id }
   },
 
-  'session.findOrphanBlobs': () => requireSession().findOrphanBlobs(),
-  'session.deleteBlobs': (paths: string[]) => requireSession().deleteBlobs(paths),
 
-  'session.sendContactRequest': (userId: string, nickname: string) => requireSession().sendContactRequest(userId, nickname),
-  'session.respondToContact': (userId: string, accept: boolean) => requireSession().respondToContact(userId, accept),
-  'session.deleteContact': (userId: string) => requireSession().deleteContact(userId),
-  'session.deleteRoom': (roomId: string) => requireSession().deleteRoom(roomId),
-  'session.listDirectory': () => requireSession().listDirectory(),
-  'session.removeFromDirectory': (roomId: string) => requireSession().removeFromDirectory(roomId),
-  'session.inviteLinkFor': (roomId: string) => requireSession().inviteLinkFor(roomId),
-  'session.regenerateInvite': (roomId: string) => requireSession().regenerateInvite(roomId),
-  'session.kickMember': (roomId: string, writerKeyHex: string) => requireSession().kickMember(roomId, writerKeyHex),
-  'session.banMember': (roomId: string, writerKeyHex: string, identityId: string) => requireSession().banMember(roomId, writerKeyHex, identityId),
-  'session.unbanMember': (roomId: string, identityId: string) => requireSession().unbanMember(roomId, identityId),
-  'session.muteMember': (roomId: string, identityId: string) => requireSession().muteMember(roomId, identityId),
-  'session.unmuteMember': (roomId: string, identityId: string) => requireSession().unmuteMember(roomId, identityId),
-  'session.promoteToModerator': (roomId: string, identityId: string) => requireSession().promoteToModerator(roomId, identityId),
-  'session.demoteModerator': (roomId: string, identityId: string) => requireSession().demoteModerator(roomId, identityId),
 
   // Explicit pull, not just the 'roomState' push from wireRoom — that push fires the instant
   // the room is created/joined, before RN has had a chance to construct the RoomProxy that
@@ -329,7 +308,6 @@ const methods: Record<string, (...args: any[]) => any> = {
   'room.getMessage': (roomId: string, index: number) => requireRoom(roomId).getMessage(index),
   'room.send': (roomId: string, authorId: string, body: string, replyTo?: string) => requireRoom(roomId).send(authorId, body, replyTo),
   'room.editMessage': (roomId: string, id: string, body: string) => requireRoom(roomId).editMessage(id, body),
-  'room.deleteMessage': (roomId: string, id: string) => requireSession().deleteMessage(roomId, id),
   'room.toggleReaction': (roomId: string, userId: string, messageId: string, emoji: string) => requireRoom(roomId).toggleReaction(userId, messageId, emoji),
 
   // Trailing `binary` param is the file's raw bytes, appended by handleRequest() — see the

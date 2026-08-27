@@ -151,7 +151,12 @@ export class Session {
           await this.claimContactInvite(room.id, message.identityId)
           const keyHex = room.currentKeyHex
           if (keyHex) channel.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
-        })()
+        })().catch((err) => {
+          // A request arriving while the session is shutting down rejects here with "Autobase is
+          // closing". Unguarded, that surfaced as an unhandled rejection on quit — the peer simply
+          // asks again on the next connection, so there is nothing to do but say so.
+          console.warn(`[session] could not grant write access in room ${room.id}:`, (err as Error).message)
+        })
       },
       onRoomKey: (message) => {
         let room = this.rooms.get(message.roomId)
@@ -1428,8 +1433,11 @@ export class Session {
       } catch { /* a drive that never opened has nothing to release */ }
     }
     this.remoteDrives.clear()
-    for (const room of this.rooms.values()) await room.close()
+    // Swarm first, deliberately. Closing the rooms while peers can still deliver meant a message
+    // arriving mid-teardown started autobase work on a room already closing, which rejects with
+    // "Autobase is closing" — an unhandled rejection on every quit that happened to race.
     await this.swarm.destroy()
+    for (const room of this.rooms.values()) await room.close()
     await this.store.close()
   }
 }
