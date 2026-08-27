@@ -40,6 +40,10 @@ const DIRECTORY_FILE = 'directory.json'
 const CONTACTS_FILE = 'contacts.json'
 const PROFILE_FILE = 'profile.json'
 
+/** How long a first join waits for some peer to serve the room before giving up. Generous because
+ * a DHT hole-punch to a phone can take a while, and the alternative is a spurious failure. */
+const JOIN_REPLICATION_TIMEOUT_MS = 45_000
+
 interface CoreDeleteStorage {
   store: { deleteCore(ptr: unknown): Promise<void> }
   core: unknown
@@ -1013,10 +1017,13 @@ export class Session {
    * connect — the difference between a room that populates and one that looks empty then fills in
    * seconds later. Deliberately not awaited: the caller should open the room concurrently with
    * discovery, not after it. */
-  private trackDiscovery(topic: Buffer): void {
+  /** Returns when peer discovery for this topic has settled, so callers can spend a wait on the
+   * lookup actually finishing rather than on a fixed sleep. */
+  private trackDiscovery(topic: Buffer): Promise<void> {
     const done = this.store.findingPeers()
     joinRoom(this.swarm, topic)
-    this.swarm.flush().then(done, done)
+    const flushed = this.swarm.flush().then(done, done)
+    return flushed.then(() => undefined, () => undefined)
   }
 
   private async joinTopic(room: Room): Promise<void> {
@@ -1025,27 +1032,54 @@ export class Session {
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
   }
 
-  /** Opening a room this device has never replicated can hit Autobase's local-resume check
-   * before the swarm connection to the peer serving it has come up, which throws STORAGE_EMPTY
+  /**
+   * Opening a room this device has never replicated can hit Autobase's local-resume check before
+   * the swarm connection to the peer serving it has come up, which throws STORAGE_EMPTY
    * immediately instead of waiting. Joins the topic first to get a connection underway, then
-   * retries through that race for a few seconds before giving up. */
+   * retries through that race before giving up.
+   *
+   * The first wait is spent on discovery itself rather than a fixed sleep: the previous version
+   * slept through a blind ~29s budget whether or not the lookup had even settled, which on a slow
+   * hole-punch gave up seconds before the peer arrived.
+   *
+   * Only a first join needs any of this. A room already on this device opens straight from local
+   * storage, which is why every other room keeps working while one refuses to load.
+   */
   private async openRoomWithRetry(
     roomId: string | null,
     bootstrapKey: Buffer,
     initialKeys?: Array<{ epoch: number; keyHex: string }>,
     storeNamespace?: string
   ): Promise<Room> {
-    this.trackDiscovery(hypercoreCrypto.discoveryKey(bootstrapKey))
-    const maxAttempts = 15
-    for (let attempt = 0; ; attempt++) {
+    const discovered = this.trackDiscovery(hypercoreCrypto.discoveryKey(bootstrapKey))
+    const deadline = Date.now() + JOIN_REPLICATION_TIMEOUT_MS
+    let waitedForDiscovery = false
+    for (;;) {
       try {
         return await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)
       } catch (err) {
         if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
-        if (attempt >= maxAttempts) throw new Error('Could not reach that room — check your connection and try again.')
-        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.min(attempt + 1, 2)))
+        if (Date.now() >= deadline) throw new Error(this.joinFailureReason())
+        if (!waitedForDiscovery) {
+          waitedForDiscovery = true
+          await Promise.race([discovered, new Promise((resolve) => setTimeout(resolve, deadline - Date.now()))])
+          continue
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
       }
     }
+  }
+
+  /**
+   * A room's data lives only on its members' devices. "Check your connection" was the only thing
+   * this ever said, which misdirects in the common case: the network is fine and simply nobody
+   * holding that room is reachable — a group whose only member is an offline desktop cannot be
+   * joined no matter how long the wait.
+   */
+  private joinFailureReason(): string {
+    return this.peers.size === 0
+      ? 'Could not reach any peers — check your connection and try again.'
+      : 'Nobody who has this room is online right now. Its messages live only on its members\' devices, so one of them has to be running for you to join.'
   }
 
   private requestWriteIfNeeded(room: Room, peer: PeerConnection): void {
