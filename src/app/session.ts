@@ -897,15 +897,10 @@ export class Session {
       this.rooms.delete(roomId)
     }
 
-    const namespaced = this.store.namespace(roomId)
-    await namespaced.ready()
-    for await (const discoveryKey of namespaced.list(namespaced.ns)) {
-      const core = namespaced.get({ discoveryKey })
-      await core.ready()
-      await purgeCore(core)
-    }
-    await namespaced.close()
-
+    // Forget the room before reclaiming its disk space, not after. Purging reaches into hypercore
+    // internals (see `purgeCore`), and a throw in there used to abort the whole method with the
+    // bookmark still saved — leaving a room the user had left sitting in their list, its data
+    // already destroyed, reopening to an empty shell with no members and no way out.
     this.bookmarks.delete(roomId)
     await this.profileStore.removeBookmark(roomId)
 
@@ -916,6 +911,25 @@ export class Session {
     if (this.directory.delete(roomId)) {
       this.saveDirectory()
       this.events.onDirectoryChange?.()
+    }
+
+    // The room's cores live under the namespace recorded on its bookmark. This used to purge
+    // `namespace(roomId)` unconditionally, which is the right place only for rooms joined before
+    // joins got their own namespace — for every room the user created, it scrubbed an unrelated
+    // empty namespace and left the actual data on disk forever.
+    const namespace = bookmark?.storeId ?? roomId
+    try {
+      const namespaced = this.store.namespace(namespace)
+      await namespaced.ready()
+      for await (const discoveryKey of namespaced.list(namespaced.ns)) {
+        const core = namespaced.get({ discoveryKey })
+        await core.ready()
+        await purgeCore(core)
+      }
+      await namespaced.close()
+    } catch (err) {
+      // Best effort by design: wasted disk is recoverable, a room you cannot leave is not.
+      console.warn(`[session] could not purge storage for room ${roomId}:`, (err as Error).message)
     }
   }
 
