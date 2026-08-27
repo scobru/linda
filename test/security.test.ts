@@ -83,23 +83,23 @@ async function setupTwoWriterRoom(): Promise<{ a: Writer; b: Writer }> {
 test('security: a removed writer\'s later message never reaches the room', async () => {
   const { a, b } = await setupTwoWriterRoom()
 
-  await b.room.send(b.identityId, 'legit message before kick')
+  await b.room.send(b.identityId, 'legit message before removal')
   await sync(a.store, b.store)
 
-  // A kicks B: revokes B's write access at the Autobase level.
+  // A removes B: revokes B's write access at the Autobase level.
   await a.room.removeWriter(b.room.localWriterKey)
   await sync(a.store, b.store)
 
-  // B tries to keep talking after being kicked. Autobase itself refuses the local append once
+  // B tries to keep talking after being removed. Autobase itself refuses the local append once
   // B's own instance has synced its own removal — enforcement doesn't even need to wait for the
   // apply()-time filter other tests in this file exercise.
-  await assert.rejects(() => b.room.send(b.identityId, 'message after kick'))
+  await assert.rejects(() => b.room.send(b.identityId, 'message after removal'))
   await sync(a.store, b.store)
 
   await reopen(a)
   const bodies: string[] = []
   for (let i = 0; i < a.room.messageCount; i++) bodies.push((await a.room.getMessage(i)).body)
-  assert.deepEqual(bodies, ['legit message before kick'], 'the post-kick message must not appear in the shared view')
+  assert.deepEqual(bodies, ['legit message before removal'], 'the post-removal message must not appear in the shared view')
 
   await closeWriter(a)
   await closeWriter(b)
@@ -275,7 +275,7 @@ test('security: a member still cannot remove someone else', async () => {
   await closeWriter(b)
 })
 
-test('a kicked member regains write access when re-admitted with the same key', async () => {
+test('a removed member regains write access when re-admitted with the same key', async () => {
   const { a, b } = await setupTwoWriterRoom()
   const bKey = b.room.localWriterKey
 

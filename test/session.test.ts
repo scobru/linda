@@ -141,43 +141,48 @@ test('rejoining by invite after leaving restores write access', async (t) => {
   await waitFor(() => rejoined.writable && rejoined.hasKey, 'B to be granted write access again')
 })
 
-test('a kicked member can be let back in with an invite', async (t) => {
+test('an unbanned member can be let back in with an invite', async (t) => {
   const { sessionA, sessionB, identityB, roomId, invite } = await joinedPair(t)
   const roomA = sessionA.getRoom(roomId)!
   const roomB = sessionB.getRoom(roomId)!
 
-  const kickedKey = b4a.toString(roomB.localWriterKey, 'hex')
-  await sessionA.kickMember(roomId, kickedKey)
+  const removedKey = b4a.toString(roomB.localWriterKey, 'hex')
+  await sessionA.banMember(roomId, removedKey, identityB.id)
 
   await waitFor(() => !roomB.writable, 'B to lose write access')
   await waitFor(
     () => !roomA.listMembers().some((m) => m.identityId === identityB.id),
-    'A to stop listing the kicked member'
+    'A to stop listing the banned member'
   )
 
-  // A kick is meant to be reversible with a fresh invite, unlike a ban. The invite code is what
-  // gets them past the grant gate now that their identity is no longer a known member.
+  // Lifting the ban does not restore write access by itself — the invite code is what gets them
+  // back past the grant gate now that their identity is no longer a known member.
+  await sessionA.unbanMember(roomId, identityB.id)
+  await waitFor(() => !roomA.isBanned(identityB.id), 'the ban to be lifted')
+
   const rejoined = await sessionB.joinRoomByKey('test-room', invite)
-  await waitFor(() => rejoined.writable && rejoined.hasKey, 'the kicked member to be let back in')
+  await waitFor(() => rejoined.writable && rejoined.hasKey, 'the unbanned member to be let back in')
 })
 
-test('a kicked member cannot get back in without presenting a valid invite code', async (t) => {
-  const { sessionA, sessionB, roomId } = await joinedPair(t)
+test('an unbanned member cannot get back in without presenting a valid invite code', async (t) => {
+  const { sessionA, sessionB, identityB, roomId } = await joinedPair(t)
   const roomB = sessionB.getRoom(roomId)!
   const bootstrapKeyHex = b4a.toString(roomB.bootstrapKey, 'hex')
 
-  const kickedKey = b4a.toString(roomB.localWriterKey, 'hex')
-  await sessionA.kickMember(roomId, kickedKey)
+  const removedKey = b4a.toString(roomB.localWriterKey, 'hex')
+  await sessionA.banMember(roomId, removedKey, identityB.id)
   await waitFor(() => !roomB.writable, 'B to lose write access')
+  await sessionA.unbanMember(roomId, identityB.id)
+  await waitFor(() => !sessionA.getRoom(roomId)!.isBanned(identityB.id), 'the ban to be lifted')
 
   // Same bootstrap key, no ':code' suffix — what a bare reconnect (or a background retry with no
-  // invite in hand) presents. Kick is meant to require a fresh invite to reverse, same as the UI's
-  // "You'll need a new invite to rejoin" copy says for a plain leave. If a kicked member gets back
-  // in on identity alone, kick is not a moderation action — it's a 15-second delay.
+  // invite in hand) presents. Removal is meant to require a fresh invite to reverse, same as the
+  // UI's "You'll need a new invite to rejoin" copy says for a plain leave. If a removed member gets
+  // back in on identity alone, removal is not a moderation action — it's a 15-second delay.
   const rejoined = await sessionB.joinRoomByKey('test-room', bootstrapKeyHex)
 
   // No waitFor here: waiting for a negative can only time out at the ceiling, which is the point —
   // give the grant every chance it would get in real use, then check it never arrived.
   await new Promise((resolve) => setTimeout(resolve, 3000))
-  assert.equal(rejoined.writable, false, 'a kicked identity must not be re-admitted without a valid invite code')
+  assert.equal(rejoined.writable, false, 'a removed identity must not be re-admitted without a valid invite code')
 })

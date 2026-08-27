@@ -142,14 +142,14 @@ export class Session {
         // key the room has never seen (it purged its copy and reopened, or it's a second device),
         // that key still has to be added, or the peer reads the room fine and can never post to it.
         //
-        // "Currently listed" is load-bearing: it must not become "was ever a member". A kick or a
+        // "Currently listed" is load-bearing: it must not become "was ever a member". A ban or a
         // self-leave removes the writer entry, and getting back in after either is deliberately
         // gated on presenting a valid invite code (redeemInvite, unlimited-use but still required) —
         // the UI says as much ("You'll need a new invite to rejoin"). A once-known-forever bypass
-        // here means a kicked member who simply stays connected gets silently re-admitted by the
+        // here means a removed member who simply stays connected gets silently re-admitted by the
         // background write-request retry (see startWriteRequestRetry) within one retry interval,
-        // with no invite and no further moderator action — kick stops being a moderation action and
-        // becomes a timer.
+        // with no invite and no further moderator action — removal stops being a moderation action
+        // and becomes a timer.
         const isCurrentMember = room.listMembers().some((m) => m.identityId === message.identityId)
         if (!isCurrentMember && !this.redeemInvite(room.id, message.inviteCode)) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
@@ -924,7 +924,7 @@ export class Session {
     if (room) {
       // Tell the room we are going before destroying the core that would carry the message.
       // Leaving used to be entirely local, so everyone else went on listing a departed member
-      // indefinitely, with only an owner kick able to clear them.
+      // indefinitely, with only an owner ban able to clear them.
       //
       // Only if we can still write and someone is listening: with no peer connected the entry has
       // nowhere to go and the pause would just delay the user for nothing. It is then lost with
@@ -1212,7 +1212,7 @@ export class Session {
     if (keyHex) peer.rpc.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
   }
 
-  /** Revokes write access. If the caller is the room owner, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued kick/ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only the owner distributes room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-kicked member could still decrypt messages sent before the owner next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
+  /** Revokes write access. If the caller is the room owner, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only the owner distributes room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-banned member could still decrypt messages sent before the owner next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
   private async revokeWrite(room: Room, writerKeyHex: string): Promise<void> {
     // Revoke the person, not the key. One identity can hold several writer keys — a rejoin issues
     // a new one (see joinRoomByKey), and a second device brings its own — so removing only the key
@@ -1239,14 +1239,7 @@ export class Session {
     }
   }
 
-  /** Owner or moderator (enforced in `Room.apply()`; a mod can't target the owner or another mod): removes a member's write access. They can still rejoin with a valid invite (unlike `banMember`). */
-  async kickMember(roomId: string, writerKeyHex: string): Promise<void> {
-    const room = this.rooms.get(roomId)
-    if (!room) return
-    await this.revokeWrite(room, writerKeyHex)
-  }
-
-  /** Owner or moderator: kicks the member (see `revokeWrite`) AND blocks any future write-grant for their identity, even with a valid invite code. The ban itself is a replicated `Room` log entry (see `room.ts`), not owner-local state, so any moderator's ban is visible to the owner's `onRequestWrite` gate too. */
+  /** Owner or moderator (enforced in `Room.apply()`; a mod can't target the owner or another mod): revokes the member's write access (see `revokeWrite`) AND blocks any future write-grant for their identity, even with a valid invite code. The ban itself is a replicated `Room` log entry (see `room.ts`), not owner-local state, so any moderator's ban is visible to the owner's `onRequestWrite` gate too. Reversible only via `unbanMember` plus a fresh invite. */
   async banMember(roomId: string, writerKeyHex: string, identityId: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return
@@ -1274,7 +1267,7 @@ export class Session {
     await room.unmuteMember(identityId)
   }
 
-  /** Owner-only (enforced in `Room.apply()`): grants moderator role — kick/ban/mute powers over plain members, never over the owner or other mods, and never invite/promote/write-grant management. */
+  /** Owner-only (enforced in `Room.apply()`): grants moderator role — ban/mute powers over plain members, never over the owner or other mods, and never invite/promote/write-grant management. */
   async promoteToModerator(roomId: string, identityId: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return

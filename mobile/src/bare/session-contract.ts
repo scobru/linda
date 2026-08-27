@@ -59,7 +59,6 @@ export const FORWARDED_SESSION_METHODS = [
   'getWallpaper',
   'inviteLinkFor',
   'isRoomFavorite',
-  'kickMember',
   'listBookmarks',
   'listContacts',
   'listDirectory',

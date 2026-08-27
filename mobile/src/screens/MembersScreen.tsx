@@ -105,15 +105,8 @@ export default function MembersScreen({ route, navigation }: Props) {
     void action().then(refresh).catch((err) => Alert.alert('Error', (err as Error).message))
   }, [refresh])
 
-  const confirmKick = useCallback((member: MemberInfo) => {
-    Alert.alert('Kick member?', 'They will lose write access to this room.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Kick', style: 'destructive', onPress: () => run(() => session!.kickMember(roomId, member.writerKey)) },
-    ])
-  }, [session, roomId, run])
-
   const confirmBan = useCallback((member: MemberInfo) => {
-    Alert.alert('Ban member?', 'They will be kicked and blocked from rejoining, even with a valid invite.', [
+    Alert.alert('Ban member?', 'They will lose write access and be blocked from rejoining, even with a valid invite.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Ban', style: 'destructive', onPress: () => run(() => session!.banMember(roomId, member.writerKey, member.identityId)) },
     ])
@@ -249,11 +242,6 @@ export default function MembersScreen({ route, navigation }: Props) {
                     style={styles.actionBtn}
                   >
                     <Text style={styles.actionText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
-                  </Pressable>
-                )}
-                {iCanModerate && !isPrivileged && !isSelf && (
-                  <Pressable onPress={() => confirmKick(item)} style={styles.actionBtn}>
-                    <Text style={styles.actionText}>Kick</Text>
                   </Pressable>
                 )}
                 {iCanModerate && !isPrivileged && !isSelf && (

@@ -183,7 +183,7 @@ async function readOverlay(state: Hyperbee<RoomStateRecord>, messageId: string):
  * enough to swallow a sync burst, short enough to stay imperceptible in the UI. */
 const MUTATION_NOTIFY_MS = 16
 
-/** owner: full control. mod: can kick/ban/mute plain members, never the owner or another mod. member: none of the above. */
+/** owner: full control. mod: can ban/mute plain members, never the owner or another mod. member: none of the above. */
 type Role = 'owner' | 'mod' | 'member'
 
 function makeApply(
@@ -605,7 +605,7 @@ export class Room {
     return [...this.moderatorIdentities]
   }
 
-  /** Whether `identityId` may kick/ban/mute other plain members (owner or moderator). */
+  /** Whether `identityId` may ban/mute other plain members (owner or moderator). */
   canModerate(identityId: string): boolean {
     return this.isOwner(identityId) || this.isModerator(identityId)
   }
@@ -632,7 +632,7 @@ export class Room {
     return key ? b4a.toString(key, 'hex') : null
   }
 
-  /** Stores a content key received via RPC from the owner (on write grant, kick-triggered rotation, or reconnect sync). */
+  /** Stores a content key received via RPC from the owner (on write grant, ban-triggered rotation, or reconnect sync). */
   receiveKey(epoch: number, keyHex: string): void {
     this.contentKeys.set(epoch, b4a.from(keyHex, 'hex'))
     if (epoch > this.currentEpoch) this.currentEpoch = epoch
@@ -646,7 +646,7 @@ export class Room {
     return () => { this.events.off('key', listener) }
   }
 
-  /** Owner-only (enforced by caller): generates and adopts a new epoch key, e.g. after kicking a member, so they lose access to future content. Caller is responsible for distributing it to remaining members via RPC. */
+  /** Owner-only (enforced by caller): generates and adopts a new epoch key, e.g. after banning a member, so they lose access to future content. Caller is responsible for distributing it to remaining members via RPC. */
   rotateKey(): { epoch: number, keyHex: string } {
     const epoch = this.currentEpoch + 1
     const key = b4a.allocUnsafe(sodium.crypto_secretbox_KEYBYTES)
