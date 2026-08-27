@@ -128,8 +128,8 @@ android {
         applicationId 'com.lindapear.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 29
-        versionName "1.14.9"
+        versionCode 30
+        versionName "1.14.10"
     }
     signingConfigs {
         debug {
