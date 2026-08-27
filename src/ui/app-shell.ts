@@ -613,14 +613,20 @@ export class AppShell extends HTMLElement {
     }
     await this.session.reopenBookmarkedRooms()
 
-    // Fire-and-forget: joinRoomByKey can block up to ~30s waiting on the swarm, and a
-    // brand-new identity with no peers yet may not even reach it in time — fine either way,
-    // don't hold up onboarding for it. Re-renders the room list on success since a join
-    // doesn't otherwise emit any change event this shell listens for.
-    if (isNewIdentity) {
+    // Always select and open "Linda News" as the default active room on startup
+    const lindaNewsBookmark = this.session.listBookmarks().find(
+      (b) => b.name.toLowerCase() === 'linda news' || b.bootstrapKey.startsWith('972f8a4a95bcaf92') || b.id === '972f8a4a95bcaf92'
+    )
+    if (lindaNewsBookmark && this.session.getRoom(lindaNewsBookmark.id)) {
+      this.openRoom(lindaNewsBookmark.id, lindaNewsBookmark.name)
+    } else {
       this.session.joinRoomByKey(DEFAULT_CHANNEL.name, DEFAULT_CHANNEL.key)
-        .then(() => this.scheduleRenderApp())
-        .catch(() => {})
+        .then((room) => {
+          this.openRoom(room.id, DEFAULT_CHANNEL.name)
+        })
+        .catch(() => {
+          this.scheduleRenderApp()
+        })
     }
 
     // Pre-populate last messages from rooms
@@ -1131,6 +1137,14 @@ export class AppShell extends HTMLElement {
         const name = item.dataset.roomName!
         this.openRoom(id, name)
       })
+
+      // Right-click context menu (desktop equivalent of mobile swipe actions)
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        const roomId = item.dataset.roomId!
+        const roomName = item.dataset.roomName!
+        this.showRoomContextMenu(e as MouseEvent, roomId, roomName)
+      })
     })
 
     // Search filter input
@@ -1165,6 +1179,78 @@ export class AppShell extends HTMLElement {
 
     this.querySelector('#toggleDiscover')?.addEventListener('click', () => { this.view = 'discover'; this.render() })
     this.querySelector('#togglePeople')?.addEventListener('click', () => { this.view = 'people'; this.render() })
+  }
+
+  /** Shows a floating context menu next to a right-clicked room item in the sidebar. */
+  private showRoomContextMenu(e: MouseEvent, roomId: string, roomName: string): void {
+    this.dismissRoomContextMenu()
+
+    const isFavorite = this.session!.isRoomFavorite(roomId)
+
+    const menu = document.createElement('div')
+    menu.className = 'room-context-menu'
+    menu.innerHTML = `
+      <button class="room-context-menu-item" data-action="favorite">
+        ${isFavorite ? ICONS.starFilled : ICONS.star}
+        ${isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+      </button>
+      <div class="room-context-menu-sep"></div>
+      <button class="room-context-menu-item danger" data-action="leave">
+        ${ICONS.trash} Leave Room
+      </button>
+    `
+
+    document.body.appendChild(menu)
+
+    // Position the menu at the cursor, clamping to viewport edges
+    const rect = menu.getBoundingClientRect()
+    let x = e.clientX
+    let y = e.clientY
+    if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8
+    if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8
+    menu.style.left = `${x}px`
+    menu.style.top = `${y}px`
+
+    // Wire actions
+    menu.querySelector('[data-action="favorite"]')?.addEventListener('click', () => {
+      this.dismissRoomContextMenu()
+      void this.session!.setRoomFavorite(roomId, !isFavorite).then(() => this.renderApp())
+    })
+
+    menu.querySelector('[data-action="leave"]')?.addEventListener('click', () => {
+      this.dismissRoomContextMenu()
+      if (!confirm(`Leave "${roomName}"? You'll need a new invite to rejoin.`)) return
+      void (async () => {
+        await this.session!.deleteRoom(roomId)
+        // If the user is currently viewing this room, clear it
+        if (this.activeRoom?.id === roomId) {
+          for (const unsubscribe of this.activeRoomUnsubscribes) unsubscribe()
+          this.activeRoomUnsubscribes = []
+          this.activeRoom = null
+        }
+        this.renderApp()
+      })()
+    })
+
+    // Dismiss on outside click, escape, or scroll
+    const dismiss = (ev: Event) => {
+      if (ev.type === 'click' && menu.contains(ev.target as Node)) return
+      this.dismissRoomContextMenu()
+    }
+    // Use setTimeout so the current right-click event doesn't immediately dismiss
+    setTimeout(() => {
+      document.addEventListener('click', dismiss, { once: true })
+      document.addEventListener('contextmenu', dismiss, { once: true })
+      document.addEventListener('keydown', (ev) => {
+        if ((ev as KeyboardEvent).key === 'Escape') this.dismissRoomContextMenu()
+      }, { once: true })
+      this.querySelector('.room-list')?.addEventListener('scroll', dismiss, { once: true })
+    }, 0)
+  }
+
+  /** Removes any open sidebar context menu from the DOM. */
+  private dismissRoomContextMenu(): void {
+    document.querySelector('.room-context-menu')?.remove()
   }
 
   private wireModal(): void {

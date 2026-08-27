@@ -2289,3 +2289,52 @@ input:checked + .keet-slider:before {
   color: var(--text-dim);
 }
 .msg-video-size { flex-shrink: 0; color: var(--text-muted); }
+
+/* =========================================================================
+   Sidebar Room Context Menu (right-click)
+   ========================================================================= */
+.room-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  animation: ctxFadeIn 0.12s ease-out;
+  backdrop-filter: var(--glass-blur);
+}
+@keyframes ctxFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.room-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: 0.825rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+.room-context-menu-item:hover {
+  background: var(--bg-panel-hover);
+}
+.room-context-menu-item.danger {
+  color: var(--danger);
+}
+.room-context-menu-item.danger:hover {
+  background: var(--danger-dim);
+}
+.room-context-menu-sep {
+  height: 1px;
+  margin: 3px 6px;
+  background: var(--border);
+}

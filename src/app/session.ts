@@ -141,7 +141,7 @@ export class Session {
         // identity needs no invite code to be let back in — but if it comes back on a writer key
         // the room has never seen (it purged its copy and reopened, or it's a second device), that
         // key still has to be added, or the peer reads the room fine and can never post to it.
-        const isKnownIdentity = room.listMembers().some((m) => m.identityId === message.identityId)
+        const isKnownIdentity = room.listMembers().some((m) => m.identityId === message.identityId) || room.isKnownIdentity(message.identityId)
         if (!isKnownIdentity && !this.redeemInvite(room.id, message.inviteCode)) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
@@ -1137,30 +1137,37 @@ export class Session {
     initialKeys?: Array<{ epoch: number; keyHex: string }>,
     storeNamespace?: string
   ): Promise<Room> {
-    const discovered = this.trackDiscovery(hypercoreCrypto.discoveryKey(bootstrapKey))
+    const topic = hypercoreCrypto.discoveryKey(bootstrapKey)
+    joinRoom(this.swarm, topic)
+    const doneFinding = this.store.findingPeers()
+    const flushed = this.swarm.flush()
     const deadline = Date.now() + JOIN_REPLICATION_TIMEOUT_MS
-    let waitedForDiscovery = false
-    for (;;) {
-      try {
-        return await Promise.race([
-          Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace),
-          new Promise<never>((_, reject) => setTimeout(
-            () => reject(Object.assign(new Error('Opening the room took too long'), { code: 'STORAGE_EMPTY' })),
-            ROOM_OPEN_TIMEOUT_MS
-          ))
-        ])
-      } catch (err) {
-        if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
-        if (Date.now() >= deadline) {
-          throw Object.assign(new Error(this.joinFailureReason()), { code: 'ROOM_UNREACHABLE' })
+    try {
+      let waitedForDiscovery = false
+      for (;;) {
+        try {
+          return await Promise.race([
+            Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace),
+            new Promise<never>((_, reject) => setTimeout(
+              () => reject(Object.assign(new Error('Opening the room took too long'), { code: 'STORAGE_EMPTY' })),
+              ROOM_OPEN_TIMEOUT_MS
+            ))
+          ])
+        } catch (err) {
+          if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
+          if (Date.now() >= deadline) {
+            throw Object.assign(new Error(this.joinFailureReason()), { code: 'ROOM_UNREACHABLE' })
+          }
+          if (!waitedForDiscovery) {
+            waitedForDiscovery = true
+            await Promise.race([flushed, new Promise((resolve) => setTimeout(resolve, Math.min(5000, deadline - Date.now())))])
+            continue
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000))
         }
-        if (!waitedForDiscovery) {
-          waitedForDiscovery = true
-          await Promise.race([discovered, new Promise((resolve) => setTimeout(resolve, deadline - Date.now()))])
-          continue
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000))
       }
+    } finally {
+      doneFinding()
     }
   }
 

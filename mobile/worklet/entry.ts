@@ -179,7 +179,7 @@ const methods: Record<string, (...args: any[]) => any> = {
       onReadReceipt: (m) => pushEvent('readReceipt', m)
     }
     storageDir = dir
-    session = await Session.create(requireIdentity(), dir, events, dhtPort)
+    session = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort } })
     return {
       nickname: session.getNickname(),
       avatar: session.getAvatar(),
