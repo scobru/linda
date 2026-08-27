@@ -160,3 +160,24 @@ test('a kicked member can be let back in with an invite', async (t) => {
   const rejoined = await sessionB.joinRoomByKey('test-room', invite)
   await waitFor(() => rejoined.writable && rejoined.hasKey, 'the kicked member to be let back in')
 })
+
+test('a kicked member cannot get back in without presenting a valid invite code', async (t) => {
+  const { sessionA, sessionB, roomId } = await joinedPair(t)
+  const roomB = sessionB.getRoom(roomId)!
+  const bootstrapKeyHex = b4a.toString(roomB.bootstrapKey, 'hex')
+
+  const kickedKey = b4a.toString(roomB.localWriterKey, 'hex')
+  await sessionA.kickMember(roomId, kickedKey)
+  await waitFor(() => !roomB.writable, 'B to lose write access')
+
+  // Same bootstrap key, no ':code' suffix — what a bare reconnect (or a background retry with no
+  // invite in hand) presents. Kick is meant to require a fresh invite to reverse, same as the UI's
+  // "You'll need a new invite to rejoin" copy says for a plain leave. If a kicked member gets back
+  // in on identity alone, kick is not a moderation action — it's a 15-second delay.
+  const rejoined = await sessionB.joinRoomByKey('test-room', bootstrapKeyHex)
+
+  // No waitFor here: waiting for a negative can only time out at the ceiling, which is the point —
+  // give the grant every chance it would get in real use, then check it never arrived.
+  await new Promise((resolve) => setTimeout(resolve, 3000))
+  assert.equal(rejoined.writable, false, 'a kicked identity must not be re-admitted without a valid invite code')
+})

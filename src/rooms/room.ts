@@ -100,10 +100,9 @@ interface PersistedRoomState {
   moderatorIdentities: string[]
   mutedIdentities: string[]
   bannedIdentities: string[]
-  knownIdentities?: string[]
 }
 
-function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, knownIdentities: Set<string>): PersistedRoomState {
+function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>): PersistedRoomState {
   return {
     ownerWriterKey: owner.writerKey,
     ownerIdentityId: owner.identityId,
@@ -112,13 +111,12 @@ function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRe
     writerIdentities: [...writerIdentities.entries()],
     moderatorIdentities: [...moderatorIdentities],
     mutedIdentities: [...mutedIdentities],
-    bannedIdentities: [...bannedIdentities],
-    knownIdentities: [...knownIdentities]
+    bannedIdentities: [...bannedIdentities]
   }
 }
 
 
-function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, knownIdentities: Set<string>): void {
+function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>): void {
   owner.writerKey = state.ownerWriterKey
   owner.identityId = state.ownerIdentityId
   meta.name = state.meta.name
@@ -126,18 +124,13 @@ function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: Room
   meta.description = state.meta.description
   mode.broadcast = state.broadcast ?? false
   writerIdentities.clear()
-  for (const [key, id] of state.writerIdentities) {
-    writerIdentities.set(key, id)
-    knownIdentities.add(id)
-  }
+  for (const [key, id] of state.writerIdentities) writerIdentities.set(key, id)
   moderatorIdentities.clear()
   for (const id of state.moderatorIdentities) moderatorIdentities.add(id)
   mutedIdentities.clear()
   for (const id of state.mutedIdentities) mutedIdentities.add(id)
   bannedIdentities.clear()
   for (const id of state.bannedIdentities) bannedIdentities.add(id)
-  for (const id of state.knownIdentities ?? []) knownIdentities.add(id)
-  if (owner.identityId) knownIdentities.add(owner.identityId)
 }
 
 /** Mutable per-message state replayed from edit/delete/reaction entries; the raw message appended to the message view stays immutable. */
@@ -201,7 +194,6 @@ function makeApply(
   mutedIdentities: Set<string>,
   bannedIdentities: Set<string>,
   moderatorIdentities: Set<string>,
-  knownIdentities: Set<string>,
   /** Owner key already established before this Autobase was constructed — for rooms created before
    * the state view existed, whose `init` entry is checkpointed and will never be applied again. */
   seededOwnerKey: string | null,
@@ -229,7 +221,7 @@ function makeApply(
 
     /** Rewritten after every change rather than once per batch: Autobase rewinds a view to any past
      * length, so each entry that alters this state must leave its own restorable snapshot. */
-    const persist = () => state.put(ROOM_KEY, { kind: 'room', state: serializeRoomState(owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities, knownIdentities) })
+    const persist = () => state.put(ROOM_KEY, { kind: 'room', state: serializeRoomState(owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities) })
 
     async function authorOf(messageId: string): Promise<string | undefined> {
       const record = (await state.get(authorKeyFor(messageId)))?.value
@@ -280,13 +272,11 @@ function makeApply(
         owner.writerKey = entry.ownerKey
         owner.identityId = entry.ownerIdentityId
         writerIdentities.set(entry.ownerKey, entry.ownerIdentityId)
-        knownIdentities.add(entry.ownerIdentityId)
         await persist()
       } else if (entry.type === 'addWriter') {
         if (authorKey !== owner.writerKey) continue
         await host.addWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.set(entry.key, entry.identityId)
-        knownIdentities.add(entry.identityId)
         await persist()
       } else if (entry.type === 'removeWriter') {
         const role = roleOf(authorKey)
@@ -410,7 +400,6 @@ export class Room {
   private readonly mutedIdentities: Set<string>
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
-  private readonly knownIdentities: Set<string>
   private readonly events = new EventEmitter()
   private readonly pendingMutationIds = new Set<string>()
   /** Content-encryption keys, by epoch. Never written to the replicated log (would leak to any reader) — distributed peer-to-peer over RPC by Session. */
@@ -425,7 +414,7 @@ export class Room {
   /** Set when Autobase truncates the state view, cleared once the mirror below has been reloaded from it. */
   private stateRewound = false
 
-  private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>, knownIdentities: Set<string>) {
+  private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>) {
     this.id = id
     this.owner = owner
     this.meta = meta
@@ -434,7 +423,6 @@ export class Room {
     this.mutedIdentities = mutedIdentities
     this.bannedIdentities = bannedIdentities
     this.moderatorIdentities = moderatorIdentities
-    this.knownIdentities = knownIdentities
   }
 
   get name(): string {
@@ -488,8 +476,7 @@ export class Room {
     const mutedIdentities = new Set<string>()
     const bannedIdentities = new Set<string>()
     const moderatorIdentities = new Set<string>()
-    const knownIdentities = new Set<string>()
-    const room = new Room(tempId, owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, knownIdentities)
+    const room = new Room(tempId, owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities)
 
     // Rooms created before the state view existed kept this state in a Hyperbee alongside Autobase.
     // Their log entries are checkpointed and will never be applied again, so that copy is the only
@@ -498,7 +485,7 @@ export class Room {
     const legacyStateBee = new Hyperbee<PersistedRoomState>(store.get({ name: 'state' }), { keyEncoding: 'utf-8', valueEncoding: 'json' })
     await legacyStateBee.ready()
     const legacyState = (await legacyStateBee.get('room'))?.value
-    if (legacyState) hydrateRoomState(legacyState, owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities, knownIdentities)
+    if (legacyState) hydrateRoomState(legacyState, owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities)
     const seededOwnerKey = owner.writerKey
 
     if (initialKeys && initialKeys.length > 0) {
@@ -511,7 +498,7 @@ export class Room {
     const base = new Autobase<RoomEntry, RoomView>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, knownIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (state) => room.refreshState(state))
+      apply: makeApply(owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (state) => room.refreshState(state))
     })
     room.base = base
     // The mirror starts empty, and Autobase never replays checkpointed entries that would refill
@@ -538,7 +525,6 @@ export class Room {
       owner.writerKey = key
       owner.identityId = identityId
       writerIdentities.set(key, identityId)
-      knownIdentities.add(identityId)
       await base.append({ type: 'init', ownerKey: key, ownerIdentityId: identityId })
       const contentKey = b4a.allocUnsafe(sodium.crypto_secretbox_KEYBYTES)
       sodium.randombytes_buf(contentKey)
@@ -561,7 +547,7 @@ export class Room {
     if (!this.stateRewound) return
     this.stateRewound = false
     if (record?.kind !== 'room') return
-    hydrateRoomState(record.state, this.owner, this.meta, this.mode, this.writerIdentities, this.moderatorIdentities, this.mutedIdentities, this.bannedIdentities, this.knownIdentities)
+    hydrateRoomState(record.state, this.owner, this.meta, this.mode, this.writerIdentities, this.moderatorIdentities, this.mutedIdentities, this.bannedIdentities)
     this.invalidateMessage()
     this.notifyMetaChange()
   }
@@ -739,10 +725,6 @@ export class Room {
   }
 
   /** Whether this identity has ever held write access to this room (owner or invited member). */
-  isKnownIdentity(identityId: string): boolean {
-    return this.knownIdentities.has(identityId) || this.owner.identityId === identityId
-  }
-
   listBanned(): string[] {
     return [...this.bannedIdentities]
   }

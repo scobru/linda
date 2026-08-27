@@ -137,12 +137,21 @@ export class Session {
         const room = [...this.rooms.values()].find((r) => b4a.toString(r.bootstrapKey, 'hex') === message.bootstrapKey)
         if (!room || !room.writable || !room.isOwner(identity.id)) return
         if (room.isBanned(message.identityId)) return
-        // Two separate questions, and conflating them locked returning members out. A known
-        // identity needs no invite code to be let back in — but if it comes back on a writer key
-        // the room has never seen (it purged its copy and reopened, or it's a second device), that
-        // key still has to be added, or the peer reads the room fine and can never post to it.
-        const isKnownIdentity = room.listMembers().some((m) => m.identityId === message.identityId) || room.isKnownIdentity(message.identityId)
-        if (!isKnownIdentity && !this.redeemInvite(room.id, message.inviteCode)) return
+        // Two separate questions, and conflating them locked returning members out. A currently
+        // listed member needs no invite code to be let back in — but if it comes back on a writer
+        // key the room has never seen (it purged its copy and reopened, or it's a second device),
+        // that key still has to be added, or the peer reads the room fine and can never post to it.
+        //
+        // "Currently listed" is load-bearing: it must not become "was ever a member". A kick or a
+        // self-leave removes the writer entry, and getting back in after either is deliberately
+        // gated on presenting a valid invite code (redeemInvite, unlimited-use but still required) —
+        // the UI says as much ("You'll need a new invite to rejoin"). A once-known-forever bypass
+        // here means a kicked member who simply stays connected gets silently re-admitted by the
+        // background write-request retry (see startWriteRequestRetry) within one retry interval,
+        // with no invite and no further moderator action — kick stops being a moderation action and
+        // becomes a timer.
+        const isCurrentMember = room.listMembers().some((m) => m.identityId === message.identityId)
+        if (!isCurrentMember && !this.redeemInvite(room.id, message.inviteCode)) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
           if (!isExistingWriter) {
