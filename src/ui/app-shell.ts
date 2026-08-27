@@ -8,6 +8,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
+import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
 
 function storageDir(): string {
@@ -2362,6 +2363,11 @@ export class AppShell extends HTMLElement {
                   `
                 }).join('')}
               </div>
+            </div>
+
+            <div class="form-group">
+              <label>Version</label>
+              <div style="font-size:0.8rem;color:var(--text-dim);font-family:var(--font-mono);">Linda ${APP_VERSION}</div>
             </div>
 
             <div class="form-group">

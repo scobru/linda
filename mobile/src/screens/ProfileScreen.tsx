@@ -19,6 +19,7 @@ import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, PRESET_AVATARS, type ThemeColors } from '../theme'
 import { useTheme, type ThemeMode } from '../theme-context'
 import { formatBytes } from '@core/util/bytes'
+import { APP_VERSION } from '@core/version'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>
 
@@ -427,6 +428,10 @@ export default function ProfileScreen({ navigation }: Props) {
         {/* About */}
         <View style={styles.field}>
           <Text style={styles.label}>About</Text>
+          <View style={styles.keyRow}>
+            <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+            <Text style={[styles.value, { flex: 1 }]}>Linda {APP_VERSION}</Text>
+          </View>
           <Pressable onPress={() => Linking.openURL('https://github.com/scobru/linda')} style={styles.keyRow}>
             <Ionicons name="logo-github" size={16} color={colors.textSecondary} />
             <Text style={[styles.value, { flex: 1 }]}>Source code (open source)</Text>
