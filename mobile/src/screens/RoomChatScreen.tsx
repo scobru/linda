@@ -405,15 +405,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   useEffect(() => () => { audioPlayerRef.current?.remove() }, [])
 
-  const handleFilePress = useCallback(async (message: ChatMessage) => {
+  const saveFileToDevice = useCallback(async (message: ChatMessage) => {
     if (!message.file || downloadingId) return
-    if (isAudioFile(message.file)) return handlePlayAudio(message)
-    if (isVideoFile(message.file)) {
-      const file = message.file
-      return void session!.mediaUrl(file.driveKey, file.path)
-        .then((uri) => setPlayingVideo({ uri, name: file.name }))
-        .catch(() => Alert.alert('Playback failed', 'Could not open this video.'))
-    }
     setDownloadingId(message.id)
     try {
       const base64 = await downloadFile(message.file.driveKey, message.file.path)
@@ -426,7 +419,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     } finally {
       setDownloadingId(null)
     }
-  }, [downloadingId, session, handlePlayAudio])
+  }, [downloadingId])
+
+  const handleFilePress = useCallback(async (message: ChatMessage) => {
+    if (!message.file || downloadingId) return
+    if (isAudioFile(message.file)) return handlePlayAudio(message)
+    if (isVideoFile(message.file)) {
+      const file = message.file
+      return void session!.mediaUrl(file.driveKey, file.path)
+        .then((uri) => setPlayingVideo({ uri, name: file.name }))
+        .catch(() => Alert.alert('Playback failed', 'Could not open this video.'))
+    }
+    return saveFileToDevice(message)
+  }, [downloadingId, session, handlePlayAudio, saveFileToDevice])
 
   const handleEdit = useCallback(async (id: string, body: string) => {
     await editMessage(id, body)
@@ -635,6 +640,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 selectable={selectionMode && item.authorId === identityId}
                 onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
                 onFilePress={() => handleFilePress(item)}
+                onFileSave={() => void saveFileToDevice(item)}
                 onHashtagPress={(tag) => setActiveHashtag((cur) => (cur === tag ? null : tag))}
                 fileDownloading={downloadingId === item.id}
                 isAudioPlaying={playingAudioId === item.id}

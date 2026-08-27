@@ -27,6 +27,7 @@ interface Props {
   onPress?: () => void
   onReactionPress?: (emoji: string) => void
   onFilePress?: () => void
+  onFileSave?: () => void
   /** Tapping a #tag in the body filters the room to that tag. */
   onHashtagPress?: (tag: string) => void
   fileDownloading?: boolean
@@ -70,7 +71,7 @@ function splitOnInviteLinks(text: string): Array<{ text: string; link?: string }
   )
 }
 
-export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
+export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   if (message.deleted) {
@@ -170,6 +171,18 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
               <View style={styles.videoFooter}>
                 <Text style={styles.fileName} numberOfLines={1}>{message.file.name}</Text>
                 <Text style={styles.fileSize}>{formatBytes(message.file.size)}</Text>
+                {/* Tapping the card streams the video, so saving needs its own control. Desktop
+                    got one for free from Chromium's <video controls>; the native player here
+                    offers nothing of the sort. */}
+                {onFileSave && (
+                  <Pressable onPress={onFileSave} hitSlop={8} style={styles.videoSaveBtn}>
+                    <Ionicons
+                      name={fileDownloading ? 'hourglass-outline' : 'download-outline'}
+                      size={16}
+                      color={colors.textSecondary}
+                    />
+                  </Pressable>
+                )}
               </View>
             </Pressable>
           ) : message.file.thumbnail ? (
@@ -409,6 +422,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.9)',
+  },
+  videoSaveBtn: {
+    paddingHorizontal: 4,
   },
   videoFooter: {
     flexDirection: 'row',

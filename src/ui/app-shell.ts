@@ -1642,7 +1642,9 @@ export class AppShell extends HTMLElement {
     })
 
     container.querySelectorAll<HTMLElement>('[data-play-video]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        // The save button lives inside the card, which is itself the play target.
+        if ((e.target as HTMLElement).closest('[data-download]')) return
         this.openVideoPlayer(btn.dataset.playVideo!, btn.dataset.path!, btn.dataset.name!)
       })
     })
@@ -1782,6 +1784,7 @@ export class AppShell extends HTMLElement {
             <div class="msg-video-footer">
               <span class="file-name">${escapeHtml(message.file.name)}</span>
               <span class="msg-video-size">${formatBytes(message.file.size)}</span>
+              <button class="ghost icon-sm" style="padding:0.15rem 0.35rem;" data-download="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}" title="Save video">${ICONS.download}</button>
             </div>
           </div>
         `
