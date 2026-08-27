@@ -280,9 +280,20 @@ function makeApply(
         await persist()
       } else if (entry.type === 'removeWriter') {
         const role = roleOf(authorKey)
-        if (role === 'member') continue
         const targetIdentity = writerIdentities.get(entry.key)
-        if (role === 'mod' && isPrivileged(targetIdentity)) continue
+        // Leaving is not a moderation action. Only owners and moderators could remove a writer,
+        // which meant a plain member could not remove *themselves* either — so leaving a room was
+        // purely local and everyone else went on listing you as a member forever. Removing your
+        // own key is now always allowed.
+        //
+        // The owner is excluded deliberately: they are the room's only source of write grants and
+        // content keys, so an owner dropping their own key would strand every remaining member
+        // with no way to admit anyone or rotate anything. An owner who wants out deletes the room.
+        const isSelfRemoval = authorKey === entry.key && authorKey !== owner.writerKey
+        if (!isSelfRemoval) {
+          if (role === 'member') continue
+          if (role === 'mod' && isPrivileged(targetIdentity)) continue
+        }
         await host.removeWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.delete(entry.key)
         if (targetIdentity) moderatorIdentities.delete(targetIdentity)
@@ -682,6 +693,14 @@ export class Room {
 
   async removeWriter(publicKey: Buffer): Promise<void> {
     await this.base.append({ type: 'removeWriter', key: b4a.toString(publicKey, 'hex') })
+  }
+
+  /** Announces our departure to the room's other members. The owner cannot — see `apply()`. */
+  async announceLeave(): Promise<void> {
+    // Compared by writer key rather than identity: this is about the key being dropped, and the
+    // owner check in apply() keys off the same thing.
+    if (b4a.toString(this.base.local.key, 'hex') === this.owner.writerKey) return
+    await this.removeWriter(this.base.local.key)
   }
 
   isMuted(identityId: string): boolean {

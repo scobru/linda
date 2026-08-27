@@ -224,6 +224,56 @@ test('security: a moderator can delete a member message, and its file record goe
   await closeWriter(b)
 })
 
+test('a member can remove their own writer key, and the room stops listing them', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  await reopen(a)
+  assert.equal(a.room.listMembers().length, 2, 'both writers are members to begin with')
+
+  // Leaving is not a moderation action: before this, only owners and moderators could remove a
+  // writer, so a plain member could not remove themselves and everyone went on listing them.
+  await b.room.announceLeave()
+  await sync(a.store, b.store)
+
+  await reopen(a)
+  const identities = a.room.listMembers().map((m) => m.identityId)
+  assert.deepEqual(identities, [a.identityId], 'the departed member must be gone for everyone else')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
+test('security: the owner cannot remove their own writer key', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  // The owner is the room's only source of write grants and content keys. Letting them drop their
+  // own key would strand every remaining member with no way to admit anyone or rotate anything.
+  await a.room.announceLeave()
+  await sync(a.store, b.store)
+
+  await reopen(b)
+  const identities = b.room.listMembers().map((m) => m.identityId).sort()
+  assert.deepEqual(identities, [a.identityId, b.identityId].sort(), 'the owner must still be a member')
+  assert.equal(b.room.isOwner(a.identityId), true, 'the room must still have its owner')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
+test('security: a member still cannot remove someone else', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+
+  // Self-removal is allowed now; removing a *different* writer is still owner/moderator only.
+  await b.room.removeWriter(a.room.localWriterKey)
+  await sync(a.store, b.store)
+
+  await reopen(a)
+  assert.equal(a.room.listMembers().length, 2, 'a member-issued removal of someone else must be ignored')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
 test('security: a non-owner cannot grant write access to a third party', async () => {
   const { a, b } = await setupTwoWriterRoom()
 
