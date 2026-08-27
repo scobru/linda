@@ -44,6 +44,11 @@ const PROFILE_FILE = 'profile.json'
  * a DHT hole-punch to a phone can take a while, and the alternative is a spurious failure. */
 const JOIN_REPLICATION_TIMEOUT_MS = 45_000
 
+/** Hard ceiling on one `Room.open`. The retry loop only advances when open resolves or throws, so
+ * a room whose storage was left half-purged — open hanging instead of failing — stalled the whole
+ * startup batch behind it, and with it the app's unlock. */
+const ROOM_OPEN_TIMEOUT_MS = 20_000
+
 /** How often a room still waiting on write access re-asks the owner. */
 const WRITE_REQUEST_RETRY_MS = 15_000
 
@@ -987,6 +992,14 @@ export class Session {
         this.trackRoom(room)
         return room
       } catch (err) {
+        // Only genuine corruption drops the bookmark. Failing to reach a room is a statement about
+        // the network, not about the room: deleting it there meant a spell offline, or one peer
+        // being asleep, silently removed rooms the user is still a member of and whose invite they
+        // may no longer have.
+        if ((err as { code?: string }).code === 'ROOM_UNREACHABLE') {
+          console.warn(`[session] could not reach room ${bookmark.id} on startup, keeping it:`, (err as Error).message)
+          return null
+        }
         console.warn(`[session] cleaning up corrupted/purged room bookmark ${bookmark.id}:`, (err as Error).message)
         this.bookmarks.delete(bookmark.id)
         await this.profileStore.removeBookmark(bookmark.id)
@@ -1093,10 +1106,18 @@ export class Session {
     let waitedForDiscovery = false
     for (;;) {
       try {
-        return await Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)
+        return await Promise.race([
+          Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace),
+          new Promise<never>((_, reject) => setTimeout(
+            () => reject(Object.assign(new Error('Opening the room took too long'), { code: 'STORAGE_EMPTY' })),
+            ROOM_OPEN_TIMEOUT_MS
+          ))
+        ])
       } catch (err) {
         if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
-        if (Date.now() >= deadline) throw new Error(this.joinFailureReason())
+        if (Date.now() >= deadline) {
+          throw Object.assign(new Error(this.joinFailureReason()), { code: 'ROOM_UNREACHABLE' })
+        }
         if (!waitedForDiscovery) {
           waitedForDiscovery = true
           await Promise.race([discovered, new Promise((resolve) => setTimeout(resolve, deadline - Date.now()))])

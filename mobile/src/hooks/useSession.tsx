@@ -101,7 +101,14 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('directoryChange', () => setTick((t) => t + 1))
 
     const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort())
-    await s.reopenBookmarkedRooms()
+    // Deliberately not awaited. Reopening every bookmarked room needs the network for any room
+    // this device has not replicated yet, so one unreachable or half-purged room used to hold the
+    // unlock screen — and the whole app — hostage behind it. The room list renders from bookmarks
+    // and fills in as rooms come up.
+    void s.reopenBookmarkedRooms()
+      .then(() => s.listRoomSummaries())
+      .then(setBookmarks)
+      .catch(() => {})
     // Fire-and-forget: joinRoomByKey can block ~30s waiting on the swarm (see RoomsScreen's
     // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in
     // time — fine either way, don't hold up onboarding for it. Refreshes bookmarks on success
