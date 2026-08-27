@@ -1188,10 +1188,25 @@ export class Session {
 
   /** Revokes write access. If the caller is the room owner, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued kick/ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only the owner distributes room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-kicked member could still decrypt messages sent before the owner next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
   private async revokeWrite(room: Room, writerKeyHex: string): Promise<void> {
-    await room.removeWriter(b4a.from(writerKeyHex, 'hex'))
+    // Revoke the person, not the key. One identity can hold several writer keys — a rejoin issues
+    // a new one (see joinRoomByKey), and a second device brings its own — so removing only the key
+    // that happened to be clicked left the member writing happily through another of theirs.
+    const members = room.listMembers()
+    const removedIdentity = members.find((m) => m.writerKey === writerKeyHex)?.identityId
+    const keysToRemove = removedIdentity
+      ? members.filter((m) => m.identityId === removedIdentity).map((m) => m.writerKey)
+      : [writerKeyHex]
+    for (const key of keysToRemove) await room.removeWriter(b4a.from(key, 'hex'))
+
     if (!room.isOwner(this.identity.id)) return
     const { epoch, keyHex } = room.rotateKey()
+
+    // `listMembers()` can still list the member just removed: removal is a log entry and apply()
+    // has not necessarily linearized it yet. Excluding them explicitly is what actually stops the
+    // rotation from handing the fresh key straight back to the person it was rotated away from.
     const remainingIds = new Set(room.listMembers().map((m) => m.identityId))
+    if (removedIdentity) remainingIds.delete(removedIdentity)
+
     for (const peer of this.peers.values()) {
       const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
       if (remainingIds.has(peerIdentityId)) peer.rpc.sendRoomKey({ roomId: room.id, epoch, key: keyHex })
