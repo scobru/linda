@@ -238,9 +238,14 @@ export class Session {
           try {
             const roomName = message.name || contact.nickname || message.fromId.slice(0, 8)
             let room = this.rooms.get(message.roomId)
+            let storeId: string | undefined
             if (!room) {
               const initialKeys = await this.profileStore.getRoomKeys(message.roomId)
-              room = await Room.open(this.store, message.roomId, b4a.from(message.bootstrapKey, 'hex'), this.identity.id, initialKeys)
+              // Fresh namespace, for the same reason as joinRoomByKey: reusing the room id as the
+              // namespace regenerates the writer key we had before, which after a leave-and-purge
+              // is a key the log already knows and nobody can re-grant.
+              storeId = randomId(8)
+              room = await Room.open(this.store, message.roomId, b4a.from(message.bootstrapKey, 'hex'), this.identity.id, initialKeys, storeId)
               this.setupRoomKeyPersistence(room)
               this.pendingInviteCodes.set(room.id, message.inviteCode)
               await this.joinTopic(room)
@@ -250,7 +255,7 @@ export class Session {
             // room/lobby topic), so `onConnection` won't re-fire for this brand-new room's topic —
             // request write access explicitly instead of waiting for a connection event that never comes.
             for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
-            await this.saveBookmark({ id: room.id, name: roomName, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar })
+            await this.saveBookmark({ id: room.id, name: roomName, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar, storeId })
             const updated: ContactEntry = { ...contact, nickname: roomName, status: 'accepted', roomId: room.id, avatar: message.avatar || contact.avatar, pendingResponse: undefined }
             this.contacts.set(message.fromId, updated)
             if (message.avatar) {
@@ -925,7 +930,20 @@ export class Session {
     }
 
     const initialKeys = await this.profileStore.getRoomKeys(roomId)
-    const room = await this.openRoomWithRetry(roomId, bootstrapKey, initialKeys)
+    // Fresh namespace per join, rather than reusing `roomId` as the namespace.
+    //
+    // Autobase derives its writer key from the corestore namespace (`store.get({ name: 'local' })`),
+    // so joining under `roomId` regenerated the exact same writer key every time. That is fine on a
+    // first join and broken on a re-join after leaving: leaving purges the local writer core, but
+    // the room's log still lists that key as a writer with blocks behind it, so the returning member
+    // came back holding an empty core the network believes is long — and never became writable
+    // again. It also could not be rescued by re-granting access, because the key was already in the
+    // writer set and there was nothing to add.
+    //
+    // A new namespace means a genuinely new writer key, which the owner grants through the normal
+    // `addWriter` path.
+    const storeId = randomId(8)
+    const room = await this.openRoomWithRetry(roomId, bootstrapKey, initialKeys, storeId)
     this.setupRoomKeyPersistence(room)
     this.pendingInviteCodes.set(roomId, inviteCode)
     await this.joinTopic(room)
@@ -933,7 +951,7 @@ export class Session {
     // See onContactResponse: an already-connected peer's socket is reused for this room's
     // topic too, so `onConnection` won't fire again to trigger the write request on its own.
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
-    await this.saveBookmark({ id: roomId, name: name.trim(), bootstrapKey: bootstrapKeyHex, avatar, description })
+    await this.saveBookmark({ id: roomId, name: name.trim(), bootstrapKey: bootstrapKeyHex, avatar, description, storeId })
     return room
   }
 
