@@ -19,9 +19,17 @@ export interface SwarmHandlers extends RpcHandlers {
  * peers never connect. Pinning the socket to a port the VPN forwards makes it reachable again.
  * `dhtPort` comes from the user's network settings; the env var is the headless/dev equivalent.
  * Unset (the normal case) keeps hyperdht's own default. */
-export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, dhtPort?: number): Hyperswarm {
-  const port = dhtPort || Number(globalThis.process?.env?.LINDA_DHT_PORT) || undefined
-  const swarm = new Hyperswarm({ keyPair: identity, port })
+/** How this swarm reaches the network. `bootstrap` points the DHT at specific nodes instead of
+ * the public network — production never sets it; tests point it at an in-process testnet so the
+ * real swarm, RPC and discovery code all run without touching the internet. */
+export interface SwarmTransport {
+  dhtPort?: number
+  bootstrap?: Array<{ host: string; port: number }>
+}
+
+export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, transport: SwarmTransport = {}): Hyperswarm {
+  const port = transport.dhtPort || Number(globalThis.process?.env?.LINDA_DHT_PORT) || undefined
+  const swarm = new Hyperswarm({ keyPair: identity, port, bootstrap: transport.bootstrap })
 
   swarm.on('connection', (socket, info) => {
     // `fromId` is self-declared, but the connection's noise key is the same key the app uses as

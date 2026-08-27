@@ -11,6 +11,9 @@ declare module 'hyperswarm' {
     keyPair?: { publicKey: Buffer; secretKey: Buffer }
     /** UDP port hyperdht binds its socket to. Defaults to 49737. */
     port?: number
+    /** DHT nodes to bootstrap from instead of the public network. Tests point this at an
+     * in-process testnet (hyperdht/testnet); production leaves it unset. */
+    bootstrap?: Array<{ host: string; port: number }>
   }
 
   export interface JoinOptions {

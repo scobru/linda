@@ -1,0 +1,32 @@
+# Runs the test suite on every push and pull request.
+#
+# The repo had no workflow running tests at all, so the suite only ever ran when someone
+# remembered to type `npm test` — which is how a complete two-Session integration harness sat in
+# test/ unexecuted since the initial commit.
+#
+# The Session test bootstraps an in-process DHT (hyperdht/testnet), so nothing here needs the
+# public network. Set LINDA_TEST_DHT=public to run those assertions against the real DHT instead;
+# that is a manual check, not something to gate a push on.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Skips the mobile workspace: it pulls the whole React Native toolchain and the suite is core.
+      - run: npm ci --workspaces=false --include-workspace-root
+
+      - run: npm run typecheck
+
+      - run: npm test

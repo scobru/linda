@@ -565,7 +565,7 @@ export class AppShell extends HTMLElement {
     if (!this.identity) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
     try {
-      this.session = await Session.create(this.identity, storageDir(), {
+      this.session = await Session.create(this.identity, storageDir(), { events: {
         onTyping: (m) => this.onTyping(m.roomId, m.userId, m.typing),
         onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar),
         onReadReceipt: (m) => this.onReadReceipt(m.roomId, m.userId),
@@ -578,7 +578,7 @@ export class AppShell extends HTMLElement {
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
-      }, dhtPort())
+      }, transport: { dhtPort: dhtPort() } })
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {

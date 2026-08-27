@@ -8,7 +8,7 @@ import type Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import type { Identity } from '../identity/index.js'
 import { loadProfile } from '../identity/profile.js'
-import { createSwarm, joinRoom, type PeerConnection } from '../network/swarm.js'
+import { createSwarm, joinRoom, type PeerConnection, type SwarmTransport } from '../network/swarm.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
@@ -109,7 +109,7 @@ export class Session {
   private writeRequestTimer: ReturnType<typeof setInterval> | null = null
   private readonly events: SessionEvents
 
-  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, dhtPort?: number) {
+  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport) {
     this.identity = identity
     this.storageDir = storageDir
     this.store = store
@@ -303,7 +303,7 @@ export class Session {
         this.peers.delete(b4a.toString(publicKey, 'hex'))
         events.onPeerDisconnected?.(publicKey)
       }
-    }, dhtPort)
+    }, transport)
 
     this.trackDiscovery(LOBBY_TOPIC)
   }
@@ -318,15 +318,20 @@ export class Session {
     }
   }
 
-  /** `dhtPort` pins the swarm's UDP socket — see `createSwarm`; the UI surfaces it as the
+  /** `transport.dhtPort` pins the swarm's UDP socket — see `createSwarm`; the UI surfaces it as the
    * VPN port-forwarding setting on the network status page. */
-  static async create(identity: Identity, storageDir: string, events: SessionEvents = {}, dhtPort?: number): Promise<Session> {
+  static async create(
+    identity: Identity,
+    storageDir: string,
+    opts: { events?: SessionEvents; transport?: SwarmTransport } = {}
+  ): Promise<Session> {
+    const events = opts.events ?? {}
     const storePath = path.join(storageDir, 'store')
     const store = fs.existsSync(storePath)
       ? new Corestore(storePath)
       : new Corestore(storePath, { primaryKey: hypercoreCrypto.hash(identity.secretKey), unsafe: true })
     const profileStore = await ProfileStore.open(store)
-    const session = new Session(identity, storageDir, store, profileStore, events, dhtPort)
+    const session = new Session(identity, storageDir, store, profileStore, events, opts.transport ?? {})
     await session.migrateJsonIfNeeded()
     for (const bookmark of await profileStore.listBookmarks()) session.bookmarks.set(bookmark.id, bookmark)
     // Self-heal directory entries orphaned by leaving/deleting a room you announced yourself,

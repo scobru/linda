@@ -199,6 +199,11 @@ can ship without waiting on the second.
 ## Testing
 
 ```bash
-npm test                        # room/autobase unit tests
-node test/p2p-integration.ts    # two real Session instances over real Hyperswarm (build with esbuild first, see test.js for the pattern)
+npm test                                 # everything, including two real Sessions over an in-process DHT
+LINDA_TEST_DHT=public npm test           # same assertions against the public DHT instead
 ```
+
+`test/session.test.ts` runs two `Session` instances against each other — real swarm, real RPC, real
+replication — bootstrapped from an in-process `hyperdht` testnet rather than the public network. It
+covers the join -> write-grant -> replicate path, which nothing else does. Every push runs the suite
+(`.github/workflows/test.yml`).
