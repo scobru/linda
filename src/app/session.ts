@@ -947,10 +947,21 @@ export class Session {
     const roomId = bootstrapKeyHex.slice(0, 16)
 
     const existingRoom = this.rooms.get(roomId)
-    if (existingRoom) {
+    if (existingRoom?.writable) {
       if (inviteCode) this.pendingInviteCodes.set(roomId, inviteCode)
       for (const peer of this.peers.values()) this.requestWriteIfNeeded(existingRoom, peer)
       return existingRoom
+    }
+    if (existingRoom) {
+      // Opening an invite for a room that is already here and still cannot be written to is the
+      // user asking to start over — nobody pastes an invite for a room that works. This used to
+      // hand back the existing room untouched, which made the link a no-op against exactly the
+      // broken state it was needed for: a room whose local writer core was purged by a failed
+      // leave can only be fixed by rebuilding it, never by asking for access again.
+      //
+      // Messages and membership come back from peers; the only thing discarded is this device's
+      // unusable copy.
+      await this.deleteRoom(roomId)
     }
 
     const initialKeys = await this.profileStore.getRoomKeys(roomId)
