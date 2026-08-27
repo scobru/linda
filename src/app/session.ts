@@ -44,6 +44,9 @@ const PROFILE_FILE = 'profile.json'
  * a DHT hole-punch to a phone can take a while, and the alternative is a spurious failure. */
 const JOIN_REPLICATION_TIMEOUT_MS = 45_000
 
+/** How often a room still waiting on write access re-asks the owner. */
+const WRITE_REQUEST_RETRY_MS = 15_000
+
 interface CoreDeleteStorage {
   store: { deleteCore(ptr: unknown): Promise<void> }
   core: unknown
@@ -93,6 +96,7 @@ export class Session {
   private wallpaper = ''
   private readonly peerAvatars = new Map<string, string>()
   private readonly peerNicknames = new Map<string, string>()
+  private writeRequestTimer: ReturnType<typeof setInterval> | null = null
   private readonly events: SessionEvents
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, dhtPort?: number) {
@@ -332,6 +336,7 @@ export class Session {
         usedCount: token.usedCount
       })
     }
+    session.startWriteRequestRetry()
     session.wallpaper = await profileStore.getWallpaper()
     session.nickname = await profileStore.getNickname()
     session.avatar = await profileStore.getAvatar()
@@ -1298,7 +1303,32 @@ export class Session {
     }
   }
 
+  /**
+   * Re-asks for write access on rooms that still lack it.
+   *
+   * The owner only ever grants in response to a request, and a request was only sent on join and
+   * on each *new* peer connection. One dropped or ill-timed request — the owner's room not open
+   * yet, the grant racing a reconnect — therefore stranded a member as read-only indefinitely,
+   * because an already-established connection never produces another `onConnection` to retry on.
+   */
+  private startWriteRequestRetry(): void {
+    if (this.writeRequestTimer) return
+    this.writeRequestTimer = setInterval(() => {
+      for (const room of this.rooms.values()) {
+        if (room.writable) continue
+        for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
+      }
+    }, WRITE_REQUEST_RETRY_MS)
+    // Node keeps the process alive for a pending interval; this one must never be the reason a
+    // headless session refuses to exit.
+    this.writeRequestTimer.unref?.()
+  }
+
   async close(): Promise<void> {
+    if (this.writeRequestTimer) {
+      clearInterval(this.writeRequestTimer)
+      this.writeRequestTimer = null
+    }
     for (const pending of this.remoteDrives.values()) {
       try {
         await (await pending).close()
