@@ -2898,6 +2898,9 @@ export class AppShell extends HTMLElement {
     const room = this.activeRoom
     if (!room || !this.session) { this.view = 'app'; return this.render() }
     const members = room.listMembers()
+    // Banned identities that no longer hold a writer key, so they appear in no member row.
+    const memberIds = new Set(members.map((m) => m.identityId))
+    const bannedOnly = room.listBanned().filter((id) => !memberIds.has(id))
     const myId = this.identity!.id
     const iAmOwner = room.isOwner(myId)
     const iCanModerate = room.canModerate(myId)
@@ -3003,6 +3006,28 @@ export class AppShell extends HTMLElement {
                 `
               }).join('')}
             </div>
+
+            ${bannedOnly.length > 0 ? `
+              <div style="display:flex;align-items:center;justify-content:space-between;margin:1.25rem 0 0.5rem;">
+                <h3 style="font-size:0.85rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">Banned (${bannedOnly.length})</h3>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                ${bannedOnly.map((identityId) => `
+                  <div class="member-card">
+                    <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
+                      ${avatarHtml(identityId, 'sm', this.displayName(identityId), this.avatars.get(identityId) || '')}
+                      <div style="min-width:0;">
+                        <div style="font-weight:600;font-size:0.85rem;color:var(--text);">${escapeHtml(this.displayName(identityId))}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);">${escapeHtml(identityId.slice(0, 16))}…</div>
+                      </div>
+                    </div>
+                    ${iCanModerate ? `
+                      <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unban-id="${identityId}" title="Unban member">Unban</button>
+                    ` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
           </div>
         </div>
       </div>
