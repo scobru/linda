@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Corestore from 'corestore'
+import b4a from 'b4a'
 import { Room } from '../src/rooms/room.js'
 import { randomId } from '../src/util/id.js'
 
@@ -269,6 +270,32 @@ test('security: a member still cannot remove someone else', async () => {
 
   await reopen(a)
   assert.equal(a.room.listMembers().length, 2, 'a member-issued removal of someone else must be ignored')
+
+  await closeWriter(a)
+  await closeWriter(b)
+})
+
+test('a kicked member regains write access when re-admitted with the same key', async () => {
+  const { a, b } = await setupTwoWriterRoom()
+  const bKey = b.room.localWriterKey
+
+  assert.equal(b.room.writable, true, 'b starts out writable')
+
+  // No reopen anywhere in here. Autobase tracks writers in memory as well as in the replicated
+  // system state, and reopening rebuilds them from that state — which would mask whether the live
+  // objects handle a removal followed by a re-admission correctly.
+  await a.room.removeWriter(bKey)
+  await sync(a.store, b.store)
+  assert.equal(b.room.writable, false, 'a removed writer must lose write access')
+
+  await a.room.addWriter(bKey, b.identityId)
+  await sync(a.store, b.store)
+  assert.equal(b.room.writable, true, 'a re-admitted writer must be able to post again')
+
+  assert.ok(
+    b.room.listMembers().some((m) => m.writerKey === b4a.toString(bKey, 'hex')),
+    're-admission must also restore membership'
+  )
 
   await closeWriter(a)
   await closeWriter(b)
