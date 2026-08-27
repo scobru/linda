@@ -2,12 +2,12 @@
 //
 // Everything below the seam is production code: the real Hyperswarm, the real RPC channel, real
 // Corestore replication, real peer discovery. The only thing swapped is *which* DHT they bootstrap
-// from — an in-process testnet instead of the public network — because the flow worth covering is
-// the one where a join produces a write grant over RPC, and faking the swarm would remove exactly
-// the discovery timing that flow depends on.
+// from — an in-process testnet instead of the public network — because the flows worth covering are
+// the ones where a join produces a write grant over RPC, and faking the swarm would remove exactly
+// the discovery timing those flows depend on.
 //
 // Set LINDA_TEST_DHT=public to run the same assertions against the real network instead.
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -23,6 +23,21 @@ const USE_PUBLIC_DHT = process.env.LINDA_TEST_DHT === 'public'
 
 /** Generous: a real grant crosses a DHT lookup, a hole-punch and an RPC round trip. */
 const SETTLE_MS = USE_PUBLIC_DHT ? 60_000 : 30_000
+
+/** One testnet for the whole file. Spinning up DHT nodes is the expensive part, and two tests
+ * sharing a DHT do not contaminate each other the way two sharing an identity would. */
+let testnetPromise: Promise<{ bootstrap: unknown[]; destroy(): Promise<void> } | null> | null = null
+
+function transport(): Promise<SwarmTransport> {
+  if (USE_PUBLIC_DHT) return Promise.resolve({})
+  testnetPromise ??= createTestnet(4)
+  return testnetPromise.then((net) => ({ bootstrap: (net as { bootstrap: never }).bootstrap }))
+}
+
+after(async () => {
+  const net = await testnetPromise
+  if (net) await net.destroy()
+})
 
 function makeIdentity(): Identity {
   const kp = generateKeypair()
@@ -42,38 +57,46 @@ async function waitFor(check: () => boolean, label: string, timeoutMs = SETTLE_M
   }
 }
 
-test('a peer joining by invite is granted write access and replicates messages', async (t) => {
-  // One testnet for the file: spinning up DHT nodes is the expensive part, and two tests sharing a
-  // DHT do not contaminate each other the way two tests sharing an identity would.
-  const testnet = USE_PUBLIC_DHT ? null : await createTestnet(4)
-  const transport: SwarmTransport = testnet ? { bootstrap: testnet.bootstrap } : {}
+interface Pair {
+  sessionA: Session
+  sessionB: Session
+  identityA: Identity
+  identityB: Identity
+}
 
+/** A room owned by A that B has joined and can post to — the starting point for every case here. */
+async function joinedPair(t: { after(fn: () => Promise<void>): void }): Promise<Pair & {
+  roomId: string
+  invite: string
+}> {
+  const net = await transport()
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-session-test-'))
   const identityA = makeIdentity()
   const identityB = makeIdentity()
 
-  const sessionA = await Session.create(identityA, path.join(base, 'a'), { transport })
-  const sessionB = await Session.create(identityB, path.join(base, 'b'), { transport })
+  const sessionA = await Session.create(identityA, path.join(base, 'a'), { transport: net })
+  const sessionB = await Session.create(identityB, path.join(base, 'b'), { transport: net })
 
   t.after(async () => {
     await sessionA.close()
     await sessionB.close()
-    if (testnet) await testnet.destroy()
     fs.rmSync(base, { recursive: true, force: true })
   })
 
   const roomA = await sessionA.createRoom('test-room')
   const invite = sessionA.inviteLinkFor(roomA.id)
-
   const roomB = await sessionB.joinRoomByKey('test-room', invite)
 
   await waitFor(() => sessionA.peers.size > 0 && sessionB.peers.size > 0, 'the two sessions to find each other')
+  await waitFor(() => roomB.writable && roomB.hasKey, 'B to be granted write access and the room key')
 
-  // The part with no coverage until now: write access and the room's content key both arrive over
-  // the RPC grant the invite code triggers. No manual addWriter — if the grant path breaks, this
-  // is where it shows.
-  await waitFor(() => roomB.writable, 'B to be granted write access')
-  await waitFor(() => roomB.hasKey, 'B to receive the room key')
+  return { sessionA, sessionB, identityA, identityB, roomId: roomA.id, invite }
+}
+
+test('a peer joining by invite is granted write access and replicates messages', async (t) => {
+  const { sessionA, sessionB, identityA, identityB, roomId } = await joinedPair(t)
+  const roomA = sessionA.getRoom(roomId)!
+  const roomB = sessionB.getRoom(roomId)!
 
   await roomB.send(identityB.id, 'hello from B')
   await waitFor(() => roomA.messageCount > 0, "B's message to replicate to A")
@@ -87,4 +110,53 @@ test('a peer joining by invite is granted write access and replicates messages',
     [identityA.id, identityB.id].sort(),
     'both identities are members once the grant has applied'
   )
+})
+
+test('leaving removes the room from this device and tells the room', async (t) => {
+  const { sessionA, sessionB, identityB, roomId } = await joinedPair(t)
+  const roomA = sessionA.getRoom(roomId)!
+
+  await sessionB.deleteRoom(roomId)
+
+  assert.equal(sessionB.listBookmarks().some((b) => b.id === roomId), false,
+    'the room is gone from the leaver, even though purging storage is best effort')
+  assert.equal(sessionB.getRoom(roomId), undefined, 'and it is no longer open')
+
+  await waitFor(
+    () => !roomA.listMembers().some((m) => m.identityId === identityB.id),
+    'A to stop listing the member who left'
+  )
+})
+
+test('rejoining by invite after leaving restores write access', async (t) => {
+  const { sessionB, roomId, invite } = await joinedPair(t)
+
+  await sessionB.deleteRoom(roomId)
+
+  // Leaving purges the local writer core. Rejoining under the same corestore namespace would
+  // regenerate the identical writer key — one the room already lists, so there is nothing for the
+  // owner to add and nothing that can restore write access. Joins take a fresh namespace for
+  // exactly this reason.
+  const rejoined = await sessionB.joinRoomByKey('test-room', invite)
+  await waitFor(() => rejoined.writable && rejoined.hasKey, 'B to be granted write access again')
+})
+
+test('a kicked member can be let back in with an invite', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, invite } = await joinedPair(t)
+  const roomA = sessionA.getRoom(roomId)!
+  const roomB = sessionB.getRoom(roomId)!
+
+  const kickedKey = b4a.toString(roomB.localWriterKey, 'hex')
+  await sessionA.kickMember(roomId, kickedKey)
+
+  await waitFor(() => !roomB.writable, 'B to lose write access')
+  await waitFor(
+    () => !roomA.listMembers().some((m) => m.identityId === identityB.id),
+    'A to stop listing the kicked member'
+  )
+
+  // A kick is meant to be reversible with a fresh invite, unlike a ban. The invite code is what
+  // gets them past the grant gate now that their identity is no longer a known member.
+  const rejoined = await sessionB.joinRoomByKey('test-room', invite)
+  await waitFor(() => rejoined.writable && rejoined.hasKey, 'the kicked member to be let back in')
 })
