@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
-  TextInput, Alert, Modal, SafeAreaView, Switch,
+  TextInput, Alert, Modal, SafeAreaView, Switch, Linking,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
@@ -60,8 +60,8 @@ export default function RoomsScreen({ navigation }: Props) {
   // Navigates immediately and lets RoomChatScreen run the actual join in the background —
   // joinRoomByKey can block for up to ~30s waiting on the swarm (see session.ts's
   // openRoomWithRetry), and there's no reason to freeze this modal for that.
-  const handleJoinRoom = useCallback(() => {
-    const trimmed = inviteLink.trim()
+  const joinFromInvite = useCallback((raw: string) => {
+    const trimmed = raw.trim()
     if (!trimmed) return
     // linda-pear:// invite URL, or raw bootstrapKey:inviteCode
     const invite = decodeInvite(trimmed)
@@ -80,7 +80,20 @@ export default function RoomsScreen({ navigation }: Props) {
       return
     }
     navigation.navigate('RoomChat', { roomName: name, pendingJoin: { name, key } })
-  }, [inviteLink, navigation, session])
+  }, [navigation, session])
+
+  const handleJoinRoom = useCallback(() => joinFromInvite(inviteLink), [joinFromInvite, inviteLink])
+
+  // An invite is a `linda-pear://` link, so it can arrive from anywhere the user was handed one —
+  // another messenger, the browser, a QR scanner. Without this the app registered no scheme and
+  // handled no deep link, so tapping an invite did nothing at all and the only way in was to copy
+  // the text and paste it into the join field, which is not something anyone guesses.
+  useEffect(() => {
+    const onUrl = (url: string | null) => { if (url) joinFromInvite(url) }
+    void Linking.getInitialURL().then(onUrl).catch(() => {})
+    const sub = Linking.addEventListener('url', (e) => onUrl(e.url))
+    return () => sub.remove()
+  }, [joinFromInvite])
 
   const openRoom = useCallback((id: string, name: string) => {
     navigation.navigate('RoomChat', { roomId: id, roomName: name })

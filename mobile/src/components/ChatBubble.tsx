@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, Text, StyleSheet, Pressable, Image } from 'react-native'
+import { View, Text, StyleSheet, Pressable, Image, Linking } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { splitOnHashtags } from '@core/util/hashtag'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
@@ -58,6 +58,17 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+
+/** Splits a run of plain text so a `linda-pear://` invite inside it can be tapped. Without this
+ * an invite pasted into a chat was inert text on mobile — the app registered no URL scheme and the
+ * bubble rendered no links, so the only way to use one was to select and copy it by hand. */
+const INVITE_LINK = /(linda-pear:\/\/\S+)/g
+
+function splitOnInviteLinks(text: string): Array<{ text: string; link?: string }> {
+  return text.split(INVITE_LINK).filter(Boolean).map((part) =>
+    part.startsWith('linda-pear://') ? { text: part, link: part } : { text: part }
+  )
+}
 
 export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
@@ -193,7 +204,19 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
                       {part.text}
                     </Text>
                   ) : (
-                    <Text key={i}>{part.text}</Text>
+                    splitOnInviteLinks(part.text).map((piece, j) =>
+                      piece.link ? (
+                        <Text
+                          key={`${i}-${j}`}
+                          style={styles.inviteLink}
+                          onPress={() => void Linking.openURL(piece.link!).catch(() => {})}
+                        >
+                          {piece.text}
+                        </Text>
+                      ) : (
+                        <Text key={`${i}-${j}`}>{piece.text}</Text>
+                      )
+                    )
                   )
                 )
               : message.body}
@@ -347,6 +370,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: 1,
     backgroundColor: colors.textSecondary,
     opacity: 0.55,
+  },
+  inviteLink: {
+    color: colors.accent,
+    textDecorationLine: 'underline',
   },
   hashtag: { fontWeight: typography.semibold, textDecorationLine: 'underline' },
   voiceLabel: {

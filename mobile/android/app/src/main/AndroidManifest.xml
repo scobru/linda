@@ -23,6 +23,15 @@
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
+      <!-- Routes linda-pear:// invite links to the app. Declared here as well as in app.json:
+           android/ is committed rather than regenerated, so a prebuild-only scheme would never
+           reach this manifest and the link would stay unhandled by the system. -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="linda-pear"/>
+      </intent-filter>
     </activity>
   </application>
 </manifest>
