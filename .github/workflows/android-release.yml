@@ -58,7 +58,10 @@ jobs:
 
       - name: Assemble the universal release APK
         working-directory: mobile/android
-        run: ./gradlew assembleRelease --no-daemon
+        # gradlew is committed from a Windows machine, which drops the executable bit.
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
 
       - name: Name the artifact
         id: artifacts
