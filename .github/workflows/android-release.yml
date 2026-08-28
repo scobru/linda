@@ -1,0 +1,75 @@
+# Builds the Android app (.apk) and attaches it to a GitHub release.
+#
+# Runs in CI instead of on a dev's own machine — mirrors macos-release.yml's trigger and upload
+# shape. Signed with the debug keystore committed at mobile/android/app/debug.keystore (same as
+# every prior release: "beta firmata in debug"), so this is not a Play Store-ready build.
+name: Android release build
+
+on:
+  # Runs when a release is published rather than when the tag is pushed: the upload target has to
+  # exist first, and the tag is pushed before the release is created.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.14.14)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag being built
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Installs the mobile workspace too: the worklet bundle step below needs esbuild and the
+      # app's own dependencies, unlike the desktop build which skips it entirely.
+      - run: npm ci --include-workspace-root
+
+      # Bundles the Bare worklet (worklet/dist/worklet.bundle.cjs) that the APK embeds as an
+      # asset — react-native-bare-kit's own Gradle `link` task then resolves the native addons
+      # into the build, but only once this bundle exists on disk.
+      - run: npm run worklet
+        working-directory: mobile
+
+      - name: Assemble the universal release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Name the artifact
+        id: artifacts
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p upload
+          src="$(find mobile/android/app/build/outputs/apk/release -name '*universal-release.apk' -print -quit)"
+          if [ -z "$src" ]; then
+            echo "no universal release apk produced" >&2
+            exit 1
+          fi
+          cp "$src" "upload/linda-pear-$TAG-android-universal.apk"
+          ls -la upload
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.apk --clobber

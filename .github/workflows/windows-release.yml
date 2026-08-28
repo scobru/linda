@@ -1,0 +1,76 @@
+# Builds the Windows desktop app (.msix) and attaches it to a GitHub release.
+#
+# Runs in CI instead of on a dev's own Windows machine so a release doesn't depend on someone
+# having `npm run make` handy locally — mirrors macos-release.yml's trigger and upload shape.
+#
+# The package is self-signed (packagerConfig.icon + forge.config.cjs's manifestVariables.publisher,
+# no real code-signing cert), so Windows warns ("Windows protected your PC") on first install.
+name: Windows release build
+
+on:
+  # Runs when a release is published rather than when the tag is pushed: the upload target has to
+  # exist first, and the tag is pushed before the release is created.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.14.14)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve the tag being built
+        id: tag
+        shell: bash
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Skips the mobile workspace: it pulls the whole React Native toolchain, and none of it goes
+      # into the desktop app.
+      - run: npm ci --workspaces=false --include-workspace-root
+
+      - run: npm run build
+
+      - name: Package for win32/x64
+        run: npx electron-forge make --platform=win32 --arch=x64
+
+      - name: Name the artifact
+        id: artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p upload
+          src="$(find out/make/msix/x64 -name '*.msix' -print -quit)"
+          if [ -z "$src" ]; then
+            echo "no msix produced" >&2
+            exit 1
+          fi
+          cp "$src" "upload/linda-pear-$TAG-win-x64.msix"
+          ls -la upload
+
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.msix --clobber
+
+# To real-sign instead of shipping a self-signed package Windows SmartScreen warns on:
+#   1. Get a code-signing certificate (EV recommended — avoids SmartScreen's reputation delay).
+#   2. Add repository secrets: WINDOWS_CERTIFICATE (base64 of the .pfx), WINDOWS_CERTIFICATE_PWD.
+#   3. Import the cert in this job and set `packagerConfig.win32metadata` / a signing hook
+#      (or an `@electron/windows-sign` step) so Forge signs the package before making the .msix.
