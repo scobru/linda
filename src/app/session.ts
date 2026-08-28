@@ -1412,9 +1412,18 @@ export class Session {
   private startWriteRequestRetry(): void {
     if (this.writeRequestTimer) return
     this.writeRequestTimer = setInterval(() => {
-      for (const room of this.rooms.values()) {
-        if (room.writable) continue
-        for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
+      // A throw anywhere in this loop is an uncaught exception on the event loop — nothing else
+      // in the process catches it — so on the mobile worklet it took the whole app down rather
+      // than skip one bad room/peer. `requestWriteIfNeeded`'s own send is already defensive (see
+      // rpc.ts's safeSend), but this loop also touches room/peer state on every tick indefinitely
+      // for as long as write access is missing, which is more exposure than a one-shot call gets.
+      try {
+        for (const room of this.rooms.values()) {
+          if (room.writable) continue
+          for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
+        }
+      } catch (err) {
+        console.warn('[session] write-request retry tick failed:', (err as Error).message)
       }
     }, WRITE_REQUEST_RETRY_MS)
     // Node keeps the process alive for a pending interval; this one must never be the reason a

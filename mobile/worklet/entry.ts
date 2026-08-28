@@ -17,8 +17,24 @@ import { FORWARDED_SESSION_METHODS } from '../src/bare/session-contract.js'
 import type { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
+declare const Bare: { on(event: string, listener: (...args: any[]) => void): void }
 
 const { IPC } = BareKit
+
+// An exception with nowhere left to be caught otherwise kills the whole worklet — and with it
+// the app, since react-native-bare-kit gives no way back in short of a full restart. `console.*`
+// here reaches the system log under the `bare` tag (see react-native-bare-kit's README), so this
+// trades a silent, undiagnosable crash for a warning plus a slightly stale in-memory session state
+// still running on the next request, which is strictly better for the one specific case this is
+// meant to catch: a fire-and-forget background call (the write-request retry, a peer RPC push)
+// throwing on state that changed mid-flight. It does not paper over a request's own errors —
+// those already reply {ok:false} through handleRequest's try/catch.
+Bare.on('uncaughtException', (err: Error) => {
+  console.error('[worklet] uncaught exception:', err?.stack || err)
+})
+Bare.on('unhandledRejection', (err: Error) => {
+  console.error('[worklet] unhandled rejection:', err?.stack || err)
+})
 
 let identity: Identity | null = null
 let session: Session | null = null
