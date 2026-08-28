@@ -45,9 +45,14 @@ jobs:
       # app's own dependencies, unlike the desktop build which skips it entirely.
       - run: npm ci --include-workspace-root
 
+      # Copies the native addons (bare-fs, sodium-native, udx-native, ...) that ship in the
+      # root package.json's own node_modules into react-native-bare-kit's Android sources, so
+      # Gradle packages them as jniLibs. A fresh checkout has none of this yet — only a dev's
+      # long-lived local install does — so it has to run every time, not just once.
+      - run: node node_modules/react-native-bare-kit/android/link.mjs
+
       # Bundles the Bare worklet (worklet/dist/worklet.bundle.cjs) that the APK embeds as an
-      # asset — react-native-bare-kit's own Gradle `link` task then resolves the native addons
-      # into the build, but only once this bundle exists on disk.
+      # asset.
       - run: npm run worklet
         working-directory: mobile
 
