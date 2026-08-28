@@ -17,6 +17,13 @@ export interface RoomBookmark {
   /** Set on the room behind an unclaimed contact link. Cleared the moment someone joins, which
    * is also when the room stops being a placeholder and becomes that person's direct chat. */
   contactInvite?: boolean
+  /** The invite code this device joined with, kept only while the room is still read-only here.
+   * The owner is the only one who can grant write access, and the code is what gets a returning
+   * member past that gate — so a rejoin made while the owner is away has to be able to present it
+   * again on the next run. Held in memory alone, it died with the process and the background
+   * retry then asked forever with an empty code. Cleared as soon as write access lands, so a
+   * member removed later still needs a fresh invite rather than replaying this one. */
+  inviteCode?: string
   /** Epoch ms of the last "Clear Chat History" — local-only, this device's view of the room only. Messages
    * at or before this point are hidden from the message list; the replicated log itself is untouched, so
    * they're still there for other members/devices and reappear here if this bookmark is ever reset. */

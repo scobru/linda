@@ -7,7 +7,9 @@ declare module 'corestore' {
 
   export interface HyperCore {
     key: Buffer
+    discoveryKey: Buffer
     length: number
+    close(): Promise<void>
     append(value: unknown): Promise<{ length: number }>
     get(index: number): Promise<unknown>
     on(event: string, listener: (...args: any[]) => void): this

@@ -264,9 +264,7 @@ export class Session {
             let storeId: string | undefined
             if (!room) {
               const initialKeys = await this.profileStore.getRoomKeys(message.roomId)
-              // Fresh namespace, for the same reason as joinRoomByKey: reusing the room id as the
-              // namespace regenerates the writer key we had before, which after a leave-and-purge
-              // is a key the log already knows and nobody can re-grant.
+              // Fresh namespace, for the same reason as joinRoomByKey: one set of cores per join.
               storeId = randomId(8)
               room = await Room.open(this.store, message.roomId, b4a.from(message.bootstrapKey, 'hex'), this.identity.id, initialKeys, storeId)
               this.setupRoomKeyPersistence(room)
@@ -278,7 +276,9 @@ export class Session {
             // room/lobby topic), so `onConnection` won't re-fire for this brand-new room's topic —
             // request write access explicitly instead of waiting for a connection event that never comes.
             for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
-            await this.saveBookmark({ id: room.id, name: roomName, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar, storeId })
+            await this.saveBookmark({ id: room.id, name: roomName, bootstrapKey: message.bootstrapKey, avatar: message.avatar || contact.avatar, storeId, inviteCode: room.writable ? undefined : message.inviteCode || undefined })
+            // See joinRoomByKey: a grant that lands before the bookmark exists leaves the code on it.
+            if (room.writable) this.clearPendingInvite(room.id)
             const updated: ContactEntry = { ...contact, nickname: roomName, status: 'accepted', roomId: room.id, avatar: message.avatar || contact.avatar, pendingResponse: undefined }
             this.contacts.set(message.fromId, updated)
             if (message.avatar) {
@@ -342,7 +342,12 @@ export class Session {
     const profileStore = await ProfileStore.open(store)
     const session = new Session(identity, storageDir, store, profileStore, events, opts.transport ?? {})
     await session.migrateJsonIfNeeded()
-    for (const bookmark of await profileStore.listBookmarks()) session.bookmarks.set(bookmark.id, bookmark)
+    for (const bookmark of await profileStore.listBookmarks()) {
+      session.bookmarks.set(bookmark.id, bookmark)
+      // A room still carrying an invite code was joined but never granted write access — restore
+      // the code so this run's write requests can present it (see RoomBookmark.inviteCode).
+      if (bookmark.inviteCode) session.pendingInviteCodes.set(bookmark.id, bookmark.inviteCode)
+    }
     // Self-heal directory entries orphaned by leaving/deleting a room you announced yourself,
     // from before deleteRoom() retracted its own announce on the way out.
     let prunedDirectory = false
@@ -963,7 +968,9 @@ export class Session {
     try {
       const namespaced = this.store.namespace(namespace)
       await namespaced.ready()
+      const spared = await this.writerCoreToSpare(namespaced, bookmark)
       for await (const discoveryKey of namespaced.list(namespaced.ns)) {
+        if (spared && b4a.equals(discoveryKey, spared)) continue
         const core = namespaced.get({ discoveryKey })
         await core.ready()
         await purgeCore(core)
@@ -973,6 +980,36 @@ export class Session {
       // Best effort by design: wasted disk is recoverable, a room you cannot leave is not.
       console.warn(`[session] could not purge storage for room ${roomId}:`, (err as Error).message)
     }
+  }
+
+  /**
+   * The discovery key of this device's own writer core for a room being left, which the purge must
+   * step over — or `null` when there is nothing to spare.
+   *
+   * A rejoin does not get a fresh writer key, however new a corestore namespace it picks. Autobase
+   * records the key on the room's *bootstrap* core as the `autobase/local` user data and reads that
+   * back in preference to deriving one (see autobase/lib/boot.js), and the bootstrap core is fetched
+   * by key rather than by name, so Corestore files it outside the namespace and the sweep never
+   * reaches it. The returning member therefore comes back on the key they left on.
+   *
+   * That is fine — leaving now removes that key from the room (`announceLeave`), so the owner has a
+   * real grant to re-issue — but only while the core behind it still holds its blocks. Purged, the
+   * member comes back holding an empty core the room's log believes is long, which Autobase will
+   * not adopt as a local writer: they read the room fine, can never post, and re-granting cannot
+   * fix it. That state survives every restart and every new invite, which is what made it look like
+   * the owner had stopped granting access.
+   *
+   * Not spared for a room we own: there the bootstrap core *is* the local core, so sparing it would
+   * leave the entire room on disk after the user asked to delete it. An owner never rejoins their
+   * own room anyway — they have no one to be granted access by.
+   */
+  private async writerCoreToSpare(namespaced: Corestore, bookmark: RoomBookmark | undefined): Promise<Buffer | null> {
+    if (!bookmark) return null
+    const local = namespaced.get({ name: 'local' })
+    await local.ready()
+    const discoveryKey = b4a.equals(local.key, b4a.from(bookmark.bootstrapKey, 'hex')) ? null : local.discoveryKey
+    await local.close()
+    return discoveryKey
   }
 
   /** `invite` is `bootstrapKeyHex` or `bootstrapKeyHex:inviteCode` (compound form shared via link/QR). */
@@ -1002,18 +1039,12 @@ export class Session {
     }
 
     const initialKeys = await this.profileStore.getRoomKeys(roomId)
-    // Fresh namespace per join, rather than reusing `roomId` as the namespace.
+    // Fresh namespace per join, rather than reusing `roomId` as the namespace, so two joins never
+    // share one set of cores.
     //
-    // Autobase derives its writer key from the corestore namespace (`store.get({ name: 'local' })`),
-    // so joining under `roomId` regenerated the exact same writer key every time. That is fine on a
-    // first join and broken on a re-join after leaving: leaving purges the local writer core, but
-    // the room's log still lists that key as a writer with blocks behind it, so the returning member
-    // came back holding an empty core the network believes is long — and never became writable
-    // again. It also could not be rescued by re-granting access, because the key was already in the
-    // writer set and there was nothing to add.
-    //
-    // A new namespace means a genuinely new writer key, which the owner grants through the normal
-    // `addWriter` path.
+    // It does not, despite appearances, hand a re-join a fresh writer key: Autobase prefers the key
+    // recorded on the room's bootstrap core over deriving one from the namespace, and that core
+    // outlives the namespace (see `writerCoreToSpare`, which is what keeps the reused key usable).
     const storeId = randomId(8)
     const room = await this.openRoomWithRetry(roomId, bootstrapKey, initialKeys, storeId)
     this.setupRoomKeyPersistence(room)
@@ -1023,7 +1054,10 @@ export class Session {
     // See onContactResponse: an already-connected peer's socket is reused for this room's
     // topic too, so `onConnection` won't fire again to trigger the write request on its own.
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
-    await this.saveBookmark({ id: roomId, name: name.trim(), bootstrapKey: bootstrapKeyHex, avatar, description, storeId })
+    await this.saveBookmark({ id: roomId, name: name.trim(), bootstrapKey: bootstrapKeyHex, avatar, description, storeId, inviteCode: room.writable ? undefined : inviteCode || undefined })
+    // The grant can land between the check above and this bookmark existing, in which case the
+    // `writable` listener had nothing to clear the code off yet. Re-check now that it does.
+    if (room.writable) this.clearPendingInvite(roomId)
     return room
   }
 
@@ -1126,7 +1160,7 @@ export class Session {
 
   private async joinTopic(room: Room): Promise<void> {
     this.trackDiscovery(hypercoreCrypto.discoveryKey(room.bootstrapKey))
-    room.onWritableChange(() => { if (room.writable) this.pendingInviteCodes.delete(room.id) })
+    room.onWritableChange(() => { if (room.writable) this.clearPendingInvite(room.id) })
     for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
   }
 
@@ -1305,6 +1339,16 @@ export class Session {
   regenerateInvite(roomId: string): string {
     this.issueInvite(roomId)
     return this.inviteLinkFor(roomId)
+  }
+
+  /** Drops the invite code once it has done its job. Kept off `pendingInviteCodes` *and* off the
+   * bookmark: a stored code that outlived the grant would let a member removed later be re-admitted
+   * by the background write-request retry, turning removal back into a timer. */
+  private clearPendingInvite(roomId: string): void {
+    this.pendingInviteCodes.delete(roomId)
+    const bookmark = this.bookmarks.get(roomId)
+    if (!bookmark?.inviteCode) return
+    void this.saveBookmark({ ...bookmark, inviteCode: undefined })
   }
 
   private async saveBookmark(bookmark: RoomBookmark): Promise<void> {
