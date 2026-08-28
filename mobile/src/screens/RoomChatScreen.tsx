@@ -267,12 +267,14 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   }, [selectedIds, deleteMessage, exitSelectionMode])
 
   const [memberCount, setMemberCount] = useState(1)
+  const [isOwner, setIsOwner] = useState(false)
   useEffect(() => {
     if (!room) return
     void room.listMembers().then((res) => {
       if (res?.members) setMemberCount(res.members.length)
+      setIsOwner(!!res?.ownerId && res.ownerId === identityId)
     })
-  }, [room])
+  }, [room, identityId])
 
   // Custom header
   useEffect(() => {
@@ -322,16 +324,20 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           >
             <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
           </Pressable>
-          <Pressable
-            onPress={() => roomId && navigation.navigate('Invite', { roomId, roomName })}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="share-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
+          {/* Owner-only: the owner is the only member who runs `redeemInvite`, so a link shared by
+              anyone else gets the joiner into the room read-only and stuck there. */}
+          {isOwner && (
+            <Pressable
+              onPress={() => roomId && navigation.navigate('Invite', { roomId, roomName })}
+              style={styles.headerBtn}
+            >
+              <Ionicons name="share-outline" size={20} color={colors.textPrimary} />
+            </Pressable>
+          )}
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, memberCount, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
+  }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'

@@ -1377,7 +1377,9 @@ export class AppShell extends HTMLElement {
         `}
 
         <div class="room-header-tools">
-          <button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>
+          <!-- Owner-only: the owner is the only member who runs redeemInvite, so a link shared by
+               anyone else gets the joiner into the room read-only and stuck there. -->
+          ${room.isOwner(this.identity!.id) ? `<button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>` : ''}
           <button class="room-header-btn" id="roomMembersBtn" title="Members & Administration">${ICONS.users}</button>
           <button class="room-header-btn ${isFavorite ? 'active' : ''}" id="toggleFavoriteBtn" title="${isFavorite ? 'Remove from favorites' : 'Add to favorites'}">${isFavorite ? ICONS.starFilled : ICONS.star}</button>
           <button class="room-header-btn" id="roomSettingsBtn" title="Room Settings">${ICONS.settings}</button>
@@ -3014,9 +3016,11 @@ export class AppShell extends HTMLElement {
                   </div>
                 </div>
               </div>
-              <button id="inviteFromMembersBtn" class="primary" style="padding:0.35rem 0.75rem;font-size:0.8rem;display:inline-flex;align-items:center;gap:0.35rem;">
-                ${ICONS.qr} Invite Link
-              </button>
+              ${iAmOwner ? `
+                <button id="inviteFromMembersBtn" class="primary" style="padding:0.35rem 0.75rem;font-size:0.8rem;display:inline-flex;align-items:center;gap:0.35rem;">
+                  ${ICONS.qr} Invite Link
+                </button>
+              ` : ''}
             </div>
 
             <!-- Moderation notice banner -->
@@ -3246,6 +3250,11 @@ export class AppShell extends HTMLElement {
             <img src="${this.inviteQrDataUrl}" width="220" height="220" style="margin:0 auto;background:#fff;padding:8px;border-radius:12px;" />
             <p style="font-size:0.85rem;color:var(--text-dim);margin:0.5rem 0;">Share this QR code or copy the invite link below</p>
             <button id="copyInviteBtn" class="primary" style="margin:0.5rem auto;">${ICONS.copy} Copy Link</button>
+            <button id="regenerateInviteBtn" class="ghost" style="margin:0.25rem auto;">Regenerate Invite</button>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin:0.35rem 0 0;">
+              Regenerating stops the old link working. Members already in the room stay in — it only
+              blocks joins that have not happened yet.
+            </p>
           </div>
         </div>
       </div>
@@ -3257,6 +3266,13 @@ export class AppShell extends HTMLElement {
       // look like two different links" confusion when comparing a copied link across devices.
       copyToClipboard(encodeInvite({ name: this.activeRoomName, key: this.session!.inviteLinkFor(room.id) }))
       alert('Invite link copied to clipboard!')
+    })
+    this.querySelector('#regenerateInviteBtn')?.addEventListener('click', () => {
+      if (!confirm('Regenerate the invite? The current link will stop working.')) return
+      this.session!.regenerateInvite(room.id)
+      // Reopening the page is what redraws the QR: it reads the link back through `inviteLinkFor`,
+      // so the code and the QR can never drift apart.
+      void this.openInvitePage(room)
     })
   }
 
