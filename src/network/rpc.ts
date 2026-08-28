@@ -79,15 +79,30 @@ export function attachRpc(socket: Duplex, handlers: RpcHandlers = {}): RpcChanne
     onmessage: (message) => handlers.onRoomKey?.(message)
   })
 
+  // Every send here is fire-and-forget best-effort — none of the callers await a result or check
+  // a return value. The peer's socket can die at any point between an `onConnection` snapshot
+  // (e.g. the write-request retry timer iterating `this.peers` every 15s) and the `send` actually
+  // running: `.close` only fires once the stream fully finishes, so a channel can already be
+  // unusable and still throw synchronously on `send` in that window — a flaky mobile connection
+  // hits it far more than a stable desktop one. Uncaught, that took the whole session down instead
+  // of just losing one message to a peer that was already on its way out.
+  const safeSend = (send: () => void): void => {
+    try {
+      send()
+    } catch (err) {
+      console.warn('[rpc] send on a closing peer channel:', (err as Error).message)
+    }
+  }
+
   channel = {
-    sendTyping: (message) => typing.send(message),
-    sendPresence: (message) => presence.send(message),
-    sendReadReceipt: (message) => readReceipt.send(message),
-    sendRequestWrite: (message) => requestWrite.send(message),
-    sendRoomAnnounce: (message) => roomAnnounce.send(message),
-    sendContactRequest: (message) => contactRequest.send(message),
-    sendContactResponse: (message) => contactResponse.send(message),
-    sendRoomKey: (message) => roomKey.send(message),
+    sendTyping: (message) => safeSend(() => typing.send(message)),
+    sendPresence: (message) => safeSend(() => presence.send(message)),
+    sendReadReceipt: (message) => safeSend(() => readReceipt.send(message)),
+    sendRequestWrite: (message) => safeSend(() => requestWrite.send(message)),
+    sendRoomAnnounce: (message) => safeSend(() => roomAnnounce.send(message)),
+    sendContactRequest: (message) => safeSend(() => contactRequest.send(message)),
+    sendContactResponse: (message) => safeSend(() => contactResponse.send(message)),
+    sendRoomKey: (message) => safeSend(() => roomKey.send(message)),
     close: () => muxChannel.close()
   }
   return channel
