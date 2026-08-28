@@ -126,12 +126,26 @@ export function SessionProvider({ children }: Props) {
     // against the momentary "none" state in between.
     let lastNetworkType: string | null = null
     let resyncTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleResync = () => {
+      if (resyncTimer) clearTimeout(resyncTimer)
+      resyncTimer = setTimeout(() => { resyncTimer = null; void s.resumeNetwork() }, 800)
+    }
     NetInfo.addEventListener((state) => {
       if (lastNetworkType === null) { lastNetworkType = state.type; return }
       if (state.type === lastNetworkType) return
       lastNetworkType = state.type
-      if (resyncTimer) clearTimeout(resyncTimer)
-      resyncTimer = setTimeout(() => { resyncTimer = null; void s.resumeNetwork() }, 800)
+      scheduleResync()
+    })
+
+    // A phone left backgrounded for a while can have its NAT's UDP mapping expire on the
+    // router's own idle timeout even though it never left wifi — NetInfo reports no type change,
+    // so the listener above never fires. Peers already connected before that stay connected, but
+    // a fresh hole-punch to anyone new fails silently until the socket rebinds. Resync on every
+    // foreground return to cover it.
+    let lastAppState = AppState.currentState
+    AppState.addEventListener('change', (next) => {
+      if (next === 'active' && lastAppState !== 'active') scheduleResync()
+      lastAppState = next
     })
 
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded, and
