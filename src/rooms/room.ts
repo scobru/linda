@@ -183,6 +183,11 @@ async function readOverlay(state: Hyperbee<RoomStateRecord>, messageId: string):
  * enough to swallow a sync burst, short enough to stay imperceptible in the UI. */
 const MUTATION_NOTIFY_MS = 16
 
+/** How long `announceLeave` waits for a peer to ack the departure entry before giving up — the
+ * room gets purged right after, so past this point the departure is lost for good. */
+const LEAVE_ACK_TIMEOUT_MS = 8_000
+const LEAVE_ACK_POLL_MS = 200
+
 /** owner: full control. mod: can ban/mute plain members, never the owner or another mod. member: none of the above. */
 type Role = 'owner' | 'mod' | 'member'
 
@@ -701,6 +706,28 @@ export class Room {
     // owner check in apply() keys off the same thing.
     if (b4a.toString(this.base.local.key, 'hex') === this.owner.writerKey) return
     await this.removeWriter(this.base.local.key)
+  }
+
+  /** Waits for at least one connected peer to ack the departure entry `announceLeave` just wrote,
+   * up to a bounded timeout — Session calls this right before purging the room, since past that
+   * point the departure is lost for good. Not folded into `announceLeave` itself: that method is
+   * also exercised directly by unit tests with no live peer connection, where this wait would
+   * just burn the full timeout for nothing every time.
+   *
+   * A blind fixed pause used to stand in for this. Whether anyone actually received the departure
+   * depends on a peer connected *for this room* being reachable at that moment, which "any peer is
+   * connected" (Session's own check before calling this) does not guarantee: the shared corestore
+   * replicates every room over one connection, so a peer connected for a different room counts too
+   * and this room's actual member might not be reachable at all. Polling `remoteLength` turns that
+   * blind guess into a real (if still best-effort, still bounded) delivery check. */
+  async awaitLeaveDelivery(timeoutMs = LEAVE_ACK_TIMEOUT_MS): Promise<void> {
+    const local = this.base.local
+    const targetLength = local.length
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (local.peers.some((peer) => peer.remoteLength >= targetLength)) return
+      await new Promise((resolve) => setTimeout(resolve, LEAVE_ACK_POLL_MS))
+    }
   }
 
   isMuted(identityId: string): boolean {

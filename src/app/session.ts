@@ -52,11 +52,6 @@ const ROOM_OPEN_TIMEOUT_MS = 20_000
 /** How often a room still waiting on write access re-asks the owner. */
 const WRITE_REQUEST_RETRY_MS = 15_000
 
-/** Grace given to a departure entry to reach a connected peer before the core carrying it is
- * purged. Best effort by nature — there is no ack to wait on — so this is a short, bounded pause
- * rather than a guarantee. */
-const LEAVE_PROPAGATION_MS = 3_000
-
 interface CoreDeleteStorage {
   store: { deleteCore(ptr: unknown): Promise<void> }
   core: unknown
@@ -927,12 +922,15 @@ export class Session {
       // indefinitely, with only an owner ban able to clear them.
       //
       // Only if we can still write and someone is listening: with no peer connected the entry has
-      // nowhere to go and the pause would just delay the user for nothing. It is then lost with
-      // the purge, and the departure stays invisible to the room — unavoidable without a server.
+      // nowhere to go and waiting for one below would just delay the user for nothing. `peers.size`
+      // is a global count (the shared corestore replicates every room over one connection), not
+      // specifically a peer holding this room, so `announceLeave` still verifies delivery itself
+      // rather than trusting this check alone. It is then lost with the purge, and the departure
+      // stays invisible to the room — unavoidable without a server.
       if (room.writable && this.peers.size > 0) {
         try {
           await room.announceLeave()
-          await new Promise((resolve) => setTimeout(resolve, LEAVE_PROPAGATION_MS))
+          await room.awaitLeaveDelivery()
         } catch (err) {
           console.warn(`[session] could not announce leaving room ${roomId}:`, (err as Error).message)
         }

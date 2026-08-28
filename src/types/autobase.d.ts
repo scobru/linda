@@ -71,7 +71,7 @@ declare module 'autobase' {
     append(value: T): Promise<void>
     replicate(stream: Duplex | boolean): Duplex
     readonly key: Buffer
-    readonly local: { key: Buffer }
+    readonly local: { key: Buffer, length: number, peers: { remoteLength: number }[] }
     readonly view: V
     readonly writable: boolean
     on(event: string, listener: (...args: any[]) => void): this
