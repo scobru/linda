@@ -322,7 +322,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#20293a',
+    // Was a hardcoded dark navy — in light mode that left a near-invisible dark icon
+    // (colors.textPrimary, near-black in light mode) sitting on an equally dark button.
+    backgroundColor: colors.bgTertiary,
     alignItems: 'center',
     justifyContent: 'center',
   },

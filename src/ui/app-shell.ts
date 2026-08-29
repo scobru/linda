@@ -3324,7 +3324,9 @@ function escapeHtml(input: string): string {
 }
 
 function linkify(escaped: string): string {
-  return escaped.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">${url}</a>`)
+  // Any `scheme://...`, not just http(s) — chat also carries linda-pear:// contact/room invite
+  // links, which were rendered as inert text.
+  return escaped.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s<]+/gi, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">${url}</a>`)
 }
 
 

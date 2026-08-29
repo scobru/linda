@@ -221,7 +221,7 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
                       piece.link ? (
                         <Text
                           key={`${i}-${j}`}
-                          style={styles.inviteLink}
+                          style={isSelf ? styles.inviteLinkSelf : styles.inviteLink}
                           onPress={() => void Linking.openURL(piece.link!).catch(() => {})}
                         >
                           {piece.text}
@@ -386,6 +386,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   inviteLink: {
     color: colors.accent,
+    textDecorationLine: 'underline',
+  },
+  // In light mode bubbleSelf *is* colors.accent — an accent-colored link on it reads as
+  // invisible. Self bubbles use the same white the rest of the bubble's text uses instead.
+  inviteLinkSelf: {
+    color: colors.bubbleSelfText,
     textDecorationLine: 'underline',
   },
   hashtag: { fontWeight: typography.semibold, textDecorationLine: 'underline' },
