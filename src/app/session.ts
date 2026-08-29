@@ -152,7 +152,6 @@ export class Session {
           if (!isExistingWriter) {
             await room.addWriter(b4a.from(message.writerKey, 'hex'), message.identityId)
           }
-          await this.claimContactInvite(room.id, message.identityId)
           const keyHex = room.currentKeyHex
           if (keyHex) channel.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
         })().catch((err) => {
@@ -160,6 +159,11 @@ export class Session {
           // closing". Unguarded, that surfaced as an unhandled rejection on quit — the peer simply
           // asks again on the next connection, so there is nothing to do but say so.
           console.warn(`[session] could not grant write access in room ${room.id}:`, (err as Error).message)
+        })
+        // Best-effort bookkeeping (renames the placeholder, records the contact) — must never be
+        // able to block the write grant above, which is what actually unblocks the joiner.
+        this.claimContactInvite(room.id, message.identityId).catch((err) => {
+          console.warn(`[session] could not record contact for room ${room.id}:`, (err as Error).message)
         })
       },
       onRoomKey: (message) => {
