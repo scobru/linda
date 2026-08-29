@@ -735,7 +735,12 @@ export class AppShell extends HTMLElement {
       ? { id: active.id, value: active.value, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd }
       : null
 
-    const allBookmarks = this.session.listBookmarks()
+    // A contact-invite room is a bare placeholder until someone opens the link — showing it in the
+    // sidebar is just an empty "New direct chat" sitting there for however long the link goes
+    // unopened. claimContactInvite clears the flag (renaming the room in the same stroke) the
+    // moment the other side joins, and onBookmarksChange re-renders this view when that happens —
+    // same join flow, it just isn't visible until there are two people in it.
+    const allBookmarks = this.session.listBookmarks().filter((b) => !b.contactInvite)
 
     const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
 
