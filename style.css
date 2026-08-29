@@ -1672,6 +1672,11 @@ input:checked + .keet-slider:before {
   color: var(--text-dim);
   font-size: 0.875rem;
 }
+/* Buttons are inline-flex by default (sized to content), so a lone primary button under a
+   full-width input sat left-aligned at its own narrower width instead of matching it. */
+.auth-card > button.primary {
+  width: 100%;
+}
 
 /* Seed / Mnemonic Grid */
 .mnemonic-container {

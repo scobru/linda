@@ -291,6 +291,43 @@ export class AppShell extends HTMLElement {
 
     this.view = identityExists(storageDir()) ? 'unlock' : 'create'
     this.render()
+
+    // Electron's main process intercepts linda-pear:// links clicked in chat (see
+    // setWindowOpenHandler in electron/main.cjs) instead of handing them to shell.openExternal,
+    // which just failed with "Windows can't find an app for this" since the scheme isn't
+    // registered with the OS. It forwards them here so they open the room in-app instead.
+    const electron = (globalThis as any).require?.('electron')
+    electron?.ipcRenderer?.on('open-invite-link', (_event: unknown, url: string) => {
+      if (this.session) void this.joinFromInviteText(url)
+    })
+  }
+
+  /** Shared by the Join Room modal's submit button and incoming linda-pear:// link clicks —
+   * both just hand this a raw key or a full invite link. */
+  private async joinFromInviteText(rawKey: string, nameInput?: string): Promise<void> {
+    // Accept either the raw bootstrapKey:inviteCode, or a full linda-pear://room?name=&key= link
+    // pasted whole into the key field (e.g. shared from mobile) — auto-split it instead of
+    // making the user manually copy just the key= portion out.
+    const pastedInvite = decodeInvite(rawKey)
+    const name = pastedInvite?.name || nameInput || 'Joined Room'
+    const key = pastedInvite?.key || rawKey
+
+    try {
+      // A contact link is a room invite plus the issuer's identity, so it lands in this same
+      // field — but joining it silently would leave the two of them sharing a room and still
+      // not knowing each other, which is the whole point of the link.
+      if (pastedInvite?.kind === 'contact' && pastedInvite.from) {
+        const room = await this.session!.acceptContactInvite({ from: pastedInvite.from, name, key })
+        this.activeModal = 'none'
+        this.openRoom(room.id, name)
+        return
+      }
+      const room = await this.session!.joinRoomByKey(name, key)
+      this.activeModal = 'none'
+      this.openRoom(room.id, name)
+    } catch (err) {
+      alert((err as Error).message || 'Invalid room key or invite')
+    }
   }
 
   private toggleTheme(): void {
@@ -1291,30 +1328,7 @@ export class AppShell extends HTMLElement {
       const nameInput = (this.querySelector('#joinRoomName') as HTMLInputElement)?.value.trim()
       const rawKey = (this.querySelector('#joinRoomKey') as HTMLInputElement)?.value.trim()
       if (!rawKey) return alert('Please enter an invite key')
-
-      // Accept either the raw bootstrapKey:inviteCode, or a full linda-pear://room?name=&key= link
-      // pasted whole into the key field (e.g. shared from mobile) — auto-split it instead of
-      // making the user manually copy just the key= portion out.
-      const pastedInvite = decodeInvite(rawKey)
-      const name = pastedInvite?.name || nameInput || 'Joined Room'
-      const key = pastedInvite?.key || rawKey
-
-      try {
-        // A contact link is a room invite plus the issuer's identity, so it lands in this same
-        // field — but joining it silently would leave the two of them sharing a room and still
-        // not knowing each other, which is the whole point of the link.
-        if (pastedInvite?.kind === 'contact' && pastedInvite.from) {
-          const room = await this.session!.acceptContactInvite({ from: pastedInvite.from, name, key })
-          this.activeModal = 'none'
-          this.openRoom(room.id, name)
-          return
-        }
-        const room = await this.session!.joinRoomByKey(name, key)
-        this.activeModal = 'none'
-        this.openRoom(room.id, name)
-      } catch (err) {
-        alert((err as Error).message || 'Invalid room key or invite')
-      }
+      await this.joinFromInviteText(rawKey, nameInput)
     })
 
     this.querySelector('#joinQrInput')?.addEventListener('change', async (e) => {

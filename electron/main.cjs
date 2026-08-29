@@ -40,9 +40,16 @@ function createWindow() {
     console.log('[renderer crashed]', details)
   })
   // target="_blank" links (e.g. the About link to the repo) would otherwise open a second,
-  // chromeless Electron window instead of the user's browser.
+  // chromeless Electron window instead of the user's browser. linda-pear:// invite links are the
+  // same target="_blank" markup, but the scheme isn't registered with Windows, so handing those
+  // to shell.openExternal just surfaced "Windows can't find an app to open this link" — route
+  // them to the renderer instead, which opens the room in-app (see app-shell.ts).
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (url.startsWith('linda-pear://')) {
+      win.webContents.send('open-invite-link', url)
+    } else {
+      shell.openExternal(url)
+    }
     return { action: 'deny' }
   })
 
