@@ -324,6 +324,7 @@ const methods: Record<string, (...args: any[]) => any> = {
   'room.getMessage': (roomId: string, index: number) => requireRoom(roomId).getMessage(index),
   'room.send': (roomId: string, authorId: string, body: string, replyTo?: string) => requireRoom(roomId).send(authorId, body, replyTo),
   'room.editMessage': (roomId: string, id: string, body: string) => requireRoom(roomId).editMessage(id, body),
+  'room.deleteMessage': (roomId: string, id: string) => requireRoom(roomId).deleteMessage(id),
   'room.toggleReaction': (roomId: string, userId: string, messageId: string, emoji: string) => requireRoom(roomId).toggleReaction(userId, messageId, emoji),
 
   // Trailing `binary` param is the file's raw bytes, appended by handleRequest() — see the
