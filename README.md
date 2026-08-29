@@ -4,6 +4,12 @@ P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.t
 
 Same architecture Keet (Holepunch's own flagship app) uses under the hood — same `react-native-bare-kit` version, same primitives.
 
+## Screenshots
+
+![Linda chat](screenshots/linda-chat-screenshot.png)
+
+![Linda demo](screenshots/linda-chat-video.gif)
+
 ## Repo layout
 
 ```
