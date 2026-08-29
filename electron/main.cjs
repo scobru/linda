@@ -22,6 +22,11 @@ function createWindow() {
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     console.log(`[renderer] ${message} (${sourceId}:${line})`)
   })
+  // Windows sometimes activates the BrowserWindow (OS-level) without syncing focus to the
+  // renderer — the window looks active but the first click into an input never actually
+  // focuses it, so no caret shows until the window regains real focus. Forcing it here closes
+  // that gap.
+  win.on('focus', () => win.webContents.focus())
   // Menu.setApplicationMenu(null) above also removes the default menu's "Toggle Developer
   // Tools" item, which is what F12/Ctrl+Shift+I are normally wired to — without this they do
   // nothing and there's no way to see renderer console output in a packaged build.

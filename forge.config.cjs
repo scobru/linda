@@ -1,3 +1,5 @@
+const path = require('node:path')
+
 module.exports = {
   packagerConfig: {
     asar: false,
@@ -29,6 +31,7 @@ module.exports = {
       name: '@electron-forge/maker-msix',
       platforms: ['win32'],
       config: {
+        packageAssets: path.join(__dirname, 'assets', 'msix'),
         manifestVariables: {
           publisher: 'CN=linda-pear-dev'
         },
