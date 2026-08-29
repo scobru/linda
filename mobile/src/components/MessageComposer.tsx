@@ -90,7 +90,10 @@ export default function MessageComposer({
 
   // Voice messages ride the same path as any other attachment — the receiving side already
   // recognises audio by extension and renders a player for it (see ChatBubble's isAudioFile).
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+  // expo-audio types RecordingPresets as Record<string, RecordingOptions>, so
+  // noUncheckedIndexedAccess sees HIGH_QUALITY as possibly undefined — it isn't, it's a fixed
+  // export of the library.
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY!)
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
 
