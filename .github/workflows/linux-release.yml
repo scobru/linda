@@ -1,0 +1,79 @@
+# Builds the Linux desktop app and attaches it to a GitHub release.
+#
+# Built on a native Linux runner for the same reason as macos-release.yml: packaging on the
+# Windows machine other artifacts come from would zip up binaries with no executable bit (NTFS has
+# none), and a zip like that fails to launch once unpacked.
+#
+# maker-zip already lists 'linux' as a platform in forge.config.cjs (it already builds macOS's
+# zip), so no forge config changes were needed here — just a workflow to run it on ubuntu-latest
+# and upload the result.
+name: Linux release build
+
+on:
+  # Runs when a release is published rather than when the tag is pushed: the upload target has to
+  # exist first, and the tag is pushed before the release is created.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.14.14)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag being built
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Skips the mobile workspace: it pulls the whole React Native toolchain, and none of it goes
+      # into the desktop app.
+      - run: npm ci --workspaces=false --include-workspace-root
+
+      - run: npm run build
+
+      - name: Package for linux/x64
+        run: npx electron-forge make --platform=linux --arch=x64
+
+      - name: Name the artifact
+        id: artifacts
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p upload
+          src="$(find out/make/zip/linux/x64 -name '*.zip' -print -quit)"
+          if [ -z "$src" ]; then
+            echo "no zip produced" >&2
+            exit 1
+          fi
+          cp "$src" "upload/linda-pear-$TAG-linux-x64.zip"
+          ls -la upload
+
+      # Same check macos-release.yml runs — proves the unpacked binary is actually executable
+      # rather than just present.
+      - name: Check the unpacked app is executable
+        run: |
+          set -euo pipefail
+          unzip -q "upload/linda-pear-${{ steps.tag.outputs.tag }}-linux-x64.zip" -d verify
+          bin="$(find verify -maxdepth 1 -type f -name 'linda' -print -quit)"
+          test -x "$bin" || { echo "main binary is not executable: $bin" >&2; exit 1; }
+          echo "ok: $bin"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.zip --clobber
