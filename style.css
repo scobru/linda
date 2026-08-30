@@ -953,28 +953,29 @@ body.private-mode-active .pinned-text {
   color: var(--text-muted);
 }
 
-/* Message Bubble — Keet rounded card style */
+/* Message Bubble — flat with a chat-tail corner, matching mobile's ChatBubble (see
+ * mobile/src/components/ChatBubble.tsx) instead of a uniform-radius bordered/shadowed card. */
 .bubble {
   display: inline-block;
   width: fit-content;
   max-width: 100%;
   padding: 0.65rem 0.95rem;
   border-radius: var(--radius-bubble);
+  border-bottom-left-radius: var(--radius-bubble-sm);
   background: var(--bubble-theirs);
   color: var(--bubble-theirs-text);
   word-wrap: break-word;
   word-break: break-word;
-  box-shadow: var(--shadow-bubble);
   position: relative;
   font-size: 0.925rem;
   line-height: 1.5;
-  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .mine .bubble {
   background: var(--bubble-mine);
   color: var(--bubble-mine-text);
-  border-color: rgba(255, 255, 255, 0.07);
+  border-bottom-left-radius: var(--radius-bubble);
+  border-bottom-right-radius: var(--radius-bubble-sm);
 }
 
 /* Quote Card in Keet Style with Cyan border & author */
