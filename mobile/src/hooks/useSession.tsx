@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
 import { NOTIFICATION_CHANNEL_ID } from '../notifications'
+import { startBackgroundConnection, stopBackgroundConnection } from '../foreground-service'
 import { getDhtPort } from '../dht-port'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
@@ -143,7 +144,12 @@ export function SessionProvider({ children }: Props) {
     // foreground return to cover it.
     let lastAppState = AppState.currentState
     AppState.addEventListener('change', (next) => {
-      if (next === 'active' && lastAppState !== 'active') scheduleResync()
+      if (next === 'active' && lastAppState !== 'active') {
+        scheduleResync()
+        stopBackgroundConnection()
+      } else if (next !== 'active' && lastAppState === 'active') {
+        startBackgroundConnection()
+      }
       lastAppState = next
     })
 
