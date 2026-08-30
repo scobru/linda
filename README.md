@@ -55,6 +55,18 @@ sent in the chat, and the Files tab is an index over those messages:
   - **Desktop**: tab switching `[ 💬 Chat ]` / `[ 📁 Files ]`, live search, direct downloads.
   - **Mobile**: segmented room controls, native sharing and streaming support.
 
+### #️⃣ Hashtags (memo-style message tags)
+
+Writing `buy milk #todo` in a message tags it, turning the tag into a clickable pill; the room can
+then be filtered down to just the messages carrying a given tag — a lightweight way to use chat
+as a running notes log without a separate feature for it.
+
+- A tag must start with a letter (`#1`/`#2026` don't count) and is matched only at a word boundary,
+  so a URL fragment like `example.com/page#section` is left alone.
+- Tags are case-folded (`#Todo` and `#todo` are the same tag) and de-duplicated per message.
+- Shared logic in [hashtag.ts](src/util/hashtag.ts): desktop renders it as inline HTML spans,
+  mobile splits the message into text/tag parts since React Native renders text as nodes.
+
 ## Desktop (Electron)
 
 ```bash
@@ -192,10 +204,10 @@ can ship without waiting on the second.
 
 ## Distribution
 
-- **Desktop**: [GitHub Releases](https://github.com/scobru/linda-pear/releases) (`.msix`, self-signed — Windows will warn on install) or `pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno`
-- **Android**: [GitHub Releases](https://github.com/scobru/linda-pear/releases) (`.apk`, debug-signed beta)
+- **Desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.msix`, self-signed — Windows will warn on install) or `pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno`
+- **Android**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.apk`, debug-signed beta)
 - **iOS**: not built yet
-- **macOS/Linux desktop**: not built yet (electron-forge targets exist, just not run)
+- **macOS/Linux desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.zip`, unsigned — macOS/Linux will warn on first launch)
 
 ## Known issues
 
