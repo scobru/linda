@@ -28,8 +28,17 @@ export function encodeInvite(invite: RoomInvite): string {
  * app-shell's create flow) so new users land with at least one populated channel. */
 export const DEFAULT_CHANNEL: RoomInvite = {
   name: 'Linda News',
-  key: '972f8a4a95bcaf92b6913b478b2468d1e796455c67c0622a06fb47b08475267d:7f5cc178a3965e2843a573a760ea1b66',
+  key: '84deb2dcb790fa1427c9e4b2d5df54fea8cacc84632099cc4ad82024cf7870f4:b53caf8a9eb94c386900d296771d84f3',
 }
+
+/** Second default room every new identity lands in alongside DEFAULT_CHANNEL — a general welcome
+ * space rather than the read-only news broadcast. */
+export const DEFAULT_WELCOME_CHANNEL: RoomInvite = {
+  name: 'Linda Welcome',
+  key: '33e106ade9495c6a0799d15c54b36f5abba67ee76444ad2ad0fd5015eea67a18:98a98c4b50ed37ba6cac97199710193e',
+}
+
+export const DEFAULT_CHANNELS: RoomInvite[] = [DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL]
 
 export function decodeInvite(text: string): RoomInvite | null {
   try {

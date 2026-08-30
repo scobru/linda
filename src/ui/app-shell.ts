@@ -3,7 +3,7 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { Session, type RoomBookmark } from '../app/session.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
 import type { Room, ChatMessage, RoomFile } from '../rooms/room.js'
-import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
+import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
@@ -277,6 +277,11 @@ export class AppShell extends HTMLElement {
   private remoteImageCache = new Map<string, string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
   private renderAppQueued = false
+  /** True between a mousedown and its mouseup/click. A network-triggered rebuild (see
+   * scheduleRenderApp) landing inside that window replaces the DOM node the click was aimed at,
+   * so the click's focus lands on nothing and the input reads as unresponsive — "sometimes I
+   * can't click into it". Deferring the rebuild past the gesture avoids that race. */
+  private pointerDown = false
   /** Torn down when the active room changes — a room fires its listeners for the lifetime of the
    * session, so leaving these attached meant every previously-visited room kept redrawing the UI,
    * multiplying the cost of every incoming message by the number of rooms opened so far. */
@@ -300,6 +305,9 @@ export class AppShell extends HTMLElement {
     electron?.ipcRenderer?.on('open-invite-link', (_event: unknown, url: string) => {
       if (this.session) void this.joinFromInviteText(url)
     })
+
+    window.addEventListener('mousedown', () => { this.pointerDown = true })
+    window.addEventListener('mouseup', () => { this.pointerDown = false })
   }
 
   /** Shared by the Join Room modal's submit button and incoming linda-pear:// link clicks —
@@ -351,6 +359,7 @@ export class AppShell extends HTMLElement {
     this.renderAppQueued = true
     requestAnimationFrame(() => {
       this.renderAppQueued = false
+      if (this.pointerDown) return this.scheduleRenderApp()
       if (this.view === 'app') this.renderApp()
     })
   }
@@ -649,9 +658,15 @@ export class AppShell extends HTMLElement {
     }
     await this.session.reopenBookmarkedRooms()
 
+    // Second default room — joined alongside Linda News but not auto-opened, it just needs to be
+    // in the sidebar for a new user.
+    this.session.joinRoomByKey(DEFAULT_WELCOME_CHANNEL.name, DEFAULT_WELCOME_CHANNEL.key)
+      .then(() => this.scheduleRenderApp())
+      .catch(() => {})
+
     // Always select and open "Linda News" as the default active room on startup
     const lindaNewsBookmark = this.session.listBookmarks().find(
-      (b) => b.name.toLowerCase() === 'linda news' || b.bootstrapKey.startsWith('972f8a4a95bcaf92') || b.id === '972f8a4a95bcaf92'
+      (b) => b.name.toLowerCase() === 'linda news' || b.bootstrapKey.startsWith('84deb2dcb790fa14') || b.id === '84deb2dcb790fa14'
     )
     if (lindaNewsBookmark && this.session.getRoom(lindaNewsBookmark.id)) {
       this.openRoom(lindaNewsBookmark.id, lindaNewsBookmark.name)
@@ -3345,7 +3360,9 @@ function escapeHtml(input: string): string {
 function linkify(escaped: string): string {
   // Any `scheme://...`, not just http(s) — chat also carries linda-pear:// contact/room invite
   // links, which were rendered as inert text.
-  return escaped.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s<]+/gi, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">${url}</a>`)
+  // color:currentColor (not --accent) — the "mine" bubble background in light mode is the same
+  // indigo as --accent, so an accent-colored link on it was invisible.
+  return escaped.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s<]+/gi, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:currentColor;text-decoration:underline;">${url}</a>`)
 }
 
 

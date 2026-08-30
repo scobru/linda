@@ -22,7 +22,7 @@ interface SessionContextValue {
   avatars: Map<string, string>
 
   // Actions
-  initSession: (identity: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string } }) => Promise<void>
+  initSession: (identity: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => Promise<void>
   refresh: () => void
   /** Marks a room as the one currently on screen, so its own new-message notifications are
    * suppressed while the user is already looking at it (mirrors desktop's document-focus check). */
@@ -75,7 +75,7 @@ export function SessionProvider({ children }: Props) {
     })()
   }, [session])
 
-  const initSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string } }) => {
+  const initSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => {
     bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string }) => {
       if (msg.online) {
         setOnlineUsers((prev) => new Set(prev).add(msg.userId))
@@ -113,8 +113,7 @@ export function SessionProvider({ children }: Props) {
     // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in
     // time — fine either way, don't hold up onboarding for it. Refreshes bookmarks on success
     // since a join doesn't otherwise emit any change event mobile listens for.
-    if (opts?.autoJoinInvite) {
-      const invite = opts.autoJoinInvite
+    for (const invite of opts?.autoJoinInvite ?? []) {
       void s.joinRoomByKey(invite.name, invite.key).then(() => s.listRoomSummaries()).then(setBookmarks).catch(() => {})
     }
 
