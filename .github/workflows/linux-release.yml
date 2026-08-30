@@ -64,12 +64,14 @@ jobs:
           ls -la upload
 
       # Same check macos-release.yml runs — proves the unpacked binary is actually executable
-      # rather than just present.
+      # rather than just present. No -maxdepth here: unlike the local cross-platform packaging
+      # test this workflow was validated against, maker-zip on a native Linux runner zips the
+      # packaged directory as a single top-level entry rather than its contents flattened out.
       - name: Check the unpacked app is executable
         run: |
           set -euo pipefail
           unzip -q "upload/linda-pear-${{ steps.tag.outputs.tag }}-linux-x64.zip" -d verify
-          bin="$(find verify -maxdepth 1 -type f -name 'linda' -print -quit)"
+          bin="$(find verify -type f -name 'linda' -print -quit)"
           test -x "$bin" || { echo "main binary is not executable: $bin" >&2; exit 1; }
           echo "ok: $bin"
 
