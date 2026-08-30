@@ -386,6 +386,7 @@ input::placeholder, textarea::placeholder {
   padding: 0;
   cursor: pointer;
   transition: all 0.15s;
+  -webkit-app-region: no-drag;
 }
 .win-ctrl-btn:hover {
   background: var(--bg-panel-hover);
@@ -394,6 +395,26 @@ input::placeholder, textarea::placeholder {
 .win-ctrl-btn.close:hover {
   background: var(--danger);
   color: #fff;
+}
+.win-ctrl-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 0.4rem;
+}
+
+/* Pre-login screens (create/unlock/recover/reveal/pair) have no topbar of their own — this
+ * floating strip is the only way to move/minimize/close the frameless window there. */
+.auth-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+  z-index: 100;
 }
 
 /* App Main Content (Sidebar + Chat Area + Drawer) */
@@ -1740,6 +1761,7 @@ input:checked + .keet-slider:before {
   align-items: center;
   gap: 1rem;
   background: var(--bg-sidebar);
+  -webkit-app-region: drag;
 }
 .page-view-topbar h1 {
   font-family: var(--font-display);

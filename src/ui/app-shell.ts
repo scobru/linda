@@ -192,6 +192,10 @@ const ICONS = {
   globe: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
   moon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   sun: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  winMinimize: `<svg width="12" height="12" viewBox="0 0 12 12"><rect width="10" height="1" x="1" y="6" fill="currentColor"/></svg>`,
+  winMaximize: `<svg width="12" height="12" viewBox="0 0 12 12"><rect width="9" height="9" x="1.5" y="1.5" fill="none" stroke="currentColor"/></svg>`,
+  winRestore: `<svg width="12" height="12" viewBox="0 0 12 12"><rect width="7" height="7" x="3.5" y="1.5" fill="none" stroke="currentColor"/><path d="M1.5 3.5v7h7" fill="none" stroke="currentColor"/></svg>`,
+  winClose: `<svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2"/></svg>`,
   user: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   userPlus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
   folder: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
@@ -277,6 +281,7 @@ export class AppShell extends HTMLElement {
   private remoteImageCache = new Map<string, string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
   private renderAppQueued = false
+  private readonly electronIpc = (globalThis as any).require?.('electron')?.ipcRenderer
   /** True between a mousedown and its mouseup/click. A network-triggered rebuild (see
    * scheduleRenderApp) landing inside that window replaces the DOM node the click was aimed at,
    * so the click's focus lands on nothing and the input reads as unresponsive — "sometimes I
@@ -308,6 +313,11 @@ export class AppShell extends HTMLElement {
 
     window.addEventListener('mousedown', () => { this.pointerDown = true })
     window.addEventListener('mouseup', () => { this.pointerDown = false })
+
+    this.electronIpc?.on('window:maximized-change', (_event: unknown, maximized: boolean) => {
+      const btn = this.querySelector('#winMaximizeBtn')
+      if (btn) { btn.innerHTML = maximized ? ICONS.winRestore : ICONS.winMaximize; btn.setAttribute('title', maximized ? 'Restore' : 'Maximize') }
+    })
   }
 
   /** Shared by the Join Room modal's submit button and incoming linda-pear:// link clicks —
@@ -386,6 +396,7 @@ export class AppShell extends HTMLElement {
 
   private renderCreate(): void {
     this.innerHTML = `
+      ${this.authTitlebarHtml()}
       <div class="centered">
         <div class="auth-card">
           <div class="brand-header">
@@ -420,11 +431,13 @@ export class AppShell extends HTMLElement {
       this.view = 'pair'
       this.render()
     })
+    this.wireWindowControls()
   }
 
   private renderReveal(): void {
     const words = this.pendingMnemonic!.split(' ')
     this.innerHTML = `
+      ${this.authTitlebarHtml()}
       <div class="centered">
         <div class="auth-card" style="max-width: 520px;">
           <div class="brand-header">
@@ -457,10 +470,12 @@ export class AppShell extends HTMLElement {
       c.textContent = '✓ Copied!'
       setTimeout(() => { c.innerHTML = `${ICONS.copy} Copy to clipboard` }, 2000)
     })
+    this.wireWindowControls()
   }
 
   private renderUnlock(): void {
     this.innerHTML = `
+      ${this.authTitlebarHtml()}
       <div class="centered">
         <div class="auth-card">
           <div class="brand-header">
@@ -511,10 +526,12 @@ export class AppShell extends HTMLElement {
       this.view = 'recover'
       this.render()
     })
+    this.wireWindowControls()
   }
 
   private renderRecover(): void {
     this.innerHTML = `
+      ${this.authTitlebarHtml()}
       <div class="centered">
         <div class="auth-card">
           <div class="brand-header">
@@ -547,10 +564,12 @@ export class AppShell extends HTMLElement {
       this.view = 'unlock'
       this.render()
     })
+    this.wireWindowControls()
   }
 
   private renderPair(): void {
     this.innerHTML = `
+      ${this.authTitlebarHtml()}
       <div class="centered">
         <div class="auth-card">
           <div class="brand-header">
@@ -604,6 +623,7 @@ export class AppShell extends HTMLElement {
       this.view = 'create'
       this.render()
     })
+    this.wireWindowControls()
   }
 
   private async enterApp(isNewIdentity = false): Promise<void> {
@@ -800,6 +820,7 @@ export class AppShell extends HTMLElement {
     const userInitial = this.nickname ? this.nickname.slice(0, 1).toUpperCase() : (this.identity.id.slice(0, 1).toUpperCase() || 'S')
     const userHandle = this.nickname ? `@${this.nickname.toLowerCase().replace(/\s+/g, '')}` : `@${this.identity.id.slice(0, 8)}`
     const isLight = document.documentElement.getAttribute('data-theme') === 'light'
+    const isMaximized = this.electronIpc?.sendSync('window:is-maximized')
 
     this.innerHTML = `
       <div class="app-container">
@@ -814,8 +835,16 @@ export class AppShell extends HTMLElement {
           </div>
           <div class="topbar-window-controls">
             <button class="win-ctrl-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">${isLight ? ICONS.moon : ICONS.sun}</button>
+            ${this.electronIpc ? `
+              <span class="win-ctrl-sep"></span>
+              <button class="win-ctrl-btn" id="winMinimizeBtn" title="Minimize">${ICONS.winMinimize}</button>
+              <button class="win-ctrl-btn" id="winMaximizeBtn" title="${isMaximized ? 'Restore' : 'Maximize'}">${isMaximized ? ICONS.winRestore : ICONS.winMaximize}</button>
+              <button class="win-ctrl-btn close" id="winCloseBtn" title="Close">${ICONS.winClose}</button>
+            ` : ''}
           </div>
         </header>
+        <!-- windowControlsHtml/wireWindowControls (see pageTopbarHtml) cover every other screen;
+             this header builds its own copy since it also carries the theme toggle inline. -->
 
         <!-- Main Body (Sidebar + Chat Area + Right Drawer) -->
         <div class="app-main-content">
@@ -1118,6 +1147,7 @@ export class AppShell extends HTMLElement {
   private wireTopbarAndDrawer(): void {
     this.querySelector('#themeToggleBtn')?.addEventListener('click', () => this.toggleTheme())
     this.querySelector('#drawerThemeToggleBtn')?.addEventListener('click', () => this.toggleTheme())
+    this.wireWindowControls()
 
     this.querySelector('#topbarUserBtn')?.addEventListener('click', () => {
       this.isProfileDrawerOpen = !this.isProfileDrawerOpen
@@ -2406,12 +2436,42 @@ export class AppShell extends HTMLElement {
       <div class="page-view-topbar">
         <button class="win-ctrl-btn" id="pageBack" title="Back" style="font-size:1.1rem;">←</button>
         <h1>${escapeHtml(title)}</h1>
+        ${this.windowControlsHtml()}
       </div>
     `
   }
 
   private wirePageBack(): void {
     this.querySelector('#pageBack')?.addEventListener('click', () => { this.view = 'app'; this.render() })
+    this.wireWindowControls()
+  }
+
+  /** Every full-screen view replaces the whole document body (`this.innerHTML = ...`), so the
+   * app-topbar's minimize/maximize/close buttons — the only ones there are, since the OS titlebar
+   * is off (see frame: false in electron/main.cjs) — disappear on every view but the main chat.
+   * Each screen embeds this instead of its own copy. */
+  private windowControlsHtml(): string {
+    if (!this.electronIpc) return ''
+    const isMaximized = this.electronIpc.sendSync('window:is-maximized')
+    return `
+      <div class="topbar-window-controls" style="margin-left:auto;">
+        <button class="win-ctrl-btn" id="winMinimizeBtn" title="Minimize">${ICONS.winMinimize}</button>
+        <button class="win-ctrl-btn" id="winMaximizeBtn" title="${isMaximized ? 'Restore' : 'Maximize'}">${isMaximized ? ICONS.winRestore : ICONS.winMaximize}</button>
+        <button class="win-ctrl-btn close" id="winCloseBtn" title="Close">${ICONS.winClose}</button>
+      </div>
+    `
+  }
+
+  /** Same problem as pageTopbarHtml but for the five pre-login screens (create/unlock/recover/
+   * reveal/pair), which have no topbar of their own to embed windowControlsHtml() into. */
+  private authTitlebarHtml(): string {
+    return this.electronIpc ? `<div class="auth-topbar">${this.windowControlsHtml()}</div>` : ''
+  }
+
+  private wireWindowControls(): void {
+    this.querySelector('#winMinimizeBtn')?.addEventListener('click', () => this.electronIpc?.send('window:minimize'))
+    this.querySelector('#winMaximizeBtn')?.addEventListener('click', () => this.electronIpc?.send('window:maximize-toggle'))
+    this.querySelector('#winCloseBtn')?.addEventListener('click', () => this.electronIpc?.send('window:close'))
   }
 
   private openProfilePage(): void {

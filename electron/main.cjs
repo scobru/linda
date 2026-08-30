@@ -11,6 +11,10 @@ function createWindow() {
     minHeight: 480,
     backgroundColor: '#0b0f14',
     autoHideMenuBar: true,
+    // The renderer draws its own titlebar (app-topbar, with -webkit-app-region: drag and its own
+    // min/max/close buttons) to match Keet's chromeless look instead of the grey native Windows
+    // titlebar — frame: false is what actually turns that off; the renderer side was already built.
+    frame: false,
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
@@ -19,6 +23,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs')
     }
   })
+
+  ipcMain.on('window:is-maximized', (event) => { event.returnValue = win.isMaximized() })
+  ipcMain.on('window:minimize', () => win.minimize())
+  ipcMain.on('window:maximize-toggle', () => (win.isMaximized() ? win.unmaximize() : win.maximize()))
+  ipcMain.on('window:close', () => win.close())
+  win.on('maximize', () => win.webContents.send('window:maximized-change', true))
+  win.on('unmaximize', () => win.webContents.send('window:maximized-change', false))
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     console.log(`[renderer] ${message} (${sourceId}:${line})`)
   })
