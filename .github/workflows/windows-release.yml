@@ -66,11 +66,6 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: npx electron-forge make --platform=win32 --arch=x64
 
-      - name: Remove the decoded certificate
-        if: always()
-        shell: bash
-        run: rm -f "${{ steps.cert.outputs.path }}"
-
       - name: Name the artifact
         id: artifacts
         shell: bash
@@ -86,11 +81,31 @@ jobs:
           cp "$src" "upload/linda-pear-$TAG-win-x64.msix"
           ls -la upload
 
+      # The .msix is signed with the dev cert above, not a CA-issued one, so on any PC that hasn't
+      # trusted that cert yet (i.e. every PC but the one it was generated on) install fails outright
+      # with "Editore: Sconosciuto" / "certificato dell'editore ... non verificato" rather than just
+      # warning. Publishing the *public* half of the same cert lets people import it into their own
+      # Trusted People store first, which fixes that without needing a real code-signing cert.
+      - name: Export the public certificate
+        shell: pwsh
+        env:
+          PFX_PATH: ${{ steps.cert.outputs.path }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $securePassword = ConvertTo-SecureString -String $env:PFX_PASSWORD -AsPlainText -Force
+          $cert = Get-PfxCertificate -FilePath $env:PFX_PATH -Password $securePassword
+          Export-Certificate -Cert $cert -FilePath "upload/linda-pear-signing-cert.cer" | Out-Null
+
+      - name: Remove the decoded certificate
+        if: always()
+        shell: bash
+        run: rm -f "${{ steps.cert.outputs.path }}"
+
       - name: Upload to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.msix --clobber
+        run: gh release upload "${{ steps.tag.outputs.tag }}" upload/*.msix upload/*.cer --clobber
 
 # To real-sign instead of shipping a self-signed package Windows SmartScreen warns on first
 # install regardless of publisher-cert continuity:
