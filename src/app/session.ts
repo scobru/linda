@@ -99,6 +99,7 @@ export class Session {
   private nickname = ''
   private avatar = ''
   private wallpaper = ''
+  private appBackground = ''
   private readonly peerAvatars = new Map<string, string>()
   private readonly peerNicknames = new Map<string, string>()
   private writeRequestTimer: ReturnType<typeof setInterval> | null = null
@@ -371,6 +372,7 @@ export class Session {
     }
     session.startWriteRequestRetry()
     session.wallpaper = await profileStore.getWallpaper()
+    session.appBackground = await profileStore.getAppBackground()
     session.nickname = await profileStore.getNickname()
     session.avatar = await profileStore.getAvatar()
     for (const [uid, av] of await profileStore.listPeerAvatars()) {
@@ -401,6 +403,15 @@ export class Session {
   async setWallpaper(id: string): Promise<void> {
     this.wallpaper = id
     await this.profileStore.setWallpaper(id)
+  }
+
+  getAppBackground(): string {
+    return this.appBackground
+  }
+
+  async setAppBackground(id: string): Promise<void> {
+    this.appBackground = id
+    await this.profileStore.setAppBackground(id)
   }
 
   async setNickname(nickname: string): Promise<void> {

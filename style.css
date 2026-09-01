@@ -59,6 +59,10 @@
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-blur: blur(20px);
 
+  /* Reading-column width the message stream, composer and pinned banner center themselves within
+     on wide windows — the wallpaper/background still spans the full chat panel behind it. */
+  --content-max-width: 920px;
+
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -842,7 +846,8 @@ input::placeholder, textarea::placeholder {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-sm);
-  margin: 0.6rem 1rem 0;
+  margin-top: 0.6rem;
+  margin-inline: max(1rem, calc((100% - var(--content-max-width)) / 2));
   padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
@@ -899,7 +904,10 @@ input::placeholder, textarea::placeholder {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 1.25rem 1.75rem;
+  /* Content stays capped to a comfortable reading column and centers on wide windows — the
+     wallpaper background still paints the full width behind it since it's on this same box. */
+  padding-block: 1.25rem;
+  padding-inline: max(1.75rem, calc((100% - var(--content-max-width)) / 2));
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -1088,10 +1096,17 @@ body.private-mode-active .pinned-text {
 
 /* Message Composer Bar */
 .composer {
-  padding: 0.85rem 1.25rem;
+  padding-block: 0.85rem;
+  padding-inline: max(1.25rem, calc((100% - var(--content-max-width)) / 2));
   background: var(--bg-sidebar);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+/* Keeps the reply/edit/selection bar's content inset matching the composer and messages above
+   it, so the reading column stays visually aligned edge-to-edge through the whole footer stack. */
+.reply-bar {
+  padding-inline: max(1.25rem, calc((100% - var(--content-max-width)) / 2));
 }
 
 .scroll-to-bottom-btn {
