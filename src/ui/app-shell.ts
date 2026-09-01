@@ -823,8 +823,10 @@ export class AppShell extends HTMLElement {
     const isLight = document.documentElement.getAttribute('data-theme') === 'light'
     const isMaximized = this.electronIpc?.sendSync('window:is-maximized')
 
+    const appBgTransparent = (this.session?.getAppBackground() || DEFAULT_APP_BACKGROUND) === 'transparent'
+
     this.innerHTML = `
-      <div class="app-container" style="${this.appBackgroundStyle()}">
+      <div class="app-container ${appBgTransparent ? 'panels-transparent' : ''}" style="${this.appBackgroundStyle()}">
         <!-- Top App Titlebar -->
         <header class="app-topbar">
           <div class="topbar-left">
@@ -2566,9 +2568,14 @@ export class AppShell extends HTMLElement {
                 ${APP_BACKGROUNDS.map((b) => {
                   const active = (this.session!.getAppBackground() || DEFAULT_APP_BACKGROUND) === b.id
                   const preview = b.css(isDark)
+                  // Transparent's swatch borrows the classic checkerboard so it doesn't read as
+                  // "Default" (both would otherwise render the same flat --bg-subtle placeholder).
+                  const swatchStyle = b.id === 'transparent'
+                    ? 'background-image:linear-gradient(45deg,var(--border) 25%,transparent 25%),linear-gradient(-45deg,var(--border) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--border) 75%),linear-gradient(-45deg,transparent 75%,var(--border) 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0;'
+                    : `background:${preview || 'var(--bg-subtle)'};`
                   return `
                     <button class="preset-avatar-card ${active ? 'active' : ''}" data-app-background-id="${b.id}" title="${b.name}">
-                      <span style="display:block;width:100%;height:52px;border-radius:8px;background:${preview || 'var(--bg-subtle)'};"></span>
+                      <span style="display:block;width:100%;height:52px;border-radius:8px;${swatchStyle}"></span>
                       <span class="preset-title">${b.name}</span>
                     </button>
                   `

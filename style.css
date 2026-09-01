@@ -421,6 +421,16 @@ input::placeholder, textarea::placeholder {
   z-index: 100;
 }
 
+/* "Transparent" App Background option: strips the sidebar/chat-panel chrome (background, border,
+   shadow) so the app background shows straight through instead of only in the margins around
+   them. Left borderless on purpose, per the option's name — no fallback border swapped in. */
+.app-container.panels-transparent .sidebar,
+.app-container.panels-transparent .main {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 /* App Main Content (Sidebar + Chat Area + Drawer) */
 .app-main-content {
   display: flex;
@@ -738,11 +748,19 @@ input::placeholder, textarea::placeholder {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Caps to the same reading-column width as the messages inside it, then centers within the
+     space to the right of the sidebar — on a wide window the panel itself narrows and the app
+     background shows on both sides of it, not just as padding within it. The calc subtracts the
+     sidebar's own fixed footprint (310px width + its 0.75rem left margin) so the centering is
+     against the space actually left over, not the whole window; the max() floor keeps the usual
+     0.75rem gap on a normal/narrow window where the panel doesn't reach the cap at all. */
+  max-width: var(--content-max-width);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
-  margin: 0.75rem;
+  margin-block: 0.75rem;
+  margin-inline: max(0.75rem, calc((100% - var(--content-max-width) - 310px - 0.75rem) / 2));
   position: relative;
   overflow: hidden;
 }

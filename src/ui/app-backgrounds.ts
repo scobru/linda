@@ -13,6 +13,14 @@ export interface AppBackground {
 
 export const APP_BACKGROUNDS: AppBackground[] = [
   { id: 'default', name: 'Default', css: () => '' },
+  /* Strips the sidebar/chat panels' own background, border and shadow (see `.panels-transparent`
+     in style.css) so whatever this paints on `.app-container` shows straight through them instead
+     of just in the margins around them. */
+  {
+    id: 'transparent',
+    name: 'Transparent',
+    css: () => ''
+  },
   {
     id: 'midnight',
     name: 'Midnight',
