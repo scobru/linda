@@ -39,6 +39,7 @@
   "license": "ISC",
   "description": "P2P messaging and file sharing app on the Holepunch stack",
   "dependencies": {
+    "@hyperswarm/secret-stream": "^6.9.1",
     "@react-native/js-polyfills": "^0.79.6",
     "autobase": "^7.28.1",
     "b4a": "^1.8.1",
@@ -52,6 +53,7 @@
     "hyperdrive": "^13.3.3",
     "hyperswarm": "^4.17.0",
     "jsqr": "^1.4.0",
+    "multicast-dns": "^7.2.5",
     "protomux": "^3.11.0",
     "qrcode": "^1.5.4",
     "sodium-javascript": "^0.8.0",

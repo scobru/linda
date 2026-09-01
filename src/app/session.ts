@@ -8,7 +8,8 @@ import type Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import type { Identity } from '../identity/index.js'
 import { loadProfile } from '../identity/profile.js'
-import { createSwarm, joinRoom, type PeerConnection, type SwarmTransport } from '../network/swarm.js'
+import { createSwarm, joinRoom, handleConnection, type PeerConnection, type SwarmHandlers, type SwarmTransport } from '../network/swarm.js'
+import { LanDiscovery } from '../network/lan-discovery.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
@@ -86,6 +87,7 @@ export class Session {
   private readonly store: Corestore
   private readonly profileStore: ProfileStore
   private readonly swarm: Hyperswarm
+  private readonly lan: LanDiscovery | null
   private readonly rooms = new Map<string, Room>()
   private readonly directory = new Map<string, RoomAnnounceMessage>()
   private readonly contacts = new Map<string, ContactEntry>()
@@ -113,7 +115,7 @@ export class Session {
     this.events = events
     for (const announce of this.loadDirectory()) this.directory.set(announce.roomId, announce)
 
-    this.swarm = createSwarm(identity, {
+    const swarmHandlers: SwarmHandlers = {
       onTyping: events.onTyping,
       onPresence: (message) => {
         if (message.avatar) {
@@ -302,8 +304,17 @@ export class Session {
         })()
       },
       onConnection: (peer) => {
+        const remoteId = b4a.toString(peer.remotePublicKey, 'hex')
+        // The DHT and a LAN mDNS lookup can both find the same peer — one as a Hyperswarm
+        // connection, the other dialed directly by LanDiscovery. Both land here; keep whichever
+        // arrived first and drop the redundant socket rather than silently overwriting the Map
+        // entry and leaking the old one.
+        if (this.peers.has(remoteId)) {
+          peer.socket.destroy()
+          return
+        }
         this.store.replicate(peer.socket)
-        this.peers.set(b4a.toString(peer.remotePublicKey, 'hex'), peer)
+        this.peers.set(remoteId, peer)
         peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar })
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
@@ -317,7 +328,11 @@ export class Session {
         this.peers.delete(b4a.toString(publicKey, 'hex'))
         events.onPeerDisconnected?.(publicKey)
       }
-    }, transport)
+    }
+    this.swarm = createSwarm(identity, swarmHandlers, transport)
+    this.lan = transport.lanDiscovery
+      ? new LanDiscovery(identity, (socket, remotePublicKey) => handleConnection(socket, remotePublicKey, swarmHandlers))
+      : null
 
     this.trackDiscovery(LOBBY_TOPIC)
   }
@@ -933,6 +948,7 @@ export class Session {
     if (bookmark) {
       const topic = hypercoreCrypto.discoveryKey(b4a.from(bookmark.bootstrapKey, 'hex'))
       await this.swarm.leave(topic)
+      this.lan?.leave(topic)
     }
 
     const room = this.rooms.get(roomId)
@@ -1169,6 +1185,7 @@ export class Session {
   private trackDiscovery(topic: Buffer): Promise<void> {
     const done = this.store.findingPeers()
     joinRoom(this.swarm, topic)
+    this.lan?.join(topic)
     const flushed = this.swarm.flush().then(done, done)
     return flushed.then(() => undefined, () => undefined)
   }
@@ -1200,6 +1217,7 @@ export class Session {
   ): Promise<Room> {
     const topic = hypercoreCrypto.discoveryKey(bootstrapKey)
     joinRoom(this.swarm, topic)
+    this.lan?.join(topic)
     const doneFinding = this.store.findingPeers()
     const flushed = this.swarm.flush()
     const deadline = Date.now() + JOIN_REPLICATION_TIMEOUT_MS
@@ -1450,13 +1468,14 @@ export class Session {
    * NAT that blocks hole-punching (common on some mobile carriers) has something to screenshot
    * for a bug report instead of just "it doesn't connect". `host`/`port` are hyperdht's own
    * inferred external address, not necessarily reachable — `firewalled` is the actual signal. */
-  getNetworkStatus(): { connections: number; host: string | null; port: number; firewalled: boolean; publicKey: string } {
+  getNetworkStatus(): { connections: number; host: string | null; port: number; firewalled: boolean; publicKey: string; lanDiscovery: boolean } {
     return {
       connections: this.swarm.connections.size,
       host: this.swarm.dht.host,
       port: this.swarm.dht.port,
       firewalled: this.swarm.dht.firewalled,
-      publicKey: this.identity.id
+      publicKey: this.identity.id,
+      lanDiscovery: this.lan !== null
     }
   }
 
@@ -1505,6 +1524,7 @@ export class Session {
     // arriving mid-teardown started autobase work on a room already closing, which rejects with
     // "Autobase is closing" — an unhandled rejection on every quit that happened to race.
     await this.swarm.destroy()
+    await this.lan?.destroy()
     for (const room of this.rooms.values()) await room.close()
     await this.store.close()
   }

@@ -43,8 +43,8 @@ export class SessionProxy {
     return room
   }
 
-  static async create(storageDir: string, dhtPort?: number): Promise<{ session: SessionProxy; info: SessionInfo }> {
-    const info = await bareClient.call<SessionInfo>('session.create', storageDir, dhtPort)
+  static async create(storageDir: string, dhtPort?: number, lanDiscovery?: boolean): Promise<{ session: SessionProxy; info: SessionInfo }> {
+    const info = await bareClient.call<SessionInfo>('session.create', storageDir, dhtPort, lanDiscovery)
     return { session: new SessionProxy(), info }
   }
 

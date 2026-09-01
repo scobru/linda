@@ -25,34 +25,40 @@ export interface SwarmHandlers extends RpcHandlers {
 export interface SwarmTransport {
   dhtPort?: number
   bootstrap?: Array<{ host: string; port: number }>
+  /** Opt-in second discovery channel for a LAN with no internet — see `LanDiscovery`. Off by
+   * default: announcing a room topic on the local network reveals that topic to everyone on it. */
+  lanDiscovery?: boolean
 }
 
 export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, transport: SwarmTransport = {}): Hyperswarm {
   const port = transport.dhtPort || Number(globalThis.process?.env?.LINDA_DHT_PORT) || undefined
   const swarm = new Hyperswarm({ keyPair: identity, port, bootstrap: transport.bootstrap })
-
-  swarm.on('connection', (socket, info) => {
-    // `fromId` is self-declared, but the connection's noise key is the same key the app uses as
-    // its identity id — so drop contact traffic that claims to come from anyone else. Without
-    // this, any peer on the lobby topic could forge a request as a third party, and our reply
-    // (routed by `fromId`) would go to a different socket than the one that asked.
-    const remoteId = b4a.toString(info.publicKey, 'hex')
-    const rpc = attachRpc(socket, {
-      ...handlers,
-      onContactRequest: (message) => {
-        if (message.fromId === remoteId) handlers.onContactRequest?.(message)
-      },
-      onContactResponse: (message) => {
-        if (message.fromId === remoteId) handlers.onContactResponse?.(message)
-      }
-    })
-    handlers.onConnection?.({ socket, rpc, remotePublicKey: info.publicKey })
-
-    socket.on('close', () => handlers.onDisconnection?.(info.publicKey))
-    socket.on('error', () => {})
-  })
-
+  swarm.on('connection', (socket, info) => handleConnection(socket, info.publicKey, handlers))
   return swarm
+}
+
+/** Wires an already-authenticated duplex connection into the app's RPC/replication pipeline.
+ * Shared by Hyperswarm's own `connection` event and by `LanDiscovery`'s directly-dialed sockets,
+ * so a peer found either way ends up on the exact same path. */
+export function handleConnection(socket: Duplex, remotePublicKey: Buffer, handlers: SwarmHandlers): void {
+  // `fromId` is self-declared, but the connection's noise key is the same key the app uses as
+  // its identity id — so drop contact traffic that claims to come from anyone else. Without
+  // this, any peer on the lobby topic could forge a request as a third party, and our reply
+  // (routed by `fromId`) would go to a different socket than the one that asked.
+  const remoteId = b4a.toString(remotePublicKey, 'hex')
+  const rpc = attachRpc(socket, {
+    ...handlers,
+    onContactRequest: (message) => {
+      if (message.fromId === remoteId) handlers.onContactRequest?.(message)
+    },
+    onContactResponse: (message) => {
+      if (message.fromId === remoteId) handlers.onContactResponse?.(message)
+    }
+  })
+  handlers.onConnection?.({ socket, rpc, remotePublicKey })
+
+  socket.on('close', () => handlers.onDisconnection?.(remotePublicKey))
+  socket.on('error', () => {})
 }
 
 /** Announces on the topic without waiting for `discovery.flushed()`. That flush waits for the DHT

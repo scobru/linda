@@ -144,30 +144,26 @@ Streaming is why videos are practical at all: the previous path read the whole f
 
 ## Roadmap
 
-Neither of these exists yet. Both are about the same gap: today Linda needs the public internet
-to *find* a peer, even when that peer is sitting in the same room.
-
 ### Offline discovery on a local network
 
-**Status:** not implemented. **Feasible, well-scoped.**
+**Status:** implemented, opt-in. See `src/network/lan-discovery.ts`.
 
-Discovery is currently the only part of Linda that depends on the internet. Peers find each other
-through the Hyperswarm DHT, which bootstraps from three hardcoded hosts (`node1..3.hyperdht.org`).
-There is no mDNS or broadcast fallback, so on a LAN with no internet — a router with no uplink, a
-field deployment, a locked-down network — two devices cannot find each other even though nothing
-would stop them talking once they had.
+Discovery used to be the only part of Linda that depended on the internet: peers found each other
+through the Hyperswarm DHT, which bootstraps from three hardcoded hosts (`node1..3.hyperdht.org`),
+with no fallback on a LAN with no uplink. `LanDiscovery` adds mDNS as a second, opt-in channel
+alongside it — announcing (and browsing for) the same topic keys the DHT announces over multicast,
+then connecting directly over TCP with the same Noise handshake Hyperswarm itself uses, so a peer
+found either way lands on the exact same connection path (`handleConnection` in `swarm.ts`).
 
-Worth being precise about which half of the claim this affects: **transport** is already direct
-peer-to-peer with no relay (see *Zero Relay Dependency* above). It is only **rendezvous** that
-needs the DHT. The fix is a second discovery channel — mDNS/DNS-SD, or plain UDP broadcast on the
-subnet — announcing the same topic keys the DHT announces, running alongside it rather than
-replacing it, so a peer found either way ends up in the same `onConnection` path.
+Precise about which half of the original claim this affects: **transport** was already direct
+peer-to-peer with no relay (see *Zero Relay Dependency* above). It was only **rendezvous** that
+needed the DHT.
 
-Main things to get right:
-- Announcing a room topic on the LAN reveals that topic to everyone on that network. Topics are
-  derived from the bootstrap key, so this is a real privacy trade-off and should be opt-in.
-- Both channels can surface the same peer; the existing dedupe by noise public key covers it, but
-  it needs verifying rather than assuming.
+The privacy trade-off flagged when this was still on the roadmap is why it defaults to off:
+announcing a room topic on the LAN reveals that topic to everyone on the network. Turn it on in
+Network Status ("Discover peers on local network") on desktop or mobile; it takes effect on the
+next restart. Both channels can surface the same peer — `Session`'s `onConnection` handler dedupes
+by noise public key, dropping whichever connection arrives second.
 
 ### Bluetooth mesh
 

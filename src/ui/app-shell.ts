@@ -29,6 +29,14 @@ function dhtPort(): number | undefined {
 
 const DHT_PORT_KEY = 'linda-dht-port'
 
+/** Opt-in: announcing a room's topic on the LAN reveals that topic to everyone on the network
+ * (see `SwarmTransport.lanDiscovery`), so this defaults to off. */
+function lanDiscoveryEnabled(): boolean {
+  return localStorage.getItem(LAN_DISCOVERY_KEY) === 'true'
+}
+
+const LAN_DISCOVERY_KEY = 'linda-lan-discovery'
+
 function svgToDataUrl(svg: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
@@ -644,7 +652,7 @@ export class AppShell extends HTMLElement {
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
-      }, transport: { dhtPort: dhtPort() } })
+      }, transport: { dhtPort: dhtPort(), lanDiscovery: lanDiscoveryEnabled() } })
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {
@@ -2760,6 +2768,13 @@ export class AppShell extends HTMLElement {
               <p style="font-size:0.75rem;color:var(--text-dim);margin:0.35rem 0 0;">If you run a VPN, set this to the port it forwards — otherwise peers cannot reach you while the VPN is on. Leave empty for automatic. Restart Linda to apply.</p>
             </div>
             <div class="form-group">
+              <label style="display:flex;align-items:center;gap:0.5rem;">
+                <input id="lanDiscoveryToggle" type="checkbox" ${lanDiscoveryEnabled() ? 'checked' : ''} />
+                Discover peers on local network
+              </label>
+              <p style="font-size:0.75rem;color:var(--text-dim);margin:0.35rem 0 0;">Finds peers over mDNS when there's no internet — a LAN with no uplink, a field deployment. This reveals which rooms you have open to everyone on the network. Off by default. Restart Linda to apply.</p>
+            </div>
+            <div class="form-group">
               <label>Public Key</label>
               <div class="key-display-row">
                 <code>${status.publicKey}</code>
@@ -2784,6 +2799,10 @@ export class AppShell extends HTMLElement {
         localStorage.removeItem(DHT_PORT_KEY)
         portInput.value = ''
       }
+    })
+    const lanToggle = this.querySelector('#lanDiscoveryToggle') as HTMLInputElement
+    lanToggle.addEventListener('change', () => {
+      localStorage.setItem(LAN_DISCOVERY_KEY, String(lanToggle.checked))
     })
     this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => copyToClipboard(status.publicKey))
     this.querySelector('#copyNetworkInfo')?.addEventListener('click', () => copyToClipboard(
