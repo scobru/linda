@@ -1904,7 +1904,14 @@ export class AppShell extends HTMLElement {
     if (message.file && !message.deleted) {
       // Video is decided first: it carries a thumbnail too (its poster frame), so testing for
       // an image by "has a thumbnail" would swallow every video that has one.
-      const isVideo = message.file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
+      //
+      // The extension guess only runs when there's no mimeType to trust: .webm is also a voice
+      // recording's real extension (see stopVoiceRecording), so treating it as video-by-extension
+      // unconditionally overrode a correctly-set 'audio/webm' and rendered every voice message as
+      // a video player.
+      const isVideo = message.file.mimeType
+        ? message.file.mimeType.startsWith('video/')
+        : /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
       const isImg = !isVideo && (message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name))
       const isAudio = !isImg && !isVideo && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
       if (isAudio) {
