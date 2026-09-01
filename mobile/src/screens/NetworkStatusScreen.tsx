@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, TextInput, Pressable, StyleSheet, SafeAreaView, ScrollView, Alert, RefreshControl } from 'react-native'
+import { View, Text, TextInput, Pressable, Switch, StyleSheet, SafeAreaView, ScrollView, Alert, RefreshControl } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { Ionicons } from '@expo/vector-icons'
 import { useSession } from '../hooks/useSession'
 import { getDhtPort, setDhtPort } from '../dht-port'
+import { getLanDiscoveryEnabled, setLanDiscoveryEnabled } from '../lan-discovery-setting'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
@@ -13,6 +14,7 @@ interface NetworkStatus {
   port: number
   firewalled: boolean
   publicKey: string
+  lanDiscovery: boolean
 }
 
 export default function NetworkStatusScreen() {
@@ -22,8 +24,15 @@ export default function NetworkStatusScreen() {
   const [status, setStatus] = useState<NetworkStatus | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [portInput, setPortInput] = useState('')
+  const [lanDiscovery, setLanDiscovery] = useState(false)
 
   useEffect(() => { void getDhtPort().then((p) => setPortInput(p ? String(p) : '')) }, [])
+  useEffect(() => { void getLanDiscoveryEnabled().then(setLanDiscovery) }, [])
+
+  const handleLanDiscoveryToggle = useCallback((enabled: boolean) => {
+    setLanDiscovery(enabled)
+    void setLanDiscoveryEnabled(enabled)
+  }, [])
 
   // Covers both "cleared the field" and "typed something out of range" — either way there is no
   // usable port, so fall back to automatic rather than storing a value that would silently not
@@ -102,6 +111,16 @@ export default function NetworkStatusScreen() {
         </View>
 
         <View style={styles.field}>
+          <View style={styles.switchRow}>
+            <Text style={styles.label}>Discover Peers On Local Network</Text>
+            <Switch value={lanDiscovery} onValueChange={handleLanDiscoveryToggle} />
+          </View>
+          <Text style={styles.hint}>
+            Finds peers over mDNS when there's no internet — a LAN with no uplink, a field deployment. This reveals which rooms you have open to everyone on the network. Off by default. Restart Linda to apply.
+          </Text>
+        </View>
+
+        <View style={styles.field}>
           <Text style={styles.label}>Public Key</Text>
           <Pressable onPress={() => status && handleCopy(status.publicKey, 'Public key')} style={styles.keyRow}>
             <Text style={styles.mono} numberOfLines={1}>{status?.publicKey ?? '—'}</Text>
@@ -130,6 +149,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   warningText: { color: colors.textSecondary, fontSize: typography.sm, lineHeight: 20 },
   field: { gap: spacing.xs },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   label: { color: colors.textTertiary, fontSize: typography.xs, fontWeight: typography.medium, textTransform: 'uppercase' },
   value: { color: colors.textPrimary, fontSize: typography.md },
   mono: { color: colors.textPrimary, fontSize: typography.sm, fontFamily: 'monospace' },

@@ -5,6 +5,7 @@ import NetInfo from '@react-native-community/netinfo'
 import { NOTIFICATION_CHANNEL_ID } from '../notifications'
 import { startBackgroundConnection, stopBackgroundConnection } from '../foreground-service'
 import { getDhtPort } from '../dht-port'
+import { getLanDiscoveryEnabled } from '../lan-discovery-setting'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
@@ -101,7 +102,7 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('contactsChange', () => setTimeout(() => setTick((t) => t + 1), 0))
     bareClient.on('directoryChange', () => setTick((t) => t + 1))
 
-    const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort())
+    const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort(), await getLanDiscoveryEnabled())
     // Deliberately not awaited. Reopening every bookmarked room needs the network for any room
     // this device has not replicated yet, so one unreachable or half-purged room used to hold the
     // unlock screen — and the whole app — hostage behind it. The room list renders from bookmarks
