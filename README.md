@@ -205,7 +205,11 @@ can ship without waiting on the second.
 ## Distribution
 
 - **Desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.msix`, self-signed — Windows will warn on install) or `pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno`
-  - On a PC other than the one a build came from, the `.msix` install can be *blocked* rather than just warned about ("Editore: Sconosciuto" / the publisher certificate could not be verified, install button disabled): the package is signed with a dev certificate, not one issued by a public CA, so Windows only trusts it once that certificate has been imported. Each release also includes a `linda-pear-signing-cert.cer` — double-click it, choose "Install Certificate" → "Local Machine" → "Place all certificates in the following store" → "Trusted People", then retry the `.msix` install.
+  - On a PC other than the one a build came from, the `.msix` install can be *blocked* rather than just warned about ("Editore: Sconosciuto" / the publisher certificate could not be verified, install button disabled): the package is signed with a dev certificate, not one issued by a public CA, so Windows only trusts it once that certificate has been imported. Each release also includes a `linda-pear-signing-cert.cer` — the double-click → "Install Certificate" wizard can silently land the cert in the *current user's* store instead of the machine-wide one it needs to be in (no error, it just doesn't fix the install), so the reliable way is PowerShell **as Administrator**:
+    ```powershell
+    Import-Certificate -FilePath "C:\path\to\linda-pear-signing-cert.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+    ```
+    then retry the `.msix` install. If it's still blocked, sideloading may be off: Settings → Privacy & security → For developers → set "App install control" to "Anywhere" (or enable Developer Mode).
 - **Android**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.apk`, debug-signed beta)
 - **iOS**: not built yet
 - **macOS/Linux desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.zip`, unsigned — macOS/Linux will warn on first launch)
