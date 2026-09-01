@@ -194,7 +194,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { id: identity.id }
   },
 
-  'session.create': async (dir: string, dhtPort?: number, lanDiscovery?: boolean) => {
+  'session.create': async (dir: string, dhtPort?: number) => {
     const events: SessionEvents = {
       onPresence: (m) => pushEvent('presence', m),
       onPeerConnected: () => pushEvent('peerConnected'),
@@ -207,7 +207,10 @@ const methods: Record<string, (...args: any[]) => any> = {
       onReadReceipt: (m) => pushEvent('readReceipt', m)
     }
     storageDir = dir
-    session = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort, lanDiscovery } })
+    // No `createLanDiscovery` here — see `SwarmTransport.createLanDiscovery` in swarm.ts. It
+    // pulls in `multicast-dns`, which does a bare `require('dgram')` with no Bare-native shim,
+    // and `bare-pack` bails on that at bundle time, breaking the Android build entirely.
+    session = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort } })
     return {
       nickname: session.getNickname(),
       avatar: session.getAvatar(),

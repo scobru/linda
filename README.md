@@ -146,7 +146,7 @@ Streaming is why videos are practical at all: the previous path read the whole f
 
 ### Offline discovery on a local network
 
-**Status:** implemented, opt-in. See `src/network/lan-discovery.ts`.
+**Status:** implemented, opt-in, **desktop only**. See `src/network/lan-discovery.ts`.
 
 Discovery used to be the only part of Linda that depended on the internet: peers found each other
 through the Hyperswarm DHT, which bootstraps from three hardcoded hosts (`node1..3.hyperdht.org`),
@@ -161,9 +161,17 @@ needed the DHT.
 
 The privacy trade-off flagged when this was still on the roadmap is why it defaults to off:
 announcing a room topic on the LAN reveals that topic to everyone on the network. Turn it on in
-Network Status ("Discover peers on local network") on desktop or mobile; it takes effect on the
-next restart. Both channels can surface the same peer — `Session`'s `onConnection` handler dedupes
-by noise public key, dropping whichever connection arrives second.
+Network Status ("Discover peers on local network") on desktop; it takes effect on the next restart.
+Both channels can surface the same peer — `Session`'s `onConnection` handler dedupes by noise
+public key, dropping whichever connection arrives second.
+
+Not wired up on mobile: `LanDiscovery` depends on `multicast-dns`, which does a bare
+`require('dgram')` — Node's `dgram` has no Bare-native shim, so that require is unresolvable in
+the worklet, and `bare-pack` fails the whole Android bundle at *pack* time trying to link it, not
+merely at runtime. `Session` takes `LanDiscovery` by injection (`SwarmTransport.createLanDiscovery`)
+specifically so mobile's entry point can leave it out of the worklet's module graph entirely.
+Fixing this for real needs a Bare-native `dgram`/UDP-multicast shim `multicast-dns` can run against,
+verified on an actual device — not attempted here.
 
 ### Bluetooth mesh
 

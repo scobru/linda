@@ -22,12 +22,29 @@ export interface SwarmHandlers extends RpcHandlers {
 /** How this swarm reaches the network. `bootstrap` points the DHT at specific nodes instead of
  * the public network — production never sets it; tests point it at an in-process testnet so the
  * real swarm, RPC and discovery code all run without touching the internet. */
+/** Structural type for `LanDiscovery`, so `Session` never imports that module directly — see
+ * `SwarmTransport.createLanDiscovery`. */
+export interface LanDiscoveryHandle {
+  join(topic: Buffer): void
+  leave(topic: Buffer): void
+  destroy(): Promise<void>
+}
+
 export interface SwarmTransport {
   dhtPort?: number
   bootstrap?: Array<{ host: string; port: number }>
-  /** Opt-in second discovery channel for a LAN with no internet — see `LanDiscovery`. Off by
-   * default: announcing a room topic on the local network reveals that topic to everyone on it. */
-  lanDiscovery?: boolean
+  /** Opt-in second discovery channel for a LAN with no internet — see `LanDiscovery`. Undefined
+   * (the default) means off: announcing a room topic on the local network reveals that topic to
+   * everyone on it.
+   *
+   * Injected by the caller rather than imported by `Session` itself: `LanDiscovery` pulls in
+   * `multicast-dns`, which does a bare `require('dgram')` with no Bare-native shim. Node's `dgram`
+   * doesn't exist as a real package, so on mobile that require is unresolvable — and `bare-pack`
+   * bails on it at *bundle* time, breaking the Android build even though the feature is never
+   * turned on there. Keeping the import out of `session.ts` keeps it out of the worklet's module
+   * graph entirely, so only platforms that actually construct a `LanDiscovery` (desktop, for now)
+   * pull it in. */
+  createLanDiscovery?: (onSocket: (socket: Duplex, remotePublicKey: Buffer) => void) => LanDiscoveryHandle
 }
 
 export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, transport: SwarmTransport = {}): Hyperswarm {

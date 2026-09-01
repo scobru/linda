@@ -1,6 +1,7 @@
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
+import { LanDiscovery } from '../network/lan-discovery.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
 import type { Room, ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
@@ -652,7 +653,12 @@ export class AppShell extends HTMLElement {
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
-      }, transport: { dhtPort: dhtPort(), lanDiscovery: lanDiscoveryEnabled() } })
+      }, transport: {
+        dhtPort: dhtPort(),
+        createLanDiscovery: lanDiscoveryEnabled()
+          ? (onSocket) => new LanDiscovery(this.identity!, onSocket)
+          : undefined
+      } })
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {

@@ -8,8 +8,7 @@ import type Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import type { Identity } from '../identity/index.js'
 import { loadProfile } from '../identity/profile.js'
-import { createSwarm, joinRoom, handleConnection, type PeerConnection, type SwarmHandlers, type SwarmTransport } from '../network/swarm.js'
-import { LanDiscovery } from '../network/lan-discovery.js'
+import { createSwarm, joinRoom, handleConnection, type PeerConnection, type SwarmHandlers, type SwarmTransport, type LanDiscoveryHandle } from '../network/swarm.js'
 import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMessage, ContactRequestMessage, ContactResponseMessage } from '../network/encoding.js'
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
@@ -87,7 +86,7 @@ export class Session {
   private readonly store: Corestore
   private readonly profileStore: ProfileStore
   private readonly swarm: Hyperswarm
-  private readonly lan: LanDiscovery | null
+  private readonly lan: LanDiscoveryHandle | null
   private readonly rooms = new Map<string, Room>()
   private readonly directory = new Map<string, RoomAnnounceMessage>()
   private readonly contacts = new Map<string, ContactEntry>()
@@ -330,8 +329,8 @@ export class Session {
       }
     }
     this.swarm = createSwarm(identity, swarmHandlers, transport)
-    this.lan = transport.lanDiscovery
-      ? new LanDiscovery(identity, (socket, remotePublicKey) => handleConnection(socket, remotePublicKey, swarmHandlers))
+    this.lan = transport.createLanDiscovery
+      ? transport.createLanDiscovery((socket, remotePublicKey) => handleConnection(socket, remotePublicKey, swarmHandlers))
       : null
 
     this.trackDiscovery(LOBBY_TOPIC)
