@@ -1911,7 +1911,10 @@ input:checked + .keet-slider:before {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.6rem;
-  max-height: 180px;
+  /* Tall enough for the 9-item curated avatar gallery (3 full rows) without clipping mid-row —
+     180px used to cut the third row off right at the edge, reading as a rendering glitch rather
+     than "scroll for more". overflow-y stays on so a future longer list still scrolls cleanly. */
+  max-height: 280px;
   overflow-y: auto;
   padding: 0.25rem;
 }
