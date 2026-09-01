@@ -102,6 +102,16 @@ export class ProfileStore {
     await this.profile.put('wallpaper', id)
   }
 
+  /** App shell background id (see `src/ui/app-backgrounds.ts`). Local to this device, same as
+   * wallpaper — just the canvas behind the sidebar/chat panel instead of behind messages. */
+  async getAppBackground(): Promise<string> {
+    return (await this.profile.get('appBackground'))?.value ?? ''
+  }
+
+  async setAppBackground(id: string): Promise<void> {
+    await this.profile.put('appBackground', id)
+  }
+
   async getAvatar(): Promise<string> {
     return (await this.profile.get('avatar'))?.value ?? ''
   }

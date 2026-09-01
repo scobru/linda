@@ -10,6 +10,7 @@ import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
+import { APP_BACKGROUNDS, appBackgroundById, DEFAULT_APP_BACKGROUND } from './app-backgrounds.js'
 
 function storageDir(): string {
   if (typeof Pear !== 'undefined') return Pear.config.storage
@@ -823,7 +824,7 @@ export class AppShell extends HTMLElement {
     const isMaximized = this.electronIpc?.sendSync('window:is-maximized')
 
     this.innerHTML = `
-      <div class="app-container">
+      <div class="app-container" style="${this.appBackgroundStyle()}">
         <!-- Top App Titlebar -->
         <header class="app-topbar">
           <div class="topbar-left">
@@ -2238,6 +2239,15 @@ export class AppShell extends HTMLElement {
     return url ? `background-image:url('${url}');background-repeat:repeat;` : ''
   }
 
+  /** Same inline-not-CSS-class reasoning as `wallpaperStyle()`: the gradient depends on the live
+   * theme, so it has to be rebuilt on every render rather than baked into the stylesheet. */
+  private appBackgroundStyle(): string {
+    const id = this.session?.getAppBackground() || DEFAULT_APP_BACKGROUND
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
+    const css = appBackgroundById(id).css(isDark)
+    return css ? `background:${css};` : ''
+  }
+
   private async sweepOrphanBlobs(): Promise<void> {
     if (!this.session) return
     try {
@@ -2490,6 +2500,7 @@ export class AppShell extends HTMLElement {
     const workingAvatar = this.profileWorkingAvatar
     const workingNickname = this.profileWorkingNickname
     const showSecretKey = this.profileShowSecretKey
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
 
     this.innerHTML = `
       <div class="page-view">
@@ -2543,6 +2554,22 @@ export class AppShell extends HTMLElement {
                     <button class="preset-avatar-card ${active ? 'active' : ''}" data-wallpaper-id="${w.id}" title="${w.name}">
                       <span style="display:block;width:100%;height:52px;border-radius:8px;background:var(--bg-subtle) ${preview ? `url('${preview}') repeat` : ''};"></span>
                       <span class="preset-title">${w.name}</span>
+                    </button>
+                  `
+                }).join('')}
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>App Background</label>
+              <div class="preset-avatars-grid">
+                ${APP_BACKGROUNDS.map((b) => {
+                  const active = (this.session!.getAppBackground() || DEFAULT_APP_BACKGROUND) === b.id
+                  const preview = b.css(isDark)
+                  return `
+                    <button class="preset-avatar-card ${active ? 'active' : ''}" data-app-background-id="${b.id}" title="${b.name}">
+                      <span style="display:block;width:100%;height:52px;border-radius:8px;background:${preview || 'var(--bg-subtle)'};"></span>
+                      <span class="preset-title">${b.name}</span>
                     </button>
                   `
                 }).join('')}
@@ -2665,6 +2692,13 @@ export class AppShell extends HTMLElement {
     this.querySelectorAll<HTMLButtonElement>('[data-wallpaper-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         await this.session!.setWallpaper(btn.dataset.wallpaperId!)
+        this.renderProfilePage()
+      })
+    })
+
+    this.querySelectorAll<HTMLButtonElement>('[data-app-background-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await this.session!.setAppBackground(btn.dataset.appBackgroundId!)
         this.renderProfilePage()
       })
     })
