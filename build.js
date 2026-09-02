@@ -1,5 +1,6 @@
 import esbuild from 'esbuild'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const watch = process.argv.includes('--watch')
 
@@ -65,7 +66,10 @@ const bareRemap = {
     // there is no Bare `dgram`. Importing it would fail the whole bundle at load time over a
     // feature that is off by default, so Pear builds get the stub and hide the setting instead.
     build.onResolve({ filter: /network\/lan-discovery\.js$/ }, () => ({
-      path: new URL('./src/network/lan-discovery-stub.ts', import.meta.url).pathname
+      // `fileURLToPath`, not `url.pathname`: on Windows the latter yields `/D:/linda/...` — a
+      // leading slash that esbuild rejects as a non-absolute path, so the Pear bundle only built
+      // on POSIX.
+      path: fileURLToPath(new URL('./src/network/lan-discovery-stub.ts', import.meta.url))
     }))
   }
 }
