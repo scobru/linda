@@ -40,3 +40,5 @@ Thumbs.db
 .pi/
 .pi-lens/
 
+# Graphify
+graphify-out/

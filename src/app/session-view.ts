@@ -98,6 +98,7 @@ type SessionMembers = Pick<Session,
 >
 
 export interface SessionView extends SessionMembers {
+  mediaUrl(driveKeyHex: string, drivePath: string): Promise<string>
   getRoom(roomId: string): RoomView | undefined
   createRoom(name: string, isPublic?: boolean, avatar?: string, description?: string, broadcast?: boolean): Promise<RoomView>
   joinRoomByKey(name: string, invite: string, avatar?: string, description?: string): Promise<RoomView>

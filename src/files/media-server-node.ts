@@ -50,6 +50,9 @@ export class LocalMediaServer {
   }
 
   close(): void {
+    try {
+      this.server.closeAllConnections?.()
+    } catch {}
     this.server.close()
   }
 }

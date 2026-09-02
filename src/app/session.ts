@@ -13,6 +13,7 @@ import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMe
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
+import { LocalMediaServer } from '../files/media-server-node.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 
@@ -95,6 +96,7 @@ export class Session {
   private readonly pendingInviteCodes = new Map<string, string>()
   private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
+  private fileStoreOpening: Promise<FileStore> | null = null
   /** Foreign drives we download from, keyed by hex drive key — see `remoteDrive`. */
   private readonly remoteDrives = new Map<string, Promise<Hyperdrive>>()
   private nickname = ''
@@ -460,12 +462,17 @@ export class Session {
 
 
   async fileStore(): Promise<FileStore> {
-    if (!this.fileStoreInstance) {
-      this.fileStoreInstance = await FileStore.open(this.store)
-      const topic = hypercoreCrypto.discoveryKey(this.fileStoreInstance.key)
-      await joinRoom(this.swarm, topic)
+    if (this.fileStoreInstance) return this.fileStoreInstance
+    if (!this.fileStoreOpening) {
+      this.fileStoreOpening = (async () => {
+        const instance = await FileStore.open(this.store)
+        const topic = hypercoreCrypto.discoveryKey(instance.key)
+        await joinRoom(this.swarm, topic)
+        this.fileStoreInstance = instance
+        return instance
+      })()
     }
-    return this.fileStoreInstance
+    return this.fileStoreOpening
   }
 
   /**
@@ -1508,7 +1515,18 @@ export class Session {
     this.writeRequestTimer.unref?.()
   }
 
+  private mediaServer: LocalMediaServer | null = null
+
+  async mediaUrl(driveKeyHex: string, drivePath: string): Promise<string> {
+    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this)
+    return this.mediaServer.url(driveKeyHex, drivePath)
+  }
+
   async close(): Promise<void> {
+    if (this.mediaServer) {
+      this.mediaServer.close()
+      this.mediaServer = null
+    }
     if (this.writeRequestTimer) {
       clearInterval(this.writeRequestTimer)
       this.writeRequestTimer = null

@@ -20,5 +20,5 @@ await esbuild.build({
 })
 
 const outFiles = testFiles.map((f) => `dist/${f.slice('test/'.length).replace(/\.ts$/, '.cjs')}`)
-const result = spawnSync(process.execPath, ['--test', ...outFiles], { stdio: 'inherit' })
+const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...outFiles], { stdio: 'inherit' })
 process.exit(result.status ?? 1)

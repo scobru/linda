@@ -91,8 +91,23 @@ const pearBuild = {
   plugins: [bareRemap]
 }
 
+/**
+ * The Bare worker: ESM, executed directly by Bare via pear-run / pear-pipe.
+ * Resolves Bare builtins through bareRemap and leaves holepunch modules external.
+ */
+const workerBuild = {
+  ...shared,
+  entryPoints: ['src/worker/entry.ts'],
+  outfile: 'dist/worker.js',
+  format: 'esm',
+  platform: 'neutral',
+  mainFields: ['module', 'main'],
+  conditions: ['import', 'bare', 'default'],
+  plugins: [bareRemap]
+}
+
 if (watch) {
-  for (const options of [electronBuild, pearBuild]) {
+  for (const options of [electronBuild, pearBuild, workerBuild]) {
     const ctx = await esbuild.context(options)
     await ctx.watch()
   }
@@ -100,4 +115,5 @@ if (watch) {
 } else {
   await esbuild.build(electronBuild)
   await esbuild.build(pearBuild)
+  await esbuild.build(workerBuild)
 }

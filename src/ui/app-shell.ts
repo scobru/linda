@@ -6,8 +6,6 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { Session, type RoomBookmark } from '../app/session.js'
 import type { SessionView, RoomView } from '../app/session-view.js'
 import { LanDiscovery, LAN_DISCOVERY_SUPPORTED } from '../network/lan-discovery.js'
-import { LocalMediaServer } from '../files/media-server-node.js'
-import type { MediaSource } from '../files/media-server.js'
 import type { ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
@@ -667,7 +665,6 @@ export class AppShell extends HTMLElement {
       // The only place that knows the concrete class. Everything past this line goes through
       // `SessionView`, which is what makes the core movable (see session-view.ts).
       this.session = session
-      this.mediaSource = session
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {
@@ -2190,22 +2187,8 @@ export class AppShell extends HTMLElement {
     input.value = ''
   }
 
-  /** Started on first playback, never before: a session that opens no media opens no socket
-   * either. Kept for the lifetime of the window — the URLs handed to players stay valid. */
-  private mediaServer: LocalMediaServer | null = null
-  /**
-   * The one thing the UI still needs from the concrete `Session` rather than from `SessionView`:
-   * `statFile`/`createFileStream` hand back live streams, which is why mobile's contract lists them
-   * as un-forwardable and runs the media server inside the worklet instead
-   * (`mobile/worklet/media-server.ts`). Kept as its own narrow reference rather than widened into
-   * the view, so the boundary stays truthful — and so this reads as what it is: the piece that
-   * moves next.
-   */
-  private mediaSource: MediaSource | null = null
-
   private async mediaUrl(driveKeyHex: string, drivePath: string): Promise<string> {
-    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this.mediaSource!)
-    return this.mediaServer.url(driveKeyHex, drivePath)
+    return this.session!.mediaUrl(driveKeyHex, drivePath)
   }
 
   /**
