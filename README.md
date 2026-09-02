@@ -1,6 +1,6 @@
 # linda-pear
 
-P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.to) stack (autobase, hyperbee, hyperswarm, corestore). Desktop (Electron) and mobile (Expo + [react-native-bare-kit](https://github.com/holepunchto/react-native-bare-kit)) clients share one core in [`src/`](src/).
+P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.to) stack (autobase, hyperbee, hyperswarm, corestore). Desktop (Electron *or* the [Pear](https://docs.pears.com) runtime) and mobile (Expo + [react-native-bare-kit](https://github.com/holepunchto/react-native-bare-kit)) clients share one core in [`src/`](src/).
 
 Same architecture Keet (Holepunch's own flagship app) uses under the hood — same `react-native-bare-kit` version, same primitives.
 
@@ -14,7 +14,10 @@ Same architecture Keet (Holepunch's own flagship app) uses under the hood — sa
 
 ```
 src/           shared core: identity, rooms (autobase), network (hyperswarm RPC), files (hyperdrive)
-electron/      desktop main process (thin wrapper, no app logic)
+electron/      Electron main process (thin wrapper, no app logic)
+index.html     GUI entrypoint for the Electron build
+pear.js        app entrypoint for the Pear build — runs in Bare, starts the UI runtime
+pear.html      GUI entrypoint for the Pear build
 mobile/        Expo/React Native app; embeds src/ inside a Bare runtime worklet (mobile/worklet/)
 test/          integration tests against real Hyperswarm
 ```
@@ -67,13 +70,16 @@ as a running notes log without a separate feature for it.
 - Shared logic in [hashtag.ts](src/util/hashtag.ts): desktop renders it as inline HTML spans,
   mobile splits the message into text/tag parts since React Native renders text as nodes.
 
-## Desktop (Electron)
+## Desktop
+
+The same UI runs under two desktop runtimes. Both load `src/` — only the shell around it differs.
 
 ```bash
 npm install
-npm run start          # dev, single identity
-npm run start:a        # dev, separate storage dir (2nd peer for local testing)
+npm run start          # Electron: dev, single identity
+npm run start:a        # Electron: separate storage dir (2nd peer for local testing)
 npm run start:b
+npm run start:pear     # Pear: pear run --dev . (needs the pear CLI: npx pear)
 ```
 
 Build a distributable:
@@ -81,6 +87,46 @@ Build a distributable:
 ```bash
 npm run make            # electron-forge → out/make/ (msix on win32, zip on darwin/linux)
 ```
+
+### Electron vs Pear
+
+|                     | Electron                          | Pear                                        |
+| ------------------- | --------------------------------- | ------------------------------------------- |
+| What ships          | Chromium + Node per app (~200 MB) | the app's own JS/CSS; the runtime is shared |
+| Updates             | MSIX / GitHub Releases            | OTA over `pear://`, no installer            |
+| JS runtime          | Node                              | [Bare](https://github.com/holepunchto/bare) |
+| Module system       | CommonJS                          | ESM only — Bare has no `require`            |
+| LAN discovery       | yes                               | no (see below)                              |
+
+Pear is not "Electron, but lighter": it *is* Electron for drawing, but installed once and shared
+by every Pear app on the machine, with the application itself reduced to its own source. What
+changes for this codebase is the runtime underneath — Bare, not Node — which is the same runtime
+the mobile worklet already runs on.
+
+Two consequences shape the build:
+
+- **Two bundles.** `build.js` emits `dist/app.js` (CommonJS, loaded by a plain `<script>` in
+  `index.html`) for Electron and `dist/pear/app.js` (ESM, `<script type="module">` in `pear.html`)
+  for Pear. Dependencies stay external in both: Electron resolves them out of the packaged
+  `node_modules`, Pear out of the staged drive.
+- **No Node builtins under Pear.** The Pear bundle rewrites `node:fs`/`node:path`/`node:os`/
+  `node:http`/`node:events` to their `bare-*` equivalents at build time (see `BARE_BUILTINS` in
+  `build.js`). `node:http` → `bare-http1` is the media server, and it is the mapping the mobile
+  worklet has been running in production all along.
+
+**LAN discovery is Electron-only.** mDNS needs UDP multicast, and `multicast-dns` reaches for it
+through `node:dgram`, which Bare has no equivalent for — the same reason the module is kept out of
+the mobile worklet's graph (see `SwarmTransport.createLanDiscovery` in
+[`src/network/swarm.ts`](src/network/swarm.ts)). The Pear build swaps in
+[`lan-discovery-stub.ts`](src/network/lan-discovery-stub.ts) and leaves the setting out of the
+Network page.
+
+**Which entrypoint is which.** `package.json` `main` belongs to Pear: v2 dropped HTML entrypoints,
+so `pear run` boots `pear.js`, which starts `pear-electron` (the UI runtime) and `pear-bridge`
+(which serves `pear.html` to it). Electron gets its entry from the explicit path in the `start`
+scripts, and for packaged builds from the `packageAfterCopy` hook in `forge.config.cjs`, which
+writes `main: electron/main.cjs` into the copy. Changing either one without the other breaks the
+runtime it belongs to.
 
 ### Publishing (Pear P2P)
 
@@ -92,7 +138,11 @@ npm run pear:stage                # publish
 npm run pear:seed                 # announce on the network (keep running)
 ```
 
-The ignore list in `pear:stage` already excludes `node_modules`, `.dev-storage` (local test identities), build caches, and the `mobile/` Android build output — see the script in `package.json` if you need to adjust it.
+The ignore list in `pear:stage` excludes `.dev-storage` (local test identities), build caches, the
+`mobile/` app and the Electron half of the desktop build. It deliberately *keeps* `node_modules`,
+minus the dev-only toolchain: the Pear bundle leaves its dependencies external, so the runtime
+resolves them out of the staged drive — dropping `node_modules` there leaves the published app
+with nothing to import.
 
 To include the native Windows installer in the same `pear://` link (so `pear install` works, not just `pear run`):
 
@@ -132,9 +182,10 @@ video and audio simply fail to start with no useful error.
 
 Audio and video play without downloading the file first. A small HTTP server bound to loopback
 serves byte ranges straight out of the Hyperdrive, and the platform's own player does the
-seeking — `node:http` in the Electron renderer (`src/files/media-server-node.ts`),
-`bare-http1` inside the worklet on mobile (`mobile/worklet/media-server.ts`), both driving the
-same handler in `src/files/media-server.ts`.
+seeking — `node:http` in the Electron renderer (`src/files/media-server-node.ts`), `bare-http1`
+inside the worklet on mobile (`mobile/worklet/media-server.ts`) and, in the Pear build, the same
+desktop file with `node:http` rewritten to `bare-http1` — all three driving the same handler in
+`src/files/media-server.ts`.
 
 The URL carries a per-session token, since loopback is shared with every other process on the
 machine. Requests without it are answered 404, exactly like a wrong path.

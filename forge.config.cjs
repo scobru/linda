@@ -1,6 +1,20 @@
+const fs = require('node:fs')
 const path = require('node:path')
 
 module.exports = {
+  hooks: {
+    // Electron reads its entrypoint from the packaged app's `main` field, but that field belongs
+    // to Pear now: Pear v2+ boots the JS entrypoint named there (pear.js), and it has to stay
+    // that way for `pear run`/`pear stage` to work at all. The dev scripts pass Electron its
+    // entry as an explicit path, which leaves only the packaged build needing one — so write it
+    // into the copy rather than keeping a field that would break the other runtime.
+    packageAfterCopy: [async (_config, buildPath) => {
+      const manifest = path.join(buildPath, 'package.json')
+      const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+      pkg.main = 'electron/main.cjs'
+      fs.writeFileSync(manifest, JSON.stringify(pkg, null, 2) + '\n')
+    }]
+  },
   packagerConfig: {
     asar: false,
     icon: './assets/icon',
@@ -19,7 +33,12 @@ module.exports = {
       /^\/build\.js$/,
       /^\/forge\.config\.cjs$/,
       /^\/tsconfig\.json$/,
-      /^\/dist\/.*\.map$/
+      /^\/dist\/.*\.map$/,
+      // The Pear half of the app: a second entrypoint, a second HTML file and a second bundle,
+      // none of which Electron loads.
+      /^\/pear\.js$/,
+      /^\/pear\.html$/,
+      /^\/dist\/pear\//
     ]
   },
   makers: [

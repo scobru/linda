@@ -1,7 +1,10 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
-import { LanDiscovery } from '../network/lan-discovery.js'
+import { LanDiscovery, LAN_DISCOVERY_SUPPORTED } from '../network/lan-discovery.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
 import type { Room, ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
@@ -12,12 +15,14 @@ import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
 import { APP_BACKGROUNDS, appBackgroundById, DEFAULT_APP_BACKGROUND } from './app-backgrounds.js'
+import { desktopHost } from './desktop-host.js'
 
 function storageDir(): string {
+  // Pear hands every app its own storage directory, keyed to the app link; under Electron there
+  // is nobody to ask, so this picks one. `LINDA_PEAR_STORAGE_DIR` is what `npm run start:a`/`:b`
+  // set to get two independent identities out of one checkout.
   if (typeof Pear !== 'undefined') return Pear.config.storage
-  if (process.env.LINDA_PEAR_STORAGE_DIR) return process.env.LINDA_PEAR_STORAGE_DIR
-  const os = require('node:os')
-  const path = require('node:path')
+  if (globalThis.process?.env?.LINDA_PEAR_STORAGE_DIR) return globalThis.process.env.LINDA_PEAR_STORAGE_DIR
   return path.join(os.homedir(), '.linda-pear', 'storage')
 }
 
@@ -33,7 +38,7 @@ const DHT_PORT_KEY = 'linda-dht-port'
 /** Opt-in: announcing a room's topic on the LAN reveals that topic to everyone on the network
  * (see `SwarmTransport.lanDiscovery`), so this defaults to off. */
 function lanDiscoveryEnabled(): boolean {
-  return localStorage.getItem(LAN_DISCOVERY_KEY) === 'true'
+  return LAN_DISCOVERY_SUPPORTED && localStorage.getItem(LAN_DISCOVERY_KEY) === 'true'
 }
 
 const LAN_DISCOVERY_KEY = 'linda-lan-discovery'
@@ -291,7 +296,7 @@ export class AppShell extends HTMLElement {
   private remoteImageCache = new Map<string, string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
   private renderAppQueued = false
-  private readonly electronIpc = (globalThis as any).require?.('electron')?.ipcRenderer
+  private readonly host = desktopHost()
   /** True between a mousedown and its mouseup/click. A network-triggered rebuild (see
    * scheduleRenderApp) landing inside that window replaces the DOM node the click was aimed at,
    * so the click's focus lands on nothing and the input reads as unresponsive — "sometimes I
@@ -312,19 +317,17 @@ export class AppShell extends HTMLElement {
     this.view = identityExists(storageDir()) ? 'unlock' : 'create'
     this.render()
 
-    // Electron's main process intercepts linda-pear:// links clicked in chat (see
-    // setWindowOpenHandler in electron/main.cjs) instead of handing them to shell.openExternal,
-    // which just failed with "Windows can't find an app for this" since the scheme isn't
-    // registered with the OS. It forwards them here so they open the room in-app instead.
-    const electron = (globalThis as any).require?.('electron')
-    electron?.ipcRenderer?.on('open-invite-link', (_event: unknown, url: string) => {
+    // A linda-pear:// link clicked in chat must open the room in-app: the scheme isn't
+    // registered with the OS, so letting the host hand it off just failed with "Windows can't
+    // find an app for this". How the click is caught differs per runtime — see desktop-host.ts.
+    this.host.onInviteLink((url) => {
       if (this.session) void this.joinFromInviteText(url)
     })
 
     window.addEventListener('mousedown', () => { this.pointerDown = true })
     window.addEventListener('mouseup', () => { this.pointerDown = false })
 
-    this.electronIpc?.on('window:maximized-change', (_event: unknown, maximized: boolean) => {
+    this.host.onMaximizedChange((maximized) => {
       const btn = this.querySelector('#winMaximizeBtn')
       if (btn) { btn.innerHTML = maximized ? ICONS.winRestore : ICONS.winMaximize; btn.setAttribute('title', maximized ? 'Restore' : 'Maximize') }
     })
@@ -835,7 +838,7 @@ export class AppShell extends HTMLElement {
     const userInitial = this.nickname ? this.nickname.slice(0, 1).toUpperCase() : (this.identity.id.slice(0, 1).toUpperCase() || 'S')
     const userHandle = this.nickname ? `@${this.nickname.toLowerCase().replace(/\s+/g, '')}` : `@${this.identity.id.slice(0, 8)}`
     const isLight = document.documentElement.getAttribute('data-theme') === 'light'
-    const isMaximized = this.electronIpc?.sendSync('window:is-maximized')
+    const isMaximized = this.host.isMaximized()
 
     const appBgTransparent = (this.session?.getAppBackground() || DEFAULT_APP_BACKGROUND) === 'transparent'
 
@@ -852,7 +855,7 @@ export class AppShell extends HTMLElement {
           </div>
           <div class="topbar-window-controls">
             <button class="win-ctrl-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">${isLight ? ICONS.moon : ICONS.sun}</button>
-            ${this.electronIpc ? `
+            ${this.host.ownsTitlebar ? `
               <span class="win-ctrl-sep"></span>
               <button class="win-ctrl-btn" id="winMinimizeBtn" title="Minimize">${ICONS.winMinimize}</button>
               <button class="win-ctrl-btn" id="winMaximizeBtn" title="${isMaximized ? 'Restore' : 'Maximize'}">${isMaximized ? ICONS.winRestore : ICONS.winMaximize}</button>
@@ -2480,12 +2483,13 @@ export class AppShell extends HTMLElement {
   }
 
   /** Every full-screen view replaces the whole document body (`this.innerHTML = ...`), so the
-   * app-topbar's minimize/maximize/close buttons — the only ones there are, since the OS titlebar
-   * is off (see frame: false in electron/main.cjs) — disappear on every view but the main chat.
+   * app-topbar's minimize/maximize/close buttons — the only ones there are, since neither host
+   * draws an OS titlebar (frame: false in electron/main.cjs; Pear windows are frameless) —
+   * disappear on every view but the main chat.
    * Each screen embeds this instead of its own copy. */
   private windowControlsHtml(): string {
-    if (!this.electronIpc) return ''
-    const isMaximized = this.electronIpc.sendSync('window:is-maximized')
+    if (!this.host.ownsTitlebar) return ''
+    const isMaximized = this.host.isMaximized()
     return `
       <div class="topbar-window-controls" style="margin-left:auto;">
         <button class="win-ctrl-btn" id="winMinimizeBtn" title="Minimize">${ICONS.winMinimize}</button>
@@ -2498,13 +2502,13 @@ export class AppShell extends HTMLElement {
   /** Same problem as pageTopbarHtml but for the five pre-login screens (create/unlock/recover/
    * reveal/pair), which have no topbar of their own to embed windowControlsHtml() into. */
   private authTitlebarHtml(): string {
-    return this.electronIpc ? `<div class="auth-topbar">${this.windowControlsHtml()}</div>` : ''
+    return this.host.ownsTitlebar ? `<div class="auth-topbar">${this.windowControlsHtml()}</div>` : ''
   }
 
   private wireWindowControls(): void {
-    this.querySelector('#winMinimizeBtn')?.addEventListener('click', () => this.electronIpc?.send('window:minimize'))
-    this.querySelector('#winMaximizeBtn')?.addEventListener('click', () => this.electronIpc?.send('window:maximize-toggle'))
-    this.querySelector('#winCloseBtn')?.addEventListener('click', () => this.electronIpc?.send('window:close'))
+    this.querySelector('#winMinimizeBtn')?.addEventListener('click', () => this.host.minimize())
+    this.querySelector('#winMaximizeBtn')?.addEventListener('click', () => this.host.toggleMaximize())
+    this.querySelector('#winCloseBtn')?.addEventListener('click', () => this.host.close())
   }
 
   private openProfilePage(): void {
@@ -2780,13 +2784,14 @@ export class AppShell extends HTMLElement {
               <input id="dhtPortInput" type="number" min="1" max="65535" class="keet-input" placeholder="Automatic" value="${dhtPort() ?? ''}" />
               <p style="font-size:0.75rem;color:var(--text-dim);margin:0.35rem 0 0;">If you run a VPN, set this to the port it forwards — otherwise peers cannot reach you while the VPN is on. Leave empty for automatic. Restart Linda to apply.</p>
             </div>
+            ${LAN_DISCOVERY_SUPPORTED ? `
             <div class="form-group">
               <label style="display:flex;align-items:center;gap:0.5rem;">
                 <input id="lanDiscoveryToggle" type="checkbox" ${lanDiscoveryEnabled() ? 'checked' : ''} />
                 Discover peers on local network
               </label>
               <p style="font-size:0.75rem;color:var(--text-dim);margin:0.35rem 0 0;">Finds peers over mDNS when there's no internet — a LAN with no uplink, a field deployment. This reveals which rooms you have open to everyone on the network. Off by default. Restart Linda to apply.</p>
-            </div>
+            </div>` : ''}
             <div class="form-group">
               <label>Public Key</label>
               <div class="key-display-row">
@@ -2813,8 +2818,10 @@ export class AppShell extends HTMLElement {
         portInput.value = ''
       }
     })
-    const lanToggle = this.querySelector('#lanDiscoveryToggle') as HTMLInputElement
-    lanToggle.addEventListener('change', () => {
+    // Absent in the Pear build, where mDNS has no Bare-native transport to run on and the
+    // setting is left out of the page entirely (see lan-discovery-stub.ts).
+    const lanToggle = this.querySelector('#lanDiscoveryToggle') as HTMLInputElement | null
+    lanToggle?.addEventListener('change', () => {
       localStorage.setItem(LAN_DISCOVERY_KEY, String(lanToggle.checked))
     })
     this.querySelector('#copyNetPublicKey')?.addEventListener('click', () => copyToClipboard(status.publicKey))
@@ -3446,7 +3453,6 @@ export class AppShell extends HTMLElement {
   private async resetDevice(): Promise<void> {
     if (!confirm('Reset this device? This permanently deletes your local identity, rooms and contacts here.')) return
     try { await this.session?.close() } catch { /* ignore */ }
-    const fs = require('node:fs')
     fs.rmSync(storageDir(), { recursive: true, force: true })
     location.reload()
   }
@@ -3473,17 +3479,9 @@ function triggerBlobDownload(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
-/**
- * `navigator.clipboard` is the wrong tool inside Electron: it is gated on a permission grant
- * *and* refuses outright with "Document is not focused" whenever the window isn't the focused
- * one — which includes the common case of DevTools holding focus. Electron's clipboard has
- * neither restriction and is bridged in as `window.lindaClipboard` by the preload script.
- * Falls back to the web API so the UI still works if this is ever run in a plain browser.
- */
+/** Each host has its own least-broken way to write the clipboard — see desktop-host.ts. */
 function copyToClipboard(text: string): void {
-  const bridged = (window as unknown as { lindaClipboard?: { writeText(t: string): void } }).lindaClipboard
-  if (bridged) return bridged.writeText(text)
-  void navigator.clipboard?.writeText(text).catch(() => { /* nothing better to offer */ })
+  desktopHost().copyToClipboard(text)
 }
 
 function escapeHtml(input: string): string {
