@@ -518,7 +518,7 @@ export class Room {
     base.view.messages.on('truncate', () => room.invalidateMessage())
     base.view.state.core.on('truncate', () => {
       room.stateRewound = true
-      void room.refreshState(base.view.state)
+      void room.refreshState(base.view.state).catch((err) => room.rethrowUnlessClosing(err))
     })
     if (base.update) await base.update()
 
@@ -894,7 +894,9 @@ export class Room {
 
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */
   onNewMessage(listener: (message: ChatMessage) => void): () => void {
-    const onAppend = () => { void this.getMessage(this.base.view.messages.length - 1).then(listener) }
+    const onAppend = () => {
+      void this.getMessage(this.base.view.messages.length - 1).then(listener).catch((err) => this.rethrowUnlessClosing(err))
+    }
     this.base.view.messages.on('append', onAppend)
     return () => this.base.view.messages.off('append', onAppend)
   }
@@ -908,7 +910,24 @@ export class Room {
     }
   }
 
+  /** Set before anything is torn down, so the fire-and-forget reads below can tell "the room went
+   * away underneath me" from a real failure. */
+  private closing = false
+
+  /**
+   * A read started by an Autobase event (a view append, a truncate after a reorg) has no caller
+   * waiting on it, so its rejection has nowhere to go but `unhandledRejection` — which ends the
+   * process. Once `close()` has run, "cannot get on a closed session" is exactly what those reads
+   * are supposed to do and there is nothing left to tell; anything else is a real bug and keeps
+   * its current fate.
+   */
+  private rethrowUnlessClosing(err: unknown): void {
+    if (this.closing) return
+    throw err
+  }
+
   async close(): Promise<void> {
+    this.closing = true
     if (this.mutationNotifyTimer !== null) clearTimeout(this.mutationNotifyTimer)
     await this.base.close()
   }
