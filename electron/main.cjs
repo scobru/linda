@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, session, desktopCapturer, shell, clipboard, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, session, shell, clipboard, ipcMain } = require('electron')
 const path = require('node:path')
 
 function createWindow() {
@@ -68,17 +68,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Electron doesn't implement the web getDisplayMedia() prompt on its own — without this
-  // handler, navigator.mediaDevices.getDisplayMedia() in the renderer just rejects and the
-  // screen-share button silently does nothing. useSystemPicker covers macOS 15+; everywhere
-  // else (including Windows, this app's main target) the handler still runs, so fall back to
-  // capturing the primary screen directly via desktopCapturer — no in-app source picker exists.
-  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      callback(sources[0] ? { video: sources[0] } : {})
-    })
-  }, { useSystemPicker: true })
-
   // getUserMedia({ audio: true }) for voice messages needs an explicit grant. Installing a
   // handler *replaces* Electron's default, which granted the rest — an earlier version of this
   // handler returned false for everything but media and so silently revoked clipboard writes

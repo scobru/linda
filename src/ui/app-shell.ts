@@ -4,9 +4,11 @@ import path from 'node:path'
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
 import { Session, type RoomBookmark } from '../app/session.js'
+import type { SessionView, RoomView } from '../app/session-view.js'
 import { LanDiscovery, LAN_DISCOVERY_SUPPORTED } from '../network/lan-discovery.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
-import type { Room, ChatMessage, RoomFile } from '../rooms/room.js'
+import type { MediaSource } from '../files/media-server.js'
+import type { ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
@@ -249,8 +251,8 @@ export class AppShell extends HTMLElement {
   private view: View = 'create'
   private identity: Identity | null = null
   private pendingMnemonic: string | null = null
-  private session: Session | null = null
-  private activeRoom: Room | null = null
+  private session: SessionView | null = null
+  private activeRoom: RoomView | null = null
   private activeRoomName = ''
   /** Set right before a send/edit of our own — the next renderMessages() should land on the tail
    * regardless of scroll position, unlike an arbitrary incoming mutation which shouldn't yank
@@ -643,7 +645,7 @@ export class AppShell extends HTMLElement {
     if (!this.identity) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
     try {
-      this.session = await Session.create(this.identity, storageDir(), { events: {
+      const session = await Session.create(this.identity, storageDir(), { events: {
         onTyping: (m) => this.onTyping(m.roomId, m.userId, m.typing),
         onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar),
         onReadReceipt: (m) => this.onReadReceipt(m.roomId, m.userId),
@@ -662,6 +664,10 @@ export class AppShell extends HTMLElement {
           ? (onSocket) => new LanDiscovery(this.identity!, onSocket)
           : undefined
       } })
+      // The only place that knows the concrete class. Everything past this line goes through
+      // `SessionView`, which is what makes the core movable (see session-view.ts).
+      this.session = session
+      this.mediaSource = session
     } catch (err: any) {
       const msg = err?.message || String(err)
       if (msg.includes('locked') || msg.includes('FDLock')) {
@@ -2187,9 +2193,18 @@ export class AppShell extends HTMLElement {
   /** Started on first playback, never before: a session that opens no media opens no socket
    * either. Kept for the lifetime of the window — the URLs handed to players stay valid. */
   private mediaServer: LocalMediaServer | null = null
+  /**
+   * The one thing the UI still needs from the concrete `Session` rather than from `SessionView`:
+   * `statFile`/`createFileStream` hand back live streams, which is why mobile's contract lists them
+   * as un-forwardable and runs the media server inside the worklet instead
+   * (`mobile/worklet/media-server.ts`). Kept as its own narrow reference rather than widened into
+   * the view, so the boundary stays truthful — and so this reads as what it is: the piece that
+   * moves next.
+   */
+  private mediaSource: MediaSource | null = null
 
   private async mediaUrl(driveKeyHex: string, drivePath: string): Promise<string> {
-    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this.session!)
+    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this.mediaSource!)
     return this.mediaServer.url(driveKeyHex, drivePath)
   }
 
@@ -2440,7 +2455,7 @@ export class AppShell extends HTMLElement {
   }
 
   /** Broadcasts "I've read up to this message" to every connected peer — called after each render with the newest visible message id. Idempotent per message id so re-renders (reactions, edits) don't resend. */
-  private notifyRead(room: Room, messageId: string): void {
+  private notifyRead(room: RoomView, messageId: string): void {
     if (!this.session || this.lastReadSent === messageId) return
     this.lastReadSent = messageId
     for (const peer of this.session.peers.values()) peer.rpc.sendReadReceipt({ roomId: room.id, userId: this.identity!.id, messageId })
@@ -2830,7 +2845,7 @@ export class AppShell extends HTMLElement {
     ))
   }
 
-  private openRoomSettingsPage(room: Room): void {
+  private openRoomSettingsPage(room: RoomView): void {
     if (!this.session) return
     const currentBookmark = this.session.listBookmarks().find((b) => b.id === room.id)
     this.roomSettingsWorkingName = currentBookmark?.name || this.activeRoomName
@@ -3151,7 +3166,7 @@ export class AppShell extends HTMLElement {
     this.querySelector('#closePairBtn')?.addEventListener('click', closeAndStop)
   }
 
-  private openMembersPage(room: Room): void {
+  private openMembersPage(room: RoomView): void {
     if (!this.session) return
     this.activeRoom = room
     this.view = 'members'
@@ -3406,7 +3421,7 @@ export class AppShell extends HTMLElement {
     })
   }
 
-  private async openInvitePage(room: Room): Promise<void> {
+  private async openInvitePage(room: RoomView): Promise<void> {
     this.inviteQrDataUrl = await inviteToDataUrl({ name: this.activeRoomName, key: this.session!.inviteLinkFor(room.id) })
     this.view = 'invite'
     this.render()
