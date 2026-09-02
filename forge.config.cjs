@@ -1,6 +1,10 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+/** Where Electron's entrypoint actually lives. `package.json` `main` cannot say so: that field
+ * belongs to Pear, which boots `pear.js`. See the hook below and the README's Desktop section. */
+const ELECTRON_ENTRY = 'electron/main.cjs'
+
 module.exports = {
   hooks: {
     // Electron reads its entrypoint from the packaged app's `main` field, but that field belongs
@@ -8,12 +12,22 @@ module.exports = {
     // that way for `pear run`/`pear stage` to work at all. The dev scripts pass Electron its
     // entry as an explicit path, which leaves only the packaged build needing one — so write it
     // into the copy rather than keeping a field that would break the other runtime.
-    packageAfterCopy: [async (_config, buildPath) => {
+    // A function, not an array: Forge dispatches its own hooks with `typeof hooks[name] ===
+    // 'function'` and silently skips anything else, which is not the same shape as the
+    // `afterCopy` arrays @electron/packager takes. Written as an array this never ran, and the
+    // packaged build failed validation with "main entry point not found".
+    packageAfterCopy: async (_config, buildPath) => {
       const manifest = path.join(buildPath, 'package.json')
       const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-      pkg.main = 'electron/main.cjs'
+      pkg.main = ELECTRON_ENTRY
       fs.writeFileSync(manifest, JSON.stringify(pkg, null, 2) + '\n')
-    }]
+      // Packager validates the entry point right after this hook, but only that the file exists —
+      // a hook that silently did nothing would fail there with a confusing message about pear.js,
+      // which is exactly how this was found. Say it plainly instead.
+      if (!fs.existsSync(path.join(buildPath, ELECTRON_ENTRY))) {
+        throw new Error(`packageAfterCopy: ${ELECTRON_ENTRY} is missing from the packaged app — check packagerConfig.ignore`)
+      }
+    }
   },
   packagerConfig: {
     asar: false,
