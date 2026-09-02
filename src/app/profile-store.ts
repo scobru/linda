@@ -84,12 +84,37 @@ export class ProfileStore {
     return new ProfileStore(profile, bookmarks, contacts, keys, invites, peerAvatars)
   }
 
+  /** Writes that no caller is awaiting. Most of the store's writers are fire-and-forget — a
+   * peer's avatar arriving over RPC, a room key learned mid-session — because nothing in the UI
+   * waits on them. That is fine right up until `Session.close()` tears the corestore down while
+   * one is still in flight, which rejects with "cannot append to a closed session" and, with no
+   * caller to catch it, takes the process down as an unhandled rejection. Holding the promises
+   * here lets `flush()` drain them first. */
+  private readonly inFlight = new Set<Promise<unknown>>()
+
+  private track<T>(work: Promise<T>): Promise<T> {
+    this.inFlight.add(work)
+    // The rejection is the caller's to handle; this copy exists only to keep the set from
+    // leaking, and must not itself become a second unhandled rejection.
+    void work.catch(() => {}).then(() => { this.inFlight.delete(work) })
+    return work
+  }
+
+  /** Settles every write still in flight. Call before closing the corestore underneath. */
+  async flush(): Promise<void> {
+    while (this.inFlight.size > 0) {
+      const draining = [...this.inFlight]
+      await Promise.allSettled(draining)
+      for (const work of draining) this.inFlight.delete(work)
+    }
+  }
+
   async getNickname(): Promise<string> {
     return (await this.profile.get('nickname'))?.value ?? ''
   }
 
   async setNickname(nickname: string): Promise<void> {
-    await this.profile.put('nickname', nickname)
+    await this.track(this.profile.put('nickname', nickname))
   }
 
   /** Chat background id (see `src/ui/wallpapers.ts`). Local to this device — nobody else's
@@ -99,7 +124,7 @@ export class ProfileStore {
   }
 
   async setWallpaper(id: string): Promise<void> {
-    await this.profile.put('wallpaper', id)
+    await this.track(this.profile.put('wallpaper', id))
   }
 
   /** App shell background id (see `src/ui/app-backgrounds.ts`). Local to this device, same as
@@ -109,7 +134,7 @@ export class ProfileStore {
   }
 
   async setAppBackground(id: string): Promise<void> {
-    await this.profile.put('appBackground', id)
+    await this.track(this.profile.put('appBackground', id))
   }
 
   async getAvatar(): Promise<string> {
@@ -117,7 +142,7 @@ export class ProfileStore {
   }
 
   async setAvatar(avatar: string): Promise<void> {
-    await this.profile.put('avatar', avatar)
+    await this.track(this.profile.put('avatar', avatar))
   }
 
   async getPeerAvatar(userId: string): Promise<string> {
@@ -126,7 +151,7 @@ export class ProfileStore {
 
   async setPeerAvatar(userId: string, avatar: string): Promise<void> {
     if (!avatar) return
-    await this.peerAvatars.put(userId, avatar)
+    await this.track(this.peerAvatars.put(userId, avatar))
   }
 
   async listPeerAvatars(): Promise<Map<string, string>> {
@@ -144,11 +169,11 @@ export class ProfileStore {
   }
 
   async saveBookmark(bookmark: RoomBookmark): Promise<void> {
-    await this.bookmarks.put(bookmark.id, bookmark)
+    await this.track(this.bookmarks.put(bookmark.id, bookmark))
   }
 
   async removeBookmark(id: string): Promise<void> {
-    await this.bookmarks.del(id)
+    await this.track(this.bookmarks.del(id))
   }
 
   async listContacts(): Promise<ContactEntry[]> {
@@ -158,15 +183,15 @@ export class ProfileStore {
   }
 
   async saveContact(contact: ContactEntry): Promise<void> {
-    await this.contacts.put(contact.userId, contact)
+    await this.track(this.contacts.put(contact.userId, contact))
   }
 
   async removeContact(userId: string): Promise<void> {
-    await this.contacts.del(userId)
+    await this.track(this.contacts.del(userId))
   }
 
   async saveRoomKey(roomId: string, epoch: number, keyHex: string): Promise<void> {
-    await this.keys.put(`${roomId}:${epoch}`, { roomId, epoch, keyHex })
+    await this.track(this.keys.put(`${roomId}:${epoch}`, { roomId, epoch, keyHex }))
   }
 
   async getRoomKeys(roomId: string): Promise<StoredRoomKey[]> {
@@ -179,7 +204,7 @@ export class ProfileStore {
   }
 
   async saveInviteToken(token: StoredInviteToken): Promise<void> {
-    await this.invites.put(token.roomId, token)
+    await this.track(this.invites.put(token.roomId, token))
   }
 
   async getInviteToken(roomId: string): Promise<StoredInviteToken | null> {

@@ -11,15 +11,19 @@
     "react-native-bare-kit": "0.14.5",
     "react-native": "0.79.6"
   },
-  "main": "electron/main.cjs",
+  "main": "pear.js",
   "pear": {
     "name": "linda-pear",
     "type": "desktop",
     "gui": {
+      "main": "pear.html",
       "backgroundColor": "#0b0f14",
       "width": 960,
-      "height": 680
-    }
+      "height": 680,
+      "minWidth": 640,
+      "minHeight": 480
+    },
+    "pre": "pear-electron/pre"
   },
   "scripts": {
     "build": "node build.js",
@@ -30,8 +34,9 @@
     "start": "node build.js && electron ./electron/main.cjs",
     "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
     "start:b": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/b electron ./electron/main.cjs",
+    "start:pear": "node build.js && pear run --dev .",
     "make": "node build.js && electron-forge make",
-    "pear:stage": "pear stage pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno . --ignore node_modules,mobile/node_modules,.dev-storage,.claude,.git,out,test,release-artifacts,.cache,electron-smoke.mjs,mobile/android,mobile/.expo,.headroom,.serena --purge",
+    "pear:stage": "pear stage pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno . --ignore mobile,.dev-storage,.claude,.git,out,test,release-artifacts,.cache,electron-smoke.mjs,electron,index.html,dist/app.js,dist/app.js.map,forge.config.cjs,.headroom,.serena,node_modules/.bin,node_modules/electron,node_modules/@electron,node_modules/@electron-forge,node_modules/esbuild,node_modules/@esbuild,node_modules/typescript,node_modules/@types --purge",
     "pear:seed": "pear seed pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno"
   },
   "keywords": [],
@@ -43,7 +48,12 @@
     "@react-native/js-polyfills": "^0.79.6",
     "autobase": "^7.28.1",
     "b4a": "^1.8.1",
+    "bare-events": "^2.9.1",
+    "bare-fs": "^4.7.4",
     "bare-http1": "^4.5.8",
+    "bare-os": "^3.9.3",
+    "bare-path": "^3.1.1",
+    "bare-tcp": "^2.6.1",
     "bip39": "^3.1.0",
     "compact-encoding": "^3.3.0",
     "corestore": "^7.12.0",
@@ -54,6 +64,8 @@
     "hyperswarm": "^4.17.0",
     "jsqr": "^1.4.0",
     "multicast-dns": "^7.2.5",
+    "pear-bridge": "^1.2.0",
+    "pear-electron": "^1.7.28",
     "protomux": "^3.11.0",
     "qrcode": "^1.5.4",
     "sodium-javascript": "^0.8.0",

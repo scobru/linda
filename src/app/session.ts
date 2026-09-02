@@ -1525,6 +1525,10 @@ export class Session {
     await this.swarm.destroy()
     await this.lan?.destroy()
     for (const room of this.rooms.values()) await room.close()
+    // Same class of bug as the swarm ordering above, one layer down: the fire-and-forget profile
+    // writes this session starts (peer avatars, room keys, contacts) have to land before the
+    // corestore they append to disappears.
+    await this.profileStore.flush()
     await this.store.close()
   }
 }

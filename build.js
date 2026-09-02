@@ -12,22 +12,88 @@ fs.writeFileSync('src/version.ts',
   '// Committed because the mobile bundler reads src/ directly and never runs build.js.\n' +
   `export const APP_VERSION = '${version}'\n`)
 
-const options = {
+const shared = {
   entryPoints: ['src/main.ts'],
-  outfile: 'dist/app.js',
   bundle: true,
-  format: 'cjs',
-  platform: 'node',
   target: 'es2022',
   packages: 'external',
   sourcemap: true,
   logLevel: 'info'
 }
 
+/**
+ * The Electron renderer: CommonJS on Node, loaded by a plain `<script>` tag in index.html.
+ * `packages: 'external'` leaves `require('hypercore')` and friends to Electron's own resolver,
+ * which reads them out of the packaged node_modules.
+ */
+const electronBuild = {
+  ...shared,
+  outfile: 'dist/app.js',
+  format: 'cjs',
+  platform: 'node'
+}
+
+/**
+ * Node builtins have no equivalent under Bare, which is what Pear runs on — see
+ * https://docs.pears.com/reference/node-compat. Only the value imports need entries; `node:stream`
+ * and `node:net`'s `AddressInfo` are type-only in src/ and vanish at compile time.
+ *
+ * `node:http` -> `bare-http1` is the one non-obvious mapping, and it is already proven: the mobile
+ * worklet runs the same media-server handler behind `bare-http1` (mobile/worklet/media-server.ts),
+ * whose `createServer`/`listen`/`address` surface is what src/files/media-server-node.ts uses.
+ */
+const BARE_BUILTINS = {
+  'node:fs': 'bare-fs',
+  'node:fs/promises': 'bare-fs/promises',
+  'node:path': 'bare-path',
+  'node:os': 'bare-os',
+  'node:events': 'bare-events',
+  'node:http': 'bare-http1',
+  'node:net': 'bare-tcp'
+}
+
+const bareRemap = {
+  name: 'bare-remap',
+  setup(build) {
+    build.onResolve({ filter: /^node:/ }, (args) => {
+      const mapped = BARE_BUILTINS[args.path]
+      if (!mapped) throw new Error(`no bare-* equivalent configured for ${args.path} (imported by ${args.importer})`)
+      return { path: mapped, external: true }
+    })
+    // Same reason the mobile worklet keeps this module out of its graph (see swarm.ts's
+    // SwarmTransport.createLanDiscovery): `multicast-dns` does a bare `require('dgram')`, and
+    // there is no Bare `dgram`. Importing it would fail the whole bundle at load time over a
+    // feature that is off by default, so Pear builds get the stub and hide the setting instead.
+    build.onResolve({ filter: /network\/lan-discovery\.js$/ }, () => ({
+      path: new URL('./src/network/lan-discovery-stub.ts', import.meta.url).pathname
+    }))
+  }
+}
+
+/**
+ * The Pear renderer: ESM, loaded by `<script type="module">` in pear.html. Pear resolves bare
+ * specifiers (`hypercore`, `corestore`, ...) through Bare's module system out of the staged
+ * node_modules, exactly as the Pear desktop guide's `import Hyperswarm from 'hyperswarm'` does —
+ * so the dependencies stay external here too, and only this repo's own `node:` imports get
+ * rewritten.
+ */
+const pearBuild = {
+  ...shared,
+  outfile: 'dist/pear/app.js',
+  format: 'esm',
+  platform: 'neutral',
+  mainFields: ['module', 'main'],
+  conditions: ['import', 'bare', 'default'],
+  plugins: [bareRemap]
+}
+
 if (watch) {
-  const ctx = await esbuild.context(options)
-  await ctx.watch()
+  for (const options of [electronBuild, pearBuild]) {
+    const ctx = await esbuild.context(options)
+    await ctx.watch()
+  }
   console.log('watching for changes...')
 } else {
-  await esbuild.build(options)
+  await esbuild.build(electronBuild)
+  await esbuild.build(pearBuild)
 }

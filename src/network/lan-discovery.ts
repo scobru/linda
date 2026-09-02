@@ -28,6 +28,10 @@ interface Announce {
   topics: string[]
 }
 
+/** Whether this build can actually do mDNS discovery. False in the Pear build, which swaps this
+ * module for `lan-discovery-stub.ts` — Bare has no `dgram` for `multicast-dns` to sit on. */
+export const LAN_DISCOVERY_SUPPORTED = true
+
 /** Offline LAN fallback for peer discovery. The DHT needs the internet to *find* a peer; this
  * finds one the same way `avahi`/Bonjour would, over mDNS multicast, and connects to it directly
  * over TCP with the same Noise handshake Hyperswarm itself uses — so a peer found this way lands
