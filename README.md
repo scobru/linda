@@ -269,6 +269,25 @@ can ship without waiting on the second.
 - **iOS**: not built yet
 - **macOS/Linux desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.zip`, unsigned — macOS/Linux will warn on first launch)
 
+### Cutting a release
+
+`package.json`'s `version` is the single source every build reads: `build.js` generates
+`src/version.ts` from it (the "Linda x.y.z" both UIs show), `forge.config.cjs` gives it to the
+`.msix`, and `mobile/android/app/build.gradle` derives the APK's `versionName`/`versionCode` from
+it. The release artifacts' *filenames*, though, come from the tag — so a tag cut on a commit that
+skipped the bump ships a file called `v1.14.38` that installs as `1.14.37`. That is what happened
+to the v1.14.38 release. So, in order:
+
+```bash
+npm version 1.14.39 --no-git-tag-version   # package.json + package-lock.json
+npm run build                              # regenerates src/version.ts, which is committed
+git commit -am v1.14.39 && git tag v1.14.39 && git push --follow-tags
+```
+
+then publish the GitHub release for that tag — publishing is what triggers the four build
+workflows. Each one now refuses to build a tag whose name disagrees with `package.json`, so a
+forgotten bump fails the workflow instead of reaching the downloads page.
+
 ## Known issues
 
 - Release APK is unsigned beyond the RN debug keystore — fine for beta distribution, not for a Play Store submission.
