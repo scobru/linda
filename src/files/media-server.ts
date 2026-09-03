@@ -16,6 +16,21 @@ export interface MediaSource {
   createFileStream(driveKey: string, filePath: string, range?: { start: number; end: number }): Promise<Readable>
 }
 
+/** A running loopback media server, as its owner sees it. */
+export interface MediaServerHandle {
+  url(driveKey: string, filePath: string): string
+  close(): void
+}
+
+/**
+ * Starts one. Injected into `Session` rather than imported by it, for the same reason
+ * `SwarmTransport.createLanDiscovery` is: the only implementation that speaks `node:http`
+ * (`media-server-node.ts`) must stay out of the mobile worklet's module graph, where Bare has no
+ * `node:http` and `bare-pack` fails on the traverse rather than at runtime. The worklet runs its
+ * own server on `bare-http1` instead (`mobile/worklet/media-server.ts`).
+ */
+export type MediaServerFactory = (source: MediaSource) => Promise<MediaServerHandle>
+
 export interface MediaResponse {
   status: number
   headers: Record<string, string>

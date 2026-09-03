@@ -1,4 +1,5 @@
 import { Session } from './session.js'
+import { LocalMediaServer } from '../files/media-server-node.js'
 import type { Identity } from '../identity/index.js'
 import type { SessionView } from './session-view.js'
 import type { RemoteSessionEvents } from '../transport/remote-session-view.js'
@@ -34,6 +35,9 @@ export async function openSession(
 ): Promise<SessionView> {
   return Session.create(identity, storageDir, {
     events: options.events,
+    // Injected here, where being on Node is a fact rather than an assumption — `Session` itself
+    // must stay importable from the mobile worklet, which has no `node:http`.
+    createMediaServer: (source) => LocalMediaServer.start(source),
     transport: {
       dhtPort: options.dhtPort,
       bootstrap: options.bootstrap,
