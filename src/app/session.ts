@@ -13,7 +13,7 @@ import type { TypingMessage, PresenceMessage, ReadReceiptMessage, RoomAnnounceMe
 import { LOBBY_TOPIC } from '../network/lobby.js'
 import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
-import { LocalMediaServer } from '../files/media-server-node.js'
+import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 
@@ -108,7 +108,8 @@ export class Session {
   private writeRequestTimer: ReturnType<typeof setInterval> | null = null
   private readonly events: SessionEvents
 
-  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport) {
+  private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport, createMediaServer?: MediaServerFactory) {
+    this.createMediaServer = createMediaServer
     this.identity = identity
     this.storageDir = storageDir
     this.store = store
@@ -353,7 +354,7 @@ export class Session {
   static async create(
     identity: Identity,
     storageDir: string,
-    opts: { events?: SessionEvents; transport?: SwarmTransport } = {}
+    opts: { events?: SessionEvents; transport?: SwarmTransport; createMediaServer?: MediaServerFactory } = {}
   ): Promise<Session> {
     const events = opts.events ?? {}
     const storePath = path.join(storageDir, 'store')
@@ -361,7 +362,7 @@ export class Session {
       ? new Corestore(storePath)
       : new Corestore(storePath, { primaryKey: hypercoreCrypto.hash(identity.secretKey), unsafe: true })
     const profileStore = await ProfileStore.open(store)
-    const session = new Session(identity, storageDir, store, profileStore, events, opts.transport ?? {})
+    const session = new Session(identity, storageDir, store, profileStore, events, opts.transport ?? {}, opts.createMediaServer)
     await session.migrateJsonIfNeeded()
     for (const bookmark of await profileStore.listBookmarks()) {
       session.bookmarks.set(bookmark.id, bookmark)
@@ -1515,10 +1516,18 @@ export class Session {
     this.writeRequestTimer.unref?.()
   }
 
-  private mediaServer: LocalMediaServer | null = null
+  /**
+   * Supplied by whoever opened the session, never imported here: the desktop implementation speaks
+   * `node:http`, and importing it would drag that into the mobile worklet's graph, where Bare has
+   * no `node:http` and `bare-pack` fails on the traverse. Same reason, same shape, as
+   * `SwarmTransport.createLanDiscovery`. See media-server.ts.
+   */
+  private readonly createMediaServer?: MediaServerFactory
+  private mediaServer: MediaServerHandle | null = null
 
   async mediaUrl(driveKeyHex: string, drivePath: string): Promise<string> {
-    if (!this.mediaServer) this.mediaServer = await LocalMediaServer.start(this)
+    if (!this.createMediaServer) throw new Error('this session was opened without a media server')
+    if (!this.mediaServer) this.mediaServer = await this.createMediaServer(this)
     return this.mediaServer.url(driveKeyHex, drivePath)
   }
 
