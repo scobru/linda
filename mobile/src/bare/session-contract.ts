@@ -38,6 +38,9 @@ type NotForwarded =
   | 'acceptContactInvite'
   | 'reopenBookmarkedRooms'
   | 'listPeerAvatars'
+  | 'mediaUrl'
+  | 'getAppBackground'
+  | 'setAppBackground'
 
 export type ForwardedSessionMethod = Exclude<MethodNames<Session>, NotForwarded>
 

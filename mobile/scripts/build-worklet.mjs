@@ -37,6 +37,9 @@ const bareRemap = {
       path: args.path.endsWith('fs') ? 'bare-fs' : 'bare-path',
       external: true
     }))
+    build.onResolve({ filter: /^(node:)?http$/ }, (args) => {
+      return build.resolve('bare-http1', { resolveDir: mobileRoot, kind: args.kind })
+    })
     // No bare-crypto package exists. @noble/hashes' cryptoNode.js reads
     // `require('node:crypto').webcrypto.getRandomValues` (a module-scoped property,
     // not globalThis.crypto) — stub that shape using sodium-universal's real RNG,
