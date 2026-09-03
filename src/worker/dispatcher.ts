@@ -1,12 +1,12 @@
 import RPC from 'bare-rpc'
 import type { Duplex } from 'streamx'
-import type { Session, SessionEvents } from '../app/session.js'
+import { Session, type SessionEvents } from '../app/session.js'
 import type { Room, ChatMessage, FileAttachment, MemberInfo, RoomFile } from '../rooms/room.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
 import b4a from 'b4a'
 import { packFrame, unpackFrame } from '../transport/frame.js'
 import type { RemoteRoomState } from '../transport/remote-room-view.js'
-import type { RemoteSessionInitialState } from '../transport/remote-session-view.js'
+import type { RemoteSessionInitialState, RemoteSessionOpenOptions, WireIdentity } from '../transport/remote-session-view.js'
 
 export function extractRoomState(room: Room): RemoteRoomState & { roomId: string } {
   return {
@@ -119,6 +119,33 @@ export class WorkerDispatcher {
       originalIncomingMessage?.(roomId, msg)
       this.pushEvent('incomingMessage', { roomId, message: msg })
     }
+
+    const originalTyping = events.onTyping
+    events.onTyping = (msg) => {
+      originalTyping?.(msg)
+      this.pushEvent('typing', msg)
+    }
+
+    const originalReadReceipt = events.onReadReceipt
+    events.onReadReceipt = (msg) => {
+      originalReadReceipt?.(msg)
+      this.pushEvent('readReceipt', msg)
+    }
+
+    // Both carry payloads that cannot cross — a live `PeerConnection`, a `Buffer` — and neither
+    // needs to: the UI ignores the argument and only redraws. So the event travels empty, and
+    // the network counters it redraws from ride along as fresh state.
+    const originalPeerConnected = events.onPeerConnected
+    events.onPeerConnected = (peer) => {
+      originalPeerConnected?.(peer)
+      this.pushEvent('peerConnected', { networkStatus: session.getNetworkStatus() })
+    }
+
+    const originalPeerDisconnected = events.onPeerDisconnected
+    events.onPeerDisconnected = (publicKey) => {
+      originalPeerDisconnected?.(publicKey)
+      this.pushEvent('peerDisconnected', { networkStatus: session.getNetworkStatus() })
+    }
   }
 
   pushEvent(event: string, payload?: unknown): void {
@@ -189,6 +216,30 @@ export class WorkerDispatcher {
   }
 
   private handlers: Record<string, (...args: any[]) => any> = {
+    /**
+     * Opens the session inside the worker. Nothing else could: `entry.ts` starts the dispatcher
+     * with no session, and every other handler needs one, so before this existed a worker-backed
+     * UI could not get past its first call.
+     *
+     * Idempotent by design — the renderer re-sends it on reconnect, and a second open would strand
+     * the first session holding the storage lock.
+     */
+    'session.open': async (identity: WireIdentity, storageDir: string, options?: RemoteSessionOpenOptions) => {
+      if (this.session) return await extractSessionState(this.session)
+      const session = await Session.create(
+        {
+          id: identity.id,
+          publicKey: b4a.from(identity.publicKey, 'hex'),
+          secretKey: b4a.from(identity.secretKey, 'hex')
+        },
+        storageDir,
+        { events: {}, transport: { dhtPort: options?.dhtPort, bootstrap: options?.bootstrap } }
+      )
+      this.attachSession(session)
+      for (const room of await session.reopenBookmarkedRooms()) this.wireRoom(room)
+      return await extractSessionState(session)
+    },
+
     'session.getState': async () => {
       return await extractSessionState(this.requireSession())
     },

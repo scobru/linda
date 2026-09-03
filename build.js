@@ -71,6 +71,16 @@ const bareRemap = {
       // on POSIX.
       path: fileURLToPath(new URL('./src/network/lan-discovery-stub.ts', import.meta.url))
     }))
+    // Where the core actually runs, decided at bundle time rather than by a runtime branch. The
+    // worker launcher reaches `pear-run` and, through the RPC client, `bare-rpc` — both Bare-only.
+    // One module importing both paths would put them in `dist/app.js` as well, and that bundle is
+    // CommonJS-on-Node for the Electron renderer: not a `require` to find out about at startup.
+    build.onResolve({ filter: /app\/open-session\.js$/ }, (args) => {
+      // The worker launcher imports the default one for its options type; unguarded, this would
+      // resolve that back to the worker launcher itself.
+      if (args.importer.endsWith('open-session-worker.ts')) return null
+      return { path: fileURLToPath(new URL('./src/app/open-session-worker.ts', import.meta.url)) }
+    })
   }
 }
 

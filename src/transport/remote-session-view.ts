@@ -5,7 +5,8 @@ import type {
   ContactEntry
 } from '../app/profile-store.js'
 import type { PeerConnection } from '../network/swarm.js'
-import type { RoomAnnounceMessage } from '../network/encoding.js'
+import type { RoomAnnounceMessage, TypingMessage, PresenceMessage, ReadReceiptMessage } from '../network/encoding.js'
+import type { ChatMessage } from '../rooms/room.js'
 import { RemoteRoomView, type RemoteRoomState } from './remote-room-view.js'
 import type { RpcClient } from './rpc-client.js'
 
@@ -16,6 +17,52 @@ export type NetworkStatus = {
   firewalled: boolean
   publicKey: string
   lanDiscovery: boolean
+}
+
+/**
+ * The identity as it crosses the pipe. JSON has no `Buffer`, and the `{ type: 'Buffer', data: [] }`
+ * shape `JSON.stringify` invents for one is not something to reconstruct by accident — so the keys
+ * are hex on the wire and rebuilt explicitly at the other end.
+ *
+ * This is secret key material travelling to a process the UI itself spawned, over that process's
+ * own stdio. It never reaches a socket, and the worker needs it for the same reason the renderer
+ * did: it is what signs this device's writes.
+ */
+export interface WireIdentity {
+  id: string
+  publicKey: string
+  secretKey: string
+}
+
+/** What the worker needs to open a session. `createLanDiscovery` is deliberately absent: it is a
+ * function, so it cannot cross, and LAN discovery is already unavailable wherever a worker runs
+ * (Bare has no `dgram` — see lan-discovery-stub.ts). */
+export interface RemoteSessionOpenOptions {
+  dhtPort?: number
+  /** Test seam, mirroring `SwarmTransport.bootstrap`: without it a worker opened in a test joins
+   * the public DHT, which is both slow and exactly the dependency `test/session.test.ts` spins up
+   * an in-process testnet to avoid. */
+  bootstrap?: Array<{ host: string; port: number }>
+}
+
+/**
+ * The events the UI subscribes to, in the shape they can actually arrive in from another process.
+ *
+ * Deliberately not `SessionEvents`: two of its callbacks take payloads that cannot cross a pipe —
+ * a live `PeerConnection` and a `Buffer` — and neither is used. Dropping the arguments here says
+ * so in the type rather than passing something reconstructed and wrong. A handler written against
+ * this satisfies `SessionEvents` too, so the in-process path takes the same object unchanged.
+ */
+export interface RemoteSessionEvents {
+  onTyping?(message: TypingMessage): void
+  onPresence?(message: PresenceMessage): void
+  onReadReceipt?(message: ReadReceiptMessage): void
+  onDirectoryChange?(): void
+  onContactsChange?(): void
+  onBookmarksChange?(): void
+  onPeerConnected?(): void
+  onPeerDisconnected?(): void
+  onIncomingMessage?(roomId: string, message: ChatMessage): void
 }
 
 export interface RemoteSessionInitialState {
@@ -66,7 +113,8 @@ export class RemoteSessionView implements SessionView {
 
   constructor(
     private readonly rpcClient: RpcClient,
-    initialState?: RemoteSessionInitialState
+    initialState?: RemoteSessionInitialState,
+    private readonly events: RemoteSessionEvents = {}
   ) {
     if (initialState) {
       this.applyInitialState(initialState)
@@ -136,6 +184,27 @@ export class RemoteSessionView implements SessionView {
 
     this.rpcClient.on('peerAvatar', (payload: { userId: string; avatar: string }) => {
       if (payload?.userId) this.peerAvatars.set(payload.userId, payload.avatar)
+    })
+
+    // Everything above keeps the mirrors current; everything below is the UI's own subscription,
+    // the half that used to have nowhere to arrive. Order matters: the mirror is updated before
+    // the listener runs, so a handler that redraws reads the new state, not the previous one.
+    this.rpcClient.on('bookmarksChange', () => this.events.onBookmarksChange?.())
+    this.rpcClient.on('contactsChange', () => this.events.onContactsChange?.())
+    this.rpcClient.on('directoryChange', () => this.events.onDirectoryChange?.())
+    this.rpcClient.on('presence', (msg: PresenceMessage) => this.events.onPresence?.(msg))
+    this.rpcClient.on('typing', (msg: TypingMessage) => this.events.onTyping?.(msg))
+    this.rpcClient.on('readReceipt', (msg: ReadReceiptMessage) => this.events.onReadReceipt?.(msg))
+    this.rpcClient.on('incomingMessage', (payload: { roomId: string; message: ChatMessage }) => {
+      if (payload) this.events.onIncomingMessage?.(payload.roomId, payload.message)
+    })
+    this.rpcClient.on('peerConnected', (payload?: { networkStatus?: NetworkStatus }) => {
+      if (payload?.networkStatus) this.networkStatus = payload.networkStatus
+      this.events.onPeerConnected?.()
+    })
+    this.rpcClient.on('peerDisconnected', (payload?: { networkStatus?: NetworkStatus }) => {
+      if (payload?.networkStatus) this.networkStatus = payload.networkStatus
+      this.events.onPeerDisconnected?.()
     })
   }
 
