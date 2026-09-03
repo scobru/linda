@@ -24,6 +24,7 @@ export default function RoomsScreen({ navigation }: Props) {
   const [newRoomPublic, setNewRoomPublic] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
   const [roomName, setRoomName] = useState('')
+  const [roomDescription, setRoomDescription] = useState('')
   const [inviteLink, setInviteLink] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -44,10 +45,11 @@ export default function RoomsScreen({ navigation }: Props) {
     if (!session || !roomName.trim()) return
     setLoading(true)
     try {
-      const room = await session.createRoom(roomName.trim(), newRoomPublic, '', '', newRoomBroadcast)
+      const room = await session.createRoom(roomName.trim(), newRoomPublic, '', roomDescription.trim(), newRoomBroadcast)
       refresh()
       setShowCreate(false)
       setRoomName('')
+      setRoomDescription('')
       setNewRoomBroadcast(false)
       setNewRoomPublic(false)
       navigation.navigate('RoomChat', { roomId: room.id, roomName: roomName.trim() })
@@ -55,7 +57,7 @@ export default function RoomsScreen({ navigation }: Props) {
       Alert.alert('Error', (err as Error).message)
     }
     setLoading(false)
-  }, [session, roomName, newRoomPublic, newRoomBroadcast, refresh, navigation])
+  }, [session, roomName, roomDescription, newRoomPublic, newRoomBroadcast, refresh, navigation])
 
   // Navigates immediately and lets RoomChatScreen run the actual join in the background —
   // joinRoomByKey can block for up to ~30s waiting on the swarm (see session.ts's
@@ -264,6 +266,16 @@ export default function RoomsScreen({ navigation }: Props) {
               onChangeText={setRoomName}
               autoFocus
             />
+            {/* Optional, like the desktop's own create form — it becomes the room's topic. */}
+            <TextInput
+              style={[styles.modalInput, styles.modalInputMultiline]}
+              placeholder="Description (optional)"
+              placeholderTextColor={colors.textTertiary}
+              value={roomDescription}
+              onChangeText={setRoomDescription}
+              multiline
+              maxLength={280}
+            />
             <View style={styles.switchRow}>
               <Text style={styles.switchLabel}>Broadcast (only admins can post)</Text>
               <Switch value={newRoomBroadcast} onValueChange={setNewRoomBroadcast} />
@@ -273,7 +285,7 @@ export default function RoomsScreen({ navigation }: Props) {
               <Switch value={newRoomPublic} onValueChange={setNewRoomPublic} />
             </View>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => { setShowCreate(false); setRoomName(''); setNewRoomBroadcast(false); setNewRoomPublic(false) }} style={styles.modalCancel}>
+              <Pressable onPress={() => { setShowCreate(false); setRoomName(''); setRoomDescription(''); setNewRoomBroadcast(false); setNewRoomPublic(false) }} style={styles.modalCancel}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
@@ -488,6 +500,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textPrimary, fontSize: typography.md,
     borderWidth: 1, borderColor: colors.border,
   },
+  modalInputMultiline: { minHeight: 68, textAlignVertical: 'top' },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },

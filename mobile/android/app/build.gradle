@@ -108,6 +108,21 @@ def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInRelea
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// The APK's own version, derived from the repo root package.json rather than hand-written here.
+// Hand-written is how it drifted: these two sat at 1.14.27/47 while releases went out as 1.14.37,
+// so an installed APK reported a version eleven releases old and every build looked like the same
+// update to Android. package.json is the one version source already — build.js generates
+// src/version.ts (the "Linda x.y.z" both UIs show) from it — so the APK reads it too.
+// rootDir is mobile/android, so the repo root is two levels up — not mobile/package.json, which
+// carries an unrelated workspace version.
+def lindaVersionName = new groovy.json.JsonSlurper()
+    .parseText(file("$rootDir/../../package.json").text)
+    .version
+// 1.14.38 -> 11438: monotonic as long as minor and patch stay below 100, and far above the 47 the
+// last hand-bumped release shipped, so installs update rather than being refused as a downgrade.
+def lindaVersionParts = lindaVersionName.tokenize('.').take(3).collect { (it =~ /^\d+/)[0].toInteger() }
+def lindaVersionCode = lindaVersionParts[0] * 10000 + lindaVersionParts[1] * 100 + lindaVersionParts[2]
+
 android {
     splits {
         abi {
@@ -128,8 +143,8 @@ android {
         applicationId 'com.lindapear.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 47
-        versionName "1.14.27"
+        versionCode lindaVersionCode
+        versionName lindaVersionName
     }
     signingConfigs {
         debug {
