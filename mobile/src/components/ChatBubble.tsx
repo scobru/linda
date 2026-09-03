@@ -71,7 +71,7 @@ function splitOnInviteLinks(text: string): Array<{ text: string; link?: string }
   )
 }
 
-export default function ChatBubble({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
+function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   if (message.deleted) {
@@ -275,6 +275,8 @@ export default function ChatBubble({ message, isSelf, authorName, replyPreview, 
     </View>
   )
 }
+
+export default React.memo(ChatBubbleInner)
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   row: {

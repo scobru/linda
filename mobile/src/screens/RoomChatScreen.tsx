@@ -82,9 +82,20 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     if (!session || !roomId) return
     session.markRoomRead(roomId).then(refreshSession)
   }, [session, roomId])
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!room || !session) return
-    return room.onMessage(() => { void session.markRoomRead(room.id).then(refreshSession) })
+    const unsub = room.onMessage(() => {
+      if (markReadTimerRef.current) return
+      markReadTimerRef.current = setTimeout(() => {
+        markReadTimerRef.current = null
+        void session.markRoomRead(room.id).then(refreshSession)
+      }, 1000)
+    })
+    return () => {
+      unsub()
+      if (markReadTimerRef.current) { clearTimeout(markReadTimerRef.current); markReadTimerRef.current = null }
+    }
   }, [room, session, roomId])
   // Suppresses this room's own local notifications while it's the screen actually on top —
   // native-stack keeps it mounted underneath other pushed screens, so mount/unmount alone
@@ -479,11 +490,14 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     setSelectedMessage(null)
   }, [selectedMessage, identityId, getAuthorName, deleteMessage])
 
-  const getReplyPreview = useCallback((replyToId?: string) => {
-    if (!replyToId) return undefined
-    const msg = messages.find((m) => m.id === replyToId)
-    return msg ? msg.body.slice(0, 100) : undefined
+  const replyMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of messages) map.set(m.id, m.body.slice(0, 100))
+    return map
   }, [messages])
+  const getReplyPreview = useCallback((replyToId?: string) => {
+    return replyToId ? replyMap.get(replyToId) : undefined
+  }, [replyMap])
 
   return (
     <SafeAreaView style={styles.safe}>

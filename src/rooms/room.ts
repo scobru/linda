@@ -418,6 +418,12 @@ export class Room {
   private mutationNotifyTimer: ReturnType<typeof setTimeout> | null = null
   /** Set when Autobase truncates the state view, cleared once the mirror below has been reloaded from it. */
   private stateRewound = false
+  /** Message IDs already passed to `onNewMessage` listeners. Autobase reorgs truncate the view and
+   * re-append entries that were already linearized, which re-fires the `append` event for messages
+   * the user has already been notified about — without this guard every reorg produces a burst of
+   * duplicate notifications indistinguishable from spam. Bounded to avoid unbounded growth. */
+  private readonly notifiedMessageIds = new Set<string>()
+  private static readonly MAX_NOTIFIED_IDS = 500
 
   private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>) {
     this.id = id
@@ -895,7 +901,15 @@ export class Room {
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */
   onNewMessage(listener: (message: ChatMessage) => void): () => void {
     const onAppend = () => {
-      void this.getMessage(this.base.view.messages.length - 1).then(listener).catch((err) => this.rethrowUnlessClosing(err))
+      void this.getMessage(this.base.view.messages.length - 1).then((msg) => {
+        if (this.notifiedMessageIds.has(msg.id)) return
+        this.notifiedMessageIds.add(msg.id)
+        if (this.notifiedMessageIds.size > Room.MAX_NOTIFIED_IDS) {
+          const first = this.notifiedMessageIds.values().next().value!
+          this.notifiedMessageIds.delete(first)
+        }
+        listener(msg)
+      }).catch((err) => this.rethrowUnlessClosing(err))
     }
     this.base.view.messages.on('append', onAppend)
     return () => this.base.view.messages.off('append', onAppend)
