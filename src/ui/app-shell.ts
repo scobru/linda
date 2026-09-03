@@ -3,7 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
-import { Session, type RoomBookmark } from '../app/session.js'
+import type { RoomBookmark } from '../app/session.js'
+import { openSession } from '../app/open-session.js'
 import type { SessionView, RoomView } from '../app/session-view.js'
 import { LanDiscovery, LAN_DISCOVERY_SUPPORTED } from '../network/lan-discovery.js'
 import type { ChatMessage, RoomFile } from '../rooms/room.js'
@@ -643,7 +644,7 @@ export class AppShell extends HTMLElement {
     if (!this.identity) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
     try {
-      const session = await Session.create(this.identity, storageDir(), { events: {
+      const session = await openSession(this.identity, storageDir(), { events: {
         onTyping: (m) => this.onTyping(m.roomId, m.userId, m.typing),
         onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar),
         onReadReceipt: (m) => this.onReadReceipt(m.roomId, m.userId),
@@ -656,14 +657,15 @@ export class AppShell extends HTMLElement {
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
         onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
-      }, transport: {
-        dhtPort: dhtPort(),
-        createLanDiscovery: lanDiscoveryEnabled()
-          ? (onSocket) => new LanDiscovery(this.identity!, onSocket)
-          : undefined
-      } })
-      // The only place that knows the concrete class. Everything past this line goes through
-      // `SessionView`, which is what makes the core movable (see session-view.ts).
+      },
+      dhtPort: dhtPort(),
+      createLanDiscovery: lanDiscoveryEnabled()
+        ? (onSocket) => new LanDiscovery(this.identity!, onSocket)
+        : undefined
+      })
+      // Which side of the pipe this came from is `openSession`'s business, not the UI's: in
+      // Electron it is a `Session` in this very process, under Pear a proxy for one running in a
+      // Bare worker. Everything past this line goes through `SessionView` either way.
       this.session = session
     } catch (err: any) {
       const msg = err?.message || String(err)
