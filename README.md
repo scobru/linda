@@ -1,6 +1,6 @@
-# linda-pear
+# Linda
 
-P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.to) stack (autobase, hyperbee, hyperswarm, corestore). Desktop (Electron *or* the [Pear](https://docs.pears.com) runtime) and mobile (Expo + [react-native-bare-kit](https://github.com/holepunchto/react-native-bare-kit)) clients share one core in [`src/`](src/).
+P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.to) stack (autobase, hyperbee, hyperswarm, corestore). Desktop (Electron _or_ the [Pear](https://docs.pears.com) runtime) and mobile (Expo + [react-native-bare-kit](https://github.com/holepunchto/react-native-bare-kit)) clients share one core in [`src/`](src/).
 
 Same architecture Keet (Holepunch's own flagship app) uses under the hood — same `react-native-bare-kit` version, same primitives.
 
@@ -27,7 +27,9 @@ test/          integration tests against real Hyperswarm
 Linda is built from the ground up for sovereign individuals with **100% serverless, zero-infrastructure peer-to-peer communication**.
 
 ### Why No Voice or Video Calls?
+
 This is a **deliberate product stance**, not a missing feature:
+
 - **No Third-Party Relays**: Real-time WebRTC media streams across mobile networks (carrier CGNAT and symmetric NAT) strictly require TURN relay servers to proxy audio/video packets.
 - **True Independence**: Operating dedicated TURN server fleets requires corporate infrastructure, ongoing server budgets, and centralized hosting. Linda is an independent, sovereign project without a corporate software house behind it.
 - **Zero Trust & Sovereignty**: Relying on external or third-party relays introduces unvetted intermediaries that can log connection metadata, exhaust quotas, or silently fail. We refuse to depend on relays we do not control.
@@ -90,15 +92,15 @@ npm run make            # electron-forge → out/make/ (msix on win32, zip on da
 
 ### Electron vs Pear
 
-|                     | Electron                          | Pear                                        |
-| ------------------- | --------------------------------- | ------------------------------------------- |
-| What ships          | Chromium + Node per app (~200 MB) | the app's own JS/CSS; the runtime is shared |
-| Updates             | MSIX / GitHub Releases            | OTA over `pear://`, no installer            |
-| JS runtime          | Node                              | [Bare](https://github.com/holepunchto/bare) |
-| Module system       | CommonJS                          | ESM only — Bare has no `require`            |
-| LAN discovery       | yes                               | no (see below)                              |
+|               | Electron                          | Pear                                        |
+| ------------- | --------------------------------- | ------------------------------------------- |
+| What ships    | Chromium + Node per app (~200 MB) | the app's own JS/CSS; the runtime is shared |
+| Updates       | MSIX / GitHub Releases            | OTA over `pear://`, no installer            |
+| JS runtime    | Node                              | [Bare](https://github.com/holepunchto/bare) |
+| Module system | CommonJS                          | ESM only — Bare has no `require`            |
+| LAN discovery | yes                               | no (see below)                              |
 
-Pear is not "Electron, but lighter": it *is* Electron for drawing, but installed once and shared
+Pear is not "Electron, but lighter": it _is_ Electron for drawing, but installed once and shared
 by every Pear app on the machine, with the application itself reduced to its own source. What
 changes for this codebase is the runtime underneath — Bare, not Node — which is the same runtime
 the mobile worklet already runs on.
@@ -139,7 +141,7 @@ npm run pear:seed                 # announce on the network (keep running)
 ```
 
 The ignore list in `pear:stage` excludes `.dev-storage` (local test identities), build caches, the
-`mobile/` app and the Electron half of the desktop build. It deliberately *keeps* `node_modules`,
+`mobile/` app and the Electron half of the desktop build. It deliberately _keeps_ `node_modules`,
 minus the dev-only toolchain: the Pear bundle leaves its dependencies external, so the runtime
 resolves them out of the staged drive — dropping `node_modules` there leaves the published app
 with nothing to import.
@@ -169,6 +171,7 @@ cd mobile/android
 ```
 
 **Monorepo gotcha:** Expo CLI's workspace-root auto-detection resolves the wrong directory for this repo's npm workspace layout, breaking the release JS bundle step. Two things paper over it — don't remove without testing a release build:
+
 - `/index.js` at the repo root (bridges to `mobile/index.js`)
 - `root`/`entryFile` overrides in `mobile/android/app/build.gradle`
 
@@ -207,7 +210,7 @@ then connecting directly over TCP with the same Noise handshake Hyperswarm itsel
 found either way lands on the exact same connection path (`handleConnection` in `swarm.ts`).
 
 Precise about which half of the original claim this affects: **transport** was already direct
-peer-to-peer with no relay (see *Zero Relay Dependency* above). It was only **rendezvous** that
+peer-to-peer with no relay (see _Zero Relay Dependency_ above). It was only **rendezvous** that
 needed the DHT.
 
 The privacy trade-off flagged when this was still on the roadmap is why it defaults to off:
@@ -218,7 +221,7 @@ public key, dropping whichever connection arrives second.
 
 Not wired up on mobile: `LanDiscovery` depends on `multicast-dns`, which does a bare
 `require('dgram')` — Node's `dgram` has no Bare-native shim, so that require is unresolvable in
-the worklet, and `bare-pack` fails the whole Android bundle at *pack* time trying to link it, not
+the worklet, and `bare-pack` fails the whole Android bundle at _pack_ time trying to link it, not
 merely at runtime. `Session` takes `LanDiscovery` by injection (`SwarmTransport.createLanDiscovery`)
 specifically so mobile's entry point can leave it out of the worklet's module graph entirely.
 Fixing this for real needs a Bare-native `dgram`/UDP-multicast shim `multicast-dns` can run against,
@@ -242,15 +245,15 @@ What that leaves:
   module, plus a bridge into the Bare worklet where the networking actually lives.
 - **Throughput.** BLE realistically lands in the tens of KB/s. Fine for text and presence; file
   and image attachments would be painful and would need to be gated or deprioritised.
-- **Desktop.** The weakest link. BLE *peripheral* support in Node/Electron is poor and largely
+- **Desktop.** The weakest link. BLE _peripheral_ support in Node/Electron is poor and largely
   unmaintained. Phone-to-phone is plausible well before phone-to-desktop is.
 - **iOS background.** CoreBluetooth heavily restricts background advertising and connection, so an
   iOS device would mostly work only with the app foregrounded.
 - **"Mesh" specifically.** A single BLE hop between two devices in range is a different order of
-  problem from multi-hop routing between devices that are *not* in range of each other. Multi-hop
+  problem from multi-hop routing between devices that are _not_ in range of each other. Multi-hop
   needs routing, store-and-forward, loop prevention and a story for what happens when the graph
   partitions. Briar does this and it is a substantial part of that project. Note also that
-  *Bluetooth Mesh* is a specific BT SIG specification aimed at IoT sensor networks — it is not the
+  _Bluetooth Mesh_ is a specific BT SIG specification aimed at IoT sensor networks — it is not the
   right substrate for this, so the name is misleading for what is actually wanted here.
 
 Honest framing: **single-hop BLE between two phones is a plausible piece of work.** Cross-platform
@@ -260,7 +263,7 @@ can ship without waiting on the second.
 ## Distribution
 
 - **Desktop**: [GitHub Releases](https://github.com/scobru/linda/releases) (`.msix`, self-signed — Windows will warn on install) or `pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno`
-  - On a PC other than the one a build came from, the `.msix` install can be *blocked* rather than just warned about ("Editore: Sconosciuto" / the publisher certificate could not be verified, install button disabled): the package is signed with a dev certificate, not one issued by a public CA, so Windows only trusts it once that certificate has been imported. Each release also includes a `linda-pear-signing-cert.cer` — the double-click → "Install Certificate" wizard can silently land the cert in the *current user's* store instead of the machine-wide one it needs to be in (no error, it just doesn't fix the install), so the reliable way is PowerShell **as Administrator**:
+  - On a PC other than the one a build came from, the `.msix` install can be _blocked_ rather than just warned about ("Editore: Sconosciuto" / the publisher certificate could not be verified, install button disabled): the package is signed with a dev certificate, not one issued by a public CA, so Windows only trusts it once that certificate has been imported. Each release also includes a `linda-pear-signing-cert.cer` — the double-click → "Install Certificate" wizard can silently land the cert in the _current user's_ store instead of the machine-wide one it needs to be in (no error, it just doesn't fix the install), so the reliable way is PowerShell **as Administrator**:
     ```powershell
     Import-Certificate -FilePath "C:\path\to\linda-pear-signing-cert.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
     ```
