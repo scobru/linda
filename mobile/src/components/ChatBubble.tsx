@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { splitOnHashtags } from '@core/util/hashtag'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { usePrivateMode, redact } from '../private-mode'
 import { formatBytes } from '@core/util/bytes'
 
 interface Props {
@@ -74,6 +75,7 @@ function splitOnInviteLinks(text: string): Array<{ text: string; link?: string }
 function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
+  const { privateMode } = usePrivateMode()
   if (message.deleted) {
     return (
       <View style={[styles.row, isSelf && styles.rowSelf]}>
@@ -109,7 +111,7 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
         >
         {/* Author name (other's messages only) */}
         {!isSelf && (
-          <Text style={styles.authorName}>{authorName}</Text>
+          <Text style={styles.authorName}>{privateMode ? redact(authorName) : authorName}</Text>
         )}
 
         {/* Reply preview */}
@@ -207,10 +209,12 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
           )
         )}
 
-        {/* Message body */}
+        {/* Message body. Under private mode it is redacted rather than blurred — the desktop's
+            CSS filter has no React Native equivalent for text (see private-mode.tsx). */}
         {message.body.trim() !== '' && (
           <Text style={[styles.body, isSelf ? styles.bodySelf : styles.bodyOther]}>
-            {onHashtagPress
+            {privateMode ? redact(message.body) : (
+              onHashtagPress
               ? splitOnHashtags(message.body).map((part, i) =>
                   part.tag ? (
                     <Text key={i} style={styles.hashtag} onPress={() => onHashtagPress(part.tag!)}>
@@ -232,7 +236,8 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
                     )
                   )
                 )
-              : message.body}
+              : message.body
+            )}
           </Text>
         )}
 

@@ -3,6 +3,7 @@ import { StatusBar, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import { SessionProvider } from './src/hooks/useSession'
 import { ThemeProvider, useTheme } from './src/theme-context'
+import { PrivateModeProvider } from './src/private-mode'
 import Navigation from './src/navigation'
 import { identityExists } from './src/bare/identity-client'
 import { storageDir } from './src/bare/storage-dir'
@@ -42,7 +43,9 @@ function AppShell() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppShell />
+      <PrivateModeProvider>
+        <AppShell />
+      </PrivateModeProvider>
     </ThemeProvider>
   )
 }

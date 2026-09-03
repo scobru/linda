@@ -18,6 +18,7 @@ import { isBiometricSupported, isBiometricLockEnabled, enableBiometricLock, disa
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, PRESET_AVATARS, type ThemeColors } from '../theme'
 import { useTheme, type ThemeMode } from '../theme-context'
+import { usePrivateMode } from '../private-mode'
 import { formatBytes } from '@core/util/bytes'
 import { APP_VERSION } from '@core/version'
 
@@ -31,6 +32,7 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string }[] = [
 
 export default function ProfileScreen({ navigation }: Props) {
   const { colors, mode, setMode } = useTheme()
+  const { privateMode, setPrivateMode } = usePrivateMode()
   const styles = useMemo(() => createStyles(colors), [colors])
   const { session, identity, nickname, avatar, refresh, onlineUsers } = useSession()
   const [editingName, setEditingName] = useState(false)
@@ -313,6 +315,18 @@ export default function ProfileScreen({ navigation }: Props) {
           )}
         </View>
 
+        {/* Private mode — the switch the desktop keeps in its profile drawer. */}
+        <View style={styles.field}>
+          <View style={styles.valueRow}>
+            <Text style={[styles.label, styles.labelInline]}>Private Mode</Text>
+            <Switch value={privateMode} onValueChange={setPrivateMode} />
+          </View>
+          <Text style={styles.fieldHint}>
+            Hides message text, chat previews and notification content, so you can hand someone your
+            phone without handing them your conversations.
+          </Text>
+        </View>
+
         {/* Biometric unlock */}
         {biometricSupported && (
           <View style={styles.field}>
@@ -520,6 +534,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     letterSpacing: 1, marginBottom: spacing.sm,
   },
   value: { color: colors.textPrimary, fontSize: typography.md },
+  /** The uppercase label sits above its control everywhere else; on a switch row it sits beside it. */
+  labelInline: { marginBottom: 0, flex: 1 },
+  fieldHint: { color: colors.textTertiary, fontSize: typography.xs, lineHeight: 16, marginTop: spacing.sm },
   themeRow: { flexDirection: 'row', gap: spacing.sm },
   themeOption: {
     flex: 1, paddingVertical: spacing.sm, alignItems: 'center',
