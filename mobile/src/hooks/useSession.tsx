@@ -10,6 +10,7 @@ import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
+import { privateModeEnabled } from '../private-mode'
 
 interface SessionContextValue {
   session: SessionProxy | null
@@ -161,10 +162,15 @@ export function SessionProvider({ children }: Props) {
         if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
         const roomName = summaries.find((b) => b.id === payload.roomId)?.name ?? 'linda-pear'
         const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
+        // Private mode keeps the sender and the text off the lock screen, which is the one place
+        // a phone shows a message to whoever happens to be looking (see private-mode.tsx).
+        const secret = privateModeEnabled()
         void Notifications.scheduleNotificationAsync({
           content: {
-            title: `${author} in ${roomName}`,
-            body: payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
+            title: secret ? 'linda' : `${author} in ${roomName}`,
+            body: secret
+              ? 'New message'
+              : payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
             // iOS takes the sound per-notification; Android ignores this and uses the channel's.
             sound: 'notification_ping.wav',
           },

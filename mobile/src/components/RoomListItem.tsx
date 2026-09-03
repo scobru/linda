@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { usePrivateMode, redact } from '../private-mode'
 import Avatar from './Avatar'
 
 interface Props {
@@ -28,6 +29,7 @@ function formatRelativeTime(ts: number): string {
 export default function RoomListItem({ id, name, lastMessage, timestamp, unread, avatar, onPress, onLongPress }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
+  const { privateMode } = usePrivateMode()
   return (
     <Pressable
       onPress={onPress}
@@ -55,7 +57,7 @@ export default function RoomListItem({ id, name, lastMessage, timestamp, unread,
         <View style={styles.bottomRow}>
           {lastMessage ? (
             <Text style={[styles.preview, unread && styles.previewUnread]} numberOfLines={1}>
-              {lastMessage}
+              {privateMode ? redact(lastMessage) : lastMessage}
             </Text>
           ) : (
             <Text style={styles.previewEmpty} numberOfLines={1}>

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert, Switch, TextInput } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
+import * as DocumentPicker from 'expo-document-picker'
+import * as ImageManipulator from 'expo-image-manipulator'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useContacts } from '../hooks/useContacts'
@@ -9,6 +11,7 @@ import Avatar from '../components/Avatar'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import type { MemberInfo } from '@core/rooms/room'
+import { ROOM_PRESETS } from '@core/ui/room-presets'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Members'>
 
@@ -69,27 +72,52 @@ export default function MembersScreen({ route, navigation }: Props) {
   const bookmark = bookmarks.find((b) => b.id === roomId)
   const [metaName, setMetaName] = useState('')
   const [metaDescription, setMetaDescription] = useState('')
+  const [metaAvatar, setMetaAvatar] = useState('')
   const [savingMeta, setSavingMeta] = useState(false)
   const [metaLoaded, setMetaLoaded] = useState(false)
   useEffect(() => {
     if (metaLoaded || !bookmark) return
     setMetaName(bookmark.name ?? '')
     setMetaDescription(bookmark.description ?? '')
+    setMetaAvatar(bookmark.avatar ?? '')
     setMetaLoaded(true)
   }, [bookmark, metaLoaded])
 
   const metaDirty = metaLoaded && (
-    metaName.trim() !== (bookmark?.name ?? '') || metaDescription !== (bookmark?.description ?? '')
+    metaName.trim() !== (bookmark?.name ?? '') ||
+    metaDescription !== (bookmark?.description ?? '') ||
+    metaAvatar !== (bookmark?.avatar ?? '')
   )
+
+  /** Resized before it goes anywhere: the icon is replicated in the room's log and mirrored into
+   * every member's bookmark, so a full-size camera photo would be paid for by all of them. 128px
+   * is what the desktop's own resizeImageToDataUrl settles on. */
+  const pickIcon = useCallback(async () => {
+    const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' })
+    if (result.canceled) return
+    const asset = result.assets[0]
+    if (!asset) return
+    try {
+      const resized = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 128 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      )
+      if (!resized.base64) throw new Error('Could not read that image')
+      setMetaAvatar(`data:image/jpeg;base64,${resized.base64}`)
+    } catch (err) {
+      Alert.alert('Could not load image', (err as Error).message)
+    }
+  }, [])
 
   const saveMeta = useCallback(() => {
     if (!session || !metaName.trim()) return
     setSavingMeta(true)
-    session.updateRoomMeta(roomId, { name: metaName.trim(), description: metaDescription })
+    session.updateRoomMeta(roomId, { name: metaName.trim(), description: metaDescription, avatar: metaAvatar })
       .then(() => { refreshSession() })
       .catch((err) => Alert.alert('Could not save', (err as Error).message))
       .finally(() => setSavingMeta(false))
-  }, [session, roomId, metaName, metaDescription, refreshSession])
+  }, [session, roomId, metaName, metaDescription, metaAvatar, refreshSession])
 
   const myId = identity?.id ?? ''
   const iAmOwner = state?.ownerId === myId
@@ -138,9 +166,39 @@ export default function MembersScreen({ route, navigation }: Props) {
         keyExtractor={(m) => m.writerKey}
         ListHeaderComponent={iCanModerate ? (
           <View style={{ paddingBottom: spacing.sm }}>
-            {/* Room name/description were only editable from desktop — a room created on a
-                phone could never be renamed there. Owner/moderator only, as apply() enforces. */}
+            {/* Room name, description and icon were only editable from desktop — a room created on
+                a phone could never be renamed or given a picture there. The icon presets are the
+                desktop's own list, shared from src/ui/room-presets.ts. Owner/moderator only, as
+                apply() enforces. */}
             <View style={styles.settingsBlock}>
+              <Text style={styles.sectionTitle}>Room icon</Text>
+              <View style={styles.iconRow}>
+                <Avatar id={roomId} label={metaName || bookmark?.name || ''} imageUrl={metaAvatar || undefined} size="xl" />
+                <View style={styles.iconActions}>
+                  <Pressable onPress={() => void pickIcon()} style={styles.iconBtn}>
+                    <Ionicons name="camera-outline" size={16} color={colors.accentLight} />
+                    <Text style={styles.iconBtnText}>Upload picture</Text>
+                  </Pressable>
+                  {metaAvatar ? (
+                    <Pressable onPress={() => setMetaAvatar('')} style={styles.iconBtn}>
+                      <Ionicons name="trash-outline" size={16} color={colors.error} />
+                      <Text style={[styles.iconBtnText, styles.iconBtnTextDanger]}>Reset</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.presetGrid}>
+                {ROOM_PRESETS.map((preset) => (
+                  <Pressable
+                    key={preset.id}
+                    onPress={() => setMetaAvatar(preset.svg)}
+                    style={[styles.presetBtn, metaAvatar === preset.svg && styles.presetBtnActive]}
+                  >
+                    <Avatar id={preset.id} label={preset.name} imageUrl={preset.svg} size="lg" />
+                    <Text style={styles.presetName} numberOfLines={1}>{preset.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Text style={styles.sectionTitle}>Room name</Text>
               <TextInput
                 style={styles.settingsInput}
@@ -300,6 +358,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: typography.md,
     marginBottom: spacing.sm,
   },
+  iconRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  iconActions: { flex: 1, gap: spacing.sm, alignItems: 'flex-start' },
+  iconBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  iconBtnText: { color: colors.accentLight, fontSize: typography.sm, fontWeight: typography.medium },
+  iconBtnTextDanger: { color: colors.error },
+  presetGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md,
+    paddingVertical: spacing.sm, marginBottom: spacing.sm,
+  },
+  presetBtn: {
+    alignItems: 'center', gap: spacing.xs, padding: spacing.xs,
+    borderRadius: radii.md, borderWidth: 1, borderColor: 'transparent', width: 64,
+  },
+  presetBtnActive: { borderColor: colors.accent, backgroundColor: colors.bgTertiary },
+  presetName: { color: colors.textTertiary, fontSize: typography.xs },
   settingsInputMultiline: {
     minHeight: 68,
     textAlignVertical: 'top',

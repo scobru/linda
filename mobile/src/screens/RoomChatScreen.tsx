@@ -26,6 +26,7 @@ import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { usePrivateMode, redact } from '../private-mode'
 
 
 function getFileIcon(name: string, mimeType?: string): keyof typeof Ionicons.glyphMap {
@@ -47,9 +48,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
   const { session, identity, nicknames, avatars, bookmarks, refresh: refreshSession, setActiveRoomId } = useSession()
+  const { privateMode } = usePrivateMode()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
   const clearedAt = bookmarks.find((b) => b.id === roomId)?.clearedAt ?? 0
+  const roomTopic = (bookmarks.find((b) => b.id === roomId)?.description ?? '').trim()
 
   // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
   // instead, in the background. `room` stays undefined until this resolves, so useRoom below
@@ -603,6 +606,18 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ) : (
         <>
+          {/* Room topic, pinned above the conversation the way the desktop pins it. Without this the
+              description could be written from the phone (Members screen) but never read on it. */}
+          {roomTopic ? (
+            <View style={styles.topicBanner}>
+              <Ionicons name="star" size={12} color={colors.warning} />
+              <Text style={styles.topicLabel}>Topic</Text>
+              <Text style={styles.topicText} numberOfLines={2}>
+                {privateMode ? redact(roomTopic) : roomTopic}
+              </Text>
+            </View>
+          ) : null}
+
           {/* Hashtag notes — one pill per tag used in this room, filtering the list below. */}
           {hashtagCounts.length > 0 && (
             <View style={styles.hashtagBar}>
@@ -904,6 +919,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: spacing.sm, paddingTop: spacing.lg,
   },
   actionCancelText: { color: colors.textTertiary, fontSize: typography.md, textAlign: 'center' },
+  topicBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    backgroundColor: colors.bgSecondary,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  topicLabel: {
+    color: colors.warning, fontSize: typography.xs, fontWeight: typography.semibold,
+    textTransform: 'uppercase', letterSpacing: 1,
+  },
+  topicText: { flex: 1, color: colors.textSecondary, fontSize: typography.sm },
   hashtagBar: {
     flexDirection: 'row',
     alignItems: 'center',
