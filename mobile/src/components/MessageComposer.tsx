@@ -64,28 +64,59 @@ export default function MessageComposer({
 }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
-  const [text, setText] = useState(editingMessage?.body ?? '')
   const [attaching, setAttaching] = useState(false)
   const inputRef = useRef<TextInput>(null)
 
-  // When editingMessage changes, update text
+  /**
+   * What is actually in the field. The field itself is uncontrolled on purpose: a `value` prop
+   * fights Android's predictive keyboard, because while the IME holds a composing region
+   * `onChangeText` arrives late, React then re-renders with the older value and rewrites the field
+   * back to it. Typed words vanished mid-sentence ("Ciao ciao" reverting to "Ciao"), and the
+   * control beside them — which used to switch between send and mic on that same lagging state —
+   * changed meaning under the user's thumb: taps meant for send started a voice recording.
+   *
+   * A press event is delivered after every keystroke event already queued ahead of it, so this ref
+   * is up to date by the time a handler reads it even when the rendered button is behind.
+   */
+  const textRef = useRef(editingMessage?.body ?? '')
+  /** Drives the send button's look only. Allowed to lag; nothing destructive hangs off it. */
+  const [hasText, setHasText] = useState((editingMessage?.body ?? '').trim().length > 0)
+  /** Bumped to remount the field on the one path where the app itself has to put text into it:
+   * entering edit mode. `setNativeProps` is not available under the new architecture, a remount
+   * with a fresh `defaultValue` is — while clearing after a send uses the native `clear()` command,
+   * which keeps focus and the keyboard up. */
+  const [inputGeneration, setInputGeneration] = useState(0)
+
+  // When editingMessage changes, put its body in the field
   React.useEffect(() => {
-    if (editingMessage) {
-      setText(editingMessage.body)
-      inputRef.current?.focus()
-    }
+    if (!editingMessage) return
+    textRef.current = editingMessage.body
+    setHasText(editingMessage.body.trim().length > 0)
+    setInputGeneration((generation) => generation + 1)
   }, [editingMessage?.id])
 
+  // Separate from the effect above so it runs after the remount that effect asks for, which is
+  // what drops the focus in the first place.
+  React.useEffect(() => {
+    if (editingMessage) inputRef.current?.focus()
+  }, [inputGeneration])
+
   const handleSend = () => {
-    const trimmed = text.trim()
+    const trimmed = textRef.current.trim()
     if (!trimmed) return
+
+    // Emptied before the send handler runs, not after it resolves: a second tap on a send that has
+    // not visibly completed then finds nothing left to send. Four identical one-letter messages in
+    // a row is what the old ordering looked like on a busy JS thread.
+    textRef.current = ''
+    setHasText(false)
+    inputRef.current?.clear()
 
     if (editingMessage) {
       onSubmitEdit?.(editingMessage.id, trimmed)
     } else {
       onSend(trimmed)
     }
-    setText('')
   }
 
   // Voice messages ride the same path as any other attachment — the receiving side already
@@ -216,38 +247,47 @@ export default function MessageComposer({
           </Pressable>
         )}
         <TextInput
+          key={inputGeneration}
           ref={inputRef}
           style={styles.input}
-          value={text}
-          onChangeText={(t) => { setText(t); onChangeText?.(t) }}
+          defaultValue={textRef.current}
+          onChangeText={(t) => {
+            textRef.current = t
+            // Returning the same value skips the render: this fires on every keystroke, and the
+            // button only cares whether the field crossed between empty and non-empty.
+            const filled = t.trim().length > 0
+            setHasText((was) => (was === filled ? was : filled))
+            onChangeText?.(t)
+          }}
           placeholder="Message"
           placeholderTextColor={colors.textTertiary}
           multiline
           maxLength={4000}
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
         />
-        {/* With nothing typed the send button has nothing to do, so it becomes the mic. */}
-        {onAttach && !editingMessage && text.trim().length === 0 ? (
+        {/* Mic and send are two buttons rather than one that swaps between them. The swap was
+            decided by whether the field looked empty to React, so whenever that lagged behind the
+            keyboard the control under the user's thumb quietly became the other one. */}
+        {onAttach && !editingMessage && (
           <Pressable
             onPress={() => void startRecording()}
-            style={({ pressed }) => [styles.sendButton, styles.sendButtonDisabled, pressed && styles.sendButtonPressed]}
+            style={({ pressed }) => [styles.micButton, pressed && styles.attachButtonPressed]}
           >
             <Ionicons name="mic" size={18} color={colors.textSecondary} />
           </Pressable>
-        ) : (
+        )}
         <Pressable
           onPress={handleSend}
-          disabled={text.trim().length === 0}
+          // Deliberately never `disabled`: `hasText` is allowed to lag, and a send that ignores a
+          // tap because React has not caught up yet is the bug this file is fixing. handleSend
+          // reads the field's real contents and does nothing when they are empty.
           style={({ pressed }) => [
             styles.sendButton,
-            text.trim().length === 0 && styles.sendButtonDisabled,
+            !hasText && styles.sendButtonIdle,
             pressed && styles.sendButtonPressed,
           ]}
         >
-          <Ionicons name={editingMessage ? 'checkmark' : 'send'} size={16} color={text.trim().length > 0 ? '#061e27' : colors.textTertiary} />
+          <Ionicons name={editingMessage ? 'checkmark' : 'send'} size={16} color={hasText ? '#061e27' : colors.textTertiary} />
         </Pressable>
-        )}
       </View>
       )}
     </KeyboardAvoidingView>
@@ -308,9 +348,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendButtonDisabled: {
+  /** Nothing typed yet: the button stays there and stays tappable, it just recedes. */
+  sendButtonIdle: {
     backgroundColor: 'transparent',
-    opacity: 0.3,
+    opacity: 0.4,
+  },
+  micButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.bgTertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendButtonPressed: {
     backgroundColor: colors.cyanLight,
