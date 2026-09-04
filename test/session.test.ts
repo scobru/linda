@@ -213,3 +213,28 @@ test('a session that fails to open gives its storage back', async (t) => {
   t.after(async () => { await second.close() })
   assert.equal(second.listBookmarks().length, 0, 'the same storage opens again once the cause is gone')
 })
+
+test('a member left holding write access but no room key asks for it again', async (t) => {
+  const { sessionB, roomId } = await joinedPair(t)
+  const roomB = sessionB.getRoom(roomId)!
+  assert.equal(roomB.writable, true, 'B starts out granted')
+  assert.equal(roomB.hasKey, true, 'and keyed')
+
+  // The grant and the key are two separate steps of the owner's reply, and only the first one is
+  // replicated: the key rides back over RPC best-effort (rpc.ts's safeSend) and is persisted
+  // fire-and-forget. Losing just the second leaves exactly this state — a writer with no content
+  // key, for whom every message in the room reads "locked message" and nothing can be posted.
+  // Reached here by dropping the keys directly, since nothing in the API can un-send them.
+  const internals = roomB as unknown as { contentKeys: Map<number, Buffer>; currentEpoch: number }
+  internals.contentKeys.clear()
+  internals.currentEpoch = -1
+  assert.equal(roomB.writable, true, 'still a writer')
+  assert.equal(roomB.hasKey, false, 'with no key to read or write messages with')
+
+  // What the reconnect and the background retry both call. It used to return early here, because
+  // being writable was taken to mean there was nothing left to ask for.
+  const askAgain = sessionB as unknown as { requestWriteIfNeeded(room: unknown, peer: unknown): void }
+  for (const peer of sessionB.peers.values()) askAgain.requestWriteIfNeeded(roomB, peer)
+
+  await waitFor(() => roomB.hasKey, 'the owner to send the room key again')
+})

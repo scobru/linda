@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
   TextInput, Alert, ActionSheetIOS, Platform, Modal,
-  SafeAreaView,
+  SafeAreaView, Keyboard,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useFocusEffect } from '@react-navigation/native'
@@ -225,10 +225,25 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const flatListRef = useRef<FlatList>(null)
   const [wallpaperSvg, setWallpaperSvg] = useState<string | null>(null)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  /** Same fact as `showScrollToBottom`, readable from a listener that must not re-subscribe every
+   * time the user scrolls. */
+  const awayFromBottomRef = useRef(false)
   const handleListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
     const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
+    awayFromBottomRef.current = distanceFromBottom > 300
     setShowScrollToBottom(distanceFromBottom > 300)
+  }, [])
+
+  // The keyboard opening shortens the list (Android resizes the window — see windowSoftInputMode
+  // in the manifest) without moving its scroll offset, so the newest messages, the ones that were
+  // sitting just above the composer, end up behind the keyboard. Re-anchor only for someone who
+  // was already at the bottom; anyone reading back through history stays where they were.
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', () => {
+      if (!awayFromBottomRef.current) flatListRef.current?.scrollToEnd({ animated: false })
+    })
+    return () => shown.remove()
   }, [])
 
   // Lands on the latest messages when a room first opens. Fires once messages first become
