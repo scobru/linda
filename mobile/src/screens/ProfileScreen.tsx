@@ -5,7 +5,7 @@ import {
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
-import * as ImageManipulator from 'expo-image-manipulator'
+import { squareImageToDataUri } from '../avatar-image'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -71,14 +71,7 @@ export default function ProfileScreen({ navigation }: Props) {
     const asset = result.assets[0]
     if (!asset) return
     try {
-      const resized = await ImageManipulator.manipulateAsync(
-        asset.uri,
-        [{ resize: { width: 128, height: 128 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      )
-      if (!resized.base64) throw new Error('Could not process that image')
-      const dataUri = `data:image/jpeg;base64,${resized.base64}`
-      await session.setAvatar(dataUri)
+      await session.setAvatar(await squareImageToDataUri(asset.uri))
       refresh()
     } catch (err) {
       Alert.alert('Error', (err as Error).message || 'Could not load image')

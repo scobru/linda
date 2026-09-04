@@ -3,7 +3,7 @@ import { View, Text, FlatList, Pressable, StyleSheet, SafeAreaView, Alert, Switc
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
-import * as ImageManipulator from 'expo-image-manipulator'
+import { squareImageToDataUri } from '../avatar-image'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useContacts } from '../hooks/useContacts'
@@ -89,22 +89,17 @@ export default function MembersScreen({ route, navigation }: Props) {
     metaAvatar !== (bookmark?.avatar ?? '')
   )
 
-  /** Resized before it goes anywhere: the icon is replicated in the room's log and mirrored into
-   * every member's bookmark, so a full-size camera photo would be paid for by all of them. 128px
-   * is what the desktop's own resizeImageToDataUrl settles on. */
+  /** Squared and resized before it goes anywhere: the icon is replicated in the room's log and
+   * mirrored into every member's bookmark, so a full-size camera photo would be paid for by all
+   * of them. See `squareImageToDataUri` — same crop and same 128px the desktop's own
+   * resizeImageToDataUrl settles on, so a room looks the same whichever platform set its icon. */
   const pickIcon = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' })
     if (result.canceled) return
     const asset = result.assets[0]
     if (!asset) return
     try {
-      const resized = await ImageManipulator.manipulateAsync(
-        asset.uri,
-        [{ resize: { width: 128 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      )
-      if (!resized.base64) throw new Error('Could not read that image')
-      setMetaAvatar(`data:image/jpeg;base64,${resized.base64}`)
+      setMetaAvatar(await squareImageToDataUri(asset.uri))
     } catch (err) {
       Alert.alert('Could not load image', (err as Error).message)
     }
