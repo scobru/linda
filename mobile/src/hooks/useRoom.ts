@@ -26,6 +26,12 @@ function cacheRoom(id: string, entry: { messages: LocalChatMessage[]; oldestLoad
   }
 }
 
+/** How long the peer's "typing…" stays up after the last keystroke, and how often we say so while
+ * it keeps happening. The second only has to be shorter than the first. */
+const TYPING_STOP_MS = 3000
+const TYPING_PING_MS = 2000
+
+
 export interface UseRoomResult {
   messages: LocalChatMessage[]
   loading: boolean
@@ -204,11 +210,24 @@ export function useRoom(room: Room | null | undefined, identityId: string, clear
     })
   }, [room])
 
+  const typingPingedAtRef = useRef(0)
+
   const notifyTyping = useCallback(() => {
     if (!room) return
-    void room.sendTyping(identityId, true)
+    // One ping every couple of seconds instead of one per keystroke. The peer's indicator is
+    // sticky for TYPING_STOP_MS anyway, so the extra pings told it nothing new — while each one
+    // put a bridge round trip, and a fan-out to every connected peer inside the worklet, on the
+    // keyboard's critical path.
+    const now = Date.now()
+    if (now - typingPingedAtRef.current >= TYPING_PING_MS) {
+      typingPingedAtRef.current = now
+      void room.sendTyping(identityId, true)
+    }
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
-    typingTimerRef.current = setTimeout(() => { void room.sendTyping(identityId, false) }, 3000)
+    typingTimerRef.current = setTimeout(() => {
+      typingPingedAtRef.current = 0
+      void room.sendTyping(identityId, false)
+    }, TYPING_STOP_MS)
   }, [room, identityId])
 
   // --- read receipts: mirrors desktop's notifyRead/onReadReceipt (app-shell.ts) ---

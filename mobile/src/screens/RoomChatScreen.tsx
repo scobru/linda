@@ -42,12 +42,70 @@ type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '🎉', '💯', '🙏']
 
+/** What a row can do, as one object whose identity never changes — see `rowActions` below. */
+interface RowActions {
+  onLongPress(message: ChatMessage): void
+  onPress(message: ChatMessage): void
+  onReaction(messageId: string, emoji: string): void
+  onFilePress(message: ChatMessage): void
+  onFileSave(message: ChatMessage): void
+  onHashtagPress(tag: string): void
+}
+
+interface MessageRowProps {
+  item: ChatMessage
+  isSelf: boolean
+  authorName: string
+  replyPreview?: string
+  selectionMode: boolean
+  selected: boolean
+  fileDownloading: boolean
+  isAudioPlaying: boolean
+  isAudioLoading: boolean
+  actions: RowActions
+}
+
+/**
+ * The one place the per-row closures are built. They used to be built inline in the list's
+ * `renderItem`, six of them per row, which handed `ChatBubble` six new props on every render of
+ * this screen and made its `React.memo` a no-op: every visible bubble re-rendered whenever
+ * anything here changed — and plenty does, since presence, peer connects and nickname updates all
+ * flow through `useSession` into this component. Built here instead, against props that are
+ * strings, booleans and one stable object, the memo actually holds and a bubble re-renders only
+ * when something about that bubble changed.
+ */
+const MessageRow = React.memo(function MessageRow({
+  item, isSelf, authorName, replyPreview, selectionMode, selected, fileDownloading,
+  isAudioPlaying, isAudioLoading, actions,
+}: MessageRowProps) {
+  const selectable = selectionMode && isSelf
+  return (
+    <ChatBubble
+      message={item}
+      isSelf={isSelf}
+      authorName={authorName}
+      replyPreview={replyPreview}
+      onLongPress={() => actions.onLongPress(item)}
+      onPress={selectable ? () => actions.onPress(item) : undefined}
+      selected={selected}
+      selectable={selectable}
+      onReactionPress={(emoji) => actions.onReaction(item.id, emoji)}
+      onFilePress={() => actions.onFilePress(item)}
+      onFileSave={() => actions.onFileSave(item)}
+      onHashtagPress={(tag) => actions.onHashtagPress(tag)}
+      fileDownloading={fileDownloading}
+      isAudioPlaying={isAudioPlaying}
+      isAudioLoading={isAudioLoading}
+    />
+  )
+})
+
 export default function RoomChatScreen({ route, navigation }: Props) {
   const { colors, isDark } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
-  const { session, identity, nicknames, avatars, bookmarks, refresh: refreshSession, setActiveRoomId } = useSession()
+  const { session, identity, nicknames, avatars, bookmarks, refresh: refreshSession, markRoomReadLocally, setActiveRoomId } = useSession()
   const { privateMode } = usePrivateMode()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
@@ -83,8 +141,9 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // arrives while this screen is focused (mute the badge, not just a one-time clear).
   useEffect(() => {
     if (!session || !roomId) return
-    session.markRoomRead(roomId).then(refreshSession)
-  }, [session, roomId])
+    void session.markRoomRead(roomId).catch(() => {})
+    markRoomReadLocally(roomId)
+  }, [session, roomId, markRoomReadLocally])
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!room || !session) return
@@ -92,14 +151,15 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       if (markReadTimerRef.current) return
       markReadTimerRef.current = setTimeout(() => {
         markReadTimerRef.current = null
-        void session.markRoomRead(room.id).then(refreshSession)
+        void session.markRoomRead(room.id).catch(() => {})
+        markRoomReadLocally(room.id)
       }, 1000)
     })
     return () => {
       unsub()
       if (markReadTimerRef.current) { clearTimeout(markReadTimerRef.current); markReadTimerRef.current = null }
     }
-  }, [room, session, roomId])
+  }, [room, session, roomId, markRoomReadLocally])
   // Suppresses this room's own local notifications while it's the screen actually on top —
   // native-stack keeps it mounted underneath other pushed screens, so mount/unmount alone
   // isn't a reliable signal of visibility.
@@ -517,6 +577,43 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     return replyToId ? replyMap.get(replyToId) : undefined
   }, [replyMap])
 
+  // The handlers a row calls, read through a ref so the object handed to every row can keep the
+  // same identity for the life of the screen while still calling this render's versions.
+  const rowHandlers = useRef({ selectionMode, identityId, handleLongPress, toggleSelected, toggleReaction, handleFilePress, saveFileToDevice, setActiveHashtag })
+  useEffect(() => {
+    rowHandlers.current = { selectionMode, identityId, handleLongPress, toggleSelected, toggleReaction, handleFilePress, saveFileToDevice, setActiveHashtag }
+  })
+  const rowActions = useMemo<RowActions>(() => ({
+    onLongPress: (message) => {
+      const h = rowHandlers.current
+      if (h.selectionMode) { if (message.authorId === h.identityId) h.toggleSelected(message.id) }
+      else h.handleLongPress(message)
+    },
+    onPress: (message) => {
+      const h = rowHandlers.current
+      if (h.selectionMode && message.authorId === h.identityId) h.toggleSelected(message.id)
+    },
+    onReaction: (messageId, emoji) => { void rowHandlers.current.toggleReaction(messageId, emoji) },
+    onFilePress: (message) => { void rowHandlers.current.handleFilePress(message) },
+    onFileSave: (message) => { void rowHandlers.current.saveFileToDevice(message) },
+    onHashtagPress: (tag) => rowHandlers.current.setActiveHashtag((cur) => (cur === tag ? null : tag)),
+  }), [])
+
+  const renderMessage = useCallback(({ item }: { item: ChatMessage }) => (
+    <MessageRow
+      item={item}
+      isSelf={item.authorId === identityId}
+      authorName={getAuthorName(item.authorId)}
+      replyPreview={getReplyPreview(item.replyTo)}
+      selectionMode={selectionMode}
+      selected={selectedIds.has(item.id)}
+      fileDownloading={downloadingId === item.id}
+      isAudioPlaying={playingAudioId === item.id}
+      isAudioLoading={loadingAudioId === item.id}
+      actions={rowActions}
+    />
+  ), [identityId, getAuthorName, getReplyPreview, selectionMode, selectedIds, downloadingId, playingAudioId, loadingAudioId, rowActions])
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* Search bar */}
@@ -678,25 +775,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             ref={flatListRef}
             data={filteredMessages}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ChatBubble
-                message={item}
-                isSelf={item.authorId === identityId}
-                authorName={getAuthorName(item.authorId)}
-                replyPreview={getReplyPreview(item.replyTo)}
-                onLongPress={() => selectionMode ? (item.authorId === identityId && toggleSelected(item.id)) : handleLongPress(item)}
-                onPress={selectionMode && item.authorId === identityId ? () => toggleSelected(item.id) : undefined}
-                selected={selectedIds.has(item.id)}
-                selectable={selectionMode && item.authorId === identityId}
-                onReactionPress={(emoji) => toggleReaction(item.id, emoji)}
-                onFilePress={() => handleFilePress(item)}
-                onFileSave={() => void saveFileToDevice(item)}
-                onHashtagPress={(tag) => setActiveHashtag((cur) => (cur === tag ? null : tag))}
-                fileDownloading={downloadingId === item.id}
-                isAudioPlaying={playingAudioId === item.id}
-                isAudioLoading={loadingAudioId === item.id}
-              />
-            )}
+            renderItem={renderMessage}
             contentContainerStyle={styles.messageList}
             windowSize={7}
             maxToRenderPerBatch={16}
