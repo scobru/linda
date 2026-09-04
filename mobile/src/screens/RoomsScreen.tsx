@@ -7,6 +7,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
+import type { RoomSummary } from '../bare/session-proxy'
 import { decodeInvite } from '@core/ui/qr-core'
 import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
@@ -14,6 +15,43 @@ import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Rooms'>
+
+/** Everything a room row can do, as one object whose identity never changes. */
+interface RoomRowActions {
+  onOpen(id: string, name: string): void
+  onOptions(id: string, name: string, favorite: boolean): void
+}
+
+/**
+ * Memoised so the list survives this screen's own churn: presence, peer connects and nickname
+ * updates all arrive through `useSession`, and each one used to rebuild both row callbacks inline
+ * in `renderItem` — which re-rendered every visible room on every one of them.
+ */
+const RoomRow = React.memo(function RoomRow({
+  id, name, avatar, lastMessage, timestamp, unread, favorite, actions,
+}: {
+  id: string
+  name: string
+  avatar?: string
+  lastMessage?: string
+  timestamp?: number
+  unread: boolean
+  favorite: boolean
+  actions: RoomRowActions
+}) {
+  return (
+    <RoomListItem
+      id={id}
+      name={name}
+      avatar={avatar}
+      lastMessage={lastMessage}
+      timestamp={timestamp}
+      unread={unread}
+      onPress={() => actions.onOpen(id, name)}
+      onLongPress={() => actions.onOptions(id, name, favorite)}
+    />
+  )
+})
 
 export default function RoomsScreen({ navigation }: Props) {
   const { colors } = useTheme()
@@ -140,6 +178,27 @@ export default function RoomsScreen({ navigation }: Props) {
     setRoomOptions({ id, name, isFavorite })
   }, [])
 
+  const rowActions = useMemo<RoomRowActions>(() => ({
+    onOpen: (id, name) => openRoom(id, name),
+    onOptions: (id, name, favorite) => handleRoomOptions(id, name, favorite),
+  }), [openRoom, handleRoomOptions])
+
+  const renderRoom = useCallback(({ item }: { item: RoomSummary }) => {
+    const peerId = contactAvatarByRoom.get(item.id)
+    return (
+      <RoomRow
+        id={item.id}
+        name={item.name}
+        avatar={(peerId && avatars.get(peerId)) || item.avatar}
+        lastMessage={item.lastMessageText ?? undefined}
+        timestamp={item.lastMessageTime ?? undefined}
+        unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
+        favorite={!!item.favorite}
+        actions={rowActions}
+      />
+    )
+  }, [contactAvatarByRoom, avatars, rowActions])
+
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'favorites'>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -212,21 +271,7 @@ export default function RoomsScreen({ navigation }: Props) {
       <FlatList
         data={filteredBookmarks}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <RoomListItem
-            id={item.id}
-            name={item.name}
-            avatar={(() => {
-              const peerId = contactAvatarByRoom.get(item.id)
-              return (peerId && avatars.get(peerId)) || item.avatar
-            })()}
-            lastMessage={item.lastMessageText ?? undefined}
-            timestamp={item.lastMessageTime ?? undefined}
-            unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
-            onPress={() => openRoom(item.id, item.name)}
-            onLongPress={() => handleRoomOptions(item.id, item.name, !!item.favorite)}
-          />
-        )}
+        renderItem={renderRoom}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="chatbubbles-outline" size={48} color={colors.textTertiary} style={styles.emptyEmoji} />

@@ -26,6 +26,8 @@ interface SessionContextValue {
   // Actions
   initSession: (identity: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => Promise<void>
   refresh: () => void
+  /** Stamps a room as read in the local view, without asking the worklet for anything. */
+  markRoomReadLocally: (roomId: string) => void
   /** Marks a room as the one currently on screen, so its own new-message notifications are
    * suppressed while the user is already looking at it (mirrors desktop's document-focus check). */
   setActiveRoomId: (roomId: string | null) => void
@@ -80,6 +82,19 @@ export function SessionProvider({ children }: Props) {
   /** The session the wired-once listeners below act on. They outlive any single login — a failed
    * one used to register another full set, so one retry meant two notifications per message and two
    * room-list rebuilds, three after the next. */
+  /**
+   * The unread dot and the app badge both read `lastReadAt` off the bookmarks held here, and the
+   * worklet persists the same stamp on its own. Asking it to recompute every room's summary, the
+   * contact list, both profile fields and the peer-avatar table just to learn a timestamp this
+   * side already knows meant five bridge round trips — one of them a walk back through every
+   * bookmarked room's messages — on every room open, and again a second after every message that
+   * arrived while the room was open.
+   */
+  const markRoomReadLocally = useCallback((roomId: string) => {
+    const now = Date.now()
+    setBookmarks((prev) => prev.map((b) => (b.id === roomId ? { ...b, lastReadAt: now } : b)))
+  }, [])
+
   const sessionRef = useRef<SessionProxy | null>(null)
   const eventsWired = useRef(false)
   /** The login currently running, if any. Two of them can be started for the same identity without
@@ -158,10 +173,21 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('incomingMessage', (payload: { roomId: string; message: ChatMessage }) => {
       const s = sessionRef.current
       if (!s) return
-      void s.listRoomSummaries().then((summaries) => {
-        setBookmarks(summaries)
+      // One room's row, not the whole list: a message changes exactly one of them, and asking for
+      // all of them walked every other bookmarked room's history tail as well — per message.
+      // A room not bookmarked in the worklet yet comes back null; `bookmarksChange` brings it in.
+      void s.roomSummary(payload.roomId).then((summary) => {
+        if (summary) {
+          setBookmarks((prev) => {
+            const index = prev.findIndex((b) => b.id === summary.id)
+            if (index < 0) return prev
+            const next = [...prev]
+            next[index] = summary
+            return next
+          })
+        }
         if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
-        const roomName = summaries.find((b) => b.id === payload.roomId)?.name ?? 'linda-pear'
+        const roomName = summary?.name ?? 'linda-pear'
         const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
         // Private mode keeps the sender and the text off the lock screen, which is the one place
         // a phone shows a message to whoever happens to be looking (see private-mode.tsx).
@@ -250,8 +276,9 @@ export function SessionProvider({ children }: Props) {
     avatars,
     initSession,
     refresh,
+    markRoomReadLocally,
     setActiveRoomId,
-  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh, setActiveRoomId])
+  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh, markRoomReadLocally, setActiveRoomId])
 
   return (
     <SessionContext.Provider value={value}>
