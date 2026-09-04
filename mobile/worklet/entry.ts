@@ -48,6 +48,39 @@ let stopHostedPairing: (() => void) | null = null
 /** Started on the first play, so a session that opens no media opens no socket. */
 let mediaServer: Promise<WorkletMediaServer> | null = null
 
+/**
+ * Serializes everything that opens or destroys the session, and makes each of those wait for the
+ * one before it. The corestore under a session holds an exclusive lock on its directory for as
+ * long as it is open — an OFD lock, so a second open conflicts with the first even from inside
+ * this same runtime — and two paths used to reach `session.create` without either of them knowing
+ * about the other: the unlock screen auto-prompts for biometrics while its passphrase field stays
+ * live, and a login that failed part-way leaves the user tapping Unlock again. Whichever call came
+ * second opened a second corestore over the same directory and waited on that lock — not failing,
+ * just never answering — so the unlock screen span forever and no later attempt could get in
+ * either, until the process itself was killed. With the background connection service holding that
+ * process up, that is what "clear the app's storage to get back in" really was.
+ */
+let sessionWork: Promise<unknown> = Promise.resolve()
+
+function queueSessionWork<T>(work: () => Promise<T>): Promise<T> {
+  const next = sessionWork.then(work, work)
+  // The result is the caller's to handle; this copy only keeps a failure from poisoning the chain.
+  sessionWork = next.catch(() => {})
+  return next
+}
+
+/** Tears down the current session, if any, so its storage lock is released before anything reopens it. */
+async function closeSession(): Promise<void> {
+  const open = session
+  if (!open) return
+  session = null
+  try {
+    await open.close()
+  } catch (err) {
+    console.error('[worklet] closing previous session failed:', (err as Error)?.stack || err)
+  }
+}
+
 const rpc = new RPC(IPC as any, (req: any) => {
   if (!req.reply) return // stray incoming event; RN never sends one
   void handleRequest(req)
@@ -157,14 +190,11 @@ const methods: Record<string, (...args: any[]) => any> = {
 
   'identity.revealMnemonic': (passphrase: string, dir: string) => revealMnemonic(passphrase, dir),
 
-  'identity.resetDevice': async (dir: string) => {
-    if (session) {
-      await session.close()
-      session = null
-    }
+  'identity.resetDevice': (dir: string) => queueSessionWork(async () => {
+    await closeSession()
     identity = null
     fs.rmSync(dir, { recursive: true, force: true })
-  },
+  }),
 
   // Hosting the other half of pairing: this device already holds the identity and hands it to
   // a new one. Can't be a plain request/reply — the code appears first and the hand-off lands
@@ -194,7 +224,10 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { id: identity.id }
   },
 
-  'session.create': async (dir: string, dhtPort?: number) => {
+  'session.create': (dir: string, dhtPort?: number) => queueSessionWork(async () => {
+    // A session left over from an earlier attempt (or from a login the UI gave up waiting on)
+    // still holds the storage; hand it back before opening the same directory again.
+    await closeSession()
     const events: SessionEvents = {
       onPresence: (m) => pushEvent('presence', m),
       onPeerConnected: () => pushEvent('peerConnected'),
@@ -210,15 +243,16 @@ const methods: Record<string, (...args: any[]) => any> = {
     // No `createLanDiscovery` here — see `SwarmTransport.createLanDiscovery` in swarm.ts. It
     // pulls in `multicast-dns`, which does a bare `require('dgram')` with no Bare-native shim,
     // and `bare-pack` bails on that at bundle time, breaking the Android build entirely.
-    session = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort } })
+    const opened = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort } })
+    session = opened
     return {
-      nickname: session.getNickname(),
-      avatar: session.getAvatar(),
-      bookmarks: session.listBookmarks(),
-      contacts: session.listContacts(),
-      peerAvatars: [...session.listPeerAvatars()]
+      nickname: opened.getNickname(),
+      avatar: opened.getAvatar(),
+      bookmarks: opened.listBookmarks(),
+      contacts: opened.listContacts(),
+      peerAvatars: [...opened.listPeerAvatars()]
     }
-  },
+  }),
 
   'session.reopenBookmarkedRooms': async () => {
     const rooms = await requireSession().reopenBookmarkedRooms()

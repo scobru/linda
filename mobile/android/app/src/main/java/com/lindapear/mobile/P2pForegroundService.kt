@@ -29,7 +29,26 @@ class P2pForegroundService : Service() {
   // would make notification channels or FOREGROUND_SERVICE_TYPE_DATA_SYNC optional.
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-    return START_STICKY
+    // Not START_STICKY. This service holds no connection of its own — it only keeps the process
+    // that runs the Bare worklet out of Doze (see the class comment), so restarting it after the
+    // system has killed that process leaves a foreground notification claiming Linda is connected
+    // over a process with no worklet in it. Worse, the empty process it recreates is the one the
+    // next launch is placed into, and the JS instance that starts there is the second one to reach
+    // the same storage directory: whichever worklet still holds the corestore's lock keeps it, and
+    // the new session cannot open. That is the state where nothing but clearing the app's storage
+    // appeared to get the user back in.
+    return START_NOT_STICKY
+  }
+
+  // Swiping Linda out of the recent-apps list tears down its Activity but not, by default, a
+  // started service — and this one holding the process up is precisely what kept a stale worklet
+  // (and its lock on the store) alive across what the user experienced as closing and reopening the
+  // app. Nothing worth keeping runs here once the UI is gone. `android:stopWithTask="true"` in the
+  // manifest covers the same case; this is the callback for the devices that route it here instead.
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+    super.onTaskRemoved(rootIntent)
   }
 
   private fun buildNotification(): Notification {

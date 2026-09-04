@@ -10,8 +10,42 @@ import RPC from 'bare-rpc'
 import workletBundle from '../../worklet/dist/worklet.bundle.cjs'
 import { packFrame, unpackFrame } from './frame.js'
 
+/** Names this app's worklet in bare-kit's process-wide registry. Starting a worklet under a name
+ * terminates whichever one held that name before it (see BareKitModule's `worklets` map), which is
+ * the only thing that cleans up after an RN instance that was torn down while the process itself
+ * survived — Android keeps the process alive whenever the background connection service is running.
+ * Without a name, that orphaned runtime lived on holding the corestore's lock, and the fresh one
+ * this JS context started could never open the session: login failed until the OS killed the app. */
+const WORKLET_ID = 'linda-pear'
+
+/** Deadlines for the calls a screen blocks on with nothing else to offer the user. Everything else
+ * stays unbounded on purpose — a join waits on the DHT, a download waits on a peer, and cutting
+ * those off would invent failures. These four are the login path: if the worklet is gone or wedged,
+ * the alternative to a deadline is "Unlocking..." forever, with no error and no way back. Generous
+ * enough that a slow phone deriving the passphrase key still fits inside them. */
+const TIMEOUT_MS: Record<string, number> = {
+  'identity.unlock': 60_000,
+  'identity.create': 60_000,
+  'identity.recover': 60_000,
+  'session.create': 120_000
+}
+function withTimeout<T>(work: Promise<T>, method: string): Promise<T> {
+  const ms = TIMEOUT_MS[method]
+  if (!ms) return work
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`the background runtime did not answer ${method} in time`)),
+      ms
+    )
+    work.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (err) => { clearTimeout(timer); reject(err) }
+    )
+  })
+}
+
 class BareClient {
-  private worklet = new Worklet()
+  private worklet = new Worklet(WORKLET_ID)
   private started = false
   private rpc: RPC | null = null
   private listeners = new Map<string, Set<(payload: any) => void>>()
@@ -29,9 +63,14 @@ class BareClient {
 
   private async request(method: string, args: unknown[], binary?: Uint8Array): Promise<{ result: any; binary: Uint8Array }> {
     this.ensureStarted()
+    // `terminated` is a real getter on bare-kit's Worklet, just missing from its .d.ts. Worth the
+    // cast: a request to a dead runtime otherwise sits there until its deadline, or forever.
+    if ((this.worklet as unknown as { terminated?: boolean }).terminated === true) {
+      throw new Error('the background runtime has stopped — restart the app')
+    }
     const req = this.rpc!.request(0)
     req.send(packFrame({ method, args }, binary) as any)
-    const replyBuf: Uint8Array = await (req.reply() as unknown as Promise<Uint8Array>)
+    const replyBuf = await withTimeout<Uint8Array>(req.reply() as unknown as Promise<Uint8Array>, method)
     const { header, binary: replyBinary } = unpackFrame(replyBuf)
     if (!header.ok) throw new Error(header.error)
     return { result: header.result, binary: replyBinary }

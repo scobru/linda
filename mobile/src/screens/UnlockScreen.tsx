@@ -9,6 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { unlockIdentity, WrongPassphraseError } from '../bare/identity-client'
 import { storageDir } from '../bare/storage-dir'
 import { isBiometricLockEnabled, unlockWithBiometrics } from '../bare/biometric-lock'
+import { describeSessionError } from '../bare/session-errors'
 import { useSession } from '../hooks/useSession'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
@@ -24,7 +25,15 @@ export default function UnlockScreen({ navigation }: Props) {
   const [biometricAvailable, setBiometricAvailable] = useState(false)
   const { initSession } = useSession()
 
+  // Not `loading` itself: that lands a render later, and the two ways in here (this screen's own
+  // button and the biometric prompt it fires on mount) can both be taken before it does. Opening
+  // the session twice over one storage directory is not something the second attempt survives —
+  // the first holds the store's lock for as long as it is open.
+  const unlocking = useRef(false)
+
   const unlockWith = useCallback(async (pass: string) => {
+    if (unlocking.current) return
+    unlocking.current = true
     setLoading(true)
     setError('')
     try {
@@ -35,8 +44,10 @@ export default function UnlockScreen({ navigation }: Props) {
       if (err instanceof WrongPassphraseError) {
         setError('Wrong passphrase')
       } else {
-        setError((err as Error).message)
+        console.warn('[unlock] failed:', (err as Error)?.message)
+        setError(describeSessionError(err))
       }
+      unlocking.current = false
       setLoading(false)
     }
   }, [initSession, navigation])
@@ -47,6 +58,7 @@ export default function UnlockScreen({ navigation }: Props) {
   }, [passphrase, unlockWith])
 
   const handleBiometricUnlock = useCallback(async () => {
+    if (unlocking.current) return
     const pass = await unlockWithBiometrics()
     if (pass) void unlockWith(pass)
   }, [unlockWith])
@@ -105,7 +117,7 @@ export default function UnlockScreen({ navigation }: Props) {
         </View>
 
         {biometricAvailable && (
-          <Pressable onPress={() => void handleBiometricUnlock()} style={styles.biometricBtn}>
+          <Pressable onPress={() => void handleBiometricUnlock()} disabled={loading} style={styles.biometricBtn}>
             <Ionicons name="finger-print-outline" size={20} color={colors.accentLight} />
             <Text style={styles.link}>Use Face ID / Fingerprint</Text>
           </Pressable>

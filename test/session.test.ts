@@ -186,3 +186,30 @@ test('an unbanned member cannot get back in without presenting a valid invite co
   await new Promise((resolve) => setTimeout(resolve, 3000))
   assert.equal(rejoined.writable, false, 'a removed identity must not be re-admitted without a valid invite code')
 })
+
+test('a session that fails to open gives its storage back', async (t) => {
+  const net = await transport()
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-storage-lock-test-'))
+  const identity = makeIdentity()
+  t.after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  const first = await Session.create(identity, dir, { transport: net })
+  await first.close()
+
+  // A corrupt legacy bookmarks file fails the open from inside `migrateJsonIfNeeded` — that is,
+  // after the corestore is already open and holding its exclusive lock on the directory, and after
+  // the swarm exists. The half-built session is unreachable from here, so unless `create` closes it
+  // on the way out, that lock is held by nothing anyone can address: every later open of the same
+  // directory then fails too, for the lifetime of the process. On mobile that is the whole app —
+  // the unlock screen has no way in and no way to release it.
+  fs.writeFileSync(path.join(dir, 'rooms.json'), 'not json')
+  await assert.rejects(
+    Session.create(identity, dir, { transport: net }),
+    'the corrupt migration file fails the open'
+  )
+
+  fs.unlinkSync(path.join(dir, 'rooms.json'))
+  const second = await Session.create(identity, dir, { transport: net })
+  t.after(async () => { await second.close() })
+  assert.equal(second.listBookmarks().length, 0, 'the same storage opens again once the cause is gone')
+})
