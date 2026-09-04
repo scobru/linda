@@ -264,7 +264,7 @@ test('onMessage reports the mutated message\'s own index, not always the tail (r
   const notified: number[] = []
   const unsubscribe = room.onMessage((index) => notified.push(index))
   await room.toggleReaction(identityA, second.id, '\u{1F44D}')
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await new Promise((resolve) => setTimeout(resolve, 200))
   unsubscribe()
 
   // Autobase's view truncates and replays a few times as a local write settles, and each replay

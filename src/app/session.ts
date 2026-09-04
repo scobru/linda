@@ -121,8 +121,12 @@ export class Session {
       onTyping: events.onTyping,
       onPresence: (message) => {
         if (message.avatar) {
-          this.peerAvatars.set(message.userId, message.avatar)
-          void this.profileStore.setPeerAvatar(message.userId, message.avatar)
+          if (message.avatar.length <= ProfileStore.MAX_AVATAR_BYTES) {
+            this.peerAvatars.set(message.userId, message.avatar)
+            void this.profileStore.setPeerAvatar(message.userId, message.avatar)
+          } else {
+            message.avatar = undefined
+          }
         }
         if (message.nickname) {
           this.peerNicknames.set(message.userId, message.nickname)
@@ -203,7 +207,7 @@ export class Session {
         events.onDirectoryChange?.()
       },
       onContactRequest: (message) => {
-        if (message.avatar) {
+        if (message.avatar && message.avatar.length <= ProfileStore.MAX_AVATAR_BYTES) {
           this.peerAvatars.set(message.fromId, message.avatar)
           void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
         }
@@ -290,7 +294,7 @@ export class Session {
             if (room.writable) this.clearPendingInvite(room.id)
             const updated: ContactEntry = { ...contact, nickname: roomName, status: 'accepted', roomId: room.id, avatar: message.avatar || contact.avatar, pendingResponse: undefined }
             this.contacts.set(message.fromId, updated)
-            if (message.avatar) {
+            if (message.avatar && message.avatar.length <= ProfileStore.MAX_AVATAR_BYTES) {
               this.peerAvatars.set(message.fromId, message.avatar)
               void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
             }
@@ -469,6 +473,10 @@ export class Session {
   }
 
   async setAvatar(avatar: string): Promise<void> {
+    if (avatar && avatar.length > ProfileStore.MAX_AVATAR_BYTES) {
+      console.warn(`[session] avatar exceeds max size (${avatar.length} bytes), ignoring`)
+      return
+    }
     this.avatar = avatar
     this.broadcastPresence(true)
     await this.profileStore.setAvatar(avatar)

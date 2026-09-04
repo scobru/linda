@@ -295,6 +295,10 @@ export class AppShell extends HTMLElement {
    * session, so leaving these attached meant every previously-visited room kept redrawing the UI,
    * multiplying the cost of every incoming message by the number of rooms opened so far. */
   private activeRoomUnsubscribes: Array<() => void> = []
+  private renderedRoomId: string | null = null
+  private renderedRoomWritable: boolean | null = null
+  private renderedActiveTab: 'chat' | 'files' = 'chat'
+  private renderedModal: 'none' | 'new-group' | 'join-room' = 'none'
 
   connectedCallback(): void {
     if (localStorage.getItem('linda-theme') === 'light') document.documentElement.setAttribute('data-theme', 'light')
@@ -835,6 +839,120 @@ export class AppShell extends HTMLElement {
 
     const appBgTransparent = (this.session?.getAppBackground() || DEFAULT_APP_BACKGROUND) === 'transparent'
 
+    const currentRoomId = this.activeRoom ? this.activeRoom.id : null
+    const currentWritable = this.activeRoom ? (this.activeRoom.writable && this.activeRoom.hasKey && this.activeRoom.canPost(this.identity.id)) : false
+    const appContainer = this.querySelector('.app-container')
+    const needsFullMount = !appContainer ||
+      this.renderedModal !== this.activeModal ||
+      this.renderedActiveTab !== this.activeRoomTab
+
+    if (!needsFullMount) {
+      // In-place update: avoids wiping innerHTML and prevents UI flickering
+      const globe = this.querySelector('.topbar-globe')
+      if (globe) {
+        globe.classList.toggle('connected', peerCount > 0)
+        globe.setAttribute('title', `${peerCount} connected peer(s)`)
+      }
+
+      const topbarAvatar = this.querySelector('.topbar-avatar')
+      if (topbarAvatar) {
+        topbarAvatar.innerHTML = this.avatar ? `<img src="${this.avatar}" />` : userInitial
+      }
+
+      const themeBtn = this.querySelector('#themeToggleBtn')
+      if (themeBtn) themeBtn.innerHTML = isLight ? ICONS.moon : ICONS.sun
+
+      const maxBtn = this.querySelector('#winMaximizeBtn')
+      if (maxBtn) {
+        maxBtn.setAttribute('title', isMaximized ? 'Restore' : 'Maximize')
+        maxBtn.innerHTML = isMaximized ? ICONS.winRestore : ICONS.winMaximize
+      }
+
+      this.querySelectorAll<HTMLButtonElement>('.filter-pill').forEach((pill) => {
+        pill.classList.toggle('active', pill.dataset.filter === this.activeFilter)
+      })
+
+      const roomList = this.querySelector('.room-list')
+      if (roomList) {
+        roomList.innerHTML = `
+          ${allBookmarks.map((b) => this.renderRoomListItem(b, this.matchesSidebarFilter(b))).join('')}
+          <div class="empty-room-hint" style="padding:2.5rem 1rem;text-align:center;color:var(--text-muted);font-size:0.825rem;${filteredBookmarks.length ? 'display:none;' : ''}">
+            <p>No conversations found.</p>
+            <small>Click the compose button above to start a chat.</small>
+          </div>
+        `
+        this.wireRoomItems()
+      }
+
+      const drawer = this.querySelector('#profileDrawer')
+      if (drawer) drawer.classList.toggle('open', this.isProfileDrawerOpen)
+      const netStatus = this.querySelector('.network-status-text div')
+      if (netStatus) netStatus.textContent = `${peerCount} peer(s) connected`
+
+      const mainEl = this.querySelector('main.main')
+      if (mainEl) {
+        const roomChanged = this.renderedRoomId !== currentRoomId || this.renderedRoomWritable !== currentWritable
+        if (roomChanged) {
+          this.renderedRoomId = currentRoomId
+          this.renderedRoomWritable = currentWritable
+          mainEl.innerHTML = this.activeRoom ? this.roomHtml() : `
+            <div class="empty-state" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:var(--text-muted);text-align:center;padding:2.5rem;">
+              <div class="empty-state-icon" style="width:68px;height:68px;border-radius:20px;background:var(--bg-panel);display:flex;align-items:center;justify-content:center;color:var(--accent);">${ICONS.chat}</div>
+              <h2 style="font-size:1.35rem;font-weight:700;margin-top:0.25rem;color:var(--text);">Welcome to Linda</h2>
+              <p style="color:var(--text-dim);font-size:0.875rem;max-width:360px;">Select a conversation or create a sovereign encrypted group space.</p>
+            </div>
+          `
+          if (this.activeRoom) this.wireRoom()
+        } else if (this.activeRoom) {
+          const room = this.activeRoom
+          const isFavorite = this.session.isRoomFavorite(room.id)
+          const memberCount = room.listMembers().length || 1
+          const subtitleEl = this.querySelector('#roomMembersSubtitleTrigger')
+          if (subtitleEl) {
+            subtitleEl.innerHTML = `
+              <span class="member-count-text">${ICONS.users} ${memberCount} member(s)</span>
+              <span>•</span>
+              <span style="color:var(--success);">${this.onlineUsers.size} online</span>
+            `
+          }
+          const titleEl = this.querySelector('.room-header-title')
+          if (titleEl) titleEl.textContent = this.activeRoomName || 'Room'
+          const favBtn = this.querySelector('#toggleFavoriteBtn')
+          if (favBtn) {
+            favBtn.classList.toggle('active', isFavorite)
+            favBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites')
+            favBtn.innerHTML = isFavorite ? ICONS.starFilled : ICONS.star
+          }
+
+          const replyArea = this.querySelector('#replyBarArea')
+          if (replyArea) {
+            const newReplyHtml = this.replyBarHtml()
+            if (replyArea.innerHTML !== newReplyHtml) {
+              replyArea.innerHTML = newReplyHtml
+              this.wireReplyBar()
+            }
+          }
+
+          if (this.editingMessage) {
+            const bodyInput = this.querySelector('#body') as HTMLInputElement | null
+            if (bodyInput && bodyInput.value !== this.editingMessage.body) {
+              bodyInput.value = this.editingMessage.body
+            }
+          }
+
+          if (this.activeRoomTab === 'chat') {
+            void this.renderMessages()
+          }
+        }
+      }
+      return
+    }
+
+    this.renderedRoomId = currentRoomId
+    this.renderedRoomWritable = currentWritable
+    this.renderedActiveTab = this.activeRoomTab
+    this.renderedModal = this.activeModal
+
     this.innerHTML = `
       <div class="app-container ${appBgTransparent ? 'panels-transparent' : ''}" style="${this.appBackgroundStyle()}">
         <!-- Top App Titlebar -->
@@ -1229,7 +1347,7 @@ export class AppShell extends HTMLElement {
     })
   }
 
-  private wireSidebar(): void {
+  private wireRoomItems(): void {
     this.querySelectorAll<HTMLElement>('.room-item').forEach((item) => {
       item.addEventListener('click', () => {
         const id = item.dataset.roomId!
@@ -1245,6 +1363,10 @@ export class AppShell extends HTMLElement {
         this.showRoomContextMenu(e as MouseEvent, roomId, roomName)
       })
     })
+  }
+
+  private wireSidebar(): void {
+    this.wireRoomItems()
 
     // Search filter input
     const searchInput = this.querySelector('#sidebarSearch') as HTMLInputElement
@@ -1403,6 +1525,42 @@ export class AppShell extends HTMLElement {
 
   // --- Center Chat Room View ------------------------------------------------
 
+  private replyBarHtml(): string {
+    if (this.selectionMode) {
+      return `
+        <div class="reply-bar">
+          <div class="reply-bar-text">
+            <span>${this.selectedMessageIds.size} selected</span>
+          </div>
+          <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
+          <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
+        </div>
+      `
+    }
+    if (this.editingMessage) {
+      return `
+        <div class="reply-bar">
+          <div class="reply-bar-text">
+            <span>Editing message</span>
+          </div>
+          <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
+        </div>
+      `
+    }
+    if (this.replyingTo) {
+      return `
+        <div class="reply-bar">
+          <div class="reply-bar-text">
+            <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
+            <span class="reply-snippet">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
+          </div>
+          <button class="cancel" id="cancelReply" title="Cancel reply">✕</button>
+        </div>
+      `
+    }
+    return ''
+  }
+
   private roomHtml(): string {
     const room = this.activeRoom!
     const bookmark = this.session?.listBookmarks().find((b) => b.id === room.id)
@@ -1504,30 +1662,9 @@ export class AppShell extends HTMLElement {
         <div id="seenBy" class="status-bar"></div>
         <div id="typing" class="status-bar"></div>
 
-        ${this.selectionMode ? `
-          <div class="reply-bar">
-            <div class="reply-bar-text">
-              <span>${this.selectedMessageIds.size} selected</span>
-            </div>
-            <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
-            <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
-          </div>
-        ` : this.editingMessage ? `
-          <div class="reply-bar">
-            <div class="reply-bar-text">
-              <span>Editing message</span>
-            </div>
-            <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
-          </div>
-        ` : this.replyingTo ? `
-          <div class="reply-bar">
-            <div class="reply-bar-text">
-              <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
-              <span class="reply-snippet">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
-            </div>
-            <button class="cancel" id="cancelReply" title="Cancel reply">✕</button>
-          </div>
-        ` : ''}
+        <div id="replyBarArea">
+          ${this.replyBarHtml()}
+        </div>
 
         <!-- Composer Bar -->
         <footer class="composer">
@@ -1621,6 +1758,10 @@ export class AppShell extends HTMLElement {
 
     this.querySelector('#recordVoiceBtn')?.addEventListener('click', () => void this.toggleVoiceRecording())
 
+    this.wireReplyBar()
+  }
+
+  private wireReplyBar(): void {
     this.querySelector('#cancelReply')?.addEventListener('click', () => {
       this.replyingTo = null
       this.renderApp()
@@ -1638,7 +1779,8 @@ export class AppShell extends HTMLElement {
     })
 
     this.querySelector('#batchDeleteBtn')?.addEventListener('click', () => {
-      if (this.selectedMessageIds.size === 0) return
+      const room = this.activeRoom
+      if (!room || this.selectedMessageIds.size === 0) return
       if (!confirm(`Delete ${this.selectedMessageIds.size} message(s)? This cannot be undone.`)) return
       void (async () => {
         for (const id of this.selectedMessageIds) await this.session!.deleteMessage(room.id, id)
@@ -1776,12 +1918,23 @@ export class AppShell extends HTMLElement {
       htmlChunks.push(this.renderMessageRow(msg, prev, next, byId))
     }
 
-    container.innerHTML = htmlChunks.join('')
-    if (wasNearBottom) container.scrollTop = container.scrollHeight
-    this.updateScrollToBottomBtn()
+    const newHtml = htmlChunks.join('')
+    if (container.innerHTML !== newHtml) {
+      container.innerHTML = newHtml
+      if (wasNearBottom) container.scrollTop = container.scrollHeight
+      this.updateScrollToBottomBtn()
+      this.wireMessageEvents(container, byId)
+    } else {
+      this.updateScrollToBottomBtn()
+    }
 
     const lastVisible = visible[visible.length - 1]
     if (lastVisible) this.notifyRead(room, lastVisible.id)
+  }
+
+  private wireMessageEvents(container: Element, byId: Map<string, ChatMessage>): void {
+    const room = this.activeRoom
+    if (!room) return
 
     container.querySelectorAll<HTMLButtonElement>('[data-play-audio]').forEach((btn) => {
       btn.addEventListener('click', () => {
