@@ -141,27 +141,6 @@ function wireRoom(room: Room): void {
   pushRoomState(room)
 }
 
-/** A bookmark plus the tail of its message log, as the room list renders it. Walks back from the
- * newest message and stops at the first non-deleted one, rather than decrypting the whole history
- * to find the tail. */
-async function summarizeRoom(session: Session, bookmark: { id: string }) {
-  const room = session.getRoom(bookmark.id)
-  let lastMessageTime: number | null = null
-  let lastMessageText: string | null = null
-  let lastMessageAuthor: string | null = null
-  if (room) {
-    for (let i = room.messageCount - 1; i >= 0; i--) {
-      const m = await room.getMessage(i)
-      if (m.deleted) continue
-      lastMessageTime = m.timestamp
-      lastMessageText = m.file ? `Shared ${m.file.name}` : m.body
-      lastMessageAuthor = m.authorId
-      break
-    }
-  }
-  return { ...bookmark, lastMessageTime, lastMessageText, lastMessageAuthor }
-}
-
 function requireRoom(roomId: string): Room {
   const room = requireSession().getRoom(roomId)
   if (!room) throw new Error(`unknown room ${roomId}`)
@@ -302,17 +281,28 @@ const methods: Record<string, (...args: any[]) => any> = {
   'session.listRoomSummaries': async () => {
     const session = requireSession()
     const summaries = []
-    for (const bookmark of session.listBookmarks()) summaries.push(await summarizeRoom(session, bookmark))
+    for (const bookmark of session.listBookmarks()) {
+      const room = session.getRoom(bookmark.id)
+      let lastMessageTime: number | null = null
+      let lastMessageText: string | null = null
+      let lastMessageAuthor: string | null = null
+      // Walk from the newest message backward and stop at the first non-deleted one, instead
+      // of decrypting the room's entire history just to find its tail — this used to be O(all
+      // messages in every room) on every call (app start, each incoming message, any room's
+      // meta change), which got very slow in rooms with a real amount of history.
+      if (room) {
+        for (let i = room.messageCount - 1; i >= 0; i--) {
+          const m = await room.getMessage(i)
+          if (m.deleted) continue
+          lastMessageTime = m.timestamp
+          lastMessageText = m.file ? `Shared ${m.file.name}` : m.body
+          lastMessageAuthor = m.authorId
+          break
+        }
+      }
+      summaries.push({ ...bookmark, lastMessageTime, lastMessageText, lastMessageAuthor })
+    }
     return summaries
-  },
-
-  /** One room's summary. A single message arriving changes exactly one row of the room list, and
-   * asking for the whole list to learn that walked every other bookmarked room's history tail as
-   * well — on every message, with the result crossing the bridge as one big payload. */
-  'session.roomSummary': async (roomId: string) => {
-    const session = requireSession()
-    const bookmark = session.listBookmarks().find((b) => b.id === roomId)
-    return bookmark ? await summarizeRoom(session, bookmark) : null
   },
 
   'session.listPeerAvatars': () => [...requireSession().listPeerAvatars()],

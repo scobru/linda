@@ -65,12 +65,6 @@ export class SessionProxy {
     return bareClient.call('session.listRoomSummaries')
   }
 
-  /** Just this room's row of the list — see the worklet's `session.roomSummary`. `null` when the
-   * room is not bookmarked there (yet), which is the caller's cue to leave the list alone. */
-  roomSummary(roomId: string): Promise<RoomSummary | null> {
-    return bareClient.call('session.roomSummary', roomId)
-  }
-
 
 
   /** Owner/moderator only — enforced in the room's apply(). */

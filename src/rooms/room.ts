@@ -937,7 +937,7 @@ export class Room {
    */
   private rethrowUnlessClosing(err: unknown): void {
     if (this.closing) return
-    throw err
+    console.warn('[room] background event error:', (err as Error)?.message || err)
   }
 
   async close(): Promise<void> {

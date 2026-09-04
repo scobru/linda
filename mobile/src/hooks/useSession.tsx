@@ -58,6 +58,8 @@ export function SessionProvider({ children }: Props) {
   const [, setTick] = useState(0)
   const nicknamesRef = useRef(nicknames)
   useEffect(() => { nicknamesRef.current = nicknames }, [nicknames])
+  const bookmarksRef = useRef(bookmarks)
+  useEffect(() => { bookmarksRef.current = bookmarks }, [bookmarks])
   const activeRoomIdRef = useRef<string | null>(null)
   const setActiveRoomId = useCallback((roomId: string | null) => { activeRoomIdRef.current = roomId }, [])
 
@@ -168,50 +170,50 @@ export function SessionProvider({ children }: Props) {
       lastAppState = next
     })
 
+    // Debounced refresh for room summaries: replication on startup or peer connect delivers
+    // messages in bursts. Coalesce them to avoid dozens of parallel IPC queries.
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleRefresh = () => {
+      if (refreshTimer) return
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        void sessionRef.current?.listRoomSummaries().then(setBookmarks).catch(() => {})
+      }, 250)
+    }
+
+    const initTimestamp = Date.now()
+
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded, and
     // fires a local notification unless the user is already looking at that exact room.
     bareClient.on('incomingMessage', (payload: { roomId: string; message: ChatMessage }) => {
       const s = sessionRef.current
       if (!s) return
-      // One room's row, not the whole list: a message changes exactly one of them, and asking for
-      // all of them walked every other bookmarked room's history tail as well — per message.
-      // A room not bookmarked in the worklet yet comes back null; `bookmarksChange` brings it in.
-      void s.roomSummary(payload.roomId).then((summary) => {
-        if (summary) {
-          setBookmarks((prev) => {
-            const index = prev.findIndex((b) => b.id === summary.id)
-            if (index < 0) return prev
-            const next = [...prev]
-            next[index] = summary
-            return next
-          })
-        }
-        if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
-        const roomName = summary?.name ?? 'linda-pear'
-        const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
-        // Private mode keeps the sender and the text off the lock screen, which is the one place
-        // a phone shows a message to whoever happens to be looking (see private-mode.tsx).
-        const secret = privateModeEnabled()
-        void Notifications.scheduleNotificationAsync({
-          content: {
-            title: secret ? 'linda' : `${author} in ${roomName}`,
-            body: secret
-              ? 'New message'
-              : payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
-            // iOS takes the sound per-notification; Android ignores this and uses the channel's.
-            sound: 'notification_ping.wav',
-          },
-          // Android needs the channel named to pick up its sound, and only a trigger can carry
-          // one — a channel-only trigger still delivers immediately. Not a date trigger of "now":
-          // native drops any date already in the past, which "now" is by the time it lands there.
-          // iOS has no channels and delivers immediately.
-          trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
-        })
-      }).catch(() => { /* a session torn down mid-refresh has nothing to show */ })
+      scheduleRefresh()
+
+      if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
+
+      // Suppress notifications for historical messages synced at startup or older than 60s
+      const msgTime = payload.message.timestamp || 0
+      const isHistorical = (Date.now() - initTimestamp < 4000) || (Date.now() - msgTime > 60000)
+      if (isHistorical) return
+
+      const roomName = bookmarksRef.current?.find((b) => b.id === payload.roomId)?.name ?? 'linda-pear'
+      const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
+      const secret = privateModeEnabled()
+      void Notifications.scheduleNotificationAsync({
+        content: {
+          title: secret ? 'linda' : `${author} in ${roomName}`,
+          body: secret
+            ? 'New message'
+            : payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
+          sound: 'notification_ping.wav',
+        },
+        trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
+      }).catch(() => {})
     })
     // A room's name/avatar/description edited on another device replicates in, but the local
     // bookmark cache the room list renders from only updates itself in response to this event.
-    bareClient.on('bookmarksChange', () => { void sessionRef.current?.listRoomSummaries().then(setBookmarks).catch(() => {}) })
+    bareClient.on('bookmarksChange', () => { scheduleRefresh() })
   }, [])
 
   const openSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => {

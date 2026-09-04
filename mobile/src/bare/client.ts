@@ -56,8 +56,18 @@ class BareClient {
     this.worklet.start('/app.bundle', workletBundle)
     this.rpc = new RPC(this.worklet.IPC as any, (req: any) => {
       if (req.reply) return // stray incoming request; the worklet never calls us
-      const { header } = unpackFrame(req.data)
-      for (const handler of this.listeners.get(header.event) ?? []) handler(header.payload)
+      try {
+        const { header } = unpackFrame(req.data)
+        for (const handler of this.listeners.get(header.event) ?? []) {
+          try {
+            handler(header.payload)
+          } catch (err) {
+            console.warn(`[bare-client] listener error for ${header.event}:`, err)
+          }
+        }
+      } catch (err) {
+        console.warn('[bare-client] unpackFrame error:', err)
+      }
     })
   }
 

@@ -5,7 +5,7 @@ import {
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
-import * as FileSystem from 'expo-file-system'
+import * as ImageManipulator from 'expo-image-manipulator'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
@@ -71,8 +71,13 @@ export default function ProfileScreen({ navigation }: Props) {
     const asset = result.assets[0]
     if (!asset) return
     try {
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 })
-      const dataUri = `data:${asset.mimeType || 'image/jpeg'};base64,${base64}`
+      const resized = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 128, height: 128 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      )
+      if (!resized.base64) throw new Error('Could not process that image')
+      const dataUri = `data:image/jpeg;base64,${resized.base64}`
       await session.setAvatar(dataUri)
       refresh()
     } catch (err) {

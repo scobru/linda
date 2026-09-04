@@ -137,27 +137,41 @@ export class ProfileStore {
     await this.track(this.profile.put('appBackground', id))
   }
 
+  static readonly MAX_AVATAR_BYTES = 64 * 1024
+
   async getAvatar(): Promise<string> {
     return (await this.profile.get('avatar'))?.value ?? ''
   }
 
   async setAvatar(avatar: string): Promise<void> {
+    if (avatar && avatar.length > ProfileStore.MAX_AVATAR_BYTES) {
+      console.warn(`[profile-store] avatar too large (${avatar.length} bytes), max is ${ProfileStore.MAX_AVATAR_BYTES}`)
+      return
+    }
     await this.track(this.profile.put('avatar', avatar))
   }
 
   async getPeerAvatar(userId: string): Promise<string> {
-    return (await this.peerAvatars.get(userId))?.value ?? ''
+    const val = (await this.peerAvatars.get(userId))?.value ?? ''
+    return val.length <= ProfileStore.MAX_AVATAR_BYTES ? val : ''
   }
 
   async setPeerAvatar(userId: string, avatar: string): Promise<void> {
-    if (!avatar) return
+    if (!avatar || avatar.length > ProfileStore.MAX_AVATAR_BYTES) return
     await this.track(this.peerAvatars.put(userId, avatar))
   }
 
   async listPeerAvatars(): Promise<Map<string, string>> {
     const map = new Map<string, string>()
     for await (const node of this.peerAvatars.createReadStream()) {
-      if (node.key && node.value) map.set(node.key, node.value)
+      if (node.key && node.value) {
+        if (node.value.length <= ProfileStore.MAX_AVATAR_BYTES) {
+          map.set(node.key, node.value)
+        } else {
+          // Prune legacy bloated avatar from disk so it never bloats IPC again
+          void this.track(this.peerAvatars.del(node.key))
+        }
+      }
     }
     return map
   }
