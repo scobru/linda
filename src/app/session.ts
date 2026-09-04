@@ -1297,7 +1297,15 @@ export class Session {
   }
 
   private requestWriteIfNeeded(room: Room, peer: PeerConnection): void {
-    if (room.writable) return
+    // Write access and the content key are two separate things, and this used to stop asking the
+    // moment the first one landed. They arrive as two separate steps of the owner's reply — add
+    // the writer, then send the key back over RPC — and only the first is replicated: the key ride
+    // is best-effort (see rpc.ts's safeSend) and the receiver persists it fire-and-forget. Losing
+    // just the second leaves a member who is writable with no key at all, which is a room whose
+    // every message reads "locked message" and which cannot be posted to either — with nothing on
+    // this side ever asking again. The owner answers a re-ask from an existing member by resending
+    // the key (see onRequestWrite), so asking is all it takes.
+    if (room.writable && room.hasKey) return
     const inviteCode = this.pendingInviteCodes.get(room.id) ?? ''
     peer.rpc.sendRequestWrite({ bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), writerKey: b4a.toString(room.localWriterKey, 'hex'), identityId: this.identity.id, inviteCode })
   }
@@ -1531,7 +1539,9 @@ export class Session {
       // for as long as write access is missing, which is more exposure than a one-shot call gets.
       try {
         for (const room of this.rooms.values()) {
-          if (room.writable) continue
+          // Same pair of conditions requestWriteIfNeeded itself checks — a room that is writable
+          // but never received a content key still has something to ask for.
+          if (room.writable && room.hasKey) continue
           for (const peer of this.peers.values()) this.requestWriteIfNeeded(room, peer)
         }
       } catch (err) {
