@@ -54,3 +54,21 @@ declare module 'pear-wakeups' {
   ): WakeupsStream
 }
 
+declare module 'pear-crasher' {
+  export default function crasher(name: string, dir: string, write?: boolean): void
+}
+
+declare module 'pear-user-dirs' {
+  export interface UserDirs {
+    home: string
+    desktop: string
+    documents: string
+    downloads: string
+    music?: string
+    pictures?: string
+    videos?: string
+  }
+  export default function userDirs(opts?: { sync?: boolean; asFileLinks?: boolean }): Promise<UserDirs>
+}
+
+

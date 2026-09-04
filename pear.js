@@ -10,8 +10,13 @@
 // this file starts the window and then does nothing but hold the process open.
 import Runtime from 'pear-electron'
 import Bridge from 'pear-bridge'
+import crasher from 'pear-crasher'
 
 /* global Pear */
+
+if (Pear.config?.storage) {
+  crasher('linda', Pear.config.storage, true)
+}
 
 const runtime = new Runtime()
 // Bootstraps the runtime binaries peer-to-peer on first use for a given version. A no-op

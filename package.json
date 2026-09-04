@@ -1,7 +1,7 @@
 {
   "name": "linda-pear",
   "productName": "linda",
-  "version": "1.14.46",
+  "version": "1.14.47",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -66,10 +66,12 @@
     "jsqr": "^1.4.0",
     "multicast-dns": "^7.2.5",
     "pear-bridge": "^1.2.0",
+    "pear-crasher": "^1.0.1",
     "pear-electron": "^1.7.28",
     "pear-pipe": "^1.0.6",
     "pear-run": "^2.0.0",
     "pear-updates": "^1.1.0",
+    "pear-user-dirs": "^1.0.3",
     "pear-wakeups": "^1.0.0",
     "protomux": "^3.11.0",
     "qrcode": "^1.5.4",

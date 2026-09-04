@@ -49,6 +49,8 @@ export interface DesktopHost {
   onUpdateAvailable?(listener: (event: UpdateEvent) => void): void
   /** Restarts the application (e.g. Pear.restart() or location.reload()). */
   restart?(): void
+  /** Returns standard user directories (downloads, desktop, documents, etc.) */
+  getUserDirs?(): Promise<{ downloads?: string; desktop?: string; documents?: string } | null>
 }
 
 /**
@@ -109,6 +111,7 @@ class ElectronHost implements DesktopHost {
 
   onUpdateAvailable(_listener: (event: UpdateEvent) => void): void {}
   restart(): void { location.reload() }
+  async getUserDirs(): Promise<{ downloads?: string; desktop?: string; documents?: string } | null> { return null }
 
   /**
    * The renderer's own clipboard is deprecated in Electron and slated for removal, and with
@@ -240,6 +243,21 @@ class PearHost implements DesktopHost {
     }
   }
 
+  async getUserDirs(): Promise<{ downloads?: string; desktop?: string; documents?: string } | null> {
+    try {
+      const mod = await import('pear-user-dirs')
+      const userDirs = (mod as any).default || mod
+      const dirs = await userDirs()
+      return {
+        downloads: dirs?.downloads,
+        desktop: dirs?.desktop,
+        documents: dirs?.documents
+      }
+    } catch {
+      return null
+    }
+  }
+
   copyToClipboard(text: string): void { webClipboardWrite(text) }
 }
 
@@ -255,6 +273,7 @@ class WebHost implements DesktopHost {
   onInviteLink(listener: (url: string) => void): void { interceptInviteLinkClicks(listener) }
   onUpdateAvailable(_listener: (event: UpdateEvent) => void): void {}
   restart(): void { location.reload() }
+  async getUserDirs(): Promise<{ downloads?: string; desktop?: string; documents?: string } | null> { return null }
   copyToClipboard(text: string): void { webClipboardWrite(text) }
 }
 
