@@ -42,13 +42,11 @@ const CONTACTS_FILE = 'contacts.json'
 const PROFILE_FILE = 'profile.json'
 
 /** How long a first join waits for some peer to serve the room before giving up. Generous because
- * a DHT hole-punch to a phone can take a while, and the alternative is a spurious failure. */
+ * a DHT hole-punch to a phone can take a while, and the alternative is a spurious failure. It is
+ * also the hard ceiling on a single `Room.open`, so a room whose storage was left half-purged —
+ * open hanging instead of failing — can't stall the startup batch behind it (and with it the
+ * app's unlock) indefinitely. */
 const JOIN_REPLICATION_TIMEOUT_MS = 45_000
-
-/** Hard ceiling on one `Room.open`. The retry loop only advances when open resolves or throws, so
- * a room whose storage was left half-purged — open hanging instead of failing — stalled the whole
- * startup batch behind it, and with it the app's unlock. */
-const ROOM_OPEN_TIMEOUT_MS = 20_000
 
 /** How often a room still waiting on write access re-asks the owner. */
 const WRITE_REQUEST_RETRY_MS = 15_000
@@ -1266,15 +1264,33 @@ export class Session {
     try {
       let waitedForDiscovery = false
       for (;;) {
+        // Exactly one attempt in flight at a time, and only a *rejection* may start another.
+        //
+        // Two `Room.open` calls over the same corestore namespace do not race: the first one holds
+        // that namespace's cores and resolves, the second waits behind it and never resolves at
+        // all. So the per-attempt ceiling this used to have — abandon the open after 20s, start a
+        // fresh one on the same namespace — did not retry anything. It replaced an open that was
+        // about to succeed with one that could not, and the join then always ran out the deadline
+        // and reported the room unreachable. Only a device slow enough to spend 20s on its first
+        // open ever saw it, which is why phones joining a desktop's room failed while the private
+        // chat with that same peer, already replicated, kept working.
+        const attempt = Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace)
+        const expiry = new Promise<never>((_, reject) => {
+          const timer = setTimeout(
+            () => reject(Object.assign(new Error(this.joinFailureReason()), { code: 'ROOM_UNREACHABLE' })),
+            Math.max(0, deadline - Date.now())
+          )
+          void attempt.then(() => clearTimeout(timer), () => clearTimeout(timer))
+        })
         try {
-          return await Promise.race([
-            Room.open(this.store, roomId, bootstrapKey, this.identity.id, initialKeys, storeNamespace),
-            new Promise<never>((_, reject) => setTimeout(
-              () => reject(Object.assign(new Error('Opening the room took too long'), { code: 'STORAGE_EMPTY' })),
-              ROOM_OPEN_TIMEOUT_MS
-            ))
-          ])
+          return await Promise.race([attempt, expiry])
         } catch (err) {
+          if ((err as { code?: string }).code === 'ROOM_UNREACHABLE') {
+            // The open can still land after we have given up on it. Nothing holds a reference to
+            // that room, so close it rather than leaving an Autobase replicating forever.
+            void attempt.then((room) => room.close(), () => {}).catch(() => {})
+            throw err
+          }
           if ((err as { code?: string }).code !== 'STORAGE_EMPTY') throw err
           if (Date.now() >= deadline) {
             throw Object.assign(new Error(this.joinFailureReason()), { code: 'ROOM_UNREACHABLE' })
