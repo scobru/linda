@@ -74,10 +74,25 @@ export function SessionProvider({ children }: Props) {
       setNickname(await session.getNickname())
       setAvatar(await session.getAvatar())
       setAvatars(await session.listPeerAvatars())
-    })()
+    })().catch(() => { /* a session torn down mid-refresh has nothing to show */ })
   }, [session])
 
-  const initSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => {
+  /** The session the wired-once listeners below act on. They outlive any single login — a failed
+   * one used to register another full set, so one retry meant two notifications per message and two
+   * room-list rebuilds, three after the next. */
+  const sessionRef = useRef<SessionProxy | null>(null)
+  const eventsWired = useRef(false)
+  /** The login currently running, if any. Two of them can be started for the same identity without
+   * the user doing anything odd — the unlock screen auto-prompts for biometrics while its passphrase
+   * field stays live — and both would have opened a session over the same storage directory, which
+   * the second one cannot do: the corestore's lock is held by the first for as long as it is open.
+   * Later callers join the login already in flight instead of starting a second one. */
+  const loginInFlight = useRef<Promise<void> | null>(null)
+
+  const wireEvents = useCallback(() => {
+    if (eventsWired.current) return
+    eventsWired.current = true
+
     bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string }) => {
       if (msg.online) {
         setOnlineUsers((prev) => new Set(prev).add(msg.userId))
@@ -102,23 +117,6 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('contactsChange', () => setTimeout(() => setTick((t) => t + 1), 0))
     bareClient.on('directoryChange', () => setTick((t) => t + 1))
 
-    const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort())
-    // Deliberately not awaited. Reopening every bookmarked room needs the network for any room
-    // this device has not replicated yet, so one unreachable or half-purged room used to hold the
-    // unlock screen — and the whole app — hostage behind it. The room list renders from bookmarks
-    // and fills in as rooms come up.
-    void s.reopenBookmarkedRooms()
-      .then(() => s.listRoomSummaries())
-      .then(setBookmarks)
-      .catch(() => {})
-    // Fire-and-forget: joinRoomByKey can block ~30s waiting on the swarm (see RoomsScreen's
-    // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in
-    // time — fine either way, don't hold up onboarding for it. Refreshes bookmarks on success
-    // since a join doesn't otherwise emit any change event mobile listens for.
-    for (const invite of opts?.autoJoinInvite ?? []) {
-      void s.joinRoomByKey(invite.name, invite.key).then(() => s.listRoomSummaries()).then(setBookmarks).catch(() => {})
-    }
-
     // The swarm's socket stays bound to whatever network was active when it was created — a
     // wifi <-> cellular switch otherwise leaves it trying to talk over an interface that no
     // longer routes anywhere, and peers silently stop connecting until the app is restarted.
@@ -129,7 +127,7 @@ export function SessionProvider({ children }: Props) {
     let resyncTimer: ReturnType<typeof setTimeout> | null = null
     const scheduleResync = () => {
       if (resyncTimer) clearTimeout(resyncTimer)
-      resyncTimer = setTimeout(() => { resyncTimer = null; void s.resumeNetwork() }, 800)
+      resyncTimer = setTimeout(() => { resyncTimer = null; void sessionRef.current?.resumeNetwork() }, 800)
     }
     NetInfo.addEventListener((state) => {
       if (lastNetworkType === null) { lastNetworkType = state.type; return }
@@ -149,7 +147,8 @@ export function SessionProvider({ children }: Props) {
         scheduleResync()
         stopBackgroundConnection()
       } else if (next !== 'active' && lastAppState === 'active') {
-        startBackgroundConnection()
+        // Only worth holding the process up while there is a session to keep connected.
+        if (sessionRef.current) startBackgroundConnection()
       }
       lastAppState = next
     })
@@ -157,6 +156,8 @@ export function SessionProvider({ children }: Props) {
     // Refreshes the room-list preview/unread-dot for any room, active or backgrounded, and
     // fires a local notification unless the user is already looking at that exact room.
     bareClient.on('incomingMessage', (payload: { roomId: string; message: ChatMessage }) => {
+      const s = sessionRef.current
+      if (!s) return
       void s.listRoomSummaries().then((summaries) => {
         setBookmarks(summaries)
         if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
@@ -180,11 +181,33 @@ export function SessionProvider({ children }: Props) {
           // iOS has no channels and delivers immediately.
           trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
         })
-      })
+      }).catch(() => { /* a session torn down mid-refresh has nothing to show */ })
     })
     // A room's name/avatar/description edited on another device replicates in, but the local
     // bookmark cache the room list renders from only updates itself in response to this event.
-    bareClient.on('bookmarksChange', () => { void s.listRoomSummaries().then(setBookmarks) })
+    bareClient.on('bookmarksChange', () => { void sessionRef.current?.listRoomSummaries().then(setBookmarks).catch(() => {}) })
+  }, [])
+
+  const openSession = useCallback(async (id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => {
+    wireEvents()
+
+    const { session: s, info } = await SessionProxy.create(storageDir, await getDhtPort())
+    sessionRef.current = s
+    // Deliberately not awaited. Reopening every bookmarked room needs the network for any room
+    // this device has not replicated yet, so one unreachable or half-purged room used to hold the
+    // unlock screen — and the whole app — hostage behind it. The room list renders from bookmarks
+    // and fills in as rooms come up.
+    void s.reopenBookmarkedRooms()
+      .then(() => s.listRoomSummaries())
+      .then(setBookmarks)
+      .catch(() => {})
+    // Fire-and-forget: joinRoomByKey can block ~30s waiting on the swarm (see RoomsScreen's
+    // handleJoinRoom), and a brand-new identity with no peers yet may not even reach it in
+    // time — fine either way, don't hold up onboarding for it. Refreshes bookmarks on success
+    // since a join doesn't otherwise emit any change event mobile listens for.
+    for (const invite of opts?.autoJoinInvite ?? []) {
+      void s.joinRoomByKey(invite.name, invite.key).then(() => s.listRoomSummaries()).then(setBookmarks).catch(() => {})
+    }
 
     setSession(s)
     setIdentity(id)
@@ -199,7 +222,17 @@ export function SessionProvider({ children }: Props) {
     // mid-bootstrap raced the DHT announce/lookup — fine on wifi's slack, not on cellular's
     // tighter margins. Firing it only once the session/swarm is already up sidesteps that.
     void Notifications.requestPermissionsAsync()
-  }, [])
+  }, [wireEvents])
+
+  const initSession = useCallback((id: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }): Promise<void> => {
+    const running = loginInFlight.current
+    if (running) return running
+    const run = openSession(id, storageDir, opts)
+    loginInFlight.current = run
+    return run.finally(() => {
+      if (loginInFlight.current === run) loginInFlight.current = null
+    })
+  }, [openSession])
 
   // Without this, every consumer of useSession() — every screen, since every screen reads it —
   // re-renders on every presence/peer event, whether or not the fields it actually reads changed.

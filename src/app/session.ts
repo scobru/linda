@@ -361,8 +361,35 @@ export class Session {
     const store = fs.existsSync(storePath)
       ? new Corestore(storePath)
       : new Corestore(storePath, { primaryKey: hypercoreCrypto.hash(identity.secretKey), unsafe: true })
-    const profileStore = await ProfileStore.open(store)
+    // Everything from here on has to give the storage back if it fails. The corestore takes an
+    // exclusive lock on its directory the moment it opens (an OFD lock on `store/CORESTORE`, which
+    // conflicts with a second open even inside the same process), and a half-built session is
+    // unreachable from the caller — so a `create` that threw used to leave that lock, a live
+    // Hyperswarm and an open RocksDB behind with nothing able to release them. On mobile that is
+    // terminal rather than untidy: the storage waits on that lock rather than failing, so every
+    // later open of the same directory hangs for good, and the app cannot be logged into again
+    // until the OS kills the process. See the regression test in test/session.test.ts.
+    let profileStore: ProfileStore
+    try {
+      profileStore = await ProfileStore.open(store)
+    } catch (err) {
+      await store.close().catch(() => {})
+      throw err
+    }
     const session = new Session(identity, storageDir, store, profileStore, events, opts.transport ?? {}, opts.createMediaServer)
+    try {
+      return await session.open()
+    } catch (err) {
+      await session.close().catch(() => {})
+      throw err
+    }
+  }
+
+  /** The rest of `create`, split out only so a failure anywhere in it can be caught and the
+   * session it half-built closed. */
+  private async open(): Promise<Session> {
+    const session = this
+    const { profileStore, identity } = this
     await session.migrateJsonIfNeeded()
     for (const bookmark of await profileStore.listBookmarks()) {
       session.bookmarks.set(bookmark.id, bookmark)

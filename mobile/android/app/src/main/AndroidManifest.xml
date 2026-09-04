@@ -36,6 +36,11 @@
         <data android:scheme="linda-pear"/>
       </intent-filter>
     </activity>
-    <service android:name=".P2pForegroundService" android:exported="false" android:foregroundServiceType="dataSync"/>
+    <!-- stopWithTask: this service exists only to keep the process running the Bare worklet awake
+         while the app is backgrounded (see P2pForegroundService). Left running after the task is
+         swiped away, it keeps that process — and the worklet's lock on the message store — alive
+         past what the user thinks of as closing the app, and the next launch then cannot open its
+         session at all. -->
+    <service android:name=".P2pForegroundService" android:exported="false" android:stopWithTask="true" android:foregroundServiceType="dataSync"/>
   </application>
 </manifest>
