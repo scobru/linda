@@ -370,6 +370,41 @@ input::placeholder, textarea::placeholder {
   line-height: 1;
 }
 
+.update-ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38ef7d;
+  background: rgba(56, 239, 125, 0.12);
+  border: 1px solid rgba(56, 239, 125, 0.4);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: all 0.2s ease;
+  line-height: 1;
+  animation: pulse-update-badge 2.5s infinite ease-in-out;
+}
+.update-ready-badge:hover {
+  background: rgba(56, 239, 125, 0.22);
+  border-color: rgba(56, 239, 125, 0.8);
+  transform: translateY(-1px);
+}
+.update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #38ef7d;
+  box-shadow: 0 0 6px #38ef7d;
+}
+@keyframes pulse-update-badge {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 239, 125, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(56, 239, 125, 0); }
+}
+
 .topbar-window-controls {
   display: flex;
   align-items: center;

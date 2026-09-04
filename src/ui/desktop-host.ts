@@ -15,6 +15,14 @@
  * is what stops runtime checks from spreading back through `app-shell.ts`, where every `if
  * (electron)` was also, silently, an "and therefore no titlebar under Pear".
  */
+export interface UpdateEvent {
+  app?: boolean
+  version?: string
+  info?: unknown
+  updating?: boolean
+  updated?: boolean
+}
+
 export interface DesktopHost {
   readonly kind: 'electron' | 'pear' | 'web'
   /**
@@ -34,9 +42,13 @@ export interface DesktopHost {
   close(): void
   /** Fires when the window is maximized or restored, including by the OS (double-click, snap). */
   onMaximizedChange(listener: (maximized: boolean) => void): void
-  /** A `linda-pear://` link the user clicked, which opens a room in-app rather than in a browser. */
+  /** A `linda-pear://` or `pear://` link the user clicked, which opens a room in-app rather than in a browser. */
   onInviteLink(listener: (url: string) => void): void
   copyToClipboard(text: string): void
+  /** Fires when a new application update is detected (e.g. via pear-updates). */
+  onUpdateAvailable?(listener: (event: UpdateEvent) => void): void
+  /** Restarts the application (e.g. Pear.restart() or location.reload()). */
+  restart?(): void
 }
 
 /**
@@ -69,7 +81,7 @@ function legacyClipboardWrite(text: string): void {
  */
 function interceptInviteLinkClicks(listener: (url: string) => void): void {
   document.addEventListener('click', (event) => {
-    const anchor = (event.target as Element | null)?.closest?.('a[href^="linda-pear://"]')
+    const anchor = (event.target as Element | null)?.closest?.('a[href^="linda-pear://"], a[href^="pear://"]')
     if (!anchor) return
     event.preventDefault()
     listener(anchor.getAttribute('href') as string)
@@ -95,6 +107,9 @@ class ElectronHost implements DesktopHost {
     this.ipc.on('open-invite-link', (_event: unknown, url: string) => listener(url))
   }
 
+  onUpdateAvailable(_listener: (event: UpdateEvent) => void): void {}
+  restart(): void { location.reload() }
+
   /**
    * The renderer's own clipboard is deprecated in Electron and slated for removal, and with
    * `contextIsolation` off the preload shares this context, so reaching it here counts the same.
@@ -118,6 +133,10 @@ class PearHost implements DesktopHost {
    */
   private maximized = false
   private readonly listeners: Array<(maximized: boolean) => void> = []
+  private readonly inviteListeners: Array<(url: string) => void> = []
+  private readonly updateListeners: Array<(event: UpdateEvent) => void> = []
+  private pendingInviteUrl: string | null = null
+  private pendingUpdate: UpdateEvent | null = null
 
   constructor(private readonly win: PearWindowSelf) {
     // A maximize or restore always changes the window size, and there is no dedicated event for
@@ -125,6 +144,57 @@ class PearHost implements DesktopHost {
     // here, which is why the refresh only notifies on an actual change.
     window.addEventListener('resize', () => { void this.refresh() })
     void this.refresh()
+
+    // Listen for in-page link clicks
+    interceptInviteLinkClicks((url) => this.dispatchInvite(url))
+
+    // Listen for external app wakeups (invites from Keet, browser, or CLI) via pear-wakeups
+    void this.initWakeups()
+
+    // Listen for P2P platform/app updates via pear-updates
+    void this.initUpdates()
+  }
+
+  private dispatchInvite(url: string): void {
+    if (this.inviteListeners.length === 0) {
+      this.pendingInviteUrl = url
+      return
+    }
+    for (const listener of this.inviteListeners) listener(url)
+  }
+
+  private dispatchUpdate(event: UpdateEvent): void {
+    if (this.updateListeners.length === 0) {
+      this.pendingUpdate = event
+      return
+    }
+    for (const listener of this.updateListeners) listener(event)
+  }
+
+  private async initWakeups(): Promise<void> {
+    try {
+      const mod = await import('pear-wakeups')
+      const wakeups = (mod as any).default || mod
+      wakeups((wakeup: { link?: string; applink?: string }) => {
+        const target = wakeup.link || wakeup.applink
+        if (target) this.dispatchInvite(target)
+      })
+    } catch {
+      // Non-fatal if pear-wakeups is unavailable in the current runtime context
+    }
+  }
+
+  private async initUpdates(): Promise<void> {
+    try {
+      const mod = await import('pear-updates')
+      const updates = (mod as any).default || mod
+      const appUpdates = updates({ app: true })
+      appUpdates.on('data', (data: UpdateEvent) => {
+        this.dispatchUpdate(data)
+      })
+    } catch {
+      // Non-fatal if pear-updates is unavailable in dev/unstaged mode
+    }
   }
 
   private async refresh(): Promise<void> {
@@ -144,7 +214,32 @@ class PearHost implements DesktopHost {
   }
 
   onMaximizedChange(listener: (maximized: boolean) => void): void { this.listeners.push(listener) }
-  onInviteLink(listener: (url: string) => void): void { interceptInviteLinkClicks(listener) }
+
+  onInviteLink(listener: (url: string) => void): void {
+    this.inviteListeners.push(listener)
+    if (this.pendingInviteUrl) {
+      const url = this.pendingInviteUrl
+      this.pendingInviteUrl = null
+      setTimeout(() => listener(url), 0)
+    }
+  }
+
+  onUpdateAvailable(listener: (event: UpdateEvent) => void): void {
+    this.updateListeners.push(listener)
+    if (this.pendingUpdate) {
+      const event = this.pendingUpdate
+      setTimeout(() => listener(event), 0)
+    }
+  }
+
+  restart(): void {
+    if (typeof Pear !== 'undefined' && typeof Pear.restart === 'function') {
+      void Pear.restart()
+    } else {
+      location.reload()
+    }
+  }
+
   copyToClipboard(text: string): void { webClipboardWrite(text) }
 }
 
@@ -158,6 +253,8 @@ class WebHost implements DesktopHost {
   close(): void {}
   onMaximizedChange(): void {}
   onInviteLink(listener: (url: string) => void): void { interceptInviteLinkClicks(listener) }
+  onUpdateAvailable(_listener: (event: UpdateEvent) => void): void {}
+  restart(): void { location.reload() }
   copyToClipboard(text: string): void { webClipboardWrite(text) }
 }
 

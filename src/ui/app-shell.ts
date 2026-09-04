@@ -17,7 +17,7 @@ import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
 import { ROOM_PRESETS, svgToDataUrl } from './room-presets.js'
 import { APP_BACKGROUNDS, appBackgroundById, DEFAULT_APP_BACKGROUND } from './app-backgrounds.js'
-import { desktopHost } from './desktop-host.js'
+import { desktopHost, type UpdateEvent } from './desktop-host.js'
 
 function storageDir(): string {
   // Pear hands every app its own storage directory, keyed to the app link; under Electron there
@@ -286,6 +286,8 @@ export class AppShell extends HTMLElement {
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
   private renderAppQueued = false
   private readonly host = desktopHost()
+  private updateAvailable: UpdateEvent | null = null
+  private pendingInviteUrl: string | null = null
   /** True between a mousedown and its mouseup/click. A network-triggered rebuild (see
    * scheduleRenderApp) landing inside that window replaces the DOM node the click was aimed at,
    * so the click's focus lands on nothing and the input reads as unresponsive — "sometimes I
@@ -310,11 +312,15 @@ export class AppShell extends HTMLElement {
     this.view = identityExists(storageDir()) ? 'unlock' : 'create'
     this.render()
 
-    // A linda-pear:// link clicked in chat must open the room in-app: the scheme isn't
-    // registered with the OS, so letting the host hand it off just failed with "Windows can't
-    // find an app for this". How the click is caught differs per runtime — see desktop-host.ts.
+    // A linda-pear:// or pear:// link clicked in chat or outside must open the room in-app.
     this.host.onInviteLink((url) => {
       if (this.session) void this.joinFromInviteText(url)
+      else this.pendingInviteUrl = url
+    })
+
+    this.host.onUpdateAvailable?.((event) => {
+      this.updateAvailable = event
+      this.scheduleRenderApp()
     })
 
     window.addEventListener('mousedown', () => { this.pointerDown = true })
@@ -740,6 +746,11 @@ export class AppShell extends HTMLElement {
     }
 
     window.addEventListener('beforeunload', () => this.session?.broadcastPresence(false))
+    if (this.pendingInviteUrl) {
+      const pending = this.pendingInviteUrl
+      this.pendingInviteUrl = null
+      void this.joinFromInviteText(pending)
+    }
     this.view = 'app'
     this.render()
   }
@@ -868,6 +879,24 @@ export class AppShell extends HTMLElement {
         maxBtn.innerHTML = isMaximized ? ICONS.winRestore : ICONS.winMaximize
       }
 
+      const existingUpdateBtn = this.querySelector('#appUpdateBtn')
+      if (this.updateAvailable && !existingUpdateBtn) {
+        const topbarLeft = this.querySelector('.topbar-left')
+        if (topbarLeft) {
+          const btn = document.createElement('button')
+          btn.className = 'update-ready-badge'
+          btn.id = 'appUpdateBtn'
+          btn.title = 'New version ready! Click to restart Linda.'
+          btn.innerHTML = `<span class="update-dot"></span> Update ready${this.updateAvailable.version ? ` v${this.updateAvailable.version}` : ''}`
+          btn.addEventListener('click', () => {
+            if (confirm('A new update is available. Restart Linda now to apply?')) {
+              this.host.restart?.()
+            }
+          })
+          topbarLeft.appendChild(btn)
+        }
+      }
+
       this.querySelectorAll<HTMLButtonElement>('.filter-pill').forEach((pill) => {
         pill.classList.toggle('active', pill.dataset.filter === this.activeFilter)
       })
@@ -963,6 +992,11 @@ export class AppShell extends HTMLElement {
               <span class="topbar-globe ${peerCount > 0 ? 'connected' : ''}" title="${peerCount} connected peer(s)">${ICONS.globe}</span>
               <span class="keet-beta-badge">BETA</span>
             </div>
+            ${this.updateAvailable ? `
+              <button class="update-ready-badge" id="appUpdateBtn" title="New version ready! Click to restart Linda.">
+                <span class="update-dot"></span> Update ready${this.updateAvailable.version ? ` v${this.updateAvailable.version}` : ''}
+              </button>
+            ` : ''}
           </div>
           <div class="topbar-window-controls">
             <button class="win-ctrl-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">${isLight ? ICONS.moon : ICONS.sun}</button>
@@ -1278,6 +1312,11 @@ export class AppShell extends HTMLElement {
   private wireTopbarAndDrawer(): void {
     this.querySelector('#themeToggleBtn')?.addEventListener('click', () => this.toggleTheme())
     this.querySelector('#drawerThemeToggleBtn')?.addEventListener('click', () => this.toggleTheme())
+    this.querySelector('#appUpdateBtn')?.addEventListener('click', () => {
+      if (confirm('A new update is available. Restart Linda now to apply?')) {
+        this.host.restart?.()
+      }
+    })
     this.wireWindowControls()
 
     this.querySelector('#topbarUserBtn')?.addEventListener('click', () => {
