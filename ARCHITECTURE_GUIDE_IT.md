@@ -23,7 +23,8 @@ Per capire il codice, basta comprendere 6 mattoncini fondamentali:
 ```
 +-------------------------------------------------------------------------+
 |                               INTERFACCIA                               |
-|  Desktop: Electron + Web Components (src/ui/app-shell.ts)               |
+|  Desktop: Electron *oppure* il runtime Pear + Web Components            |
+|           (src/ui/app-shell.ts, src/ui/desktop-host.ts)                 |
 |  Mobile:  React Native / Expo + Bare-Kit Worklet (mobile/)              |
 +-------------------------------------------------------------------------+
 |                          COORDINATORE (SESSION)                         |
@@ -54,38 +55,48 @@ Per capire il codice, basta comprendere 6 mattoncini fondamentali:
 ## 3. Mappa dei File e Responsabilità
 
 ### 📁 Root del Progetto
-- [package.json](file:///c:/Users/dev/source/repos/linda-pear/package.json): Configurazione dipendenze, script di avvio (`npm run start`, `start:a`, `start:b`), test, packaging Pear ed Electron.
-- [build.js](file:///c:/Users/dev/source/repos/linda-pear/build.js): Script di compilazione con *esbuild*. Impacchetta il codice TypeScript di `src/` in `dist/app.js` e genera automaticamente `src/version.ts`.
-- [index.html](file:///c:/Users/dev/source/repos/linda-pear/index.html): Entry point HTML per la versione Desktop (Electron).
-- [style.css](file:///c:/Users/dev/source/repos/linda-pear/style.css): Foglio di stile CSS completo dell'interfaccia desktop (temi, layout, bolle chat, modali).
-- [test.js](file:///c:/Users/dev/source/repos/linda-pear/test.js): Runner dei test di integrazione basato sul test runner nativo di Node.js.
+- [package.json](package.json): Configurazione dipendenze, script di avvio (`npm run start`, `start:a`, `start:b`), test, packaging Pear ed Electron.
+- [build.js](build.js): Compilazione con *esbuild*. Dallo stesso `src/` produce tre bundle — `dist/app.js` (CommonJS, Electron), `dist/pear/app.js` (ESM, con i `node:*` riscritti in `bare-*`, per Pear) e `dist/worker.js` (il worker di sessione, vedi `src/worker/`) — e genera `src/version.ts` dalla versione in `package.json`.
+- [index.html](index.html): Entry point GUI della build Electron.
+- [pear.js](pear.js) e [pear.html](pear.html): entry point della build Pear. Il campo `main` di `package.json` è `pear.js`: da Pear v2 gli entrypoint HTML non esistono più, quindi `pear run` avvia del JS che fa partire `pear-electron` (il runtime dell'interfaccia) e `pear-bridge` (che gli serve `pear.html`).
+- [forge.config.cjs](forge.config.cjs): Packaging Electron Forge (`.msix` su Windows, `.zip` su macOS/Linux). L'hook `packageAfterCopy` scrive `main: electron/main.cjs` nella copia pacchettizzata, dato che il `main` di `package.json` appartiene a Pear.
+- [style.css](style.css): Foglio di stile CSS completo dell'interfaccia desktop (temi, layout, bolle chat, modali).
+- [test.js](test.js): Runner dei test di integrazione basato sul test runner nativo di Node.js.
 
 ---
 
 ### 📁 `src/` (Il Cuore Condiviso)
 
-Il codice in `src/` contiene tutta la logica di business pura, indipendente dalla piattaforma, ed è condiviso sia da Electron che da React Native.
+Il codice in `src/` contiene tutta la logica di business pura, indipendente dalla piattaforma, ed è
+condiviso da tutti e tre i runtime: Electron (Node), Pear (Bare) e il worklet mobile (Bare). Tutto
+ciò che usa un builtin `node:` privo di equivalente Bare va **iniettato**, non importato, altrimenti
+rompe gli altri due in fase di *bundle* — vedi `SwarmTransport.createLanDiscovery` e il
+`createMediaServer` di `Session`, i due casi in cui è già successo.
+
+- [main.ts](src/main.ts): Entry point di entrambi i bundle desktop — avvia il flusso di identità e monta `<app-shell>`.
+- `src/types/`: Dichiarazioni ambient scritte a mano per i pacchetti Holepunch che non portano tipi propri (`autobase`, `hyperbee`, il gruppo `holepunch*`), più `pear.d.ts` per le global del runtime Pear e `lan-discovery-deps.d.ts` per `multicast-dns`.
 
 #### 🔐 `src/identity/` (Gestione Identità e Chiavi)
-- [index.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/index.ts): Punto di ingresso per creare, sbloccare, recuperare e associare l'identità.
-- [keypair.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/keypair.ts): Generazione della coppia di chiavi crittografiche (pubblica/privata Ed25519) usando `hypercore-crypto`.
-- [mnemonic.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/mnemonic.ts): Gestione della frase di recupero a 12 parole (standard BIP39). Converte le 12 parole nel seed delle chiavi.
-- [storage.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/storage.ts): Salvataggio sicuro su disco di `identity.json`. La chiave privata viene cifrata con algoritmo **Argon2id** (`crypto_pwhash`) + `crypto_secretbox` protetta dalla password dell'utente.
-- [pairing.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/pairing.ts): Accoppiamento tra dispositivi via QR Code. Un dispositivo già sbloccato apre un canale temporaneo su Hyperswarm; il nuovo dispositivo scansiona il codice ed eredita l'identità in modo sicuro e cifrato.
-- [profile.ts](file:///c:/Users/dev/source/repos/linda-pear/src/identity/profile.ts): Gestione del profilo base (nickname, avatar).
+- [index.ts](src/identity/index.ts): Punto di ingresso per creare, sbloccare, recuperare e associare l'identità.
+- [keypair.ts](src/identity/keypair.ts): Generazione della coppia di chiavi crittografiche (pubblica/privata Ed25519) usando `hypercore-crypto`.
+- [mnemonic.ts](src/identity/mnemonic.ts): Gestione della frase di recupero a 12 parole (standard BIP39). Converte le 12 parole nel seed delle chiavi.
+- [storage.ts](src/identity/storage.ts): Salvataggio sicuro su disco di `identity.json`. La chiave privata viene cifrata con algoritmo **Argon2id** (`crypto_pwhash`) + `crypto_secretbox` protetta dalla password dell'utente.
+- [pairing.ts](src/identity/pairing.ts): Accoppiamento tra dispositivi via QR Code. Un dispositivo già sbloccato apre un canale temporaneo su Hyperswarm; il nuovo dispositivo scansiona il codice ed eredita l'identità in modo sicuro e cifrato.
+- [profile.ts](src/identity/profile.ts): Gestione del profilo base (nickname, avatar).
 
 ---
 
 #### 🌐 `src/network/` (Networking P2P e Comunicazione in Tempo Reale)
-- [swarm.ts](file:///c:/Users/dev/source/repos/linda-pear/src/network/swarm.ts): Configura e avvia **Hyperswarm**. Gestisce le connessioni in entrata/uscita e il bootstrap della DHT.
-- [rpc.ts](file:///c:/Users/dev/source/repos/linda-pear/src/network/rpc.ts): Protocollo RPC (`linda-rpc/1`) basato su **Protomux**. Gestisce i messaggi istantanei che non devono essere salvati nello storico (es. "sta scrivendo...", presenza online/offline, ricevute di lettura, richieste di scrittura per entrare in una stanza, annunci stanze pubbliche e scambio chiavi di crittografia).
-- [encoding.ts](file:///c:/Users/dev/source/repos/linda-pear/src/network/encoding.ts): Serializzazione binaria compatta (`compact-encoding`) per tutti i messaggi RPC scambiati via socket.
-- [lobby.ts](file:///c:/Users/dev/source/repos/linda-pear/src/network/lobby.ts): Topic globale ("lobby") su cui i nodi possono opzionalmente annunciare stanze pubbliche per la scoperta automatica.
+- [swarm.ts](src/network/swarm.ts): Configura e avvia **Hyperswarm**. Gestisce le connessioni in entrata/uscita e il bootstrap della DHT.
+- [rpc.ts](src/network/rpc.ts): Protocollo RPC (`linda-rpc/1`) basato su **Protomux**. Gestisce i messaggi istantanei che non devono essere salvati nello storico (es. "sta scrivendo...", presenza online/offline, ricevute di lettura, richieste di scrittura per entrare in una stanza, annunci stanze pubbliche e scambio chiavi di crittografia).
+- [encoding.ts](src/network/encoding.ts): Serializzazione binaria compatta (`compact-encoding`) per tutti i messaggi RPC scambiati via socket.
+- [lobby.ts](src/network/lobby.ts): Topic globale ("lobby") su cui i nodi possono opzionalmente annunciare stanze pubbliche per la scoperta automatica.
+- [lan-discovery.ts](src/network/lan-discovery.ts): Scoperta mDNS opzionale, per una LAN senza uscita su Internet, in parallelo alla DHT. **Solo Electron**: dipende da `multicast-dns`, che richiede `node:dgram`; nei bundle Pear e mobile viene sostituito da [lan-discovery-stub.ts](src/network/lan-discovery-stub.ts).
 
 ---
 
 #### 💬 `src/rooms/` (Gestione Stanze, Messaggi e Permessi)
-- [room.ts](file:///c:/Users/dev/source/repos/linda-pear/src/rooms/room.ts): **Uno dei file più importanti dell'applicazione.**
+- [room.ts](src/rooms/room.ts): **Uno dei file più importanti dell'applicazione.**
   - Gestisce la stanza basata su **Autobase** e indicizzata con **Hyperbee**.
   - **Funzione `apply()`**: elabora e valida linearmente tutti gli eventi della stanza (invio messaggi, modifiche, cancellazioni, reazioni emoji, aggiunta scrittori, permessi moderatore/mute/ban, modalità broadcast).
   - **Crittografia dei messaggi**: supporta la rotazione delle chiavi (*Epoch Keys*) per proteggere i messaggi scambiati nella stanza.
@@ -94,52 +105,71 @@ Il codice in `src/` contiene tutta la logica di business pura, indipendente dall
 ---
 
 #### 📁 `src/files/` (Condivisione File e Streaming Audio/Video)
-- [drive.ts](file:///c:/Users/dev/source/repos/linda-pear/src/files/drive.ts): `FileStore` integrato con **Hyperdrive**. Scrive i file sul proprio drive locale per la condivisione P2P.
-- [media-range.ts](file:///c:/Users/dev/source/repos/linda-pear/src/files/media-range.ts): Gestisce le intestazioni HTTP `Range` (es. `bytes=0-1048576`) per consentire la riproduzione istantanea di audio e video con seek temporale.
-- [media-server.ts](file:///c:/Users/dev/source/repos/linda-pear/src/files/media-server.ts): Logica agnostica del mini web-server locale protetto da token segreto di sessione (`/<token>/<driveKey>/<filePath>`).
-- [media-server-node.ts](file:///c:/Users/dev/source/repos/linda-pear/src/files/media-server-node.ts): Implementazione del server HTTP per ambiente Node/Electron su porta loopback locale (`127.0.0.1`).
+- [drive.ts](src/files/drive.ts): `FileStore` integrato con **Hyperdrive**. Scrive i file sul proprio drive locale per la condivisione P2P.
+- [media-range.ts](src/files/media-range.ts): Gestisce le intestazioni HTTP `Range` (es. `bytes=0-1048576`) per consentire la riproduzione istantanea di audio e video con seek temporale.
+- [media-server.ts](src/files/media-server.ts): Logica agnostica del mini web-server locale protetto da token segreto di sessione (`/<token>/<driveKey>/<filePath>`).
+- [media-server-node.ts](src/files/media-server-node.ts): Implementazione del server HTTP per ambiente Node/Electron su porta loopback locale (`127.0.0.1`).
 
 ---
 
 #### 🧠 `src/app/` (Orchestrazione e Stato Utente)
-- [session.ts](file:///c:/Users/dev/source/repos/linda-pear/src/app/session.ts): **Il regista principale dell'applicazione.**
+- [session.ts](src/app/session.ts): **Il regista principale dell'applicazione.**
   - Collega identità, rete (`Hyperswarm`), stanze (`Room`), storage file (`Hyperdrive`), profilo e rubrica contatti.
   - Gestisce il ciclo di vita: sblocco, apertura stanze, join tramite link di invito, autorizzazione di nuovi membri, invio messaggi e allegati, download file remoti.
-- [profile-store.ts](file:///c:/Users/dev/source/repos/linda-pear/src/app/profile-store.ts): Gestione persistente su **Hyperbee** di:
+- [profile-store.ts](src/app/profile-store.ts): Gestione persistente su **Hyperbee** di:
   - Segnalibri delle stanze salvate (`bookmarks`).
   - Lista contatti e richieste pendenti (`contacts`).
   - Chiavi di crittografia delle stanze (`room_keys`).
   - Token di invito (`room_invites`).
   - Avatar personalizzati dei contatti (`peer_avatars`).
   - Preferenze locali (sfondo chat, nickname).
+- [session-view.ts](src/app/session-view.ts): L'interfaccia che la UI ha il permesso di vedere. `SessionView` e `RoomView` sono `Pick<>` sulle classi reali: la UI compila contro il sottoinsieme che può sopravvivere al passaggio attraverso un confine RPC, e un membro aggiunto a `Session` senza equivalente sul filo fa fallire il typecheck invece che il runtime.
+- [open-session.ts](src/app/open-session.ts) / [open-session-worker.ts](src/app/open-session-worker.ts): I due lanciatori. Il primo apre una `Session` in questo processo (Electron/Pear), il secondo parla con una che gira nel worker. `build.js` scambia l'uno con l'altro a seconda del target, così nessuno dei due finisce mai nel bundle dell'altro.
+
+---
+
+#### ⚙️ `src/worker/` e `src/transport/` (Sessione Fuori Processo)
+
+La sessione può girare fuori dal processo dell'interfaccia — su mobile funziona così da sempre, con
+`src/` dentro un worklet Bare e React Native che ci parla via IPC. Queste due cartelle sono quel
+confine, condiviso invece che reimplementato per piattaforma.
+
+- [worker/entry.ts](src/worker/entry.ts): Avvia una `Session` dentro il worker e la collega alla pipe.
+- [worker/dispatcher.ts](src/worker/dispatcher.ts): Traduce le chiamate dal filo in chiamate a `Session`/`Room` e spinge nella direzione opposta gli eventi (sta scrivendo, ricevute di lettura, peer connessi/disconnessi).
+- [transport/frame.ts](src/transport/frame.ts): Il formato di frame condiviso dai due lati — `<lunghezza header 4 byte LE><header JSON><coda binaria>` — così i byte di un file viaggiano sullo stesso canale senza passare per il base64.
+- [transport/rpc-client.ts](src/transport/rpc-client.ts): La metà che chiama.
+- [transport/remote-session-view.ts](src/transport/remote-session-view.ts) e [remote-room-view.ts](src/transport/remote-room-view.ts): Implementazioni di `SessionView`/`RoomView` appoggiate a quell'RPC, così il codice della UI non può accorgersi se la sessione sia in questo processo o in un altro.
 
 ---
 
 #### 🖥️ `src/ui/` (Interfaccia Desktop)
-- [app-shell.ts](file:///c:/Users/dev/source/repos/linda-pear/src/ui/app-shell.ts): Il Web Component principale `<app-shell>` che renderizza l'intera interfaccia desktop: schermata di sblocco/creazione account, lista stanze, area chat, invio messaggi vocali e file, modali di invito, gestione membri e impostazioni.
-- [qr.ts](file:///c:/Users/dev/source/repos/linda-pear/src/ui/qr.ts) e [qr-core.ts](file:///c:/Users/dev/source/repos/linda-pear/src/ui/qr-core.ts): Generazione e scansione dei QR code (per inviti stanze e pairing dispositivi).
-- [wallpapers.ts](file:///c:/Users/dev/source/repos/linda-pear/src/ui/wallpapers.ts): Sfondi chat personalizzabili (gradienti e motivi geometrici).
+- [app-shell.ts](src/ui/app-shell.ts): Il Web Component principale `<app-shell>` che renderizza l'intera interfaccia desktop: schermata di sblocco/creazione account, lista stanze, area chat, invio messaggi vocali e file, modali di invito, gestione membri e impostazioni.
+- [qr.ts](src/ui/qr.ts) e [qr-core.ts](src/ui/qr-core.ts): Generazione e scansione dei QR code (per inviti stanze e pairing dispositivi).
+- [desktop-host.ts](src/ui/desktop-host.ts): I comandi finestra che servono alla shell (riduci, ingrandisci, chiudi, stato ingrandito) dietro un'unica interfaccia, con `ElectronHost`, `PearHost` e `WebHost` sotto: i due runtime desktop espongono API completamente diverse per gli stessi tre pulsanti.
+- [wallpapers.ts](src/ui/wallpapers.ts): Sfondi chat personalizzabili (gradienti e motivi geometrici).
+- [app-backgrounds.ts](src/ui/app-backgrounds.ts): Sfondi della cornice dell'app, distinti da quelli della chat.
+- [room-presets.ts](src/ui/room-presets.ts): Icone e descrizioni preimpostate proposte alla creazione di una stanza.
 
 ---
 
 #### 🛠️ `src/util/` (Utility Generali)
-- [avatar.ts](file:///c:/Users/dev/source/repos/linda-pear/src/util/avatar.ts): Generazione automatica di avatar colorati basati sull'hash della chiave pubblica.
-- [bytes.ts](file:///c:/Users/dev/source/repos/linda-pear/src/util/bytes.ts): Formattazione della dimensione dei file (es. `KB`, `MB`, `GB`).
-- [hashtag.ts](file:///c:/Users/dev/source/repos/linda-pear/src/util/hashtag.ts): Riconoscimento ed evidenziazione dei tag e menzioni nei messaggi.
-- [id.ts](file:///c:/Users/dev/source/repos/linda-pear/src/util/id.ts): Generatore di identificativi casuali sicuri esadecimali.
+- [avatar.ts](src/util/avatar.ts): Generazione automatica di avatar colorati basati sull'hash della chiave pubblica.
+- [bytes.ts](src/util/bytes.ts): Formattazione della dimensione dei file (es. `KB`, `MB`, `GB`).
+- [hashtag.ts](src/util/hashtag.ts): Riconoscimento ed evidenziazione degli hashtag nei messaggi (`extractHashtags`, `hasHashtag`, `splitOnHashtags`, `linkifyHashtags`). Non gestisce menzioni: non esistono.
+- [id.ts](src/util/id.ts): Generatore di identificativi casuali sicuri esadecimali.
 
 ---
 
 ### 🖥️ `electron/` (Involucro Desktop)
-- [main.cjs](file:///c:/Users/dev/source/repos/linda-pear/electron/main.cjs): Processo principale di Electron. Crea la finestra, configura i permessi di sicurezza (microfono per messaggi vocali, cattura schermo, clipboard) e carica `index.html`.
-- [preload.cjs](file:///c:/Users/dev/source/repos/linda-pear/electron/preload.cjs): Script di preload leggero per esporre funzionalità di sistema (es. scrittura appunti).
+- [main.cjs](electron/main.cjs): Processo principale di Electron. Crea la finestra, configura i permessi di sicurezza (microfono per messaggi vocali, cattura schermo, clipboard) e carica `index.html`.
+- [preload.cjs](electron/preload.cjs): Script di preload leggero per esporre funzionalità di sistema (es. scrittura appunti).
 
 ---
 
 ### 📱 `mobile/` (Applicazione Mobile Expo / React Native)
-- [App.tsx](file:///c:/Users/dev/source/repos/linda-pear/mobile/App.tsx): Entry point React Native con provider del tema e navigazione.
-- [mobile/worklet/entry.ts](file:///c:/Users/dev/source/repos/linda-pear/mobile/worklet/entry.ts): Il **cuore P2P mobile**. Esegue l'intero core di `src/` dentro un processo di background nativo (*Bare Kit Worklet*), comunicando con la UI tramite messaggi IPC asincroni serializzati.
-- [mobile/worklet/media-server.ts](file:///c:/Users/dev/source/repos/linda-pear/mobile/worklet/media-server.ts): Server multimediale per lo streaming su mobile basato su `bare-http1`.
+- [App.tsx](mobile/App.tsx): Entry point React Native con provider del tema e navigazione.
+- [mobile/worklet/entry.ts](mobile/worklet/entry.ts): Il **cuore P2P mobile**. Esegue l'intero core di `src/` dentro un processo di background nativo (*Bare Kit Worklet*), comunicando con la UI tramite messaggi IPC asincroni serializzati.
+- [mobile/worklet/media-server.ts](mobile/worklet/media-server.ts): Server multimediale per lo streaming su mobile basato su `bare-http1`.
 - `mobile/src/bare/`: Proxy client e bridge di comunicazione tra l'interfaccia React Native e il worklet Bare.
 - `mobile/src/screens/`: Tutte le schermate mobile (Chat, Lista Stanze, Contatti, Profilo, Membri, Pairing QR, Sblocco).
 - `mobile/src/components/`: Componenti riutilizzabili (Bolle chat, Player Video/Audio, Avatar, Modali).
@@ -147,13 +177,19 @@ Il codice in `src/` contiene tutta la logica di business pura, indipendente dall
 ---
 
 ### 🧪 `test/` (Suite di Test Automatizzati)
-- [session.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/session.test.ts): Test end-to-end con due nodi `Session` reali che si connettono, scambiano permessi di scrittura e replicano dati su una rete DHT locale di test.
-- [room.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/room.test.ts): Test approfonditi su Autobase: ordinamento messaggi, modifiche, reazioni, ban, mute e ruoli.
-- [security.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/security.test.ts): Test di sicurezza e resistenza alle manomissioni (messaggi non autorizzati, tentativi di spoofing).
-- [media-stream.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/media-stream.test.ts) e [media-range.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/media-range.test.ts): Test per lo streaming a blocchi (Range request) di file multimediali.
-- [room-files.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/room-files.test.ts): Test sulla condivisione e indicizzazione dei file nelle stanze.
-- [contact-invite.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/contact-invite.test.ts): Test per il flusso di invito contatti e apertura chat 1-a-1.
-- [rejoin-restart.test.ts](file:///c:/Users/dev/source/repos/linda-pear/test/rejoin-restart.test.ts): Test di persistenza e riapertura stanze dopo riavvio del processo.
+Si eseguono con `npm test`, oppure con `LINDA_TEST_DHT=public npm test` per far girare le stesse
+verifiche sulla DHT pubblica invece che su quella di test in-process.
+
+- [session.test.ts](test/session.test.ts): Test end-to-end con due nodi `Session` reali che si connettono, scambiano permessi di scrittura e replicano dati su una rete DHT locale di test.
+- [room.test.ts](test/room.test.ts): Test approfonditi su Autobase: ordinamento messaggi, modifiche, reazioni, ban, mute e ruoli.
+- [security.test.ts](test/security.test.ts): Test di sicurezza e resistenza alle manomissioni (messaggi non autorizzati, tentativi di spoofing).
+- [media-stream.test.ts](test/media-stream.test.ts), [media-range.test.ts](test/media-range.test.ts) e [media-transport.test.ts](test/media-transport.test.ts): Streaming a blocchi (Range request) dei file multimediali e trasporto sottostante.
+- [room-files.test.ts](test/room-files.test.ts) e [drive-reuse.test.ts](test/drive-reuse.test.ts): Condivisione e indicizzazione dei file nelle stanze, e riuso del drive.
+- [contact-invite.test.ts](test/contact-invite.test.ts): Flusso di invito contatti e apertura chat 1-a-1.
+- [rejoin-restart.test.ts](test/rejoin-restart.test.ts): Un permesso di scrittura che deve sopravvivere a un riavvio, perché il proprietario non c'era quando l'invito è stato presentato.
+- [room-open-retry.test.ts](test/room-open-retry.test.ts): Fissa l'invariante da cui dipende un primo join — un solo `Room.open` per namespace del corestore.
+- [worker-bootstrap.test.ts](test/worker-bootstrap.test.ts), [remote-session.test.ts](test/remote-session.test.ts) e [mirror-parity.test.ts](test/mirror-parity.test.ts): Il trasporto verso il worker, le view remote che ci si appoggiano, e il controllo che la superficie rispecchiata non sia andata alla deriva rispetto a `SessionView`.
+- [lan-discovery.test.ts](test/lan-discovery.test.ts), [hashtag.test.ts](test/hashtag.test.ts) e [wallpapers.test.ts](test/wallpapers.test.ts): Scoperta mDNS, parsing degli hashtag, sfondi preimpostati.
 
 ---
 
@@ -166,16 +202,16 @@ Il codice in `src/` contiene tutta la logica di business pura, indipendente dall
 
 ### B. Invio di un Messaggio in una Stanza
 1. L'utente digita il testo e preme Invio.
-2. `Session` invoca `room.postMessage()`.
+2. La UI invoca `room.send(authorId, body, replyTo?)` ([app-shell.ts](src/ui/app-shell.ts) sul desktop; su mobile la stessa chiamata attraversa prima l'RPC verso il worker).
 3. Il messaggio viene cifrato con la chiave segreta della stanza corrente (*Epoch Key*).
 4. Viene appeso al log locale Hypercore della stanza tramite **Autobase**.
 5. Autobase propaga automaticamente il nuovo blocco attraverso la connessione **Hyperswarm** a tutti i peer connessi.
-6. Ciascun peer esegue la funzione deterministica `apply()`, valida l'autore, decifra il testo e aggiorna la vista messaggi in tempo reale.
+6. Ciascun peer esegue la funzione deterministica `apply()`, che valida l'autore e indicizza la voce nella vista messaggi linearizzata, poi notifica la UI. `apply()` **non** decifra: quello che viene salvato è il testo cifrato, ed è `getMessage()` a decifrarlo in lettura (vedi `decryptText` in [room.ts](src/rooms/room.ts)).
 
 ### C. Condivisione e Streaming di un Video o Canzone
 1. L'utente seleziona un file video da inviare.
 2. `FileStore` (`drive.ts`) aggiunge il file nel proprio **Hyperdrive** locale.
 3. Viene inviato un messaggio di chat contenente i metadati (`driveKey`, percorso, nome, dimensione, tipo MIME).
-4. L'evento compare sia nella chat sia nella scheda **File della Stanza** (`RoomFiles`).
+4. Il file compare sia nella chat sia nella scheda **File della Stanza** — che non è un canale separato ma un indice sugli stessi messaggi: `apply()` ne ricava un record sotto `file/${messageId}` nella vista `state`.
 5. Quando un altro peer clicca "Play", il player multimediale locale contatta il server HTTP interno (`media-server.ts`) richiedendo i byte necessari (`Range: bytes=0-...`).
 6. Il server legge solo i blocchi richiesti dal drive remoto tramite la connessione P2P esistente, permettendo la riproduzione immediata senza dover scaricare l'intero file in anticipo.

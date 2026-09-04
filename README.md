@@ -13,7 +13,8 @@ Same architecture Keet (Holepunch's own flagship app) uses under the hood — sa
 ## Repo layout
 
 ```
-src/           shared core: identity, rooms (autobase), network (hyperswarm RPC), files (hyperdrive)
+src/           shared core: identity, rooms (autobase), network (hyperswarm RPC), files (hyperdrive),
+               worker/ + transport/ (running the session out of process, as mobile already does)
 electron/      Electron main process (thin wrapper, no app logic)
 index.html     GUI entrypoint for the Electron build
 pear.js        app entrypoint for the Pear build — runs in Bare, starts the UI runtime
@@ -107,10 +108,11 @@ the mobile worklet already runs on.
 
 Two consequences shape the build:
 
-- **Two bundles.** `build.js` emits `dist/app.js` (CommonJS, loaded by a plain `<script>` in
-  `index.html`) for Electron and `dist/pear/app.js` (ESM, `<script type="module">` in `pear.html`)
-  for Pear. Dependencies stay external in both: Electron resolves them out of the packaged
-  `node_modules`, Pear out of the staged drive.
+- **Two UI bundles** (three outputs in all). `build.js` emits `dist/app.js` (CommonJS, loaded by a
+  plain `<script>` in `index.html`) for Electron and `dist/pear/app.js` (ESM, `<script
+  type="module">` in `pear.html`) for Pear, plus `dist/worker.js` — the session worker, which is
+  not a UI bundle and is built for both. Dependencies stay external in all of them: Electron
+  resolves them out of the packaged `node_modules`, Pear out of the staged drive.
 - **No Node builtins under Pear.** The Pear bundle rewrites `node:fs`/`node:path`/`node:os`/
   `node:http`/`node:events` to their `bare-*` equivalents at build time (see `BARE_BUILTINS` in
   `build.js`). `node:http` → `bare-http1` is the media server, and it is the mapping the mobile
