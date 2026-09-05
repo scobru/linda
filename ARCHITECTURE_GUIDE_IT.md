@@ -98,7 +98,8 @@ rompe gli altri due in fase di *bundle* — vedi `SwarmTransport.createLanDiscov
 #### 💬 `src/rooms/` (Gestione Stanze, Messaggi e Permessi)
 - [room.ts](src/rooms/room.ts): **Uno dei file più importanti dell'applicazione.**
   - Gestisce la stanza basata su **Autobase** e indicizzata con **Hyperbee**.
-  - **Funzione `apply()`**: elabora e valida linearmente tutti gli eventi della stanza (invio messaggi, modifiche, cancellazioni, reazioni emoji, aggiunta scrittori, permessi moderatore/mute/ban, modalità broadcast).
+  - **Funzione `apply()`**: elabora e valida linearmente tutti gli eventi della stanza (invio messaggi, modifiche, cancellazioni, reazioni emoji, aggiunta scrittori, permessi admin/moderatore/mute/ban, modalità broadcast).
+  - **Governance Multi-Admin (stile Keet)**: supporta la promozione/degradazione di più amministratori (`promoteAdmin`, `demoteAdmin`). I co-admin possono autorizzare nuovi scrittori e validare gli inviti anche quando il creatore della stanza è offline.
   - **Crittografia dei messaggi**: supporta la rotazione delle chiavi (*Epoch Keys*) per proteggere i messaggi scambiati nella stanza.
   - **Reazioni & Modifiche**: registra gli "overlay" sui messaggi senza rompere l'immutabilità del registro originale.
 
@@ -115,7 +116,9 @@ rompe gli altri due in fase di *bundle* — vedi `SwarmTransport.createLanDiscov
 #### 🧠 `src/app/` (Orchestrazione e Stato Utente)
 - [session.ts](src/app/session.ts): **Il regista principale dell'applicazione.**
   - Collega identità, rete (`Hyperswarm`), stanze (`Room`), storage file (`Hyperdrive`), profilo e rubrica contatti.
-  - Gestisce il ciclo di vita: sblocco, apertura stanze, join tramite link di invito, autorizzazione di nuovi membri, invio messaggi e allegati, download file remoti.
+  - Gestisce il ciclo di vita: sblocco, apertura stanze, join tramite link di invito, autorizzazione di nuovi membri (delegata a qualsiasi admin online), invio messaggi e allegati, download file remoti.
+  - **Gestione Cronologia Locale**: implementa `clearRoomHistory` (filtro locale `clearedAt` senza toccare il log distribuito) e `restoreRoomHistory` (ripristino istantaneo da storage locale senza riscaricare da rete).
+  - **Device Pairing**: esporta e importa snapshot sicuri per clonare l'identità e sincronizzare contatti, stanze e chiavi epoch tra dispositivi.
 - [profile-store.ts](src/app/profile-store.ts): Gestione persistente su **Hyperbee** di:
   - Segnalibri delle stanze salvate (`bookmarks`).
   - Lista contatti e richieste pendenti (`contacts`).
@@ -215,3 +218,30 @@ verifiche sulla DHT pubblica invece che su quella di test in-process.
 4. Il file compare sia nella chat sia nella scheda **File della Stanza** — che non è un canale separato ma un indice sugli stessi messaggi: `apply()` ne ricava un record sotto `file/${messageId}` nella vista `state`.
 5. Quando un altro peer clicca "Play", il player multimediale locale contatta il server HTTP interno (`media-server.ts`) richiedendo i byte necessari (`Range: bytes=0-...`).
 6. Il server legge solo i blocchi richiesti dal drive remoto tramite la connessione P2P esistente, permettendo la riproduzione immediata senza dover scaricare l'intero file in anticipo.
+
+### D. Gestione Multi-Admin e Autorizzazione Scrittura (Peer Model)
+1. Il creatore della stanza può promuovere qualsiasi membro ad **Admin** tramite `room.promoteAdmin(identityId)` o a **Moderator** tramite `room.promoteToModerator(identityId)`.
+2. L'operazione appende un'entry deterministica (`promoteAdmin`) sul log Autobase. Tutti i peer connessi aggiornano la lista degli admin indicizzata in Hyperbee.
+3. Quando un nuovo partecipante si unisce con un link di invito (`bootstrapKey:inviteCode`), invia una richiesta RPC `requestWriteIfNeeded` attraverso Protomux a tutti i peer connessi.
+4. Qualsiasi **co-admin attualmente online** verifica che il codice di invito corrisponda a quello registrato nello stato Autobase ed emette `room.addWriter(writerKey, identityId)`.
+5. Il nuovo membro riceve i permessi di scrittura e la chiave epoch crittografica anche se l'owner originale è offline, garantendo la totale autonomia e decentralizzazione della stanza.
+
+### E. Pulizia e Ripristino Cronologia (Clear & Restore Chat History)
+1. Quando l'utente seleziona "Clear Chat History", viene invocato `session.clearRoomHistory(roomId)`.
+2. Il metodo **non tocca il log Autobase/Hypercore** locale né invia comandi di cancellazione agli altri peer: imposta semplicemente `clearedAt = Date.now()` nel segnalibro locale (`RoomBookmark`).
+3. L'interfaccia filtra i messaggi visualizzati con `timestamp > clearedAt`, nascondendo la cronologia passata da questo specifico dispositivo.
+4. Cliccando **"Restore Chat History"**, `session.restoreRoomHistory(roomId)` rimuove il campo `clearedAt`.
+5. I messaggi precedenti riappaiono istantaneamente a schermo, letti direttamente dal database locale senza consumare banda di rete né dipendere dalla presenza online di altri utenti.
+
+### F. Accoppiamento P2P tra Dispositivi (Device Pairing)
+1. Il dispositivo primario (già sbloccato) apre la schermata "Pair a Device", generando un token segreto casuale e annunciando un topic effimero su Hyperswarm.
+2. Viene mostrato a schermo un codice QR contenente le coordinate del topic e la chiave di cifratura simmetrica.
+3. Il nuovo dispositivo inquadra il QR con la fotocamera (`expo-camera` su mobile o scanner su desktop) e si connette al topic Hyperswarm.
+4. Il dispositivo primario esporta uno snapshot completo (`getPairingSnapshot`): nickname, avatar, contatti accettati, segnalibri delle stanze e tutte le chiavi crittografiche *Epoch Keys* accumulate.
+5. Il nuovo dispositivo importa lo snapshot (`importPairingSnapshot`), escludendo i campi strettamente locali al dispositivo (come `clearedAt` o preferiti locali), e apre le stanze sincronizzate.
+
+### G. Richieste Contatto e Creazione Automatica Chat 1-a-1
+1. Un utente crea un link di invito contatto via `session.createContactInvite()`. Il link (`linda-pear://...`) contiene l'ID pubblico dell'autore e la chiave bootstrap di una stanza privata pre-creata.
+2. Il destinatario incolla il link e invia una richiesta di contatto (`sendContactRequest`).
+3. La richiesta appare nella sezione **Contacts** come "Richiesta in Arrivo".
+4. Accettando la richiesta (`respondToContact`), entrambi i client registrano il contatto come `accepted`, scambiano i permessi di scrittura nella stanza 1:1 e aprono la chat privata cifrata end-to-end.

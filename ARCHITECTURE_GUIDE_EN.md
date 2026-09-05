@@ -98,6 +98,7 @@ see `SwarmTransport.createLanDiscovery` and `Session`'s `createMediaServer` for 
 - [room.ts](src/rooms/room.ts): **The core engine of Linda Pear rooms.**
   - Organizes multi-writer distributed logs using **Autobase**.
   - **Deterministic `apply()` function**: Applies and validates all room operations (messages, edits, deletions, emoji reactions, writer additions, moderation roles, mutes, bans, broadcast mode).
+  - **Multi-Admin Governance (Keet-style peer model)**: Supports promoting/demoting multiple administrators (`promoteAdmin`, `demoteAdmin`). Co-admins can authorize new writers and validate invite codes even when the room creator is offline.
   - **Rotating Room Encryption**: Manages message encryption across rotating *Epoch Keys*.
   - **Reactions & Overlays**: Tracks message metadata changes without violating the immutability of the underlying log.
 
@@ -114,6 +115,9 @@ see `SwarmTransport.createLanDiscovery` and `Session`'s `createMediaServer` for 
 #### 🧠 `src/app/` (Application State & Coordination)
 - [session.ts](src/app/session.ts): **The central orchestrator.**
   - Glues together identity, Hyperswarm networking, Hyperdrive file management, room lifecycle, contact requests, and file downloads.
+  - Handles the full lifecycle: account unlock, opening rooms, joining via invites, delegating write authorizations to online admins, sending messages, attachments, and remote downloads.
+  - **Local History Management**: Implements `clearRoomHistory` (device-local `clearedAt` filter leaving the distributed log intact) and `restoreRoomHistory` (instant local unhiding without network download).
+  - **Device Pairing**: Exports and imports secure snapshots to clone identities and synchronize contacts, bookmarks, and epoch encryption keys across devices.
 - [profile-store.ts](src/app/profile-store.ts): Local **Hyperbee** store containing:
   - Saved room bookmarks (`bookmarks`).
   - Contact book and pending requests (`contacts`).
@@ -205,3 +209,30 @@ Run with `npm test`, or `LINDA_TEST_DHT=public npm test` to put the same asserti
 4. The file automatically appears in both the chat feed and the **Room Files** tab.
 5. When a peer clicks play, their local media player requests byte slices from the internal HTTP server (`media-server.ts`).
 6. The server streams requested chunks directly over the P2P swarm, enabling instant playback without downloading the entire file first.
+
+### D. Multi-Admin Governance & Offline Creator Resilience
+1. The room creator can promote any member to **Admin** via `room.promoteAdmin(identityId)` or to **Moderator** via `room.promoteToModerator(identityId)`.
+2. The action appends a deterministic entry (`promoteAdmin`) to the Autobase log. All connected peers update their indexed admin registry in Hyperbee.
+3. When a new user attempts to join via an invite link (`bootstrapKey:inviteCode`), their client broadcasts an RPC `requestWriteIfNeeded` request over Protomux to all connected room peers.
+4. Any **currently online co-admin** validates that the invite code matches the active state in Autobase and executes `room.addWriter(writerKey, identityId)`.
+5. The new member receives write authorization and the current encryption epoch key even if the original room owner is offline, ensuring continuous room autonomy and decentralization.
+
+### E. Local-Only Clear & Restore Chat History
+1. Selecting "Clear Chat History" invokes `session.clearRoomHistory(roomId)`.
+2. The method **never alters the local Autobase/Hypercore log** nor broadcasts delete entries to peers: it simply records `clearedAt = Date.now()` in the local `RoomBookmark`.
+3. The UI filters displayed messages using `timestamp > clearedAt`, hiding past history from this device's view.
+4. Clicking **"Restore Chat History"** executes `session.restoreRoomHistory(roomId)`, dropping the `clearedAt` property.
+5. All previous conversation entries immediately reappear on screen, read directly from local storage with zero network bandwidth or peer dependency.
+
+### F. P2P Device Pairing via QR
+1. The primary (unlocked) device opens "Pair a Device", generating an ephemeral secret token and announcing a temporary topic on Hyperswarm.
+2. A QR code containing the connection coordinates and symmetric session encryption key is displayed.
+3. The secondary device scans the QR code using its camera (`expo-camera` on mobile or desktop scanner) and joins the Hyperswarm topic.
+4. The primary device exports a complete snapshot (`getPairingSnapshot`): nickname, avatar, accepted contacts, room bookmarks, and all historical *Epoch Keys*.
+5. The secondary device imports the snapshot (`importPairingSnapshot`), excluding device-local state (such as `clearedAt` or favorites), and boots the synchronized rooms.
+
+### G. Contact Requests & 1:1 Encrypted Chat Spawn
+1. A user generates a contact invite link via `session.createContactInvite()`. The link (`linda-pear://...`) encodes the author's public identity and bootstrap key for an auto-provisioned room.
+2. The recipient pastes the link and dispatches a contact request (`sendContactRequest`).
+3. The request surfaces in the recipient's **Contacts** list as an incoming request.
+4. Accepting the request (`respondToContact`) marks the contact as `accepted` on both clients, exchanges writer keys for the 1:1 room, and opens the private, end-to-end encrypted chat.

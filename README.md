@@ -61,6 +61,69 @@ sent in the chat, and the Files tab is an index over those messages:
   - **Desktop**: tab switching `[ 💬 Chat ]` / `[ 📁 Files ]`, live search, direct downloads.
   - **Mobile**: segmented room controls, native sharing and streaming support.
 
+### 👥 Multi-Admin Governance (Keet-style peer model)
+
+Rooms do not depend on a single creator staying online. Linda implements a distributed, sovereign
+governance model where administrative powers are shared among peers:
+
+- **Distributed authority**: Room owners can promote trusted members to **Admin** or **Moderator**.
+- **Offline creator resilience**: When a new member joins using an invite code, *any* active co-admin
+  currently online can validate the code against the replicated Autobase log and issue the write
+  grant (`addWriter`), admitting the new member even if the room creator is completely offline.
+- **Safety invariants**: The room creator (or the last remaining admin) cannot demote themselves or be
+  banned, ensuring the room is never left in an un-administrable state.
+- **Role Hierarchy**:
+  | Role | Message / File Send | Edit / Delete Own | Delete Others | Mute / Ban Members | Promote / Demote | Broadcast Posting |
+  | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+  | **Owner** | Yes | Yes | Yes | Yes | Yes (Admins/Mods) | Yes |
+  | **Admin** | Yes | Yes | Yes | Yes | Yes (Admins/Mods) | Yes |
+  | **Moderator** | Yes | Yes | Yes | Yes (Mute only) | No | No |
+  | **Member** | Yes | Yes | No | No | No | No (Read-only in broadcast) |
+  | **Muted** | No | No | No | No | No | No |
+  | **Banned** | No | No | No | No | No | No (Disconnected) |
+
+### 🔄 Local-Only Clear & Restore Chat History
+
+In a decentralized append-only architecture, data management must be honest about privacy and replication:
+
+- **Non-destructive local clearing**: Clicking "Clear Chat History" sets a device-local timestamp
+  (`clearedAt`). The UI filters out previous messages, but the underlying replicated Autobase/Hypercore
+  log remains completely untouched on disk and across peers.
+- **Instant restoration**: If you ever need to view past conversations again, click **"Restore Chat History"**
+  in the room customization settings. Previous messages instantly reappear from local disk without any
+  network overhead, bandwidth consumption, or reliance on other members being online.
+- **Per-device isolation**: Clearing history on one device does not affect your other devices (device-local
+  attributes are stripped during device pairing).
+
+### 📇 1:1 Contacts & Direct Cryptographic Invites
+
+Connecting directly with peers is as simple as sharing a link or scanning a QR code:
+
+- **Compound invites (`linda-pear://...`)**: Encodes the sender's identity public key and bootstrap room key.
+- **Automatic room generation**: Accepting an incoming contact request creates a private, mutual 1:1 room
+  and grants write access in a single coordinated handshake.
+- **Live peer presence**: Contact avatars and online/offline statuses update dynamically via Protomux RPC
+  presence announcements.
+
+### 🎙️ Voice Notes & Audio Streaming
+
+- Record audio voice messages with live waveform visualization and push-to-talk simplicity.
+- Immediate seekable playback powered by the local loopback media server and HTTP `Range` requests,
+  streaming directly from the sender's Hyperdrive without pre-downloading.
+
+### 📲 P2P Device Pairing
+
+- Seamlessly connect a new desktop or mobile device to your existing identity.
+- Scanning a pairing QR code opens an ephemeral, encrypted Hyperswarm channel between devices.
+- Contacts, room bookmarks, and encryption epoch keys are securely transferred peer-to-peer with
+  zero intermediary cloud servers.
+
+### 🔒 Mobile Privacy & Biometrics
+
+- **Biometric lock**: Secure account unlocking via Touch ID, Face ID, or Android BiometricPrompt backed by `expo-secure-store`.
+- **Private Mode (Incognito)**: A dedicated privacy toggle that instantly redacts message previews, room titles,
+  and contact avatars from the screen and push notifications—ideal when using the app in public spaces.
+
 ### #️⃣ Hashtags (memo-style message tags)
 
 Writing `buy milk #todo` in a message tags it, turning the tag into a clickable pill; the room can
