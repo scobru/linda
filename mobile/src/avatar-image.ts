@@ -22,18 +22,21 @@ export async function squareImageToDataUri(uri: string, maxDim = AVATAR_MAX_DIM)
   const side = Math.min(source.width, source.height)
   const target = Math.min(side, maxDim)
 
+  const originX = Math.max(0, Math.min(source.width - side, Math.floor((source.width - side) / 2)))
+  const originY = Math.max(0, Math.min(source.height - side, Math.floor((source.height - side) / 2)))
+
   const result = await ImageManipulator.manipulateAsync(
-    uri,
+    source.uri,
     [
       {
         crop: {
-          originX: Math.round((source.width - side) / 2),
-          originY: Math.round((source.height - side) / 2),
+          originX,
+          originY,
           width: side,
           height: side
         }
       },
-      { resize: { width: target, height: target } }
+      { resize: { width: target } }
     ],
     { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
   )

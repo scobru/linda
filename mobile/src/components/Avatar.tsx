@@ -37,32 +37,33 @@ export default function Avatar({ id, label, imageUrl, size = 'md', online }: Pro
   useEffect(() => setFailed(false), [imageUrl])
 
   return (
-    <View style={[styles.container, { width: dim, height: dim, borderRadius: dim / 2 }]}>
-      {imageUrl && !failed ? (
-        imageUrl.startsWith(SVG_DATA_URI_PREFIX) ? (
-          <SvgXml xml={svgXmlFromDataUri(imageUrl)} width={dim} height={dim} />
+    <View style={[styles.container, { width: dim, height: dim }]}>
+      <View style={[styles.circle, { width: dim, height: dim, borderRadius: dim / 2 }]}>
+        {imageUrl && !failed ? (
+          imageUrl.startsWith(SVG_DATA_URI_PREFIX) ? (
+            <SvgXml xml={svgXmlFromDataUri(imageUrl)} width={dim} height={dim} />
+          ) : (
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.image}
+              onError={() => setFailed(true)}
+            />
+          )
         ) : (
-          <Image
-            source={{ uri: imageUrl }}
-            style={[styles.image, { width: dim, height: dim, borderRadius: dim / 2 }]}
-            onError={() => setFailed(true)}
-          />
-        )
-      ) : (
-        <View
-          style={[
-            styles.fallback,
-            {
-              width: dim,
-              height: dim,
-              borderRadius: dim / 2,
-              backgroundColor: bg,
-            },
-          ]}
-        >
-          <Text style={[styles.initials, { fontSize }]}>{initials}</Text>
-        </View>
-      )}
+          <View
+            style={[
+              styles.fallback,
+              {
+                width: dim,
+                height: dim,
+                backgroundColor: bg,
+              },
+            ]}
+          >
+            <Text style={[styles.initials, { fontSize }]}>{initials}</Text>
+          </View>
+        )}
+      </View>
       {online !== undefined && (
         <View
           style={[
@@ -86,7 +87,14 @@ const styles = StyleSheet.create({
   container: {
     position: 'relative',
   },
+  circle: {
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   image: {
+    width: '100%',
+    height: '100%',
     resizeMode: 'cover',
   },
   fallback: {
