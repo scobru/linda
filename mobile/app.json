@@ -3,7 +3,7 @@
     "name": "Linda",
     "slug": "linda-pear-mobile",
     "scheme": "linda-pear",
-    "version": "1.14.27",
+    "version": "1.14.49",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
