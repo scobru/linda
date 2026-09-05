@@ -66,6 +66,9 @@ type RoomEntry =
   | { type: 'unban'; identityId: string }
   | { type: 'promote'; identityId: string }
   | { type: 'demote'; identityId: string }
+  | { type: 'promoteAdmin'; identityId: string }
+  | { type: 'demoteAdmin'; identityId: string }
+  | { type: 'setInviteCode'; code: string }
   | { type: 'setMeta'; name?: string; avatar?: string; description?: string }
   | { type: 'setBroadcast'; enabled: boolean }
 
@@ -98,25 +101,53 @@ interface PersistedRoomState {
   broadcast?: boolean
   writerIdentities: Array<[string, string]>
   moderatorIdentities: string[]
+  adminIdentities?: string[]
+  adminWriterKeys?: string[]
+  inviteCodes?: string[]
   mutedIdentities: string[]
   bannedIdentities: string[]
 }
 
-function serializeRoomState(owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>): PersistedRoomState {
+function serializeRoomState(
+  owner: OwnerRef,
+  meta: RoomMetaRef,
+  mode: RoomModeRef,
+  writerIdentities: Map<string, string>,
+  adminIdentities: Set<string>,
+  adminWriterKeys: Set<string>,
+  inviteCodes: Set<string>,
+  moderatorIdentities: Set<string>,
+  mutedIdentities: Set<string>,
+  bannedIdentities: Set<string>
+): PersistedRoomState {
   return {
     ownerWriterKey: owner.writerKey,
     ownerIdentityId: owner.identityId,
     meta: { ...meta },
     broadcast: mode.broadcast,
     writerIdentities: [...writerIdentities.entries()],
+    adminIdentities: [...adminIdentities],
+    adminWriterKeys: [...adminWriterKeys],
+    inviteCodes: [...inviteCodes],
     moderatorIdentities: [...moderatorIdentities],
     mutedIdentities: [...mutedIdentities],
     bannedIdentities: [...bannedIdentities]
   }
 }
 
-
-function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, moderatorIdentities: Set<string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>): void {
+function hydrateRoomState(
+  state: PersistedRoomState,
+  owner: OwnerRef,
+  meta: RoomMetaRef,
+  mode: RoomModeRef,
+  writerIdentities: Map<string, string>,
+  adminIdentities: Set<string>,
+  adminWriterKeys: Set<string>,
+  inviteCodes: Set<string>,
+  moderatorIdentities: Set<string>,
+  mutedIdentities: Set<string>,
+  bannedIdentities: Set<string>
+): void {
   owner.writerKey = state.ownerWriterKey
   owner.identityId = state.ownerIdentityId
   meta.name = state.meta.name
@@ -125,6 +156,26 @@ function hydrateRoomState(state: PersistedRoomState, owner: OwnerRef, meta: Room
   mode.broadcast = state.broadcast ?? false
   writerIdentities.clear()
   for (const [key, id] of state.writerIdentities) writerIdentities.set(key, id)
+
+  adminIdentities.clear()
+  if (state.adminIdentities && state.adminIdentities.length > 0) {
+    for (const id of state.adminIdentities) adminIdentities.add(id)
+  } else if (state.ownerIdentityId) {
+    adminIdentities.add(state.ownerIdentityId)
+  }
+
+  adminWriterKeys.clear()
+  if (state.adminWriterKeys && state.adminWriterKeys.length > 0) {
+    for (const key of state.adminWriterKeys) adminWriterKeys.add(key)
+  } else if (state.ownerWriterKey) {
+    adminWriterKeys.add(state.ownerWriterKey)
+  }
+
+  inviteCodes.clear()
+  if (state.inviteCodes) {
+    for (const code of state.inviteCodes) inviteCodes.add(code)
+  }
+
   moderatorIdentities.clear()
   for (const id of state.moderatorIdentities) moderatorIdentities.add(id)
   mutedIdentities.clear()
@@ -188,14 +239,17 @@ const MUTATION_NOTIFY_MS = 16
 const LEAVE_ACK_TIMEOUT_MS = 8_000
 const LEAVE_ACK_POLL_MS = 200
 
-/** owner: full control. mod: can ban/mute plain members, never the owner or another mod. member: none of the above. */
-type Role = 'owner' | 'mod' | 'member'
+/** owner: full control. admin: full control. mod: can ban/mute plain members, never an admin/owner or another mod. member: none of the above. */
+type Role = 'owner' | 'admin' | 'mod' | 'member'
 
 function makeApply(
   owner: OwnerRef,
   meta: RoomMetaRef,
   mode: RoomModeRef,
   writerIdentities: Map<string, string>,
+  adminIdentities: Set<string>,
+  adminWriterKeys: Set<string>,
+  inviteCodes: Set<string>,
   mutedIdentities: Set<string>,
   bannedIdentities: Set<string>,
   moderatorIdentities: Set<string>,
@@ -211,22 +265,39 @@ function makeApply(
    * entry is processed, so a reorg can never land halfway through a re-apply. */
   refreshState: (state: Hyperbee<RoomStateRecord>) => Promise<void>
 ) {
+  function isAdmin(authorKey: string): boolean {
+    if (authorKey === owner.writerKey) return true
+    if (adminWriterKeys.has(authorKey)) return true
+    const id = writerIdentities.get(authorKey)
+    return id !== undefined && (id === owner.identityId || adminIdentities.has(id))
+  }
+
+  function isAdminIdentity(identityId: string | undefined): boolean {
+    return identityId !== undefined && (identityId === owner.identityId || adminIdentities.has(identityId))
+  }
+
   function roleOf(authorKey: string): Role {
     if (authorKey === owner.writerKey) return 'owner'
+    if (isAdmin(authorKey)) return 'admin'
     const id = writerIdentities.get(authorKey)
     return id !== undefined && moderatorIdentities.has(id) ? 'mod' : 'member'
   }
+
   function isPrivileged(identityId: string | undefined): boolean {
-    return identityId !== undefined && (identityId === owner.identityId || moderatorIdentities.has(identityId))
+    return identityId !== undefined && (identityId === owner.identityId || adminIdentities.has(identityId) || moderatorIdentities.has(identityId))
   }
 
   return async function applyEntries(nodes: AutobaseNode<RoomEntry>[], view: RoomView, host: AutobaseApplyHost): Promise<void> {
     const state = view.state
+    const initialRecord = (await state.get(ROOM_KEY))?.value
+    if (initialRecord?.kind === 'room') {
+      hydrateRoomState(initialRecord.state, owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, moderatorIdentities, mutedIdentities, bannedIdentities)
+    }
     await refreshState(state)
 
     /** Rewritten after every change rather than once per batch: Autobase rewinds a view to any past
      * length, so each entry that alters this state must leave its own restorable snapshot. */
-    const persist = () => state.put(ROOM_KEY, { kind: 'room', state: serializeRoomState(owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities) })
+    const persist = () => state.put(ROOM_KEY, { kind: 'room', state: serializeRoomState(owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, moderatorIdentities, mutedIdentities, bannedIdentities) })
 
     async function authorOf(messageId: string): Promise<string | undefined> {
       const record = (await state.get(authorKeyFor(messageId)))?.value
@@ -273,34 +344,42 @@ function makeApply(
         // mirror — the mirror starts empty on every reopen, which would re-open that window.
         if (seededOwnerKey !== null) continue
         const record = (await state.get(ROOM_KEY))?.value
-        if (record?.kind === 'room' && record.state.ownerWriterKey !== null) continue
+        if (record?.kind === 'room' && record.state.ownerWriterKey !== null) {
+          if (owner.writerKey === null) {
+            hydrateRoomState(record.state, owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, moderatorIdentities, mutedIdentities, bannedIdentities)
+          }
+          continue
+        }
         owner.writerKey = entry.ownerKey
         owner.identityId = entry.ownerIdentityId
         writerIdentities.set(entry.ownerKey, entry.ownerIdentityId)
+        adminIdentities.add(entry.ownerIdentityId)
+        adminWriterKeys.add(entry.ownerKey)
         await persist()
       } else if (entry.type === 'addWriter') {
-        if (authorKey !== owner.writerKey) continue
+        if (!isAdmin(authorKey)) continue
         await host.addWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.set(entry.key, entry.identityId)
+        if (adminIdentities.has(entry.identityId)) {
+          adminWriterKeys.add(entry.key)
+        }
         await persist()
       } else if (entry.type === 'removeWriter') {
         const role = roleOf(authorKey)
         const targetIdentity = writerIdentities.get(entry.key)
-        // Leaving is not a moderation action. Only owners and moderators could remove a writer,
-        // which meant a plain member could not remove *themselves* either — so leaving a room was
-        // purely local and everyone else went on listing you as a member forever. Removing your
-        // own key is now always allowed.
-        //
-        // The owner is excluded deliberately: they are the room's only source of write grants and
-        // content keys, so an owner dropping their own key would strand every remaining member
-        // with no way to admit anyone or rotate anything. An owner who wants out deletes the room.
-        const isSelfRemoval = authorKey === entry.key && authorKey !== owner.writerKey
-        if (!isSelfRemoval) {
+        const isTargetAdmin = isAdminIdentity(targetIdentity) || entry.key === owner.writerKey || adminWriterKeys.has(entry.key)
+        const isSelfRemoval = authorKey === entry.key
+        if (isSelfRemoval) {
+          const totalAdmins = new Set([...(owner.identityId ? [owner.identityId] : []), ...adminIdentities])
+          if (isTargetAdmin && totalAdmins.size <= 1) continue
+        } else {
           if (role === 'member') continue
           if (role === 'mod' && isPrivileged(targetIdentity)) continue
+          if ((role === 'admin' || role === 'owner') && isTargetAdmin) continue
         }
         await host.removeWriter(b4a.from(entry.key, 'hex'))
         writerIdentities.delete(entry.key)
+        adminWriterKeys.delete(entry.key)
         if (targetIdentity) moderatorIdentities.delete(targetIdentity)
         await persist()
       } else if (entry.type === 'edit') {
@@ -322,7 +401,7 @@ function makeApply(
         }
       } else if (entry.type === 'mute') {
         const role = roleOf(authorKey)
-        if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId))) continue
+        if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId)) || ((role === 'admin' || role === 'owner') && isAdminIdentity(entry.identityId))) continue
         mutedIdentities.add(entry.identityId)
         await persist()
         onMessageMutation()
@@ -333,7 +412,7 @@ function makeApply(
         onMessageMutation()
       } else if (entry.type === 'ban') {
         const role = roleOf(authorKey)
-        if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId))) continue
+        if (role === 'member' || (role === 'mod' && isPrivileged(entry.identityId)) || ((role === 'admin' || role === 'owner') && isAdminIdentity(entry.identityId))) continue
         bannedIdentities.add(entry.identityId)
         await persist()
         onMessageMutation()
@@ -343,15 +422,41 @@ function makeApply(
         await persist()
         onMessageMutation()
       } else if (entry.type === 'promote') {
-        if (authorKey !== owner.writerKey) continue
-        moderatorIdentities.add(entry.identityId)
-        await persist()
-        onMessageMutation()
+        if (!isAdmin(authorKey)) continue
+        if (!isAdminIdentity(entry.identityId)) {
+          moderatorIdentities.add(entry.identityId)
+          await persist()
+          onMessageMutation()
+        }
       } else if (entry.type === 'demote') {
-        if (authorKey !== owner.writerKey) continue
+        if (!isAdmin(authorKey)) continue
         moderatorIdentities.delete(entry.identityId)
         await persist()
         onMessageMutation()
+      } else if (entry.type === 'promoteAdmin') {
+        if (!isAdmin(authorKey)) continue
+        adminIdentities.add(entry.identityId)
+        moderatorIdentities.delete(entry.identityId)
+        for (const [key, id] of writerIdentities.entries()) {
+          if (id === entry.identityId) adminWriterKeys.add(key)
+        }
+        await persist()
+        onMessageMutation()
+      } else if (entry.type === 'demoteAdmin') {
+        if (!isAdmin(authorKey)) continue
+        const totalAdmins = new Set([...(owner.identityId ? [owner.identityId] : []), ...adminIdentities])
+        if (totalAdmins.size > 1) {
+          adminIdentities.delete(entry.identityId)
+          for (const [key, id] of writerIdentities.entries()) {
+            if (id === entry.identityId && key !== owner.writerKey) adminWriterKeys.delete(key)
+          }
+          await persist()
+          onMessageMutation()
+        }
+      } else if (entry.type === 'setInviteCode') {
+        if (!isAdmin(authorKey)) continue
+        inviteCodes.add(entry.code)
+        await persist()
       } else if (entry.type === 'reaction') {
         await mutateOverlay(entry.messageId, (overlay) => {
           const users = new Set(overlay.reactions[entry.emoji] ?? [])
@@ -362,7 +467,7 @@ function makeApply(
         })
       } else if (entry.type === 'setMeta') {
         const role = roleOf(authorKey)
-        if (role === 'owner' || role === 'mod') {
+        if (role === 'owner' || role === 'admin' || role === 'mod') {
           if (entry.name !== undefined) meta.name = entry.name
           if (entry.avatar !== undefined) meta.avatar = entry.avatar
           if (entry.description !== undefined) meta.description = entry.description
@@ -371,9 +476,7 @@ function makeApply(
           onMetaChange()
         }
       } else if (entry.type === 'setBroadcast') {
-        // Owner-only, unlike `setMeta`: this decides who may post at all, and a moderator flipping
-        // it off would hand every member the write access the owner deliberately withheld.
-        if (authorKey !== owner.writerKey) continue
+        if (!isAdmin(authorKey)) continue
         mode.broadcast = entry.enabled
         await persist()
         onMetaChange()
@@ -402,6 +505,9 @@ export class Room {
   private readonly meta: RoomMetaRef
   private readonly mode: RoomModeRef
   private readonly writerIdentities: Map<string, string>
+  private readonly adminIdentities: Set<string>
+  private readonly adminWriterKeys: Set<string>
+  private readonly inviteCodes: Set<string>
   private readonly mutedIdentities: Set<string>
   private readonly bannedIdentities: Set<string>
   private readonly moderatorIdentities: Set<string>
@@ -425,12 +531,27 @@ export class Room {
   private readonly notifiedMessageIds = new Set<string>()
   private static readonly MAX_NOTIFIED_IDS = 500
 
-  private constructor(id: string, owner: OwnerRef, meta: RoomMetaRef, mode: RoomModeRef, writerIdentities: Map<string, string>, mutedIdentities: Set<string>, bannedIdentities: Set<string>, moderatorIdentities: Set<string>) {
+  private constructor(
+    id: string,
+    owner: OwnerRef,
+    meta: RoomMetaRef,
+    mode: RoomModeRef,
+    writerIdentities: Map<string, string>,
+    adminIdentities: Set<string>,
+    adminWriterKeys: Set<string>,
+    inviteCodes: Set<string>,
+    mutedIdentities: Set<string>,
+    bannedIdentities: Set<string>,
+    moderatorIdentities: Set<string>
+  ) {
     this.id = id
     this.owner = owner
     this.meta = meta
     this.mode = mode
     this.writerIdentities = writerIdentities
+    this.adminIdentities = adminIdentities
+    this.adminWriterKeys = adminWriterKeys
+    this.inviteCodes = inviteCodes
     this.mutedIdentities = mutedIdentities
     this.bannedIdentities = bannedIdentities
     this.moderatorIdentities = moderatorIdentities
@@ -484,10 +605,13 @@ export class Room {
     const meta: RoomMetaRef = { name: '', avatar: '', description: '' }
     const mode: RoomModeRef = { broadcast: false }
     const writerIdentities = new Map<string, string>()
+    const adminIdentities = new Set<string>()
+    const adminWriterKeys = new Set<string>()
+    const inviteCodes = new Set<string>()
     const mutedIdentities = new Set<string>()
     const bannedIdentities = new Set<string>()
     const moderatorIdentities = new Set<string>()
-    const room = new Room(tempId, owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities)
+    const room = new Room(tempId, owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, mutedIdentities, bannedIdentities, moderatorIdentities)
 
     // Rooms created before the state view existed kept this state in a Hyperbee alongside Autobase.
     // Their log entries are checkpointed and will never be applied again, so that copy is the only
@@ -496,7 +620,7 @@ export class Room {
     const legacyStateBee = new Hyperbee<PersistedRoomState>(store.get({ name: 'state' }), { keyEncoding: 'utf-8', valueEncoding: 'json' })
     await legacyStateBee.ready()
     const legacyState = (await legacyStateBee.get('room'))?.value
-    if (legacyState) hydrateRoomState(legacyState, owner, meta, mode, writerIdentities, moderatorIdentities, mutedIdentities, bannedIdentities)
+    if (legacyState) hydrateRoomState(legacyState, owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, moderatorIdentities, mutedIdentities, bannedIdentities)
     const seededOwnerKey = owner.writerKey
 
     if (initialKeys && initialKeys.length > 0) {
@@ -509,7 +633,7 @@ export class Room {
     const base = new Autobase<RoomEntry, RoomView>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, mode, writerIdentities, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (state) => room.refreshState(state))
+      apply: makeApply(owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (state) => room.refreshState(state))
     })
     room.base = base
     // The mirror starts empty, and Autobase never replays checkpointed entries that would refill
@@ -536,6 +660,8 @@ export class Room {
       owner.writerKey = key
       owner.identityId = identityId
       writerIdentities.set(key, identityId)
+      adminIdentities.add(identityId)
+      adminWriterKeys.add(key)
       await base.append({ type: 'init', ownerKey: key, ownerIdentityId: identityId })
       const contentKey = b4a.allocUnsafe(sodium.crypto_secretbox_KEYBYTES)
       sodium.randombytes_buf(contentKey)
@@ -558,7 +684,7 @@ export class Room {
     if (!this.stateRewound) return
     this.stateRewound = false
     if (record?.kind !== 'room') return
-    hydrateRoomState(record.state, this.owner, this.meta, this.mode, this.writerIdentities, this.moderatorIdentities, this.mutedIdentities, this.bannedIdentities)
+    hydrateRoomState(record.state, this.owner, this.meta, this.mode, this.writerIdentities, this.adminIdentities, this.adminWriterKeys, this.inviteCodes, this.moderatorIdentities, this.mutedIdentities, this.bannedIdentities)
     this.invalidateMessage()
     this.notifyMetaChange()
   }
@@ -604,8 +730,19 @@ export class Room {
     return this.owner.identityId
   }
 
+  isAdmin(identityId: string): boolean {
+    return (this.owner.identityId !== null && this.owner.identityId === identityId) || this.adminIdentities.has(identityId)
+  }
+
   isOwner(identityId: string): boolean {
-    return this.owner.identityId === identityId
+    return this.isAdmin(identityId)
+  }
+
+  listAdmins(): string[] {
+    return [...new Set([
+      ...(this.owner.identityId ? [this.owner.identityId] : []),
+      ...this.adminIdentities
+    ])]
   }
 
   isModerator(identityId: string): boolean {
@@ -616,19 +753,39 @@ export class Room {
     return [...this.moderatorIdentities]
   }
 
-  /** Whether `identityId` may ban/mute other plain members (owner or moderator). */
+  /** Whether `identityId` may ban/mute other plain members (admin, owner or moderator). */
   canModerate(identityId: string): boolean {
-    return this.isOwner(identityId) || this.isModerator(identityId)
+    return this.isAdmin(identityId) || this.isModerator(identityId)
   }
 
-  /** Owner-only (enforced in `apply()`). */
+  /** Admin-only (enforced in `apply()`). */
   async promote(identityId: string): Promise<void> {
     await this.base.append({ type: 'promote', identityId })
   }
 
-  /** Owner-only (enforced in `apply()`). */
+  /** Admin-only (enforced in `apply()`). */
   async demote(identityId: string): Promise<void> {
     await this.base.append({ type: 'demote', identityId })
+  }
+
+  async promoteAdmin(identityId: string): Promise<void> {
+    await this.base.append({ type: 'promoteAdmin', identityId })
+  }
+
+  async demoteAdmin(identityId: string): Promise<void> {
+    if (this.listAdmins().length <= 1) {
+      throw new Error('Cannot demote the sole admin')
+    }
+    await this.base.append({ type: 'demoteAdmin', identityId })
+  }
+
+  isValidInvite(code: string): boolean {
+    if (!code) return false
+    return this.inviteCodes.has(code)
+  }
+
+  async addInviteCode(code: string): Promise<void> {
+    await this.base.append({ type: 'setInviteCode', code })
   }
 
   get bootstrapKey(): Buffer { return this.base.key }
@@ -706,11 +863,11 @@ export class Room {
     await this.base.append({ type: 'removeWriter', key: b4a.toString(publicKey, 'hex') })
   }
 
-  /** Announces our departure to the room's other members. The owner cannot — see `apply()`. */
+  /** Announces our departure to the room's other members. The sole admin cannot — see `apply()`. */
   async announceLeave(): Promise<void> {
-    // Compared by writer key rather than identity: this is about the key being dropped, and the
-    // owner check in apply() keys off the same thing.
-    if (b4a.toString(this.base.local.key, 'hex') === this.owner.writerKey) return
+    const localKey = b4a.toString(this.base.local.key, 'hex')
+    const isSoleAdmin = (localKey === this.owner.writerKey || this.adminWriterKeys.has(localKey)) && this.listAdmins().length <= 1
+    if (isSoleAdmin) return
     await this.removeWriter(this.base.local.key)
   }
 

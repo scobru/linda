@@ -137,7 +137,7 @@ export class Session {
       onReadReceipt: events.onReadReceipt,
       onRequestWrite: (message, channel) => {
         const room = [...this.rooms.values()].find((r) => b4a.toString(r.bootstrapKey, 'hex') === message.bootstrapKey)
-        if (!room || !room.writable || !room.isOwner(identity.id)) return
+        if (!room || !room.writable || !room.isAdmin(identity.id)) return
         if (room.isBanned(message.identityId)) return
         // Two separate questions, and conflating them locked returning members out. A currently
         // listed member needs no invite code to be let back in — but if it comes back on a writer
@@ -153,7 +153,8 @@ export class Session {
         // with no invite and no further moderator action — removal stops being a moderation action
         // and becomes a timer.
         const isCurrentMember = room.listMembers().some((m) => m.identityId === message.identityId)
-        if (!isCurrentMember && !this.redeemInvite(room.id, message.inviteCode)) return
+        const hasValidInvite = room.isValidInvite(message.inviteCode) || this.redeemInvite(room.id, message.inviteCode)
+        if (!isCurrentMember && !hasValidInvite) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
           if (!isExistingWriter) {
@@ -663,7 +664,7 @@ export class Session {
       await room.updateMeta({ name: trimmed, avatar, description })
     }
     if (broadcast) await room.setBroadcast(true)
-    const token = this.issueInvite(roomId)
+    const token = this.issueInvite(roomId, room)
     await this.profileStore.saveInviteToken({ roomId, ...token })
     await this.joinTopic(room)
     this.trackRoom(room)
@@ -1162,6 +1163,66 @@ export class Session {
     return results.filter((room): room is Room => room !== null)
   }
 
+  /** Collects everything a second device needs to bootstrap its room list after pairing.
+   * Called by the hosting side — desktop shell or mobile worklet — to bundle with the identity. */
+  async getPairingSnapshot(): Promise<Record<string, unknown>> {
+    const bookmarks = this.listBookmarks()
+    const roomKeys: Array<{ roomId: string; epoch: number; keyHex: string }> = []
+    for (const bookmark of bookmarks) {
+      const keys = await this.profileStore.getRoomKeys(bookmark.id)
+      roomKeys.push(...keys)
+    }
+    const contacts = this.listContacts().filter((c) => c.status === 'accepted')
+    return {
+      bookmarks,
+      roomKeys,
+      contacts,
+      nickname: this.nickname,
+      avatar: this.avatar
+    }
+  }
+
+  /** Imports state received during device pairing. Called on the joining device *after*
+   * `Session.create()` and *before* `reopenBookmarkedRooms()`, so the bookmarks are in
+   * the ProfileStore when reopen reads them. Each bookmark gets a fresh `storeId` (the
+   * hosting device's corestore namespaces are meaningless here) and device-local fields
+   * (`lastReadAt`, `favorite`, `inviteCode`, `clearedAt`) are stripped. */
+  async importPairingSnapshot(snapshot: Record<string, unknown>): Promise<void> {
+    const bookmarks = snapshot.bookmarks as RoomBookmark[] | undefined
+    const roomKeys = snapshot.roomKeys as Array<{ roomId: string; epoch: number; keyHex: string }> | undefined
+    const contacts = snapshot.contacts as ContactEntry[] | undefined
+    const snapshotNickname = snapshot.nickname as string | undefined
+    const snapshotAvatar = snapshot.avatar as string | undefined
+
+    if (snapshotNickname && !this.nickname) {
+      await this.setNickname(snapshotNickname)
+    }
+    if (snapshotAvatar && !this.avatar) {
+      await this.setAvatar(snapshotAvatar)
+    }
+    for (const bookmark of bookmarks ?? []) {
+      if (this.bookmarks.has(bookmark.id)) continue
+      const local: RoomBookmark = {
+        id: bookmark.id,
+        name: bookmark.name,
+        bootstrapKey: bookmark.bootstrapKey,
+        avatar: bookmark.avatar,
+        description: bookmark.description,
+        storeId: randomId(8)
+      }
+      this.bookmarks.set(local.id, local)
+      await this.profileStore.saveBookmark(local)
+    }
+    for (const key of roomKeys ?? []) {
+      await this.profileStore.saveRoomKey(key.roomId, key.epoch, key.keyHex)
+    }
+    for (const contact of contacts ?? []) {
+      if (this.contacts.has(contact.userId)) continue
+      this.contacts.set(contact.userId, contact)
+      await this.profileStore.saveContact(contact)
+    }
+  }
+
   getRoom(roomId: string): Room | undefined {
     return this.rooms.get(roomId)
   }
@@ -1334,16 +1395,16 @@ export class Session {
     peer.rpc.sendRequestWrite({ bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), writerKey: b4a.toString(room.localWriterKey, 'hex'), identityId: this.identity.id, inviteCode })
   }
 
-  /** Owner-only: pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
+  /** Admin-only: pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
   private syncKeyIfOwner(room: Room, peer: PeerConnection): void {
-    if (!room.isOwner(this.identity.id)) return
+    if (!room.isAdmin(this.identity.id)) return
     const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
     if (!room.listMembers().some((m) => m.identityId === peerIdentityId)) return
     const keyHex = room.currentKeyHex
     if (keyHex) peer.rpc.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
   }
 
-  /** Revokes write access. If the caller is the room owner, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only the owner distributes room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-banned member could still decrypt messages sent before the owner next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
+  /** Revokes write access. If the caller is a room admin, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only admins distribute room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-banned member could still decrypt messages sent before an admin next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
   private async revokeWrite(room: Room, writerKeyHex: string): Promise<void> {
     // Revoke the person, not the key. One identity can hold several writer keys — a rejoin issues
     // a new one (see joinRoomByKey), and a second device brings its own — so removing only the key
@@ -1355,7 +1416,7 @@ export class Session {
       : [writerKeyHex]
     for (const key of keysToRemove) await room.removeWriter(b4a.from(key, 'hex'))
 
-    if (!room.isOwner(this.identity.id)) return
+    if (!room.isAdmin(this.identity.id)) return
     const { epoch, keyHex } = room.rotateKey()
 
     // `listMembers()` can still list the member just removed: removal is a log entry and apply()
@@ -1398,7 +1459,7 @@ export class Session {
     await room.unmuteMember(identityId)
   }
 
-  /** Owner-only (enforced in `Room.apply()`): grants moderator role — ban/mute powers over plain members, never over the owner or other mods, and never invite/promote/write-grant management. */
+  /** Admin-only (enforced in `Room.apply()`): grants moderator role — ban/mute powers over plain members, never over an admin or other mods, and never invite/promote/write-grant management. */
   async promoteToModerator(roomId: string, identityId: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return
@@ -1411,10 +1472,27 @@ export class Session {
     await room.demote(identityId)
   }
 
-  private issueInvite(roomId: string): InviteToken {
+  /** Admin-only (enforced in `Room.apply()`): grants admin role — full authority over members, roles, broadcast, and invites. */
+  async promoteToAdmin(roomId: string, identityId: string): Promise<void> {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    await room.promoteAdmin(identityId)
+  }
+
+  async demoteAdmin(roomId: string, identityId: string): Promise<void> {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    await room.demoteAdmin(identityId)
+  }
+
+  private issueInvite(roomId: string, targetRoom?: Room): InviteToken {
     const token: InviteToken = { code: randomId(16), usedCount: 0 }
     this.invites.set(roomId, token)
     void this.profileStore.saveInviteToken({ roomId, ...token })
+    const room = targetRoom ?? this.rooms.get(roomId)
+    if (room && room.writable && room.isAdmin(this.identity.id)) {
+      void room.addInviteCode(token.code).catch(() => {})
+    }
     return token
   }
 
@@ -1426,17 +1504,18 @@ export class Session {
     return true
   }
 
-  /** Owner-only: the current shareable `bootstrapKeyHex:inviteCode` link for a room, issuing a token if none exists yet. */
+  /** Admin-only: the current shareable `bootstrapKeyHex:inviteCode` link for a room, issuing a token if none exists yet. */
   inviteLinkFor(roomId: string): string {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('room not open')
-    const token = this.invites.get(roomId) ?? this.issueInvite(roomId)
+    const token = this.invites.get(roomId) ?? this.issueInvite(roomId, room)
     return `${b4a.toString(room.bootstrapKey, 'hex')}:${token.code}`
   }
 
-  /** Owner-only: invalidates the previous invite link (any pending join requests using the old code will be rejected) and returns the new one. */
+  /** Admin-only: invalidates the previous invite link (any pending join requests using the old code will be rejected) and returns the new one. */
   regenerateInvite(roomId: string): string {
-    this.issueInvite(roomId)
+    const room = this.rooms.get(roomId)
+    this.issueInvite(roomId, room)
     return this.inviteLinkFor(roomId)
   }
 

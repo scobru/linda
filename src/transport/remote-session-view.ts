@@ -281,6 +281,14 @@ export class RemoteSessionView implements SessionView {
     })
   }
 
+  async getPairingSnapshot(): Promise<Record<string, unknown>> {
+    return await this.rpcClient.call<Record<string, unknown>>('session.getPairingSnapshot')
+  }
+
+  async importPairingSnapshot(snapshot: Record<string, unknown>): Promise<void> {
+    await this.rpcClient.call<void>('session.importPairingSnapshot', snapshot)
+  }
+
   async close(): Promise<void> {
     await this.rpcClient.call<void>('session.close')
   }
@@ -494,6 +502,14 @@ export class RemoteSessionView implements SessionView {
 
   async demoteModerator(roomId: string, identityId: string): Promise<void> {
     await this.rpcClient.call<void>('session.demoteModerator', roomId, identityId)
+  }
+
+  async promoteToAdmin(roomId: string, identityId: string): Promise<void> {
+    await this.rpcClient.call<void>('session.promoteToAdmin', roomId, identityId)
+  }
+
+  async demoteAdmin(roomId: string, identityId: string): Promise<void> {
+    await this.rpcClient.call<void>('session.demoteAdmin', roomId, identityId)
   }
 }
 

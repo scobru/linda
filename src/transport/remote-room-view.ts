@@ -10,6 +10,7 @@ export interface RemoteRoomState {
   isBroadcast?: boolean
   messageCount?: number
   ownerId?: string | null
+  admins?: string[]
   moderators?: string[]
   muted?: string[]
   banned?: string[]
@@ -32,6 +33,7 @@ export class RemoteRoomView implements RoomView {
   messageCount = 0
 
   private ownerId: string | null = null
+  private admins = new Set<string>()
   private moderators = new Set<string>()
   private muted = new Set<string>()
   private banned = new Set<string>()
@@ -58,7 +60,14 @@ export class RemoteRoomView implements RoomView {
     if (state.hasKey !== undefined) this.hasKey = state.hasKey
     if (state.isBroadcast !== undefined) this.isBroadcast = state.isBroadcast
     if (state.messageCount !== undefined) this.messageCount = state.messageCount
-    if (state.ownerId !== undefined) this.ownerId = state.ownerId
+    if (state.ownerId !== undefined) {
+      this.ownerId = state.ownerId
+      if (this.ownerId) this.admins.add(this.ownerId)
+    }
+    if (state.admins !== undefined) {
+      this.admins = new Set(state.admins)
+      if (this.ownerId) this.admins.add(this.ownerId)
+    }
     if (state.moderators !== undefined) this.moderators = new Set(state.moderators)
     if (state.muted !== undefined) this.muted = new Set(state.muted)
     if (state.banned !== undefined) this.banned = new Set(state.banned)
@@ -66,7 +75,16 @@ export class RemoteRoomView implements RoomView {
   }
 
   isOwner(identityId: string): boolean {
-    return this.ownerId === identityId
+    return this.isAdmin(identityId)
+  }
+
+  isAdmin(identityId: string): boolean {
+    return this.admins.has(identityId) || (this.ownerId !== null && this.ownerId === identityId)
+  }
+
+  listAdmins(): string[] {
+    if (this.admins.size > 0) return [...this.admins]
+    return this.ownerId ? [this.ownerId] : []
   }
 
   isModerator(identityId: string): boolean {
@@ -87,7 +105,7 @@ export class RemoteRoomView implements RoomView {
   }
 
   canModerate(identityId: string): boolean {
-    return this.isOwner(identityId) || this.isModerator(identityId)
+    return this.isAdmin(identityId) || this.isModerator(identityId)
   }
 
   listMembers(): MemberInfo[] {

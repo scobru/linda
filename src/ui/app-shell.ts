@@ -238,6 +238,7 @@ export class AppShell extends HTMLElement {
   private view: View = 'create'
   private identity: Identity | null = null
   private pendingMnemonic: string | null = null
+  private pendingPairingSnapshot?: Record<string, unknown> | null
   private session: SessionView | null = null
   private activeRoom: RoomView | null = null
   private activeRoomName = ''
@@ -622,8 +623,9 @@ export class AppShell extends HTMLElement {
       btn.disabled = true
       btn.textContent = 'Pairing via P2P swarm…'
       try {
-        const keypair = await joinPairing(code)
-        this.identity = pairIdentity(keypair, pass, storageDir())
+        const result = await joinPairing(code)
+        this.identity = pairIdentity(result.keypair, pass, storageDir())
+        this.pendingPairingSnapshot = result.snapshot
         this.enterApp()
       } catch {
         this.setError('Pairing failed or timed out')
@@ -696,6 +698,10 @@ export class AppShell extends HTMLElement {
     }
     for (const c of this.session.listContacts()) {
       if (c.avatar) this.avatars.set(c.userId, c.avatar)
+    }
+    if (this.pendingPairingSnapshot) {
+      await this.session.importPairingSnapshot(this.pendingPairingSnapshot)
+      this.pendingPairingSnapshot = undefined
     }
     await this.session.reopenBookmarkedRooms()
 
@@ -2206,7 +2212,7 @@ export class AppShell extends HTMLElement {
     const authorIsOwner = room?.isOwner(message.authorId)
     const authorIsMod = room?.isModerator(message.authorId)
     const authorRoleBadge = authorIsOwner 
-      ? `<span class="member-role-badge owner" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Room Owner">${ICONS.crown} Owner</span>`
+      ? `<span class="member-role-badge owner" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Room Admin">${ICONS.crown} Admin</span>`
       : (authorIsMod ? `<span class="member-role-badge mod" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="Moderator">${ICONS.shieldSmall} Mod</span>` : '')
 
     const selected = this.selectedMessageIds.has(message.id)
@@ -3291,13 +3297,15 @@ export class AppShell extends HTMLElement {
     })
   }
 
-  private openPairPage(): void {
+  private async openPairPage(): Promise<void> {
     this.pairStep = 'starting'
     this.pairDataUrl = ''
     this.pairStop = null
     this.view = 'pair-device'
     this.render()
 
+    // Gather the session's state so the joining device inherits all rooms and contacts.
+    const snapshot = this.session ? await this.session.getPairingSnapshot() : undefined
     this.pairStop = hostPairing(
       this.identity!,
       async (code) => {
@@ -3308,7 +3316,8 @@ export class AppShell extends HTMLElement {
       () => {
         this.pairStep = 'done'
         if (this.view === 'pair-device') this.renderPairDevicePage()
-      }
+      },
+      snapshot
     )
   }
 
@@ -3381,7 +3390,7 @@ export class AppShell extends HTMLElement {
             ${iAmOwner ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#f59e0b;display:flex;align-items:center;gap:0.4rem;">
                 <span>${ICONS.crown}</span>
-                <span>You are the <strong>Owner</strong> of this room. You have full control over roles, membership, and encryption keys.</span>
+                <span>You are an <strong>Admin</strong> of this room. You have full control over roles, membership, and encryption keys.</span>
               </div>
             ` : (iCanModerate ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(2,132,199,0.1);border:1px solid rgba(2,132,199,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#38bdf8;display:flex;align-items:center;gap:0.4rem;">
@@ -3414,7 +3423,7 @@ export class AppShell extends HTMLElement {
                       <div class="member-card-title-row">
                         <span class="member-card-name">${escapeHtml(name)}</span>
                         ${isMe ? '<span style="color:var(--accent);font-size:0.75rem;font-weight:600;">(you)</span>' : ''}
-                        ${isOwner ? `<span class="member-role-badge owner">${ICONS.crown} Owner</span>` : (isMod ? `<span class="member-role-badge mod">${ICONS.shieldSmall} Mod</span>` : '<span class="member-role-badge member">Member</span>')}
+                        ${isOwner ? `<span class="member-role-badge owner">${ICONS.crown} Admin</span>` : (isMod ? `<span class="member-role-badge mod">${ICONS.shieldSmall} Mod</span>` : '<span class="member-role-badge member">Member</span>')}
                         ${isMuted ? `<span class="member-role-badge muted">${ICONS.volumeOff} Muted</span>` : ''}
                         ${isBanned ? `<span class="member-role-badge banned">${ICONS.ban} Banned</span>` : ''}
                       </div>
@@ -3427,23 +3436,30 @@ export class AppShell extends HTMLElement {
 
                     ${canModerateThis ? `
                       <div class="member-actions-row">
-                        ${iAmOwner ? (isMod ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-id="${m.identityId}" title="Demote from Moderator">Demote</button>
+                        ${iAmOwner ? (isOwner ? `
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-admin-id="${m.identityId}" title="Demote from Admin">Demote Admin</button>
                         ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-promote-id="${m.identityId}" title="Promote to Moderator">${ICONS.shieldSmall} Promote</button>
+                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-promote-admin-id="${m.identityId}" title="Promote to Admin">${ICONS.crown} Make Admin</button>
+                          ${isMod ? `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-id="${m.identityId}" title="Demote from Moderator">Demote</button>
+                          ` : `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-promote-id="${m.identityId}" title="Promote to Moderator">${ICONS.shieldSmall} Promote</button>
+                          `}
                         `) : ''}
 
-                        ${isMuted ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">${ICONS.volumeOn} Unmute</button>
-                        ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-mute-id="${m.identityId}" title="Mute user in this room">${ICONS.volumeOff} Mute</button>
-                        `}
+                        ${!isOwner ? `
+                          ${isMuted ? `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">${ICONS.volumeOn} Unmute</button>
+                          ` : `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-mute-id="${m.identityId}" title="Mute user in this room">${ICONS.volumeOff} Mute</button>
+                          `}
 
-                        ${isBanned ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unban-id="${m.identityId}" title="Unban member">Unban</button>
-                        ` : `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-ban-writer="${m.writerKey}" data-ban-id="${m.identityId}" data-ban-name="${escapeHtml(name)}" title="Ban user permanently">${ICONS.ban} Ban</button>
-                        `}
+                          ${isBanned ? `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unban-id="${m.identityId}" title="Unban member">Unban</button>
+                          ` : `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--danger);" data-ban-writer="${m.writerKey}" data-ban-id="${m.identityId}" data-ban-name="${escapeHtml(name)}" title="Ban user permanently">${ICONS.ban} Ban</button>
+                          `}
+                        ` : ''}
                       </div>
                     ` : ''}
                   </div>
@@ -3489,6 +3505,24 @@ export class AppShell extends HTMLElement {
           if (!ok) alert('Could not send request: member is not currently connected.')
         } catch (err) {
           alert(`Could not send request: ${(err as Error).message}`)
+        }
+        this.renderMembersPage()
+      })
+    })
+
+    this.querySelectorAll<HTMLButtonElement>('[data-promote-admin-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await this.session!.promoteToAdmin?.(room.id, btn.dataset.promoteAdminId!)
+        this.renderMembersPage()
+      })
+    })
+
+    this.querySelectorAll<HTMLButtonElement>('[data-demote-admin-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await this.session!.demoteAdmin?.(room.id, btn.dataset.demoteAdminId!)
+        } catch (err) {
+          alert(`Could not demote admin: ${(err as Error).message}`)
         }
         this.renderMembersPage()
       })

@@ -204,8 +204,7 @@ test('a session that fails to open gives its storage back', async (t) => {
   // the unlock screen has no way in and no way to release it.
   fs.writeFileSync(path.join(dir, 'rooms.json'), 'not json')
   await assert.rejects(
-    Session.create(identity, dir, { transport: net }),
-    'the corrupt migration file fails the open'
+    Session.create(identity, dir, { transport: net })
   )
 
   fs.unlinkSync(path.join(dir, 'rooms.json'))

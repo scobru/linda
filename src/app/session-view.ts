@@ -38,6 +38,8 @@ export type RoomView = Pick<Room,
   | 'listFiles'
   | 'listBanned'
   | 'isOwner'
+  | 'isAdmin'
+  | 'listAdmins'
   | 'isModerator'
   | 'isMuted'
   | 'isBanned'
@@ -95,6 +97,10 @@ type SessionMembers = Pick<Session,
   | 'unbanMember'
   | 'promoteToModerator'
   | 'demoteModerator'
+  | 'promoteToAdmin'
+  | 'demoteAdmin'
+  | 'getPairingSnapshot'
+  | 'importPairingSnapshot'
 >
 
 export interface SessionView extends SessionMembers {
@@ -104,6 +110,8 @@ export interface SessionView extends SessionMembers {
   joinRoomByKey(name: string, invite: string, avatar?: string, description?: string): Promise<RoomView>
   acceptContactInvite(invite: { from: string; name: string; key: string }): Promise<RoomView>
   reopenBookmarkedRooms(): Promise<RoomView[]>
+  getPairingSnapshot(): Promise<Record<string, unknown>>
+  importPairingSnapshot(snapshot: Record<string, unknown>): Promise<void>
 }
 
 // The two checks that keep this honest. The in-process classes must keep satisfying the view they

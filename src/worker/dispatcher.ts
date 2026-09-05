@@ -18,6 +18,7 @@ export function extractRoomState(room: Room): RemoteRoomState & { roomId: string
     isBroadcast: room.isBroadcast,
     messageCount: room.messageCount,
     ownerId: room.ownerId,
+    admins: room.listAdmins(),
     moderators: room.listModerators(),
     muted: room.listMuted(),
     banned: room.listBanned(),
@@ -320,6 +321,14 @@ export class WorkerDispatcher {
       })
     },
 
+    'session.getPairingSnapshot': async () => {
+      return await this.requireSession().getPairingSnapshot()
+    },
+
+    'session.importPairingSnapshot': async (snapshot: Record<string, unknown>) => {
+      await this.requireSession().importPairingSnapshot(snapshot)
+    },
+
     'session.deleteRoom': async (roomId: string) => {
       await this.requireSession().deleteRoom(roomId)
       const bookmarks = this.requireSession().listBookmarks()
@@ -443,6 +452,18 @@ export class WorkerDispatcher {
 
     'session.demoteModerator': async (roomId: string, identityId: string) => {
       await this.requireSession().demoteModerator(roomId, identityId)
+      const room = this.requireSession().getRoom(roomId)
+      if (room) this.pushRoomState(room)
+    },
+
+    'session.promoteToAdmin': async (roomId: string, identityId: string) => {
+      await this.requireSession().promoteToAdmin(roomId, identityId)
+      const room = this.requireSession().getRoom(roomId)
+      if (room) this.pushRoomState(room)
+    },
+
+    'session.demoteAdmin': async (roomId: string, identityId: string) => {
+      await this.requireSession().demoteAdmin(roomId, identityId)
       const room = this.requireSession().getRoom(roomId)
       if (room) this.pushRoomState(room)
     },

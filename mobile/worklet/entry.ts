@@ -47,6 +47,8 @@ const wiredRooms = new WeakSet<Room>()
 let stopHostedPairing: (() => void) | null = null
 /** Started on the first play, so a session that opens no media opens no socket. */
 let mediaServer: Promise<WorkletMediaServer> | null = null
+/** Snapshot received during device pairing, imported into the session on next `session.create`. */
+let pendingPairingSnapshot: Record<string, unknown> | null = null
 
 /**
  * Serializes everything that opens or destroys the session, and makes each of those wait for the
@@ -196,18 +198,18 @@ const methods: Record<string, (...args: any[]) => any> = {
     fs.rmSync(dir, { recursive: true, force: true })
   }),
 
-  // Hosting the other half of pairing: this device already holds the identity and hands it to
-  // a new one. Can't be a plain request/reply — the code appears first and the hand-off lands
-  // later — so progress goes back as events, the way the desktop's callbacks do.
-  'identity.hostPairing': () => {
+  'identity.hostPairing': async () => {
     stopHostedPairing?.()
+    // If a session is active, gather its state so the joining device gets all rooms.
+    const snapshot = session ? await session.getPairingSnapshot() : undefined
     stopHostedPairing = hostPairing(
       requireIdentity(),
       (code) => pushEvent('pairingCode', { code }),
       () => {
         pushEvent('pairingDone')
         stopHostedPairing = null
-      }
+      },
+      snapshot
     )
   },
 
@@ -219,8 +221,9 @@ const methods: Record<string, (...args: any[]) => any> = {
   'identity.pair': async (code: string, passphrase: string, dir: string) => {
     const parsed = decodePairingCode(code)
     if (!parsed) throw new Error('invalid pairing code')
-    const keypair = await joinPairing(parsed)
-    identity = pairIdentity(keypair, passphrase, dir)
+    const result = await joinPairing(parsed)
+    identity = pairIdentity(result.keypair, passphrase, dir)
+    pendingPairingSnapshot = result.snapshot ?? null
     return { id: identity.id }
   },
 
@@ -245,6 +248,12 @@ const methods: Record<string, (...args: any[]) => any> = {
     // and `bare-pack` bails on that at bundle time, breaking the Android build entirely.
     const opened = await Session.create(requireIdentity(), dir, { events, transport: { dhtPort } })
     session = opened
+    // If a pairing snapshot was received, import it now — before the UI calls
+    // reopenBookmarkedRooms — so the bookmarks and keys are in the ProfileStore.
+    if (pendingPairingSnapshot) {
+      await opened.importPairingSnapshot(pendingPairingSnapshot)
+      pendingPairingSnapshot = null
+    }
     return {
       nickname: opened.getNickname(),
       avatar: opened.getAvatar(),

@@ -9,6 +9,14 @@ export interface PairingCode {
   key: Buffer
 }
 
+/** What `joinPairing` resolves with. The snapshot is present only when the hosting device sent one
+ * (i.e. it was running a version that gathers bookmarks/keys/contacts during pairing). Callers
+ * that predate the snapshot simply received a bare `Keypair` — consumers must handle `undefined`. */
+export interface PairingResult {
+  keypair: Keypair
+  snapshot?: Record<string, unknown>
+}
+
 export function encodePairingCode(code: PairingCode): string {
   return b4a.toString(code.topic, 'hex') + b4a.toString(code.key, 'hex')
 }
@@ -22,11 +30,13 @@ export function decodePairingCode(text: string): PairingCode | null {
   }
 }
 
-function encryptPayload(keypair: Keypair, key: Buffer): Buffer {
-  const plain = b4a.from(JSON.stringify({
+function encryptPayload(keypair: Keypair, key: Buffer, snapshot?: Record<string, unknown>): Buffer {
+  const payload: Record<string, unknown> = {
     publicKey: b4a.toString(keypair.publicKey, 'hex'),
     secretKey: b4a.toString(keypair.secretKey, 'hex')
-  }), 'utf8')
+  }
+  if (snapshot) payload.snapshot = snapshot
+  const plain = b4a.from(JSON.stringify(payload), 'utf8')
   const nonce = b4a.allocUnsafe(sodium.crypto_secretbox_NONCEBYTES)
   sodium.randombytes_buf(nonce)
   const cipher = b4a.allocUnsafe(plain.byteLength + sodium.crypto_secretbox_MACBYTES)
@@ -34,7 +44,7 @@ function encryptPayload(keypair: Keypair, key: Buffer): Buffer {
   return b4a.concat([nonce, cipher])
 }
 
-function decryptPayload(raw: Buffer, key: Buffer): Keypair {
+function decryptPayload(raw: Buffer, key: Buffer): PairingResult {
   const nonceLen = sodium.crypto_secretbox_NONCEBYTES
   const nonce = raw.subarray(0, nonceLen)
   const cipher = raw.subarray(nonceLen)
@@ -42,7 +52,10 @@ function decryptPayload(raw: Buffer, key: Buffer): Keypair {
   const ok = sodium.crypto_secretbox_open_easy(plain, cipher, nonce, key)
   if (!ok) throw new Error('decrypt failed')
   const parsed = JSON.parse(b4a.toString(plain, 'utf8'))
-  return { publicKey: b4a.from(parsed.publicKey, 'hex'), secretKey: b4a.from(parsed.secretKey, 'hex') }
+  return {
+    keypair: { publicKey: b4a.from(parsed.publicKey, 'hex'), secretKey: b4a.from(parsed.secretKey, 'hex') },
+    snapshot: parsed.snapshot
+  }
 }
 
 /**
@@ -51,8 +64,12 @@ function decryptPayload(raw: Buffer, key: Buffer): Keypair {
  * keypair, encrypted with a separate random key not derivable from the topic
  * (so DHT-level topic exposure alone doesn't leak the identity). One-shot —
  * closes after the first successful pair. Returns a stop function to cancel.
+ *
+ * `snapshot` is an optional JSON-serializable blob of state (bookmarks, room
+ * keys, contacts, profile) for the joining device to import — so it doesn't
+ * start with an empty room list after pairing.
  */
-export function hostPairing(identity: Keypair, onReady: (code: string) => void, onPaired: () => void): () => void {
+export function hostPairing(identity: Keypair, onReady: (code: string) => void, onPaired: () => void, snapshot?: Record<string, unknown>): () => void {
   const topic = b4a.allocUnsafe(32)
   sodium.randombytes_buf(topic)
   const key = b4a.allocUnsafe(sodium.crypto_secretbox_KEYBYTES)
@@ -64,7 +81,7 @@ export function hostPairing(identity: Keypair, onReady: (code: string) => void, 
   swarm.on('connection', (socket) => {
     if (done) { socket.destroy(); return }
     done = true
-    socket.end(encryptPayload(identity, key))
+    socket.end(encryptPayload(identity, key, snapshot))
     socket.on('close', () => { void swarm.destroy(); onPaired() })
     socket.on('error', () => {})
   })
@@ -76,11 +93,12 @@ export function hostPairing(identity: Keypair, onReady: (code: string) => void, 
 
 /**
  * Runs on a fresh device with no identity yet. Joins the topic from a scanned
- * pairing code, receives the encrypted keypair from the hosting device, and
- * resolves it for local persistence (caller still picks a local passphrase
- * and calls `pairIdentity`, exactly like the manual recovery-phrase flow).
+ * pairing code, receives the encrypted keypair (and optional snapshot) from
+ * the hosting device, and resolves it for local persistence (caller still picks
+ * a local passphrase and calls `pairIdentity`, exactly like the manual
+ * recovery-phrase flow).
  */
-export function joinPairing(code: PairingCode): Promise<Keypair> {
+export function joinPairing(code: PairingCode): Promise<PairingResult> {
   return new Promise((resolve, reject) => {
     const swarm = new Hyperswarm({ keyPair: crypto.keyPair() })
     const timeout = setTimeout(() => { void swarm.destroy(); reject(new Error('pairing timed out')) }, 30000)

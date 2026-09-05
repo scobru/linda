@@ -41,6 +41,8 @@ type NotForwarded =
   | 'mediaUrl'
   | 'getAppBackground'
   | 'setAppBackground'
+  | 'getPairingSnapshot'
+  | 'importPairingSnapshot'
 
 export type ForwardedSessionMethod = Exclude<MethodNames<Session>, NotForwarded>
 
