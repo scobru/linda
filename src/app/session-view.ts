@@ -83,6 +83,7 @@ type SessionMembers = Pick<Session,
   | 'setRoomBroadcast'
   | 'updateRoomMeta'
   | 'clearRoomHistory'
+  | 'restoreRoomHistory'
   | 'deleteMessage'
   | 'inviteLinkFor'
   | 'regenerateInvite'

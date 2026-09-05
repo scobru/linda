@@ -371,6 +371,11 @@ export class WorkerDispatcher {
       this.pushEvent('bookmarksChange', this.requireSession().listBookmarks())
     },
 
+    'session.restoreRoomHistory': (roomId: string) => {
+      this.requireSession().restoreRoomHistory(roomId)
+      this.pushEvent('bookmarksChange', this.requireSession().listBookmarks())
+    },
+
     'session.deleteMessage': async (roomId: string, messageId: string) => {
       await this.requireSession().deleteMessage(roomId, messageId)
     },

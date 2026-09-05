@@ -1542,6 +1542,16 @@ export class Session {
     void this.saveBookmark({ ...bookmark, clearedAt: Date.now() })
   }
 
+  /** Restores the local view of the room's chat history by dropping `clearedAt` from the bookmark.
+   * The replicated log was never touched, so messages reappear immediately from local storage. */
+  restoreRoomHistory(roomId: string): void {
+    const bookmark = this.bookmarks.get(roomId)
+    if (!bookmark || !bookmark.clearedAt) return
+    const updated = { ...bookmark }
+    delete updated.clearedAt
+    void this.saveBookmark(updated)
+  }
+
   /** Stamps a room as viewed "now" so it drops out of the unread filter until its next message. */
   markRoomRead(roomId: string): void {
     const bookmark = this.bookmarks.get(roomId)

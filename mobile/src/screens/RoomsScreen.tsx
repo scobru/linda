@@ -169,14 +169,31 @@ export default function RoomsScreen({ navigation }: Props) {
     )
   }, [session, refresh])
 
+  const handleRestoreHistory = useCallback((id: string, name: string) => {
+    if (!session) return
+    Alert.alert(
+      'Restore chat history?',
+      `Restore hidden messages in "${name}"? Messages will reappear immediately.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore', onPress: () => {
+            void session.restoreRoomHistory(id).then(refresh)
+          },
+        },
+      ]
+    )
+  }, [session, refresh])
+
   // A Modal rather than Alert.alert: Android's dialog renders at most three buttons and silently
   // drops the rest, so the fourth — the one that removes the room — was invisible on every phone.
   // A room that cannot be opened and cannot be removed is a dead entry the user is stuck with.
-  const [roomOptions, setRoomOptions] = useState<{ id: string; name: string; isFavorite: boolean } | null>(null)
+  const [roomOptions, setRoomOptions] = useState<{ id: string; name: string; isFavorite: boolean; isCleared: boolean } | null>(null)
 
   const handleRoomOptions = useCallback((id: string, name: string, isFavorite: boolean) => {
-    setRoomOptions({ id, name, isFavorite })
-  }, [])
+    const isCleared = (bookmarks.find((b) => b.id === id)?.clearedAt ?? 0) > 0
+    setRoomOptions({ id, name, isFavorite, isCleared })
+  }, [bookmarks])
 
   const rowActions = useMemo<RoomRowActions>(() => ({
     onOpen: (id, name) => openRoom(id, name),
@@ -364,6 +381,20 @@ export default function RoomsScreen({ navigation }: Props) {
                 {roomOptions?.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
               </Text>
             </Pressable>
+
+            {roomOptions?.isCleared ? (
+              <Pressable
+                style={styles.optionRow}
+                onPress={() => {
+                  const o = roomOptions
+                  setRoomOptions(null)
+                  if (o) handleRestoreHistory(o.id, o.name)
+                }}
+              >
+                <Ionicons name="refresh-outline" size={18} color={colors.cyan} />
+                <Text style={[styles.optionText, { color: colors.cyan }]}>Restore Chat History</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
               style={styles.optionRow}

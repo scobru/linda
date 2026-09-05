@@ -50,6 +50,7 @@ export const FORWARDED_SESSION_METHODS = [
   'banMember',
   'broadcastPresence',
   'clearRoomHistory',
+  'restoreRoomHistory',
   'createContactInvite',
   'deleteBlobs',
   'deleteContact',

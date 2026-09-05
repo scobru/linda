@@ -1,5 +1,6 @@
 import React from 'react'
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native'
+import { Platform } from 'react-native'
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
@@ -39,11 +40,12 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>()
 
 function navTheme(colors: ThemeColors, isDark: boolean) {
+  const base = isDark ? DarkTheme : DefaultTheme
   return {
-    ...DefaultTheme,
+    ...base,
     dark: isDark,
     colors: {
-      ...DefaultTheme.colors,
+      ...base.colors,
       primary: colors.accent,
       background: colors.bgPrimary,
       card: colors.bgSecondary,
@@ -64,7 +66,11 @@ function screenOptions(colors: ThemeColors) {
     },
     headerShadowVisible: false,
     contentStyle: { backgroundColor: colors.bgPrimary },
-    animation: 'slide_from_right' as const,
+    // On Android with Fabric (New Architecture), custom 'slide_from_right' can drop frames during
+    // pop navigation and flash the window background. The platform-native animation is smooth and synchronized.
+    animation: Platform.OS === 'android' ? ('default' as const) : ('slide_from_right' as const),
+    // Prevents inactive screens from suspending layout, eliminating the 1-frame unfreeze flash when popping back.
+    freezeOnBlur: false,
   }
 }
 

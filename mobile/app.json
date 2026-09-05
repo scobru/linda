@@ -3,11 +3,12 @@
     "name": "Linda",
     "slug": "linda-pear-mobile",
     "scheme": "linda-pear",
-    "version": "1.14.50",
+    "version": "1.14.53",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "backgroundColor": "#0e121a",
     "splash": {
       "backgroundColor": "#0b0f14"
     },
@@ -19,6 +20,7 @@
       }
     },
     "android": {
+      "backgroundColor": "#0e121a",
       "adaptiveIcon": {
         "backgroundColor": "#0b0f14"
       },

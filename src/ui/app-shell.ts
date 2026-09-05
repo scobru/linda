@@ -225,7 +225,8 @@ const ICONS = {
   starFilled: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   chatSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
   shieldSmall: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
-  hash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`
+  hash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
+  history: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -3035,6 +3036,7 @@ export class AppShell extends HTMLElement {
   private renderRoomSettingsPage(): void {
     const room = this.activeRoom
     if (!room || !this.session) { this.view = 'app'; return this.render() }
+    const isHistoryCleared = (this.session.listBookmarks().find((b) => b.id === room.id)?.clearedAt ?? 0) > 0
 
     this.innerHTML = `
       <div class="page-view">
@@ -3096,6 +3098,14 @@ export class AppShell extends HTMLElement {
               </button>
             </div>
 
+            ${isHistoryCleared ? `
+            <div class="form-group" style="margin-top:0.25rem;">
+              <button id="restoreHistoryBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--accent);border-radius:var(--radius-md);color:var(--accent);">
+                ${ICONS.history} Restore Chat History
+              </button>
+            </div>
+            ` : ''}
+
             <div class="form-group" style="margin-top:0.25rem;">
               <button id="clearHistoryBtn" class="ghost" type="button" style="width:100%;padding:0.65rem 0.85rem;border:1px solid var(--danger);border-radius:var(--radius-md);color:var(--danger);">
                 ${ICONS.trash} Clear Chat History
@@ -3119,6 +3129,13 @@ export class AppShell extends HTMLElement {
     this.wirePageBack()
     this.querySelector('#manageMembersFromSettingsBtn')?.addEventListener('click', () => this.openMembersPage(room))
     this.querySelector('#cancelRoomBtn')?.addEventListener('click', () => { this.view = 'app'; this.render() })
+
+    this.querySelector('#restoreHistoryBtn')?.addEventListener('click', () => {
+      this.session!.restoreRoomHistory(room.id)
+      this.view = 'app'
+      this.forceScrollOnNextRender = true
+      this.render()
+    })
 
     this.querySelector('#clearHistoryBtn')?.addEventListener('click', () => {
       if (!confirm(`Clear all messages in "${this.activeRoomName}"? This only clears your own view — other members keep their copy, and history reappears if you rejoin from a backup.`)) return

@@ -160,6 +160,12 @@ test('anti-drift: full parity test between in-process Session and RemoteSessionV
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.ok(remoteBm.clearedAt! > 0)
 
+    // Restore room history
+    remoteSession.restoreRoomHistory(remoteRoom.id)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const restoredBm = remoteSession.listBookmarks().find((b) => b.id === remoteRoom.id)!
+    assert.equal(restoredBm.clearedAt, undefined)
+
     // 6. Messages and reactions parity
     let onMessageCalled = false
     remoteRoom.onMessage((index) => {

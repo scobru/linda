@@ -35,7 +35,9 @@ function AppShell() {
   return (
     <SessionProvider>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.bgPrimary} />
-      <Navigation initialRoute={initialRoute} />
+      <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
+        <Navigation initialRoute={initialRoute} />
+      </View>
     </SessionProvider>
   )
 }

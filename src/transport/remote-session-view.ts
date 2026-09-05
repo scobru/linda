@@ -439,6 +439,12 @@ export class RemoteSessionView implements SessionView {
     void this.rpcClient.call<void>('session.clearRoomHistory', roomId)
   }
 
+  restoreRoomHistory(roomId: string): void {
+    const bm = this.bookmarks.find((b) => b.id === roomId)
+    if (bm) delete bm.clearedAt
+    void this.rpcClient.call<void>('session.restoreRoomHistory', roomId)
+  }
+
   async deleteMessage(roomId: string, messageId: string): Promise<void> {
     await this.rpcClient.call<void>('session.deleteMessage', roomId, messageId)
   }
