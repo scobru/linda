@@ -1625,7 +1625,13 @@ export class AppShell extends HTMLElement {
       ? 'You are muted in this room'
       : !canPost
         ? 'Only admins can send messages in this broadcast room'
-        : 'You do not have write access to this room yet'
+        : !room.hasKey
+          ? 'Waiting for room encryption keys from an online peer...'
+          : !room.writable
+            ? (room.isAdmin(this.identity!.id)
+                ? 'Connecting to sync room access with an online peer...'
+                : 'You do not have write access to this room yet')
+            : ''
     const memberCount = room.listMembers().length || 1
     const isFavorite = this.session!.isRoomFavorite(room.id)
 
@@ -3357,6 +3363,7 @@ export class AppShell extends HTMLElement {
     const myId = this.identity!.id
     const iAmOwner = room.isOwner(myId)
     const iCanModerate = room.canModerate(myId)
+    const isWritable = room.writable
     const currentBookmark = this.session.listBookmarks().find((b) => b.id === room.id)
     const roomAvatar = currentBookmark?.avatar || room.avatar || ''
     const contactIds = new Set(this.session.listContacts().map((c) => c.userId))
@@ -3390,7 +3397,7 @@ export class AppShell extends HTMLElement {
             ${iAmOwner ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#f59e0b;display:flex;align-items:center;gap:0.4rem;">
                 <span>${ICONS.crown}</span>
-                <span>You are an <strong>Admin</strong> of this room. You have full control over roles, membership, and encryption keys.</span>
+                <span>You are an <strong>Admin</strong> of this room.${!isWritable ? ' <em>(Connecting to sync write access with an online peer...)</em>' : ' You have full control over roles, membership, and encryption keys.'}</span>
               </div>
             ` : (iCanModerate ? `
               <div style="padding:0.5rem 0.75rem;background:rgba(2,132,199,0.1);border:1px solid rgba(2,132,199,0.3);border-radius:var(--radius-sm);font-size:0.75rem;color:#38bdf8;display:flex;align-items:center;gap:0.4rem;">
@@ -3512,7 +3519,11 @@ export class AppShell extends HTMLElement {
 
     this.querySelectorAll<HTMLButtonElement>('[data-promote-admin-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.promoteToAdmin?.(room.id, btn.dataset.promoteAdminId!)
+        try {
+          await this.session!.promoteToAdmin?.(room.id, btn.dataset.promoteAdminId!)
+        } catch (err) {
+          alert(`Could not promote to admin: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })
@@ -3530,28 +3541,44 @@ export class AppShell extends HTMLElement {
 
     this.querySelectorAll<HTMLButtonElement>('[data-promote-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.promoteToModerator(room.id, btn.dataset.promoteId!)
+        try {
+          await this.session!.promoteToModerator(room.id, btn.dataset.promoteId!)
+        } catch (err) {
+          alert(`Could not promote to moderator: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })
 
     this.querySelectorAll<HTMLButtonElement>('[data-demote-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.demoteModerator(room.id, btn.dataset.demoteId!)
+        try {
+          await this.session!.demoteModerator(room.id, btn.dataset.demoteId!)
+        } catch (err) {
+          alert(`Could not demote moderator: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })
 
     this.querySelectorAll<HTMLButtonElement>('[data-mute-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.muteMember(room.id, btn.dataset.muteId!)
+        try {
+          await this.session!.muteMember(room.id, btn.dataset.muteId!)
+        } catch (err) {
+          alert(`Could not mute member: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })
 
     this.querySelectorAll<HTMLButtonElement>('[data-unmute-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.unmuteMember(room.id, btn.dataset.unmuteId!)
+        try {
+          await this.session!.unmuteMember(room.id, btn.dataset.unmuteId!)
+        } catch (err) {
+          alert(`Could not unmute member: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })
@@ -3560,7 +3587,11 @@ export class AppShell extends HTMLElement {
       btn.addEventListener('click', async () => {
         const name = btn.dataset.banName || 'this member'
         if (confirm(`Ban ${name} from the room? Their write access will be revoked, content keys rotated, and they will be blocked from rejoining.`)) {
-          await this.session!.banMember(room.id, btn.dataset.banWriter!, btn.dataset.banId!)
+          try {
+            await this.session!.banMember(room.id, btn.dataset.banWriter!, btn.dataset.banId!)
+          } catch (err) {
+            alert(`Could not ban member: ${(err as Error).message}`)
+          }
           this.renderMembersPage()
         }
       })
@@ -3568,7 +3599,11 @@ export class AppShell extends HTMLElement {
 
     this.querySelectorAll<HTMLButtonElement>('[data-unban-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await this.session!.unbanMember(room.id, btn.dataset.unbanId!)
+        try {
+          await this.session!.unbanMember(room.id, btn.dataset.unbanId!)
+        } catch (err) {
+          alert(`Could not unban member: ${(err as Error).message}`)
+        }
         this.renderMembersPage()
       })
     })

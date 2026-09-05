@@ -89,7 +89,7 @@ export class RoomProxy {
     return result
   }
 
-  listMembers(): Promise<{ members: MemberInfo[]; ownerId: string | null; moderators: string[]; muted: string[]; banned: string[] }> {
+  listMembers(): Promise<{ members: MemberInfo[]; ownerId: string | null; admins: string[]; moderators: string[]; muted: string[]; banned: string[] }> {
     return bareClient.call('room.listMembers', this.id)
   }
 

@@ -137,8 +137,7 @@ export class Session {
       onReadReceipt: events.onReadReceipt,
       onRequestWrite: (message, channel) => {
         const room = [...this.rooms.values()].find((r) => b4a.toString(r.bootstrapKey, 'hex') === message.bootstrapKey)
-        if (!room || !room.writable || !room.isAdmin(identity.id)) return
-        if (room.isBanned(message.identityId)) return
+        if (!room || room.isBanned(message.identityId)) return
         // Two separate questions, and conflating them locked returning members out. A currently
         // listed member needs no invite code to be let back in — but if it comes back on a writer
         // key the room has never seen (it purged its copy and reopened, or it's a second device),
@@ -157,7 +156,7 @@ export class Session {
         if (!isCurrentMember && !hasValidInvite) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
-          if (!isExistingWriter) {
+          if (!isExistingWriter && room.writable && room.isAdmin(identity.id)) {
             await room.addWriter(b4a.from(message.writerKey, 'hex'), message.identityId)
           }
           const keyHex = room.currentKeyHex
@@ -1395,11 +1394,11 @@ export class Session {
     peer.rpc.sendRequestWrite({ bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), writerKey: b4a.toString(room.localWriterKey, 'hex'), identityId: this.identity.id, inviteCode })
   }
 
-  /** Admin-only: pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
+  /** Pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
   private syncKeyIfOwner(room: Room, peer: PeerConnection): void {
-    if (!room.isAdmin(this.identity.id)) return
     const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
     if (!room.listMembers().some((m) => m.identityId === peerIdentityId)) return
+    if (room.isBanned(peerIdentityId)) return
     const keyHex = room.currentKeyHex
     if (keyHex) peer.rpc.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
   }

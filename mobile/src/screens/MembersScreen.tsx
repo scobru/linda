@@ -27,6 +27,7 @@ function Badge({ icon, label, color }: { icon: keyof typeof Ionicons.glyphMap; l
 interface ModerationState {
   members: MemberInfo[]
   ownerId: string | null
+  admins: string[]
   moderators: string[]
   muted: string[]
   banned: string[]
@@ -116,8 +117,9 @@ export default function MembersScreen({ route, navigation }: Props) {
 
   const myId = identity?.id ?? ''
   const iAmOwner = state?.ownerId === myId
+  const iAmAdmin = Boolean(state?.admins?.includes(myId) || iAmOwner)
   const iAmModerator = state?.moderators.includes(myId) ?? false
-  const iCanModerate = iAmOwner || iAmModerator
+  const iCanModerate = iAmAdmin || iAmModerator
 
   const displayName = useCallback((identityId: string) => {
     if (identityId === myId) return 'You'
@@ -161,6 +163,17 @@ export default function MembersScreen({ route, navigation }: Props) {
         keyExtractor={(m) => m.writerKey}
         ListHeaderComponent={iCanModerate ? (
           <View style={{ paddingBottom: spacing.sm }}>
+            {iAmAdmin ? (
+              <View style={styles.bannerAdmin}>
+                <Ionicons name="star" size={14} color={colors.warning} />
+                <Text style={styles.bannerAdminText}>You are an Admin of this room. You have full control over roles, membership, and encryption keys.</Text>
+              </View>
+            ) : (
+              <View style={styles.bannerMod}>
+                <Ionicons name="shield-outline" size={14} color={colors.info} />
+                <Text style={styles.bannerModText}>You are a Moderator. You can ban and mute members in this room.</Text>
+              </View>
+            )}
             {/* Room name, description and icon were only editable from desktop — a room created on
                 a phone could never be renamed or given a picture there. The icon presets are the
                 desktop's own list, shared from src/ui/room-presets.ts. Owner/moderator only, as
@@ -221,11 +234,11 @@ export default function MembersScreen({ route, navigation }: Props) {
                 <Text style={styles.saveMetaText}>{savingMeta ? 'Saving…' : 'Save changes'}</Text>
               </Pressable>
             </View>
-            {iAmOwner && (
+            {iAmAdmin && (
               <View style={styles.row}>
                 <View style={styles.info}>
                   <Text style={styles.name}>Broadcast</Text>
-                  <Text style={styles.sectionTitle}>Only you and moderators can post</Text>
+                  <Text style={styles.sectionTitle}>Only admins and moderators can post</Text>
                 </View>
                 <Switch value={broadcast} onValueChange={toggleBroadcast} />
               </View>
@@ -253,11 +266,13 @@ export default function MembersScreen({ route, navigation }: Props) {
         ) : null}
         renderItem={({ item }) => {
           const isOwner = item.identityId === state.ownerId
+          const isAdmin = Boolean(state.admins?.includes(item.identityId) || isOwner)
           const isMod = state.moderators.includes(item.identityId)
           const isMuted = state.muted.includes(item.identityId)
           const isSelf = item.identityId === myId
-          const isPrivileged = isOwner || isMod
+          const isPrivileged = isAdmin || isMod
           const name = displayName(item.identityId)
+          const totalAdmins = state.admins?.length || (state.ownerId ? 1 : 0)
 
           return (
             <View style={styles.row}>
@@ -265,8 +280,8 @@ export default function MembersScreen({ route, navigation }: Props) {
               <View style={styles.info}>
                 <Text style={styles.name}>{name}</Text>
                 <View style={styles.badgeRow}>
-                  {isOwner && <Badge icon="star" label="Owner" color={colors.warning} />}
-                  {isMod && !isOwner && <Badge icon="shield-outline" label="Mod" color={colors.info} />}
+                  {isAdmin && <Badge icon="star" label="Admin" color={colors.warning} />}
+                  {isMod && !isAdmin && <Badge icon="shield-outline" label="Mod" color={colors.info} />}
                   {isMuted && <Badge icon="volume-mute-outline" label="Muted" color={colors.textTertiary} />}
                 </View>
               </View>
@@ -281,13 +296,32 @@ export default function MembersScreen({ route, navigation }: Props) {
                     <Text style={styles.actionText}>Add contact</Text>
                   </Pressable>
                 )}
-                {iAmOwner && !isOwner && !isSelf && (
-                  <Pressable
-                    onPress={() => run(() => isMod ? session!.demoteModerator(roomId, item.identityId) : session!.promoteToModerator(roomId, item.identityId))}
-                    style={styles.actionBtn}
-                  >
-                    <Text style={styles.actionText}>{isMod ? 'Demote' : 'Promote'}</Text>
-                  </Pressable>
+                {iAmAdmin && !isSelf && (
+                  isAdmin ? (
+                    totalAdmins > 1 ? (
+                      <Pressable
+                        onPress={() => run(() => session!.demoteAdmin(roomId, item.identityId))}
+                        style={styles.actionBtn}
+                      >
+                        <Text style={[styles.actionText, { color: colors.warning }]}>Demote Admin</Text>
+                      </Pressable>
+                    ) : null
+                  ) : (
+                    <>
+                      <Pressable
+                        onPress={() => run(() => session!.promoteToAdmin(roomId, item.identityId))}
+                        style={styles.actionBtn}
+                      >
+                        <Text style={[styles.actionText, { color: colors.accentLight }]}>Make Admin</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => run(() => isMod ? session!.demoteModerator(roomId, item.identityId) : session!.promoteToModerator(roomId, item.identityId))}
+                        style={styles.actionBtn}
+                      >
+                        <Text style={styles.actionText}>{isMod ? 'Demote' : 'Promote'}</Text>
+                      </Pressable>
+                    </>
+                  )
                 )}
                 {iCanModerate && !isPrivileged && !isSelf && (
                   <Pressable
@@ -326,13 +360,35 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   name: { color: colors.textPrimary, fontSize: typography.md, fontWeight: typography.medium },
   badgeRow: { flexDirection: 'row', gap: spacing.sm },
   badge: { color: colors.textTertiary, fontSize: typography.xs },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, maxWidth: 180, justifyContent: 'flex-end' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, maxWidth: 220, justifyContent: 'flex-end' },
   actionBtn: {
     backgroundColor: colors.bgTertiary, borderRadius: radii.sm,
     paddingHorizontal: spacing.sm, paddingVertical: spacing.xs,
   },
   banBtn: { backgroundColor: colors.error },
   actionText: { color: colors.textPrimary, fontSize: typography.xs, fontWeight: typography.semibold },
+  bannerAdmin: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderRadius: radii.sm,
+    marginHorizontal: spacing.lg, marginVertical: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  bannerAdminText: {
+    flex: 1, color: colors.warning, fontSize: typography.xs, fontWeight: typography.medium,
+  },
+  bannerMod: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: 'rgba(2, 132, 199, 0.1)',
+    borderWidth: 1, borderColor: 'rgba(2, 132, 199, 0.3)',
+    borderRadius: radii.sm,
+    marginHorizontal: spacing.lg, marginVertical: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  bannerModText: {
+    flex: 1, color: colors.info, fontSize: typography.xs, fontWeight: typography.medium,
+  },
   sectionTitle: {
     color: colors.textSecondary, fontSize: typography.xs, fontWeight: typography.semibold,
     textTransform: 'uppercase', letterSpacing: 1,

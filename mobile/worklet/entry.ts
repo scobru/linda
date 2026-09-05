@@ -351,6 +351,7 @@ const methods: Record<string, (...args: any[]) => any> = {
     return {
       members: room.listMembers(),
       ownerId: room.ownerId,
+      admins: room.listAdmins(),
       moderators: room.listModerators(),
       muted: room.listMuted(),
       banned: room.listBanned()
