@@ -3,14 +3,16 @@ import b4a from 'b4a'
 import type { Duplex } from 'node:stream'
 import type { Keypair } from '../identity/keypair.js'
 import { attachRpc, type RpcChannel, type RpcHandlers } from './rpc.js'
+import { attachCallRpc, type CallRpcChannel, type CallRpcHandlers } from '../call/call-rpc.js'
 
 export interface PeerConnection {
   socket: Duplex
   rpc: RpcChannel
+  callRpc: CallRpcChannel
   remotePublicKey: Buffer
 }
 
-export interface SwarmHandlers extends RpcHandlers {
+export interface SwarmHandlers extends RpcHandlers, CallRpcHandlers {
   onConnection?(peer: PeerConnection): void
   onDisconnection?(remotePublicKey: Buffer): void
 }
@@ -72,7 +74,24 @@ export function handleConnection(socket: Duplex, remotePublicKey: Buffer, handle
       if (message.fromId === remoteId) handlers.onContactResponse?.(message)
     }
   })
-  handlers.onConnection?.({ socket, rpc, remotePublicKey })
+  const callRpc = attachCallRpc(socket, {
+    onCallOffer: (message) => {
+      if (message.fromId === remoteId) handlers.onCallOffer?.(message)
+    },
+    onCallAnswer: (message) => {
+      if (message.fromId === remoteId) handlers.onCallAnswer?.(message)
+    },
+    onCallEnd: (message) => {
+      if (message.fromId === remoteId) handlers.onCallEnd?.(message)
+    },
+    onCallControl: (message) => {
+      if (message.fromId === remoteId) handlers.onCallControl?.(message)
+    },
+    onMediaFrame: (message) => {
+      handlers.onMediaFrame?.(message)
+    }
+  })
+  handlers.onConnection?.({ socket, rpc, callRpc, remotePublicKey })
 
   socket.on('close', () => handlers.onDisconnection?.(remotePublicKey))
   socket.on('error', () => {})

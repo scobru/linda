@@ -8,6 +8,8 @@ import Navigation from './src/navigation'
 import { identityExists } from './src/bare/identity-client'
 import { storageDir } from './src/bare/storage-dir'
 import { ensureNotificationChannel } from './src/notifications'
+import IncomingCallModal from './src/components/IncomingCallModal'
+import ActiveCallModal from './src/components/ActiveCallModal'
 
 // Without this, a push arriving while the app is foregrounded is silently swallowed —
 // Expo requires an explicit handler to opt into showing it as a banner/alert.
@@ -37,6 +39,8 @@ function AppShell() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.bgPrimary} />
       <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
         <Navigation initialRoute={initialRoute} />
+        <IncomingCallModal />
+        <ActiveCallModal />
       </View>
     </SessionProvider>
   )

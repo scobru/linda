@@ -240,7 +240,12 @@ const methods: Record<string, (...args: any[]) => any> = {
       onBookmarksChange: () => pushEvent('bookmarksChange'),
       onIncomingMessage: (roomId, message) => pushEvent('incomingMessage', { roomId, message }),
       onTyping: (m) => pushEvent('typing', m),
-      onReadReceipt: (m) => pushEvent('readReceipt', m)
+      onReadReceipt: (m) => pushEvent('readReceipt', m),
+      onIncomingCall: (info) => pushEvent('incomingCall', info),
+      onCallStateChange: (info) => pushEvent('callStateChange', info),
+      onCallEnded: (info) => pushEvent('callEnded', info),
+      onCallRemoteControl: (callId, action) => pushEvent('callRemoteControl', { callId, action }),
+      onCallMediaFrame: (frame) => pushEvent('callMediaFrame', frame)
     }
     storageDir = dir
     // No `createLanDiscovery` here — see `SwarmTransport.createLanDiscovery` in swarm.ts. It

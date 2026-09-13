@@ -10,7 +10,9 @@ import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
+import type { CallInfo, CallMediaOptions } from '@core/call/call-session'
 import { privateModeEnabled } from '../private-mode'
+import * as Haptics from 'expo-haptics'
 
 interface SessionContextValue {
   session: SessionProxy | null
@@ -22,6 +24,18 @@ interface SessionContextValue {
   onlineUsers: Set<string>
   nicknames: Map<string, string>
   avatars: Map<string, string>
+
+  // Calls
+  activeCall: CallInfo | null
+  incomingCall: CallInfo | null
+  callDuration: number
+  isCallMuted: boolean
+  isCallVideoOff: boolean
+  startCall: (peerId: string, roomId: string, media?: CallMediaOptions) => Promise<CallInfo>
+  answerCall: (callId: string, accept: boolean) => Promise<void>
+  endCall: (callId?: string) => Promise<void>
+  toggleCallMute: () => void
+  toggleCallVideo: () => void
 
   // Actions
   initSession: (identity: Identity, storageDir: string, opts?: { autoJoinInvite?: { name: string; key: string }[] }) => Promise<void>
@@ -55,6 +69,11 @@ export function SessionProvider({ children }: Props) {
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const [avatars, setAvatars] = useState<Map<string, string>>(new Map())
+  const [activeCall, setActiveCall] = useState<CallInfo | null>(null)
+  const [incomingCall, setIncomingCall] = useState<CallInfo | null>(null)
+  const [callDuration, setCallDuration] = useState(0)
+  const [isCallMuted, setIsCallMuted] = useState(false)
+  const [isCallVideoOff, setIsCallVideoOff] = useState(false)
   const [, setTick] = useState(0)
   const nicknamesRef = useRef(nicknames)
   useEffect(() => { nicknamesRef.current = nicknames }, [nicknames])
@@ -62,6 +81,19 @@ export function SessionProvider({ children }: Props) {
   useEffect(() => { bookmarksRef.current = bookmarks }, [bookmarks])
   const activeRoomIdRef = useRef<string | null>(null)
   const setActiveRoomId = useCallback((roomId: string | null) => { activeRoomIdRef.current = roomId }, [])
+
+  useEffect(() => {
+    if (activeCall?.state === 'connected' && activeCall.startedAt) {
+      const start = activeCall.startedAt
+      const update = () => {
+        setCallDuration(Math.floor((Date.now() - start) / 1000))
+      }
+      update()
+      const timer = setInterval(update, 1000)
+      return () => clearInterval(timer)
+    }
+    setCallDuration(0)
+  }, [activeCall?.state, activeCall?.startedAt])
 
   // App icon badge = count of unread rooms, same "latest message postdates lastReadAt" rule
   // RoomsScreen uses for its own unread dot/filter.
@@ -211,6 +243,51 @@ export function SessionProvider({ children }: Props) {
         trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
       }).catch(() => {})
     })
+    bareClient.on('incomingCall', (info: CallInfo) => {
+      setIncomingCall(info)
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {})
+      if (AppState.currentState !== 'active') {
+        const callerName = nicknamesRef.current.get(info.peerId) || 'Someone'
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Incoming Linda Call',
+            body: `${callerName} is calling (${info.media.video ? 'Video' : 'Audio'})...`,
+            sound: 'notification_ping.wav',
+          },
+          trigger: null,
+        }).catch(() => {})
+      }
+    })
+    bareClient.on('callStateChange', (info: CallInfo) => {
+      if (info.state === 'ended') {
+        setActiveCall(null)
+        setIncomingCall(null)
+      } else if (info.direction === 'incoming' && info.state === 'ringing') {
+        setIncomingCall(info)
+      } else {
+        setActiveCall(info)
+        if (info.state === 'connected') {
+          setIncomingCall(null)
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+        }
+      }
+    })
+    bareClient.on('callEnded', () => {
+      setActiveCall(null)
+      setIncomingCall(null)
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+    })
+    bareClient.on('callRemoteControl', ({ callId, action }: { callId: string; action: string }) => {
+      setActiveCall((prev) => {
+        if (!prev || prev.callId !== callId) return prev
+        if (action === 'mute') return { ...prev, remoteMuted: true }
+        if (action === 'unmute') return { ...prev, remoteMuted: false }
+        if (action === 'video-off') return { ...prev, remoteCameraOff: true }
+        if (action === 'video-on') return { ...prev, remoteCameraOff: false }
+        return prev
+      })
+    })
+
     // A room's name/avatar/description edited on another device replicates in, but the local
     // bookmark cache the room list renders from only updates itself in response to this event.
     bareClient.on('bookmarksChange', () => { scheduleRefresh() })
@@ -246,6 +323,9 @@ export function SessionProvider({ children }: Props) {
     setContacts(info.contacts)
     setAvatars(new Map(info.peerAvatars))
 
+    const initialCall = await s.getActiveCall().catch(() => null)
+    if (initialCall) setActiveCall(initialCall)
+
     // Deliberately last: the OS permission dialog this triggers (first run after this
     // feature shipped) pauses the Activity, and requesting it while the swarm was still
     // mid-bootstrap raced the DHT announce/lookup — fine on wifi's slack, not on cellular's
@@ -263,6 +343,61 @@ export function SessionProvider({ children }: Props) {
     })
   }, [openSession])
 
+  const startCall = useCallback(async (peerId: string, roomId: string, media?: CallMediaOptions): Promise<CallInfo> => {
+    const s = sessionRef.current
+    if (!s) throw new Error('no active session')
+    setIsCallMuted(false)
+    setIsCallVideoOff(false)
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+    const info = await s.startCall(peerId, roomId, media ?? { audio: true, video: true })
+    setActiveCall(info)
+    return info
+  }, [])
+
+  const answerCall = useCallback(async (callId: string, accept: boolean): Promise<void> => {
+    const s = sessionRef.current
+    if (!s) return
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    if (!accept) {
+      setIncomingCall(null)
+    }
+    await s.answerCall(callId, accept)
+    if (accept && incomingCall) {
+      setActiveCall({ ...incomingCall, state: 'connected', startedAt: Date.now() })
+      setIncomingCall(null)
+    }
+  }, [incomingCall])
+
+  const endCall = useCallback(async (callId?: string): Promise<void> => {
+    const s = sessionRef.current
+    if (!s) return
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {})
+    const targetId = callId || activeCall?.callId || incomingCall?.callId
+    if (targetId) {
+      await s.endCall(targetId)
+    }
+    setActiveCall(null)
+    setIncomingCall(null)
+    setIsCallMuted(false)
+    setIsCallVideoOff(false)
+  }, [activeCall, incomingCall])
+
+  const toggleCallMute = useCallback(() => {
+    const s = sessionRef.current
+    if (!s || !activeCall) return
+    const next = !isCallMuted
+    setIsCallMuted(next)
+    void s.sendCallControl(next ? 'mute' : 'unmute').catch(() => {})
+  }, [activeCall, isCallMuted])
+
+  const toggleCallVideo = useCallback(() => {
+    const s = sessionRef.current
+    if (!s || !activeCall) return
+    const next = !isCallVideoOff
+    setIsCallVideoOff(next)
+    void s.sendCallControl(next ? 'video-off' : 'video-on').catch(() => {})
+  }, [activeCall, isCallVideoOff])
+
   // Without this, every consumer of useSession() — every screen, since every screen reads it —
   // re-renders on every presence/peer event, whether or not the fields it actually reads changed.
   // Native-stack keeps prior screens mounted underneath the active one, so on a chatty P2P
@@ -277,11 +412,45 @@ export function SessionProvider({ children }: Props) {
     onlineUsers,
     nicknames,
     avatars,
+    activeCall,
+    incomingCall,
+    callDuration,
+    isCallMuted,
+    isCallVideoOff,
+    startCall,
+    answerCall,
+    endCall,
+    toggleCallMute,
+    toggleCallVideo,
     initSession,
     refresh,
     markRoomReadLocally,
     setActiveRoomId,
-  }), [session, identity, nickname, avatar, bookmarks, contacts, onlineUsers, nicknames, avatars, initSession, refresh, markRoomReadLocally, setActiveRoomId])
+  }), [
+    session,
+    identity,
+    nickname,
+    avatar,
+    bookmarks,
+    contacts,
+    onlineUsers,
+    nicknames,
+    avatars,
+    activeCall,
+    incomingCall,
+    callDuration,
+    isCallMuted,
+    isCallVideoOff,
+    startCall,
+    answerCall,
+    endCall,
+    toggleCallMute,
+    toggleCallVideo,
+    initSession,
+    refresh,
+    markRoomReadLocally,
+    setActiveRoomId
+  ])
 
   return (
     <SessionContext.Provider value={value}>

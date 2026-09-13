@@ -105,7 +105,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors])
   const { roomName, pendingJoin } = route.params
   const [roomId, setRoomId] = useState(route.params.roomId)
-  const { session, identity, nicknames, avatars, bookmarks, refresh: refreshSession, markRoomReadLocally, setActiveRoomId } = useSession()
+  const {
+    session,
+    identity,
+    nicknames,
+    avatars,
+    bookmarks,
+    contacts,
+    startCall,
+    activeCall,
+    refresh: refreshSession,
+    markRoomReadLocally,
+    setActiveRoomId,
+  } = useSession()
   const { privateMode } = usePrivateMode()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
@@ -113,6 +125,49 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const isVault = bookmark?.isVault ?? false
   const clearedAt = bookmark?.clearedAt ?? 0
   const roomTopic = (bookmark?.description ?? '').trim()
+  const contact = useMemo(() => contacts.find((c) => c.roomId === roomId), [contacts, roomId])
+
+  useEffect(() => {
+    if (!contact || isVault) return
+
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginRight: spacing.xs }}>
+          <Pressable
+            hitSlop={8}
+            onPress={() => {
+              if (activeCall) {
+                Alert.alert('Call in Progress', 'You already have an active call.')
+                return
+              }
+              void startCall(contact.userId, roomId!, { audio: true, video: false }).catch((err) => {
+                Alert.alert('Call Failed', (err as Error).message)
+              })
+            }}
+            accessibilityLabel="Voice Call"
+          >
+            <Ionicons name="call-outline" size={22} color={colors.accentLight} />
+          </Pressable>
+
+          <Pressable
+            hitSlop={8}
+            onPress={() => {
+              if (activeCall) {
+                Alert.alert('Call in Progress', 'You already have an active call.')
+                return
+              }
+              void startCall(contact.userId, roomId!, { audio: true, video: true }).catch((err) => {
+                Alert.alert('Call Failed', (err as Error).message)
+              })
+            }}
+            accessibilityLabel="Video Call"
+          >
+            <Ionicons name="videocam-outline" size={24} color={colors.accentLight} />
+          </Pressable>
+        </View>
+      ),
+    })
+  }, [navigation, contact, isVault, roomId, activeCall, startCall, colors])
 
   // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
   // instead, in the background. `room` stays undefined until this resolves, so useRoom below

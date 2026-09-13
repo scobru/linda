@@ -18,6 +18,8 @@ import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from '.
 import { ROOM_PRESETS, svgToDataUrl } from './room-presets.js'
 import { APP_BACKGROUNDS, appBackgroundById, DEFAULT_APP_BACKGROUND } from './app-backgrounds.js'
 import { desktopHost, type UpdateEvent } from './desktop-host.js'
+import { MediaPipeline } from '../call/media-pipeline.js'
+import type { CallInfo } from '../call/call-session.js'
 
 function storageDir(): string {
   // Pear hands every app its own storage directory, keyed to the app link; under Electron there
@@ -221,6 +223,8 @@ const ICONS = {
   externalLink: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
   star: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   mic: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
+  micOff: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
+  videoOff: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m4 0h5a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
   stopCircle: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>`,
   play: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
   starFilled: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
@@ -269,6 +273,17 @@ export class AppShell extends HTMLElement {
   private isProfileDrawerOpen = false
   private privateMode = false
   private activeModal: 'none' | 'new-group' | 'join-room' = 'none'
+
+  // P2P Call State (Holepunch Protomux)
+  private mediaPipeline = new MediaPipeline()
+  private activeCallInfo: CallInfo | null = null
+  private incomingCallInfo: CallInfo | null = null
+  private callDurationTimer: ReturnType<typeof setInterval> | null = null
+  private callDurationSec = 0
+  private isLocalAudioMuted = false
+  private isLocalVideoMuted = false
+  private ringAudio: AudioContext | null = null
+  private ringInterval: ReturnType<typeof setInterval> | null = null
 
   private profileWorkingAvatar = ''
   private profileWorkingNickname = ''
@@ -664,7 +679,12 @@ export class AppShell extends HTMLElement {
           this.scheduleRenderApp()
         },
         onPeerDisconnected: () => this.scheduleRenderApp(),
-        onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message)
+        onIncomingMessage: (roomId, message) => this.notifyIncomingMessage(roomId, message),
+        onIncomingCall: (info) => this.handleIncomingCall(info),
+        onCallStateChange: (info) => this.handleCallStateChange(info),
+        onCallEnded: (info) => this.handleCallEnded(info),
+        onCallRemoteControl: (callId, action) => this.handleCallRemoteControl(callId, action),
+        onCallMediaFrame: (frame) => this.mediaPipeline.handleIncomingFrame(frame)
       },
       dhtPort: dhtPort(),
       createLanDiscovery: lanDiscoveryEnabled()
@@ -1179,6 +1199,10 @@ export class AppShell extends HTMLElement {
 
         <!-- Active Modals (New Group Chat / Join Room) -->
         ${this.renderActiveModal()}
+        <!-- Incoming Call Modal -->
+        ${this.renderIncomingCallModal()}
+        <!-- Active In-Call Floating Widget -->
+        ${this.renderActiveCallWidget()}
       </div>
     `
 
@@ -1186,6 +1210,8 @@ export class AppShell extends HTMLElement {
     this.wireTopbarAndDrawer()
     if (this.activeRoom) this.wireRoom()
     if (this.activeModal !== 'none') this.wireModal()
+    if (this.incomingCallInfo) this.wireIncomingCallModal()
+    if (this.activeCallInfo) this.wireActiveCallWidget()
 
     if (focused) {
       const el = this.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${focused.id}`)
@@ -1336,6 +1362,355 @@ export class AppShell extends HTMLElement {
     }
 
     return ''
+  }
+
+  // ── P2P Call UI & Lifecycle (Holepunch Protomux) ──────────────────────────
+
+  private renderIncomingCallModal(): string {
+    if (!this.incomingCallInfo) return ''
+    const info = this.incomingCallInfo
+    const contact = this.session?.listContacts().find((c) => c.userId === info.peerId)
+    const peerName = this.nicknames.get(info.peerId) || contact?.nickname || info.peerId.slice(0, 10)
+    const peerAvatar = this.avatars.get(info.peerId) || this.session?.getPeerAvatar(info.peerId) || contact?.avatar || ''
+    const isVideo = info.media.video
+
+    return `
+      <div class="call-incoming-overlay" id="incomingCallOverlay">
+        <div class="call-incoming-card">
+          <div class="call-avatar-ring">
+            ${avatarHtml(info.peerId, 'lg', peerName, peerAvatar)}
+          </div>
+          <h3 class="call-incoming-title">${escapeHtml(peerName)}</h3>
+          <div class="call-incoming-subtitle">
+            ${isVideo ? ICONS.video : ICONS.phone}
+            <span>Incoming ${isVideo ? 'Video' : 'Audio'} Call...</span>
+          </div>
+          <div class="call-actions-row">
+            <div class="call-action-col">
+              <button class="call-btn-circle call-btn-decline" id="declineCallBtn" title="Decline call">
+                ${ICONS.phoneOff}
+              </button>
+              <span class="call-action-label">Decline</span>
+            </div>
+            <div class="call-action-col">
+              <button class="call-btn-circle call-btn-accept" id="acceptCallBtn" title="Accept call">
+                ${ICONS.phone}
+              </button>
+              <span class="call-action-label">Accept</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  private renderActiveCallWidget(): string {
+    if (!this.activeCallInfo) return ''
+    const info = this.activeCallInfo
+    const contact = this.session?.listContacts().find((c) => c.userId === info.peerId)
+    const peerName = this.nicknames.get(info.peerId) || contact?.nickname || info.peerId.slice(0, 10)
+    const peerAvatar = this.avatars.get(info.peerId) || this.session?.getPeerAvatar(info.peerId) || contact?.avatar || ''
+    const isVideo = info.media.video
+    const isConnected = info.state === 'connected'
+
+    let statusText = 'Connecting...'
+    let statusClass = 'ringing'
+    if (info.state === 'calling') {
+      statusText = 'Calling...'
+    } else if (info.state === 'ringing') {
+      statusText = 'Ringing...'
+    } else if (isConnected) {
+      statusText = this.formatDuration(this.callDurationSec)
+      statusClass = ''
+    }
+
+    return `
+      <div class="call-active-widget" id="callActiveWidget">
+        <div class="call-widget-header">
+          <div class="call-widget-peer-info">
+            ${avatarHtml(info.peerId, 'sm', peerName, peerAvatar)}
+            <div>
+              <div class="call-widget-name">${escapeHtml(peerName)}</div>
+              <div class="call-widget-status ${statusClass}" id="callTimerDisplay">
+                ${isVideo ? ICONS.video : ICONS.phone} ${statusText}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${isVideo ? `
+          <div class="call-video-stage" id="callVideoStage">
+            <canvas class="call-remote-canvas" id="callRemoteCanvas"></canvas>
+            <video class="call-local-video" id="callLocalVideo" autoplay playsinline muted></video>
+            ${info.remoteCameraOff ? `
+              <div class="call-video-placeholder">
+                ${avatarHtml(info.peerId, 'md', peerName, peerAvatar)}
+                <span>${escapeHtml(peerName)}'s camera is off</span>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+
+        <div class="call-controls-bar">
+          <button class="call-btn-control ${this.isLocalAudioMuted ? 'active-off' : ''}" id="toggleCallMuteBtn" title="${this.isLocalAudioMuted ? 'Unmute' : 'Mute'}">
+            ${this.isLocalAudioMuted ? ICONS.micOff : ICONS.mic}
+          </button>
+          ${isVideo ? `
+            <button class="call-btn-control ${this.isLocalVideoMuted ? 'active-off' : ''}" id="toggleCallVideoBtn" title="${this.isLocalVideoMuted ? 'Turn Camera On' : 'Turn Camera Off'}">
+              ${this.isLocalVideoMuted ? ICONS.videoOff : ICONS.video}
+            </button>
+          ` : ''}
+          <button class="call-btn-circle call-btn-hangup" style="width:44px;height:44px;" id="hangupCallBtn" title="End Call">
+            ${ICONS.phoneOff}
+          </button>
+        </div>
+      </div>
+    `
+  }
+
+  private wireIncomingCallModal(): void {
+    this.querySelector('#acceptCallBtn')?.addEventListener('click', () => void this.acceptIncomingCall())
+    this.querySelector('#declineCallBtn')?.addEventListener('click', () => this.declineIncomingCall())
+  }
+
+  private wireActiveCallWidget(): void {
+    this.querySelector('#toggleCallMuteBtn')?.addEventListener('click', () => this.toggleCallMute())
+    this.querySelector('#toggleCallVideoBtn')?.addEventListener('click', () => this.toggleCallVideo())
+    this.querySelector('#hangupCallBtn')?.addEventListener('click', () => this.hangupCall())
+
+    if (this.activeCallInfo?.media.video) {
+      const localVideo = this.querySelector<HTMLVideoElement>('#callLocalVideo')
+      this.mediaPipeline.attachLocalVideo(localVideo)
+      const remoteCanvas = this.querySelector<HTMLCanvasElement>('#callRemoteCanvas')
+      this.mediaPipeline.attachRemoteCanvas(remoteCanvas)
+    }
+  }
+
+  private async startCallWithPeer(peerId: string, roomId: string, media: { audio: boolean; video: boolean }): Promise<void> {
+    if (this.activeCallInfo && this.activeCallInfo.state !== 'ended') {
+      alert('You are already in an active call.')
+      return
+    }
+
+    try {
+      this.isLocalAudioMuted = false
+      this.isLocalVideoMuted = false
+      this.callDurationSec = 0
+      this.stopDurationTimer()
+
+      const info = await this.session!.startCall(peerId, roomId, media)
+      this.activeCallInfo = info
+      this.startRingtone('outgoing')
+      this.renderApp()
+
+      await this.mediaPipeline.start({
+        callId: info.callId,
+        audio: media.audio,
+        video: media.video,
+        onSendFrame: (frame) => this.session?.sendCallFrame(frame)
+      })
+
+      if (media.video) {
+        const localVideo = this.querySelector<HTMLVideoElement>('#callLocalVideo')
+        this.mediaPipeline.attachLocalVideo(localVideo)
+        const remoteCanvas = this.querySelector<HTMLCanvasElement>('#callRemoteCanvas')
+        this.mediaPipeline.attachRemoteCanvas(remoteCanvas)
+      }
+    } catch (err: any) {
+      this.stopRingtone()
+      this.activeCallInfo = null
+      alert(`Could not start call: ${err?.message || err}`)
+      this.renderApp()
+    }
+  }
+
+  private handleIncomingCall(info: CallInfo): void {
+    if (this.activeCallInfo && this.activeCallInfo.state !== 'ended') {
+      return
+    }
+    this.incomingCallInfo = info
+    this.startRingtone('incoming')
+    this.renderApp()
+  }
+
+  private async acceptIncomingCall(): Promise<void> {
+    if (!this.incomingCallInfo || !this.session) return
+    this.stopRingtone()
+    const info = this.incomingCallInfo
+    this.incomingCallInfo = null
+    this.activeCallInfo = info
+    this.isLocalAudioMuted = false
+    this.isLocalVideoMuted = false
+
+    try {
+      this.session.answerCall(info.callId, true)
+      this.renderApp()
+
+      await this.mediaPipeline.start({
+        callId: info.callId,
+        audio: true,
+        video: info.media.video,
+        onSendFrame: (frame) => this.session?.sendCallFrame(frame)
+      })
+
+      if (info.media.video) {
+        const localVideo = this.querySelector<HTMLVideoElement>('#callLocalVideo')
+        this.mediaPipeline.attachLocalVideo(localVideo)
+        const remoteCanvas = this.querySelector<HTMLCanvasElement>('#callRemoteCanvas')
+        this.mediaPipeline.attachRemoteCanvas(remoteCanvas)
+      }
+    } catch (err) {
+      console.error('[call] Error accepting call:', err)
+      this.hangupCall()
+    }
+  }
+
+  private declineIncomingCall(): void {
+    if (!this.incomingCallInfo || !this.session) return
+    this.stopRingtone()
+    const info = this.incomingCallInfo
+    this.incomingCallInfo = null
+    this.session.answerCall(info.callId, false)
+    this.renderApp()
+  }
+
+  private handleCallStateChange(info: CallInfo): void {
+    if (this.incomingCallInfo?.callId === info.callId && (info.state === 'ended' || info.state === 'connected')) {
+      this.incomingCallInfo = null
+      this.stopRingtone()
+    }
+
+    if (this.activeCallInfo?.callId === info.callId) {
+      this.activeCallInfo = info
+      if (info.state === 'connected') {
+        this.stopRingtone()
+        this.startDurationTimer()
+        if (info.media.video) {
+          const localVideo = this.querySelector<HTMLVideoElement>('#callLocalVideo')
+          this.mediaPipeline.attachLocalVideo(localVideo)
+          const remoteCanvas = this.querySelector<HTMLCanvasElement>('#callRemoteCanvas')
+          this.mediaPipeline.attachRemoteCanvas(remoteCanvas)
+        }
+      } else if (info.state === 'ended') {
+        this.handleCallEnded(info)
+        return
+      }
+      this.renderApp()
+    }
+  }
+
+  private handleCallEnded(info: CallInfo): void {
+    this.stopRingtone()
+    this.stopDurationTimer()
+    this.mediaPipeline.stop()
+    if (this.incomingCallInfo?.callId === info.callId) {
+      this.incomingCallInfo = null
+    }
+    if (this.activeCallInfo?.callId === info.callId) {
+      this.activeCallInfo = null
+    }
+    this.renderApp()
+  }
+
+  private handleCallRemoteControl(callId: string, action: string): void {
+    if (this.activeCallInfo && this.activeCallInfo.callId === callId) {
+      if (action === 'mute') (this.activeCallInfo as any).remoteMuted = true
+      else if (action === 'unmute') (this.activeCallInfo as any).remoteMuted = false
+      else if (action === 'camera-off') (this.activeCallInfo as any).remoteCameraOff = true
+      else if (action === 'camera-on') (this.activeCallInfo as any).remoteCameraOff = false
+      this.renderApp()
+    }
+  }
+
+  private toggleCallMute(): void {
+    this.isLocalAudioMuted = !this.isLocalAudioMuted
+    this.mediaPipeline.setAudioMuted(this.isLocalAudioMuted)
+    this.session?.sendCallControl(this.isLocalAudioMuted ? 'mute' : 'unmute')
+    this.renderApp()
+  }
+
+  private toggleCallVideo(): void {
+    this.isLocalVideoMuted = !this.isLocalVideoMuted
+    this.mediaPipeline.setVideoMuted(this.isLocalVideoMuted)
+    this.session?.sendCallControl(this.isLocalVideoMuted ? 'camera-off' : 'camera-on')
+    this.renderApp()
+  }
+
+  private hangupCall(): void {
+    this.stopRingtone()
+    this.stopDurationTimer()
+    this.mediaPipeline.stop()
+    if (this.activeCallInfo) {
+      this.session?.endCall(this.activeCallInfo.callId)
+      this.activeCallInfo = null
+    }
+    this.renderApp()
+  }
+
+  private startRingtone(type: 'incoming' | 'outgoing'): void {
+    this.stopRingtone()
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      if (!AudioCtx) return
+      this.ringAudio = new AudioCtx()
+
+      const playTone = () => {
+        if (!this.ringAudio || this.ringAudio.state === 'closed') return
+        const osc = this.ringAudio.createOscillator()
+        const gain = this.ringAudio.createGain()
+        osc.type = 'sine'
+        const freq = type === 'incoming' ? 880 : 440
+        osc.frequency.setValueAtTime(freq, this.ringAudio.currentTime)
+        gain.gain.setValueAtTime(0.08, this.ringAudio.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ringAudio.currentTime + (type === 'incoming' ? 0.8 : 1.2))
+        osc.connect(gain)
+        gain.connect(this.ringAudio.destination)
+        osc.start()
+        osc.stop(this.ringAudio.currentTime + (type === 'incoming' ? 0.8 : 1.2))
+      }
+
+      playTone()
+      this.ringInterval = setInterval(playTone, type === 'incoming' ? 2000 : 3500)
+    } catch (e) {
+      console.warn('[call] Could not play ringtone:', e)
+    }
+  }
+
+  private stopRingtone(): void {
+    if (this.ringInterval) {
+      clearInterval(this.ringInterval)
+      this.ringInterval = null
+    }
+    if (this.ringAudio && this.ringAudio.state !== 'closed') {
+      this.ringAudio.close().catch(() => {})
+      this.ringAudio = null
+    }
+  }
+
+  private startDurationTimer(): void {
+    this.stopDurationTimer()
+    this.callDurationSec = 0
+    this.callDurationTimer = setInterval(() => {
+      this.callDurationSec++
+      const timerEl = this.querySelector('#callTimerDisplay')
+      if (timerEl && this.activeCallInfo?.state === 'connected') {
+        const isVideo = this.activeCallInfo.media.video
+        timerEl.innerHTML = `${isVideo ? ICONS.video : ICONS.phone} ${this.formatDuration(this.callDurationSec)}`
+      }
+    }, 1000)
+  }
+
+  private stopDurationTimer(): void {
+    if (this.callDurationTimer) {
+      clearInterval(this.callDurationTimer)
+      this.callDurationTimer = null
+    }
+  }
+
+  private formatDuration(sec: number): string {
+    const mins = Math.floor(sec / 60)
+    const s = sec % 60
+    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
 
   private wireTopbarAndDrawer(): void {
@@ -1694,6 +2069,10 @@ export class AppShell extends HTMLElement {
         `}
 
         <div class="room-header-tools">
+          ${contact ? `
+            <button class="room-header-btn call-header-btn" id="startVoiceCallBtn" title="Start voice call">${ICONS.phone}</button>
+            <button class="room-header-btn call-header-btn" id="startVideoCallBtn" title="Start video call">${ICONS.video}</button>
+          ` : ''}
           <!-- Owner-only: the owner is the only member who runs redeemInvite, so a link shared by
                anyone else gets the joiner into the room read-only and stuck there. -->
           ${room.isOwner(this.identity!.id) ? `<button class="room-header-btn" id="inviteHeaderBtn" title="Invite QR">${ICONS.qr}</button>` : ''}
@@ -1811,6 +2190,14 @@ export class AppShell extends HTMLElement {
     this.updateScrollToBottomBtn()
     this.querySelector('#scrollToBottomBtn')?.addEventListener('click', () => {
       this.querySelector('#messages')?.scrollTo({ top: this.querySelector('#messages')!.scrollHeight, behavior: 'smooth' })
+    })
+
+    const contact = this.session?.listContacts().find((c) => c.roomId === room.id)
+    this.querySelector('#startVoiceCallBtn')?.addEventListener('click', () => {
+      if (contact) void this.startCallWithPeer(contact.userId, room.id, { audio: true, video: false })
+    })
+    this.querySelector('#startVideoCallBtn')?.addEventListener('click', () => {
+      if (contact) void this.startCallWithPeer(contact.userId, room.id, { audio: true, video: true })
     })
 
     this.querySelector('#editRoomAvatarTrigger')?.addEventListener('click', () => this.openRoomSettingsPage(room))

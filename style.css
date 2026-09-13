@@ -3621,4 +3621,298 @@ input:checked + .keet-slider:before {
   }
 }
 
+/* =========================================================================
+   P2P Audio & Video Calls (Holepunch Protomux)
+   ========================================================================= */
+
+/* Header Call Buttons */
+.call-header-btn {
+  color: var(--text-dim);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.call-header-btn:hover {
+  color: var(--cyan-accent);
+  background: var(--cyan-dim);
+}
+.call-header-btn:active {
+  transform: scale(0.95);
+}
+
+/* Incoming Call Modal Overlay */
+.call-incoming-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(11, 15, 20, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: callFadeIn 0.25s ease-out;
+}
+
+@keyframes callFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.call-incoming-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--cyan-glow);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6), 0 0 24px var(--cyan-dim);
+  border-radius: 24px;
+  width: 360px;
+  max-width: 90vw;
+  padding: 2.2rem 1.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+}
+
+.call-avatar-ring {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: callAvatarPulse 1.8s infinite;
+}
+
+@keyframes callAvatarPulse {
+  0% { box-shadow: 0 0 0 0 rgba(0, 194, 203, 0.6); }
+  70% { box-shadow: 0 0 0 20px rgba(0, 194, 203, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 194, 203, 0); }
+}
+
+.call-incoming-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.call-incoming-subtitle {
+  font-size: 0.88rem;
+  color: var(--cyan-accent);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: -0.5rem;
+}
+
+.call-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.call-action-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.call-action-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.call-btn-circle {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #ffffff;
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+.call-btn-circle:hover {
+  transform: scale(1.08);
+}
+.call-btn-circle:active {
+  transform: scale(0.94);
+}
+
+.call-btn-accept {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.45);
+}
+.call-btn-accept:hover {
+  box-shadow: 0 8px 26px rgba(34, 197, 94, 0.65);
+}
+
+.call-btn-decline, .call-btn-hangup {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
+}
+.call-btn-decline:hover, .call-btn-hangup:hover {
+  box-shadow: 0 8px 26px rgba(239, 68, 68, 0.65);
+}
+
+.call-btn-control {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+}
+.call-btn-control:hover {
+  background: var(--bg-panel-hover);
+  border-color: var(--border-focus);
+}
+.call-btn-control.active-off {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.call-btn-control:active {
+  transform: scale(0.92);
+}
+
+/* Active In-Call Floating Widget */
+.call-active-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9990;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-card);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  border-radius: 20px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 300px;
+  max-width: 440px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: callSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes callSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.call-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.call-widget-peer-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.call-widget-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.call-widget-status {
+  font-size: 0.78rem;
+  color: var(--cyan-accent);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.call-widget-status.ringing {
+  animation: callBlink 1.2s infinite;
+}
+
+@keyframes callBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Video Stage (Inside Widget or Fullscreen) */
+.call-video-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000000;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-remote-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.call-local-video {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 86px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transform: scaleX(-1); /* mirror self view */
+  background: #111;
+  z-index: 2;
+}
+
+.call-video-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.call-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+
 

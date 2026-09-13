@@ -75,6 +75,7 @@ app.whenReady().then(() => {
   const ALLOWED_PERMISSIONS = new Set([
     'media',            // microphone, for voice messages
     'audioCapture',
+    'videoCapture',     // webcam, for video calls
     'clipboard-read',
     'clipboard-write',
     'clipboard-sanitized-write',

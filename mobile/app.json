@@ -3,7 +3,7 @@
     "name": "Linda",
     "slug": "linda-pear-mobile",
     "scheme": "linda-pear",
-    "version": "1.14.53",
+    "version": "1.14.57",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.lindapear.mobile",
       "infoPlist": {
-        "NSCameraUsageDescription": "Linda needs camera access to scan QR invite codes"
+        "NSCameraUsageDescription": "Linda needs camera access to scan QR invite codes and for video calls",
+        "NSMicrophoneUsageDescription": "Linda needs microphone access for voice and video calls"
       }
     },
     "android": {

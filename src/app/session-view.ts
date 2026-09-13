@@ -102,6 +102,12 @@ type SessionMembers = Pick<Session,
   | 'demoteAdmin'
   | 'getPairingSnapshot'
   | 'importPairingSnapshot'
+  | 'startCall'
+  | 'answerCall'
+  | 'endCall'
+  | 'getActiveCall'
+  | 'sendCallControl'
+  | 'sendCallFrame'
 >
 
 export interface SessionView extends SessionMembers {

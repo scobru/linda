@@ -9,6 +9,8 @@ import type { RoomAnnounceMessage, TypingMessage, PresenceMessage, ReadReceiptMe
 import type { ChatMessage } from '../rooms/room.js'
 import { RemoteRoomView, type RemoteRoomState } from './remote-room-view.js'
 import type { RpcClient } from './rpc-client.js'
+import type { CallInfo } from '../call/call-session.js'
+import type { MediaFrameMessage } from '../call/call-encoding.js'
 
 export type NetworkStatus = {
   connections: number
@@ -63,6 +65,11 @@ export interface RemoteSessionEvents {
   onPeerConnected?(): void
   onPeerDisconnected?(): void
   onIncomingMessage?(roomId: string, message: ChatMessage): void
+  onIncomingCall?(info: CallInfo): void
+  onCallStateChange?(info: CallInfo): void
+  onCallEnded?(info: CallInfo): void
+  onCallRemoteControl?(callId: string, action: string): void
+  onCallMediaFrame?(frame: MediaFrameMessage): void
 }
 
 export interface RemoteSessionInitialState {
@@ -110,6 +117,7 @@ export class RemoteSessionView implements SessionView {
   }
 
   private rooms = new Map<string, RemoteRoomView>()
+  private activeCall: CallInfo | null = null
 
   constructor(
     private readonly rpcClient: RpcClient,
@@ -205,6 +213,24 @@ export class RemoteSessionView implements SessionView {
     this.rpcClient.on('peerDisconnected', (payload?: { networkStatus?: NetworkStatus }) => {
       if (payload?.networkStatus) this.networkStatus = payload.networkStatus
       this.events.onPeerDisconnected?.()
+    })
+    this.rpcClient.on('incomingCall', (info: CallInfo) => {
+      this.activeCall = info
+      this.events.onIncomingCall?.(info)
+    })
+    this.rpcClient.on('callStateChange', (info: CallInfo) => {
+      this.activeCall = info.state === 'ended' ? null : info
+      this.events.onCallStateChange?.(info)
+    })
+    this.rpcClient.on('callEnded', (info: CallInfo) => {
+      this.activeCall = null
+      this.events.onCallEnded?.(info)
+    })
+    this.rpcClient.on('callRemoteControl', (payload: { callId: string; action: string }) => {
+      this.events.onCallRemoteControl?.(payload.callId, payload.action)
+    })
+    this.rpcClient.on('callMediaFrame', (frame: MediaFrameMessage) => {
+      this.events.onCallMediaFrame?.(frame)
     })
   }
 
@@ -528,6 +554,37 @@ export class RemoteSessionView implements SessionView {
 
   async demoteAdmin(roomId: string, identityId: string): Promise<void> {
     await this.rpcClient.call<void>('session.demoteAdmin', roomId, identityId)
+  }
+
+  // ── Call Management ───────────────────────────────────────────────────────
+
+  async startCall(peerId: string, roomId: string, media: { audio: boolean; video: boolean }): Promise<CallInfo> {
+    const info = await this.rpcClient.call<CallInfo>('session.startCall', peerId, roomId, media)
+    this.activeCall = info
+    return info
+  }
+
+  async answerCall(callId: string, accept: boolean): Promise<void> {
+    await this.rpcClient.call<void>('session.answerCall', callId, accept)
+  }
+
+  async endCall(callId?: string): Promise<void> {
+    await this.rpcClient.call<void>('session.endCall', callId)
+    if (!callId || this.activeCall?.callId === callId) {
+      this.activeCall = null
+    }
+  }
+
+  getActiveCall(): CallInfo | null {
+    return this.activeCall
+  }
+
+  sendCallControl(action: string): void {
+    void this.rpcClient.call<void>('session.sendCallControl', action)
+  }
+
+  sendCallFrame(frame: MediaFrameMessage): void {
+    void this.rpcClient.call<void>('session.sendCallFrame', frame)
   }
 }
 

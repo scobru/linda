@@ -147,6 +147,36 @@ export class WorkerDispatcher {
       originalPeerDisconnected?.(publicKey)
       this.pushEvent('peerDisconnected', { networkStatus: session.getNetworkStatus() })
     }
+
+    const originalIncomingCall = events.onIncomingCall
+    events.onIncomingCall = (info) => {
+      originalIncomingCall?.(info)
+      this.pushEvent('incomingCall', info)
+    }
+
+    const originalCallStateChange = events.onCallStateChange
+    events.onCallStateChange = (info) => {
+      originalCallStateChange?.(info)
+      this.pushEvent('callStateChange', info)
+    }
+
+    const originalCallEnded = events.onCallEnded
+    events.onCallEnded = (info) => {
+      originalCallEnded?.(info)
+      this.pushEvent('callEnded', info)
+    }
+
+    const originalCallRemoteControl = events.onCallRemoteControl
+    events.onCallRemoteControl = (callId, action) => {
+      originalCallRemoteControl?.(callId, action)
+      this.pushEvent('callRemoteControl', { callId, action })
+    }
+
+    const originalCallMediaFrame = events.onCallMediaFrame
+    events.onCallMediaFrame = (frame) => {
+      originalCallMediaFrame?.(frame)
+      this.pushEvent('callMediaFrame', frame)
+    }
   }
 
   pushEvent(event: string, payload?: unknown): void {
@@ -570,6 +600,31 @@ export class WorkerDispatcher {
 
     'room.listFiles': async (roomId: string) => {
       return this.requireRoom(roomId).listFiles()
+    },
+
+    // Call signaling & control methods
+    'session.startCall': async (peerId: string, roomId: string, media: { audio: boolean; video: boolean }) => {
+      return this.requireSession().startCall(peerId, roomId, media)
+    },
+
+    'session.answerCall': async (callId: string, accept: boolean) => {
+      this.requireSession().answerCall(callId, accept)
+    },
+
+    'session.endCall': async (callId?: string) => {
+      this.requireSession().endCall(callId)
+    },
+
+    'session.getActiveCall': async () => {
+      return this.requireSession().getActiveCall()
+    },
+
+    'session.sendCallControl': async (action: string) => {
+      this.requireSession().sendCallControl(action)
+    },
+
+    'session.sendCallFrame': async (frame: any) => {
+      this.requireSession().sendCallFrame(frame)
     }
   }
 }

@@ -1,0 +1,155 @@
+import test, { after } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import b4a from 'b4a'
+import createTestnet from 'hyperdht/testnet.js'
+import { generateKeypair } from '../src/identity/keypair.js'
+import { Session, type CallInfo } from '../src/app/session.js'
+import type { Identity } from '../src/identity/index.js'
+import type { SwarmTransport } from '../src/network/swarm.js'
+import type { MediaFrameMessage } from '../src/call/call-encoding.js'
+
+let testnetPromise: Promise<{ bootstrap: unknown[]; destroy(): Promise<void> } | null> | null = null
+
+function transport(): Promise<SwarmTransport> {
+  testnetPromise ??= createTestnet(4)
+  return testnetPromise.then((net) => ({ bootstrap: (net as { bootstrap: never }).bootstrap }))
+}
+
+after(async () => {
+  const net = await testnetPromise
+  if (net) await net.destroy()
+})
+
+function makeIdentity(): Identity {
+  const kp = generateKeypair()
+  return { ...kp, id: b4a.toString(kp.publicKey, 'hex') }
+}
+
+async function waitFor(check: () => boolean, label: string, timeoutMs = 20_000): Promise<void> {
+  const start = Date.now()
+  while (!check()) {
+    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for: ${label}`)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
+interface CallTestPair {
+  sessionA: Session
+  sessionB: Session
+  identityA: Identity
+  identityB: Identity
+  roomId: string
+  incomingCallsB: CallInfo[]
+  framesB: MediaFrameMessage[]
+}
+
+async function createCallPair(t: { after(fn: () => Promise<void>): void }): Promise<CallTestPair> {
+  const net = await transport()
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-call-test-'))
+  const identityA = makeIdentity()
+  const identityB = makeIdentity()
+
+  const incomingCallsB: CallInfo[] = []
+  const framesB: MediaFrameMessage[] = []
+
+  const sessionA = await Session.create(identityA, path.join(base, 'a'), { transport: net })
+  const sessionB = await Session.create(identityB, path.join(base, 'b'), {
+    transport: net,
+    events: {
+      onIncomingCall: (info) => incomingCallsB.push(info),
+      onCallMediaFrame: (frame) => framesB.push(frame)
+    }
+  })
+
+  t.after(async () => {
+    await sessionA.close()
+    await sessionB.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+
+  const roomA = await sessionA.createRoom('call-test-room')
+  const invite = sessionA.inviteLinkFor(roomA.id)
+  const roomB = await sessionB.joinRoomByKey('call-test-room', invite)
+
+  await waitFor(() => sessionA.peers.size > 0 && sessionB.peers.size > 0, 'sessions to connect')
+  await waitFor(() => roomB.writable && roomB.hasKey, 'B to be ready in room')
+
+  return { sessionA, sessionB, identityA, identityB, roomId: roomA.id, incomingCallsB, framesB }
+}
+
+test('1:1 call offer, accept, media frame, control, and hangup', async (t) => {
+  const { sessionA, sessionB, identityA, identityB, roomId, incomingCallsB, framesB } = await createCallPair(t)
+
+  // 1. A dials B with audio & video
+  const callInfoA = await sessionA.startCall(identityB.id, roomId, { audio: true, video: true })
+  assert.equal(callInfoA.state, 'calling')
+  assert.equal(callInfoA.direction, 'outgoing')
+  assert.equal(callInfoA.media.audio, true)
+  assert.equal(callInfoA.media.video, true)
+
+  // 2. Wait for B to receive incoming call offer
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  const incomingB = incomingCallsB[0]!
+  assert.equal(incomingB.callId, callInfoA.callId)
+  assert.equal(incomingB.peerId, identityA.id)
+  assert.equal(incomingB.state, 'ringing')
+  assert.equal(incomingB.direction, 'incoming')
+  assert.equal(incomingB.media.video, true)
+
+  // 3. B accepts the call
+  sessionB.answerCall(incomingB.callId, true)
+
+  // Both should reach 'connected' state
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+  await waitFor(() => sessionB.getActiveCall()?.state === 'connected', 'B to be connected')
+
+  assert.equal(sessionA.getActiveCall()?.state, 'connected')
+  assert.equal(sessionB.getActiveCall()?.state, 'connected')
+
+  // 4. Send control message (A mutes microphone)
+  sessionA.sendCallControl('mute')
+  await waitFor(() => sessionB.getActiveCall()?.remoteMuted === true, 'B to receive mute status')
+  assert.equal(sessionB.getActiveCall()?.remoteMuted, true)
+
+  // 5. Send media frame from A to B
+  const samplePayload = new Uint8Array([1, 2, 3, 4, 5])
+  sessionA.sendCallFrame({
+    callId: callInfoA.callId,
+    seq: 1,
+    timestamp: Date.now(),
+    kind: 0,
+    keyframe: true,
+    payload: samplePayload
+  })
+
+  await waitFor(() => framesB.length > 0, 'B to receive media frame')
+  assert.equal(framesB[0]!.callId, callInfoA.callId)
+  assert.equal(framesB[0]!.kind, 0)
+  assert.deepEqual(Array.from(framesB[0]!.payload), [1, 2, 3, 4, 5])
+
+  // 6. Hangup from A
+  sessionA.endCall(callInfoA.callId)
+
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+  await waitFor(() => sessionB.getActiveCall() === null, 'B active call to clear')
+})
+
+test('1:1 call rejection', async (t) => {
+  const { sessionA, sessionB, identityA, identityB, roomId, incomingCallsB } = await createCallPair(t)
+
+  // A dials B audio only
+  const callInfoA = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  assert.equal(callInfoA.media.video, false)
+
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+
+  // B declines call
+  sessionB.answerCall(incomingCallsB[0]!.callId, false)
+
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to end on rejection')
+  assert.equal(sessionA.getActiveCall(), null)
+  assert.equal(sessionB.getActiveCall(), null)
+})

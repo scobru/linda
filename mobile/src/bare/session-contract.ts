@@ -48,6 +48,7 @@ type NotForwarded =
 export type ForwardedSessionMethod = Exclude<MethodNames<Session>, NotForwarded>
 
 export const FORWARDED_SESSION_METHODS = [
+  'answerCall',
   'banMember',
   'broadcastPresence',
   'clearRoomHistory',
@@ -59,7 +60,9 @@ export const FORWARDED_SESSION_METHODS = [
   'deleteRoom',
   'demoteAdmin',
   'demoteModerator',
+  'endCall',
   'findOrphanBlobs',
+  'getActiveCall',
   'getAvatar',
   'getNetworkStatus',
   'getNickname',
@@ -78,12 +81,15 @@ export const FORWARDED_SESSION_METHODS = [
   'removeFromDirectory',
   'respondToContact',
   'resumeNetwork',
+  'sendCallControl',
+  'sendCallFrame',
   'sendContactRequest',
   'setAvatar',
   'setNickname',
   'setRoomBroadcast',
   'setRoomFavorite',
   'setWallpaper',
+  'startCall',
   'unbanMember',
   'unmuteMember',
   'updateRoomMeta'
