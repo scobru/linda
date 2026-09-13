@@ -32,6 +32,10 @@ module.exports = {
   packagerConfig: {
     asar: false,
     icon: './assets/icon',
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'Linda needs access to your microphone for voice messages and audio/video calls.',
+      NSCameraUsageDescription: 'Linda needs access to your camera for video calls.'
+    },
     ignore: [
       /^\/\.claude/,
       /^\/\.headroom/,

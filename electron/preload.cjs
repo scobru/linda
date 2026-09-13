@@ -13,3 +13,7 @@ window.clearInterval = timers.clearInterval
 // over IPC instead, which is the supported path.
 const { ipcRenderer } = require('electron')
 window.lindaClipboard = { writeText: (text) => ipcRenderer.send('clipboard:write', String(text)) }
+window.lindaMediaPermissions = {
+  requestPermission: (type) => ipcRenderer.invoke('media:request-permission', type),
+  getPermissionStatus: (type) => ipcRenderer.invoke('media:get-permission-status', type)
+}

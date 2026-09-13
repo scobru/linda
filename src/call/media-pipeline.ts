@@ -56,6 +56,87 @@ export class MediaPipeline {
 
   private active = false
 
+  /** Returns the active local media stream if any. */
+  getLocalStream(): MediaStream | null {
+    return this.localStream
+  }
+
+  /** Formats browser media errors into clear user-friendly error messages. */
+  static formatMediaError(err: any): Error {
+    const name = err?.name || ''
+    const msg = err?.message || String(err)
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      return new Error('Microphone or camera permission was denied. Please allow camera and microphone access for Linda in your operating system settings (Settings > Privacy).')
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      return new Error('No microphone or camera device was found. Please check that your hardware is properly connected.')
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return new Error('Microphone or camera is currently busy or locked by another application (e.g. Teams, Zoom, browser).')
+    }
+    if (name === 'OverconstrainedError') {
+      return new Error('Your camera or microphone does not support the requested resolution or framerate.')
+    }
+    return new Error(`Media device error: ${msg}`)
+  }
+
+  /** Proactively test or activate microphone and camera permissions. */
+  static async testAndRequestPermissions(options: { audio?: boolean; video?: boolean }): Promise<{ audio: boolean; video: boolean; error?: string }> {
+    if (typeof window === 'undefined' || !navigator?.mediaDevices) {
+      return { audio: false, video: false, error: 'MediaDevices API not supported in this environment' }
+    }
+
+    const win = window as unknown as {
+      lindaMediaPermissions?: {
+        requestPermission: (type: 'microphone' | 'camera') => Promise<boolean>
+        getPermissionStatus: (type: 'microphone' | 'camera') => Promise<string>
+      }
+    }
+    if (win?.lindaMediaPermissions) {
+      try {
+        if (options.audio) await win.lindaMediaPermissions.requestPermission('microphone')
+        if (options.video) await win.lindaMediaPermissions.requestPermission('camera')
+      } catch (e) {
+        console.warn('[media-pipeline] Electron bridge permission error:', e)
+      }
+    }
+
+    let audioOk = false
+    let videoOk = false
+    let errorMsg: string | undefined
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: options.audio ?? true,
+        video: options.video ?? true
+      })
+      audioOk = stream.getAudioTracks().length > 0
+      videoOk = stream.getVideoTracks().length > 0
+      for (const track of stream.getTracks()) track.stop()
+    } catch {
+      if (options.audio) {
+        try {
+          const aStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          audioOk = aStream.getAudioTracks().length > 0
+          for (const t of aStream.getTracks()) t.stop()
+        } catch (aErr) {
+          errorMsg = MediaPipeline.formatMediaError(aErr).message
+        }
+      }
+      if (options.video) {
+        try {
+          const vStream = await navigator.mediaDevices.getUserMedia({ video: true })
+          videoOk = vStream.getVideoTracks().length > 0
+          for (const t of vStream.getTracks()) t.stop()
+        } catch (vErr) {
+          if (!errorMsg) errorMsg = MediaPipeline.formatMediaError(vErr).message
+        }
+      }
+    }
+
+    return { audio: audioOk, video: videoOk, error: (!audioOk && !videoOk) ? errorMsg : undefined }
+  }
+
   /** Starts media capture and transmission according to config. */
   async start(config: MediaPipelineConfig): Promise<void> {
     if (typeof window === 'undefined' || !navigator?.mediaDevices) {
@@ -66,6 +147,21 @@ export class MediaPipeline {
     this.callId = config.callId
     this.onSendFrame = config.onSendFrame
     this.active = true
+
+    // Request permissions via desktop bridge if available
+    const win = window as unknown as {
+      lindaMediaPermissions?: {
+        requestPermission: (type: 'microphone' | 'camera') => Promise<boolean>
+      }
+    }
+    if (win?.lindaMediaPermissions) {
+      try {
+        if (config.audio) await win.lindaMediaPermissions.requestPermission('microphone')
+        if (config.video) await win.lindaMediaPermissions.requestPermission('camera')
+      } catch (e) {
+        console.warn('[media-pipeline] Pre-requesting permissions via Electron bridge error:', e)
+      }
+    }
 
     try {
       const constraints: MediaStreamConstraints = {
@@ -82,8 +178,32 @@ export class MediaPipeline {
       }
 
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (err: any) {
+      // Graceful fallback: If video fails (e.g. no camera attached or camera denied) but audio was requested,
+      // fallback to audio-only capture so the call still connects
+      if (config.video && config.audio) {
+        console.warn('[media-pipeline] Video capture failed, attempting audio-only fallback:', err)
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          })
+          config.video = false
+          this.isVideoMuted = true
+        } catch (audioErr) {
+          console.error('[media-pipeline] Audio-only fallback also failed:', audioErr)
+          throw MediaPipeline.formatMediaError(audioErr)
+        }
+      } else {
+        throw MediaPipeline.formatMediaError(err)
+      }
+    }
 
-      if (this.localVideoElement) {
+    try {
+      if (this.localVideoElement && this.localStream) {
         this.localVideoElement.srcObject = this.localStream
         this.localVideoElement.play().catch(() => {})
       }
@@ -97,9 +217,10 @@ export class MediaPipeline {
         await this.startVideoCapture()
         this.initVideoDecoding()
       }
-    } catch (err) {
-      console.error('[media-pipeline] Error starting media capture:', err)
-      throw err
+    } catch (setupErr) {
+      console.error('[media-pipeline] Error setting up capture pipelines:', setupErr)
+      this.stop()
+      throw setupErr
     }
   }
 

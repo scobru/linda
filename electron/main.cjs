@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, session, shell, clipboard, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, session, shell, clipboard, ipcMain, systemPreferences } = require('electron')
 const path = require('node:path')
 
 function createWindow() {
@@ -76,13 +76,30 @@ app.whenReady().then(() => {
     'media',            // microphone, for voice messages
     'audioCapture',
     'videoCapture',     // webcam, for video calls
+    'camera',
+    'microphone',
+    'display-capture',
     'clipboard-read',
     'clipboard-write',
     'clipboard-sanitized-write',
     'notifications'
   ])
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(ALLOWED_PERMISSIONS.has(permission))
+    if (!ALLOWED_PERMISSIONS.has(permission)) {
+      callback(false)
+      return
+    }
+
+    // On macOS, explicitly trigger OS permission prompt if not yet decided
+    if (process.platform === 'darwin' && (permission === 'camera' || permission === 'videoCapture' || permission === 'microphone' || permission === 'audioCapture' || permission === 'media')) {
+      const mediaType = (permission === 'camera' || permission === 'videoCapture') ? 'camera' : 'microphone'
+      systemPreferences.askForMediaAccess(mediaType)
+        .then((granted) => callback(granted))
+        .catch(() => callback(true))
+      return
+    }
+
+    callback(true)
   })
   // Some clipboard/notification paths go through the synchronous check instead, which has its
   // own default and would otherwise still refuse.
@@ -91,6 +108,30 @@ app.whenReady().then(() => {
   // Copy requests from the renderer (see preload.cjs) — the main process is the only place
   // Electron still supports touching the clipboard from.
   ipcMain.on('clipboard:write', (_event, text) => clipboard.writeText(String(text)))
+
+  // Desktop media permissions IPC for renderer queries & explicit activation
+  ipcMain.handle('media:request-permission', async (_event, type) => {
+    if (process.platform === 'darwin') {
+      try {
+        return await systemPreferences.askForMediaAccess(type)
+      } catch (err) {
+        console.warn(`[main] Failed to askForMediaAccess for ${type}:`, err)
+        return false
+      }
+    }
+    return true
+  })
+
+  ipcMain.handle('media:get-permission-status', async (_event, type) => {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      try {
+        return systemPreferences.getMediaAccessStatus(type)
+      } catch {
+        return 'unknown'
+      }
+    }
+    return 'granted'
+  })
 
   createWindow()
 })
