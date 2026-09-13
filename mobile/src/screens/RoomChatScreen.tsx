@@ -127,47 +127,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const roomTopic = (bookmark?.description ?? '').trim()
   const contact = useMemo(() => contacts.find((c) => c.roomId === roomId), [contacts, roomId])
 
-  useEffect(() => {
-    if (!contact || isVault) return
 
-    navigation.setOptions({
-      headerRight: () => (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginRight: spacing.xs }}>
-          <Pressable
-            hitSlop={8}
-            onPress={() => {
-              if (activeCall) {
-                Alert.alert('Call in Progress', 'You already have an active call.')
-                return
-              }
-              void startCall(contact.userId, roomId!, { audio: true, video: false }).catch((err) => {
-                Alert.alert('Call Failed', (err as Error).message)
-              })
-            }}
-            accessibilityLabel="Voice Call"
-          >
-            <Ionicons name="call-outline" size={22} color={colors.accentLight} />
-          </Pressable>
-
-          <Pressable
-            hitSlop={8}
-            onPress={() => {
-              if (activeCall) {
-                Alert.alert('Call in Progress', 'You already have an active call.')
-                return
-              }
-              void startCall(contact.userId, roomId!, { audio: true, video: true }).catch((err) => {
-                Alert.alert('Call Failed', (err as Error).message)
-              })
-            }}
-            accessibilityLabel="Video Call"
-          >
-            <Ionicons name="videocam-outline" size={24} color={colors.accentLight} />
-          </Pressable>
-        </View>
-      ),
-    })
-  }, [navigation, contact, isVault, roomId, activeCall, startCall, colors])
 
   // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
   // instead, in the background. `room` stays undefined until this resolves, so useRoom below
@@ -417,13 +377,23 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const [memberCount, setMemberCount] = useState(1)
   const [isOwner, setIsOwner] = useState(false)
+  const [directPeerId, setDirectPeerId] = useState<string | null>(null)
+
   useEffect(() => {
     if (!room) return
     void room.listMembers().then((res) => {
-      if (res?.members) setMemberCount(res.members.length)
+      if (res?.members) {
+        setMemberCount(res.members.length)
+        if (res.members.length === 2) {
+          const other = res.members.find((m) => m.identityId !== identityId)
+          if (other) setDirectPeerId(other.identityId)
+        }
+      }
       setIsOwner(!!res?.ownerId && res.ownerId === identityId)
     })
   }, [room, identityId])
+
+  const callPeerId = contact ? contact.userId : directPeerId
 
   // Custom header
   useEffect(() => {
@@ -471,6 +441,42 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
+          {callPeerId && !isVault && (
+            <>
+              <Pressable
+                onPress={() => {
+                  if (activeCall) {
+                    Alert.alert('Call in Progress', 'You already have an active call.')
+                    return
+                  }
+                  void startCall(callPeerId, roomId!, { audio: true, video: false }).catch((err) => {
+                    Alert.alert('Call Failed', (err as Error).message)
+                  })
+                }}
+                style={styles.headerBtn}
+                accessibilityLabel="Voice Call"
+              >
+                <Ionicons name="call-outline" size={20} color={colors.accentLight} />
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  if (activeCall) {
+                    Alert.alert('Call in Progress', 'You already have an active call.')
+                    return
+                  }
+                  void startCall(callPeerId, roomId!, { audio: true, video: true }).catch((err) => {
+                    Alert.alert('Call Failed', (err as Error).message)
+                  })
+                }}
+                style={styles.headerBtn}
+                accessibilityLabel="Video Call"
+              >
+                <Ionicons name="videocam-outline" size={22} color={colors.accentLight} />
+              </Pressable>
+            </>
+          )}
+
           <Pressable onPress={() => setShowSearch(!showSearch)} style={styles.headerBtn}>
             <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
           </Pressable>
@@ -495,7 +501,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, isVault, colors, styles, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
+  }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, isVault, colors, styles, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete, callPeerId, activeCall, startCall])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'

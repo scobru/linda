@@ -243,9 +243,10 @@ const methods: Record<string, (...args: any[]) => any> = {
       onReadReceipt: (m) => pushEvent('readReceipt', m),
       onIncomingCall: (info) => pushEvent('incomingCall', info),
       onCallStateChange: (info) => pushEvent('callStateChange', info),
-      onCallEnded: (info) => pushEvent('callEnded', info),
-      onCallRemoteControl: (callId, action) => pushEvent('callRemoteControl', { callId, action }),
-      onCallMediaFrame: (frame) => pushEvent('callMediaFrame', frame)
+      onCallMediaFrame: (frame) => {
+        const payload = frame.payload ? b4a.toString(frame.payload, 'base64') : ''
+        pushEvent('callMediaFrame', { ...frame, payload })
+      }
     }
     storageDir = dir
     // No `createLanDiscovery` here — see `SwarmTransport.createLanDiscovery` in swarm.ts. It
@@ -344,6 +345,13 @@ const methods: Record<string, (...args: any[]) => any> = {
     const room = await requireSession().acceptContactInvite(invite)
     wireRoom(room)
     return { roomId: room.id }
+  },
+
+  'session.sendCallFrame': (frame: any) => {
+    if (frame && typeof frame.payload === 'string') {
+      frame.payload = b4a.from(frame.payload, 'base64')
+    }
+    return requireSession().sendCallFrame(frame)
   },
 
 

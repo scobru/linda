@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   View,
   Text,
   Modal,
   Pressable,
   StyleSheet,
-  StatusBar
+  StatusBar,
+  Image
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
@@ -30,7 +31,9 @@ export default function ActiveCallModal() {
     toggleCallMute,
     toggleCallVideo,
     nicknames,
-    avatars
+    avatars,
+    remoteVideoFrame,
+    sendCallFrame
   } = useSession()
 
   const { colors } = useTheme()
@@ -38,13 +41,50 @@ export default function ActiveCallModal() {
 
   const [facing, setFacing] = useState<CameraType>('front')
   const [permission, requestPermission] = useCameraPermissions()
+  const cameraRef = useRef<CameraView>(null)
+
+  const isConnected = activeCall?.state === 'connected'
+  const isVideo = activeCall?.media.video
+
+  // Periodic video frame capture & transmission from mobile camera
+  useEffect(() => {
+    if (!isConnected || !isVideo || isCallVideoOff || !permission?.granted) return
+    let isMounted = true
+    let isCapturing = false
+
+    const interval = setInterval(async () => {
+      if (isCapturing || !isMounted || !cameraRef.current) return
+      isCapturing = true
+      try {
+        const pic = await cameraRef.current.takePictureAsync({
+          quality: 0.25,
+          base64: true,
+          shutterSound: false
+        })
+        if (isMounted && pic?.base64) {
+          sendCallFrame({
+            kind: 1,
+            payload: pic.base64,
+            keyframe: true
+          })
+        }
+      } catch {
+        // Camera busy or transitioning
+      } finally {
+        isCapturing = false
+      }
+    }, 800)
+
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
+  }, [isConnected, isVideo, isCallVideoOff, permission?.granted, sendCallFrame])
 
   if (!activeCall || activeCall.state === 'idle' || activeCall.state === 'ended') {
     return null
   }
 
-  const isConnected = activeCall.state === 'connected'
-  const isVideo = activeCall.media.video
   const peerName = nicknames.get(activeCall.peerId) || 'Linda Contact'
   const peerAvatar = avatars.get(activeCall.peerId)
 
@@ -80,18 +120,28 @@ export default function ActiveCallModal() {
             <View style={styles.videoStage}>
               {/* Remote participant card / video area */}
               <View style={styles.remoteVideoPlaceholder}>
-                <Avatar
-                  id={activeCall.peerId}
-                  label={peerName}
-                  imageUrl={peerAvatar}
-                  size="xl"
-                />
-                <Text style={styles.peerNameText}>{peerName}</Text>
-                <Text style={styles.subStatus}>
-                  {isConnected
-                    ? (activeCall.remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
-                    : 'Dialing peer over Hyperswarm...'}
-                </Text>
+                {remoteVideoFrame && !activeCall.remoteCameraOff ? (
+                  <Image
+                    source={{ uri: remoteVideoFrame }}
+                    style={StyleSheet.absoluteFillObject}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <>
+                    <Avatar
+                      id={activeCall.peerId}
+                      label={peerName}
+                      imageUrl={peerAvatar}
+                      size="xl"
+                    />
+                    <Text style={styles.peerNameText}>{peerName}</Text>
+                    <Text style={styles.subStatus}>
+                      {isConnected
+                        ? (activeCall.remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
+                        : 'Dialing peer over Hyperswarm...'}
+                    </Text>
+                  </>
+                )}
                 {activeCall.remoteMuted && (
                   <View style={styles.remoteMutedPill}>
                     <Ionicons name="mic-off" size={14} color={colors.warning} />
@@ -102,7 +152,7 @@ export default function ActiveCallModal() {
 
               {/* Local Self-View PiP */}
               <View style={styles.pipContainer}>
-                <CameraView style={styles.cameraView} facing={facing} />
+                <CameraView ref={cameraRef} style={styles.cameraView} facing={facing} />
                 <View style={styles.pipOverlay}>
                   <Text style={styles.pipLabel}>You</Text>
                 </View>
@@ -315,6 +365,7 @@ const createStyles = (colors: ThemeColors) =>
       justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: '#111622',
+      overflow: 'hidden',
     },
     pipContainer: {
       position: 'absolute',
