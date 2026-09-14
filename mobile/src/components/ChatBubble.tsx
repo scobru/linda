@@ -2,6 +2,7 @@ import React from 'react'
 import { View, Text, StyleSheet, Pressable, Image, Linking } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { splitOnHashtags } from '@core/util/hashtag'
+import { isAudio, isVideo, isVoiceMessage } from '@core/rooms/attachment-kind'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -39,18 +40,7 @@ interface Props {
   selected?: boolean
 }
 
-export function isVideoFile(file: { name: string; mimeType?: string }): boolean {
-  return !!file.mimeType?.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file.name)
-}
 
-export function isAudioFile(file: { name: string; mimeType?: string }): boolean {
-  return !!file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(file.name)
-}
-
-/** Matches the name the composers generate for a recording (see MessageComposer). */
-export function isVoiceMessage(file: { name: string }): boolean {
-  return /^voice-\d{4}-/.test(file.name)
-}
 
 /** Static bar heights — decoding the clip just to draw a real waveform isn't worth it. */
 const VOICE_WAVE_HEIGHTS = [7, 12, 18, 10, 15, 20, 9, 14, 18, 11, 16, 8, 13, 6]
@@ -125,7 +115,7 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
 
         {/* File attachment */}
         {message.file && (
-          isAudioFile(message.file) ? (
+          isAudio(message.file) ? (
             // A voice message is a recording, not a file the sender picked, so its generated
             // filename is noise — show a player instead. A real audio file keeps its name.
             isVoiceMessage(message.file) ? (
@@ -157,7 +147,7 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
               <Text style={styles.fileSize}>{formatBytes(message.file.size)}</Text>
             </Pressable>
             )
-          ) : isVideoFile(message.file) ? (
+          ) : isVideo(message.file) ? (
             // Streamed on tap, not downloaded first — see RoomChatScreen's handleFilePress.
             // Videos sent before posters existed carry no thumbnail; the play badge then sits on
             // a plain black plate rather than a frame.

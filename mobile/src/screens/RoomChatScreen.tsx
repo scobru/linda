@@ -19,23 +19,27 @@ import type { ChatMessage, RoomFile } from '@core/rooms/room'
 import { formatBytes } from '@core/util/bytes'
 import { SvgXml } from 'react-native-svg'
 import { wallpaperPatternSvg, wallpaperInk, DEFAULT_WALLPAPER } from '@core/ui/wallpapers'
-import ChatBubble, { isAudioFile, isVideoFile } from '../components/ChatBubble'
+import ChatBubble from '../components/ChatBubble'
 import VideoPlayerModal from '../components/VideoPlayerModal'
 import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
+import { attachmentKind, isAudio, isVideo } from '@core/rooms/attachment-kind'
+import { canDeleteMessage, countHashtags, survivingHashtag } from '@core/rooms/room-rules'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
 
 
 function getFileIcon(name: string, mimeType?: string): keyof typeof Ionicons.glyphMap {
-  if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return 'image-outline'
-  if (mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(name)) return 'musical-notes-outline'
-  if (mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(name)) return 'videocam-outline'
-  if (/\.(zip|tar|gz|7z|rar)$/i.test(name)) return 'archive-outline'
-  if (/\.pdf$/i.test(name) || mimeType === 'application/pdf') return 'document-text-outline'
-  return 'document-outline'
+  switch (attachmentKind({ name, mimeType })) {
+    case 'image': return 'image-outline'
+    case 'audio': return 'musical-notes-outline'
+    case 'video': return 'videocam-outline'
+    case 'archive': return 'archive-outline'
+    case 'pdf': return 'document-text-outline'
+    default: return 'document-outline'
+  }
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoomChat'>
@@ -377,6 +381,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const [memberCount, setMemberCount] = useState(1)
   const [isOwner, setIsOwner] = useState(false)
+  const [isModerator, setIsModerator] = useState(false)
   const [directPeerId, setDirectPeerId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -390,8 +395,16 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         }
       }
       setIsOwner(!!res?.ownerId && res.ownerId === identityId)
+      // `listMembers` already reported this and the screen used to drop it, which is why a
+      // moderator could delete another member's message from the desktop and not from here.
+      setIsModerator(!!res?.moderators?.includes(identityId))
     })
   }, [room, identityId])
+
+  const viewer = useMemo(
+    () => ({ identityId, isOwner, isModerator }),
+    [identityId, isOwner, isModerator]
+  )
 
   const callPeerId = contact ? contact.userId : directPeerId
 
@@ -510,19 +523,12 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   // Hashtag notes: every tag used in the room, most-used first, so "buy milk #todo" stays
   // findable later by tapping #todo. Selecting a tag narrows the list; tapping it again clears.
-  const hashtagCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const m of messages) {
-      if (m.deleted) continue
-      for (const tag of extractHashtags(m.body)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-  }, [messages])
+  const hashtagCounts = useMemo(() => countHashtags(messages), [messages])
 
   // A tag whose last message was deleted must not stay selected, or the list sits empty.
   useEffect(() => {
-    if (activeHashtag && !hashtagCounts.some(([tag]) => tag === activeHashtag)) setActiveHashtag(null)
-  }, [hashtagCounts, activeHashtag])
+    setActiveHashtag((active) => survivingHashtag(active, hashtagCounts))
+  }, [hashtagCounts])
 
   const filteredMessages = useMemo(() => {
     let list = searchQuery
@@ -665,8 +671,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const handleFilePress = useCallback(async (message: ChatMessage) => {
     if (!message.file || downloadingId) return
-    if (isAudioFile(message.file)) return handlePlayAudio(message)
-    if (isVideoFile(message.file)) {
+    if (isAudio(message.file)) return handlePlayAudio(message)
+    if (isVideo(message.file)) {
       const file = message.file
       return void session!.mediaUrl(file.driveKey, file.path)
         .then((uri) => setPlayingVideo({ uri, name: file.name }))
@@ -865,7 +871,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               const snippet = lines.length > 1 ? lines.slice(1).join(' ').trim() : (item.file ? `${item.file.name} (${formatBytes(item.file.size)})` : '')
               const author = getAuthorName(item.authorId)
               const isReply = !!(item.replyTo && messagesById.has(item.replyTo))
-              const canDel = item.authorId === identityId || isOwner
+              const canDel = canDeleteMessage(item, viewer)
               return (
                 <Pressable
                   style={({ pressed }) => [styles.mailboxCard, pressed && styles.mailboxCardPressed]}
@@ -928,7 +934,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 {group.items.map((item) => {
                   const isReply = !!(item.replyTo && messagesById.has(item.replyTo))
                   const quoted = isReply && item.replyTo ? messagesById.get(item.replyTo) : undefined
-                  const canDel = item.authorId === identityId || isOwner
+                  const canDel = canDeleteMessage(item, viewer)
                   return (
                     <View key={item.id} style={styles.docEntry}>
                       <View style={styles.docMetaRow}>
@@ -1291,7 +1297,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
             </Pressable>
             <Text style={styles.readerHeaderTitle}>Mailbox Message</Text>
-            {selectedMailboxMessage && (selectedMailboxMessage.authorId === identityId || isOwner) ? (
+            {selectedMailboxMessage && canDeleteMessage(selectedMailboxMessage, viewer) ? (
               <Pressable
                 onPress={() => confirmDeleteMessage(selectedMailboxMessage.id)}
                 hitSlop={8}

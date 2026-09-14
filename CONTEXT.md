@@ -51,6 +51,12 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
 - **Definizione:** Struttura decentralizzata per le conversazioni di gruppo o dirette, supportata da Autobase (append-only log multi-writer con linearizzazione deterministica e risoluzione automatica dei conflitti).
 - **Storage:** Corestore / Hypercore con crittografia delle chiavi e sincronizzazione su DHT Hyperswarm.
 
+### `AttachmentKind` & `RoomRules`
+- **Definizione:** Le regole sul contenuto di una stanza che entrambe le shell applicano, scritte una volta sola in [attachment-kind.ts](src/rooms/attachment-kind.ts) e [room-rules.ts](src/rooms/room-rules.ts).
+- **`AttachmentKind`:** Classifica un allegato (`image` | `audio` | `video` | `archive` | `pdf` | `other`) per MIME type e, in mancanza, per estensione. Contiene anche la convenzione del nome dei messaggi vocali (`voice-<ISO>.<ext>`) insieme alla funzione che la scrive, così produttore e lettore non possono divergere.
+- **`RoomRules`:** Predicati puri — chi può cancellare un messaggio, il conteggio e l'ordinamento degli hashtag, quale tag selezionato sopravvive a un ricalcolo.
+- **Invariante:** Queste funzioni prendono **primitive, mai un `Room`**. Le due piattaforme tengono una stanza in forme diverse — `RoomView` con metodi sul desktop, `RoomState` con array su mobile — e una regola che chiedesse una stanza sarebbe usabile da un lato solo. È esattamente così che erano nate le copie divergenti.
+
 ### `Identity` & `ProfileStore`
 - **Definizione:** Gestione dell'identità crittografica dell'utente (coppia di chiavi ED25519/Noise derivata da mnemonico BIP39), della rubrica dei contatti verificati e dei metadati locali (avatar, bio, bookmark stanze).
 
