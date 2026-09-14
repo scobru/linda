@@ -32,7 +32,6 @@ interface SessionContextValue {
   callDuration: number
   isCallMuted: boolean
   isCallVideoOff: boolean
-  remoteVideoFrame: string | null
   startCall: (peerId: string, roomId: string, media?: CallMediaOptions) => Promise<CallInfo>
   answerCall: (callId: string, accept: boolean) => Promise<void>
   endCall: (callId?: string) => Promise<void>
@@ -77,7 +76,6 @@ export function SessionProvider({ children }: Props) {
   const [callDuration, setCallDuration] = useState(0)
   const [isCallMuted, setIsCallMuted] = useState(false)
   const [isCallVideoOff, setIsCallVideoOff] = useState(false)
-  const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null)
   const activeCallRef = useRef(activeCall)
   useEffect(() => { activeCallRef.current = activeCall }, [activeCall])
   const [, setTick] = useState(0)
@@ -268,7 +266,6 @@ export function SessionProvider({ children }: Props) {
       if (info.state === 'ended') {
         setActiveCall(null)
         setIncomingCall(null)
-        setRemoteVideoFrame(null)
       } else if (info.direction === 'incoming' && info.state === 'ringing') {
         setIncomingCall(info)
       } else {
@@ -282,21 +279,15 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('callEnded', () => {
       setActiveCall(null)
       setIncomingCall(null)
-      setRemoteVideoFrame(null)
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-    })
-    bareClient.on('callMediaFrame', (frame: { callId: string; kind: number; payload: string }) => {
-      if (frame.kind === 1 && frame.payload) {
-        setRemoteVideoFrame(`data:image/jpeg;base64,${frame.payload}`)
-      }
     })
     bareClient.on('callRemoteControl', ({ callId, action }: { callId: string; action: string }) => {
       setActiveCall((prev) => {
         if (!prev || prev.callId !== callId) return prev
         if (action === 'mute') return { ...prev, remoteMuted: true }
         if (action === 'unmute') return { ...prev, remoteMuted: false }
-        if (action === 'video-off') return { ...prev, remoteCameraOff: true }
-        if (action === 'video-on') return { ...prev, remoteCameraOff: false }
+        if (action === 'camera-off') return { ...prev, remoteCameraOff: true }
+        if (action === 'camera-on') return { ...prev, remoteCameraOff: false }
         return prev
       })
     })
@@ -391,7 +382,6 @@ export function SessionProvider({ children }: Props) {
     }
     setActiveCall(null)
     setIncomingCall(null)
-    setRemoteVideoFrame(null)
     setIsCallMuted(false)
     setIsCallVideoOff(false)
   }, [activeCall, incomingCall])
@@ -409,7 +399,7 @@ export function SessionProvider({ children }: Props) {
     if (!s || !activeCall) return
     const next = !isCallVideoOff
     setIsCallVideoOff(next)
-    void s.sendCallControl(next ? 'video-off' : 'video-on').catch(() => {})
+    void s.sendCallControl(next ? 'camera-off' : 'camera-on').catch(() => {})
   }, [activeCall, isCallVideoOff])
 
   const sendCallFrame = useCallback((frame: { kind: number; payload: string | Uint8Array; keyframe?: boolean }) => {
@@ -446,7 +436,6 @@ export function SessionProvider({ children }: Props) {
     callDuration,
     isCallMuted,
     isCallVideoOff,
-    remoteVideoFrame,
     startCall,
     answerCall,
     endCall,
@@ -472,7 +461,6 @@ export function SessionProvider({ children }: Props) {
     callDuration,
     isCallMuted,
     isCallVideoOff,
-    remoteVideoFrame,
     startCall,
     answerCall,
     endCall,

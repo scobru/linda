@@ -30,6 +30,7 @@ export class MediaPipeline {
   // Audio capture (Web Audio API)
   private audioContext: AudioContext | null = null
   private audioSource: MediaStreamAudioSourceNode | null = null
+  private audioWorkletNode: any = null
   private audioProcessor: ScriptProcessorNode | null = null
   private audioSeq = 0
 
@@ -48,6 +49,8 @@ export class MediaPipeline {
 
   // Video playback & decoding
   private videoDecoder: any = null
+  private hasReceivedKeyframe = false
+  private peerUsesJpeg = false
   private remoteCanvas: HTMLCanvasElement | null = null
   private remoteCtx: CanvasRenderingContext2D | null = null
 
@@ -209,14 +212,17 @@ export class MediaPipeline {
       }
 
       if (config.audio) {
-        this.startAudioCapture()
+        await this.startAudioCapture()
         this.initAudioPlayback()
       }
 
       if (config.video) {
         await this.startVideoCapture()
-        this.initVideoDecoding()
       }
+
+      // Always initialize video decoding so remote video can be received
+      // even if local video capture is disabled or audio-only
+      this.initVideoDecoding()
     } catch (setupErr) {
       console.error('[media-pipeline] Error setting up capture pipelines:', setupErr)
       this.stop()
@@ -281,7 +287,16 @@ export class MediaPipeline {
       this.videoInterval = null
     }
 
+    if (this.audioWorkletNode) {
+      try {
+        this.audioWorkletNode.port.onmessage = null
+        this.audioWorkletNode.disconnect()
+      } catch {}
+      this.audioWorkletNode = null
+    }
+
     if (this.audioProcessor) {
+      this.audioProcessor.onaudioprocess = null
       this.audioProcessor.disconnect()
       this.audioProcessor = null
     }
@@ -306,6 +321,8 @@ export class MediaPipeline {
       try { this.videoDecoder.close() } catch {}
       this.videoDecoder = null
     }
+    this.hasReceivedKeyframe = false
+    this.peerUsesJpeg = false
 
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
@@ -329,14 +346,78 @@ export class MediaPipeline {
 
   // ── Audio Capture & Playback (PCM over Web Audio API) ──────────────────────
 
-  private startAudioCapture(): void {
+  private async startAudioCapture(): Promise<void> {
     if (!this.localStream) return
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     this.audioContext = new AudioCtx({ sampleRate: 16000 })
 
     this.audioSource = this.audioContext.createMediaStreamSource(this.localStream)
 
-    // ScriptProcessor (512 samples @ 16kHz = 32ms per packet)
+    // Prefer AudioWorkletNode to avoid ScriptProcessorNode deprecation and main-thread processing
+    if (typeof AudioWorkletNode !== 'undefined' && this.audioContext.audioWorklet) {
+      try {
+        const workletCode = `
+class AudioCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super()
+    this.bufferSize = 512
+    this.buffer = new Int16Array(this.bufferSize)
+    this.offset = 0
+  }
+  process(inputs) {
+    const input = inputs[0]
+    if (!input || !input[0]) return true
+    const channel = input[0]
+    for (let i = 0; i < channel.length; i++) {
+      const val = channel[i] || 0
+      const s = Math.max(-1, Math.min(1, val))
+      this.buffer[this.offset++] = s < 0 ? s * 0x8000 : s * 0x7FFF
+      if (this.offset >= this.bufferSize) {
+        const copy = new Uint8Array(this.buffer.slice().buffer)
+        this.port.postMessage(copy, [copy.buffer])
+        this.offset = 0
+      }
+    }
+    return true
+  }
+}
+registerProcessor('audio-capture-processor', AudioCaptureProcessor)
+`
+        const blob = new Blob([workletCode], { type: 'application/javascript' })
+        const url = URL.createObjectURL(blob)
+        try {
+          await this.audioContext.audioWorklet.addModule(url)
+        } finally {
+          URL.revokeObjectURL(url)
+        }
+
+        if (!this.active || !this.audioContext) return
+
+        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor')
+        this.audioWorkletNode.port.onmessage = (e: MessageEvent<Uint8Array>) => {
+          if (!this.active || this.isAudioMuted || !this.onSendFrame || !this.callId) return
+          this.onSendFrame({
+            callId: this.callId,
+            seq: this.audioSeq++,
+            timestamp: Date.now(),
+            kind: 0,
+            keyframe: true,
+            payload: e.data
+          })
+        }
+
+        this.audioSource.connect(this.audioWorkletNode)
+        const silentGain = this.audioContext.createGain()
+        silentGain.gain.value = 0
+        this.audioWorkletNode.connect(silentGain)
+        silentGain.connect(this.audioContext.destination)
+        return
+      } catch (workletErr) {
+        console.warn('[media-pipeline] AudioWorklet setup failed, falling back to ScriptProcessor:', workletErr)
+      }
+    }
+
+    // Fallback: ScriptProcessor (512 samples @ 16kHz = 32ms per packet)
     this.audioProcessor = this.audioContext.createScriptProcessor(512, 1, 1)
 
     this.audioProcessor.onaudioprocess = (e) => {
@@ -445,7 +526,10 @@ export class MediaPipeline {
               payload: buffer
             })
           },
-          error: (err: Error) => console.error('[media-pipeline] VideoEncoder error:', err)
+          error: (err: Error) => {
+            console.error('[media-pipeline] VideoEncoder error:', err)
+            this.videoEncoder = null
+          }
         })
 
         this.videoEncoder.configure({
@@ -469,11 +553,12 @@ export class MediaPipeline {
         this.captureCtx.drawImage(this.videoElementForCapture, 0, 0, this.captureCanvas.width, this.captureCanvas.height)
         this.frameCount++
 
-        if (this.videoEncoder && this.videoEncoder.state === 'configured') {
+        if (!this.peerUsesJpeg && this.videoEncoder && this.videoEncoder.state === 'configured') {
           const VideoFrameClass = (window as unknown as { VideoFrame: any }).VideoFrame
-          const frame = new VideoFrameClass(this.captureCanvas, { timestamp: performance.now() * 1000 })
-          // Keyframe every 40 frames (~2 seconds)
-          const keyframe = this.frameCount % 40 === 1
+          const timestamp = Math.round(performance.now() * 1000)
+          const frame = new VideoFrameClass(this.captureCanvas, { timestamp })
+          // Keyframe on first frame and every 40 frames (~2 seconds)
+          const keyframe = this.frameCount === 1 || this.frameCount % 40 === 1
           this.videoEncoder.encode(frame, { keyFrame: keyframe })
           frame.close()
         } else {
@@ -500,64 +585,138 @@ export class MediaPipeline {
 
   private initVideoDecoding(): void {
     const hasWebCodecs = typeof (window as unknown as { VideoDecoder?: unknown }).VideoDecoder !== 'undefined'
-    if (hasWebCodecs && this.videoEncoder) {
-      try {
-        const VideoDecoderClass = (window as unknown as { VideoDecoder: any }).VideoDecoder
-        this.videoDecoder = new VideoDecoderClass({
-          output: (frame: any) => {
-            if (this.remoteCanvas && this.remoteCtx) {
-              if (this.remoteCanvas.width !== frame.displayWidth || this.remoteCanvas.height !== frame.displayHeight) {
-                this.remoteCanvas.width = frame.displayWidth
-                this.remoteCanvas.height = frame.displayHeight
-              }
-              this.remoteCtx.drawImage(frame, 0, 0)
-            }
-            frame.close()
-          },
-          error: (err: Error) => console.error('[media-pipeline] VideoDecoder error:', err)
-        })
+    if (!hasWebCodecs) return
 
-        this.videoDecoder.configure({
-          codec: 'vp8'
-        })
-      } catch (err) {
-        console.warn('[media-pipeline] VideoDecoder init failed:', err)
-        this.videoDecoder = null
+    try {
+      if (this.videoDecoder && this.videoDecoder.state !== 'closed') {
+        try { this.videoDecoder.close() } catch {}
       }
+      this.hasReceivedKeyframe = false
+
+      const VideoDecoderClass = (window as unknown as { VideoDecoder: any }).VideoDecoder
+      this.videoDecoder = new VideoDecoderClass({
+        output: (frame: any) => {
+          if (this.remoteCanvas && this.remoteCtx) {
+            if (this.remoteCanvas.width !== frame.displayWidth || this.remoteCanvas.height !== frame.displayHeight) {
+              this.remoteCanvas.width = frame.displayWidth
+              this.remoteCanvas.height = frame.displayHeight
+            }
+            this.remoteCtx.drawImage(frame, 0, 0)
+          }
+          frame.close()
+        },
+        error: (err: Error) => {
+          console.error('[media-pipeline] VideoDecoder error:', err)
+          this.hasReceivedKeyframe = false
+        }
+      })
+
+      this.videoDecoder.configure({
+        codec: 'vp8'
+      })
+    } catch (err) {
+      console.warn('[media-pipeline] VideoDecoder init failed:', err)
+      this.videoDecoder = null
+      this.hasReceivedKeyframe = false
     }
   }
 
   private renderVideoFrame(frame: MediaFrameMessage): void {
+    const payload = frame.payload
+    if (!payload || payload.length === 0) return
+
+    // 1. If payload is an image format (JPEG/PNG/WebP), route directly to ImageBitmap rendering.
+    // NEVER pass image payloads into WebCodecs VideoDecoder!
+    if (MediaPipeline.isImagePayload(payload)) {
+      this.peerUsesJpeg = true
+      this.renderImageFrame(payload)
+      return
+    }
+
+    // 2. Otherwise, treat as WebCodecs encoded video stream (VP8)
+    if (!this.videoDecoder || this.videoDecoder.state === 'closed') {
+      this.initVideoDecoding()
+    }
+
     if (this.videoDecoder && this.videoDecoder.state === 'configured') {
+      const isKey = MediaPipeline.isVp8Keyframe(payload)
+
+      // WebCodecs requires a keyframe after configure() or flush().
+      // If we haven't received a keyframe yet and this frame is a delta frame, drop it.
+      if (!this.hasReceivedKeyframe) {
+        if (!isKey) {
+          return
+        }
+        this.hasReceivedKeyframe = true
+      }
+
       try {
         const EncodedVideoChunkClass = (window as unknown as { EncodedVideoChunk: any }).EncodedVideoChunk
         const chunk = new EncodedVideoChunkClass({
-          type: frame.keyframe ? 'key' : 'delta',
+          type: isKey ? 'key' : 'delta',
           timestamp: frame.timestamp,
-          data: frame.payload
+          data: payload
         })
         this.videoDecoder.decode(chunk)
         return
       } catch (err) {
-        console.warn('[media-pipeline] WebCodecs decode failed, trying fallback:', err)
+        console.warn('[media-pipeline] WebCodecs decode failed, falling back to image decoder:', err)
+        this.hasReceivedKeyframe = false
       }
     }
 
-    // Fallback: decode as ImageBitmap (works for JPEG/PNG/WebP blobs)
-    if (typeof createImageBitmap !== 'undefined' && this.remoteCanvas && this.remoteCtx) {
-      const blob = new Blob([frame.payload as any], { type: 'image/jpeg' })
-      createImageBitmap(blob).then((bitmap) => {
-        if (!this.remoteCanvas || !this.remoteCtx) {
-          bitmap.close()
-          return
-        }
-        if (this.remoteCanvas.width !== bitmap.width || this.remoteCanvas.height !== bitmap.height) {
-          this.remoteCanvas.width = bitmap.width
-          this.remoteCanvas.height = bitmap.height
-        }
-        this.remoteCtx.drawImage(bitmap, 0, 0)
-        bitmap.close()
-      }).catch(() => {})
+    // Fallback: decode as ImageBitmap (works for any image blobs)
+    this.renderImageFrame(payload)
+  }
+
+  static isImagePayload(payload: Uint8Array): boolean {
+    if (payload.length < 2) return false
+    // JPEG (FF D8)
+    if (payload[0] === 0xff && payload[1] === 0xd8) return true
+    // PNG (89 50 4E 47)
+    if (payload.length >= 4 && payload[0] === 0x89 && payload[1] === 0x50 && payload[2] === 0x4e && payload[3] === 0x47) return true
+    // WebP (RIFF....WEBP)
+    if (payload.length >= 12 &&
+        payload[0] === 0x52 && payload[1] === 0x49 && payload[2] === 0x46 && payload[3] === 0x46 &&
+        payload[8] === 0x57 && payload[9] === 0x45 && payload[10] === 0x42 && payload[11] === 0x50) return true
+    return false
+  }
+
+  static isVp8Keyframe(payload: Uint8Array): boolean {
+    // VP8 Keyframe bitstream specification (RFC 6386 section 9.1):
+    // Byte 0, bit 0: 0 = key frame, 1 = interframe
+    // Bytes 3..5: start code 0x9D, 0x01, 0x2A
+    return (
+      payload.length >= 10 &&
+      (payload[0]! & 0x01) === 0 &&
+      payload[3] === 0x9d &&
+      payload[4] === 0x01 &&
+      payload[5] === 0x2a
+    )
+  }
+
+  private renderImageFrame(payload: Uint8Array): void {
+    if (typeof createImageBitmap === 'undefined' || !this.remoteCanvas || !this.remoteCtx) return
+
+    let type = 'image/jpeg'
+    if (payload.length >= 4 && payload[0] === 0x89 && payload[1] === 0x50 && payload[2] === 0x4e && payload[3] === 0x47) {
+      type = 'image/png'
+    } else if (payload.length >= 12 && payload[0] === 0x52 && payload[1] === 0x49 && payload[2] === 0x46 && payload[3] === 0x46) {
+      type = 'image/webp'
     }
+
+    const blob = new Blob([payload as any], { type })
+    createImageBitmap(blob).then((bitmap) => {
+      if (!this.remoteCanvas || !this.remoteCtx) {
+        bitmap.close()
+        return
+      }
+      if (this.remoteCanvas.width !== bitmap.width || this.remoteCanvas.height !== bitmap.height) {
+        this.remoteCanvas.width = bitmap.width
+        this.remoteCanvas.height = bitmap.height
+      }
+      this.remoteCtx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+    }).catch(() => {})
   }
 }

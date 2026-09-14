@@ -10,6 +10,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
+import { bareClient } from '../bare/client'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
 import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
@@ -32,7 +33,6 @@ export default function ActiveCallModal() {
     toggleCallVideo,
     nicknames,
     avatars,
-    remoteVideoFrame,
     sendCallFrame
   } = useSession()
 
@@ -46,6 +46,32 @@ export default function ActiveCallModal() {
   const isConnected = activeCall?.state === 'connected'
   const isVideo = activeCall?.media.video
 
+  const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null)
+  const isCameraReadyRef = useRef(false)
+  const lastFrameTimeRef = useRef(0)
+
+  // Listen to incoming remote video frames locally without re-rendering the whole application
+  useEffect(() => {
+    if (!isConnected || !isVideo) {
+      setRemoteVideoFrame(null)
+      return
+    }
+
+    return bareClient.on('callMediaFrame', (frame: { callId: string; kind: number; payload: string }) => {
+      if (frame.kind === 1 && frame.payload) {
+        const now = Date.now()
+        // Throttle to ~12 fps (80ms) to ensure smooth React Native bridge rendering and prevent stutter
+        if (now - lastFrameTimeRef.current < 80) return
+        lastFrameTimeRef.current = now
+
+        // Check for JPEG magic bytes in base64 ('/9j/') or valid payload
+        if (frame.payload.startsWith('/9j/')) {
+          setRemoteVideoFrame(`data:image/jpeg;base64,${frame.payload}`)
+        }
+      }
+    })
+  }, [isConnected, isVideo])
+
   // Periodic video frame capture & transmission from mobile camera
   useEffect(() => {
     if (!isConnected || !isVideo || isCallVideoOff || !permission?.granted) return
@@ -53,13 +79,14 @@ export default function ActiveCallModal() {
     let isCapturing = false
 
     const interval = setInterval(async () => {
-      if (isCapturing || !isMounted || !cameraRef.current) return
+      if (isCapturing || !isMounted || !cameraRef.current || !isCameraReadyRef.current) return
       isCapturing = true
       try {
         const pic = await cameraRef.current.takePictureAsync({
           quality: 0.25,
           base64: true,
-          shutterSound: false
+          shutterSound: false,
+          skipProcessing: true
         })
         if (isMounted && pic?.base64) {
           sendCallFrame({
@@ -73,10 +100,11 @@ export default function ActiveCallModal() {
       } finally {
         isCapturing = false
       }
-    }, 800)
+    }, 200)
 
     return () => {
       isMounted = false
+      isCameraReadyRef.current = false
       clearInterval(interval)
     }
   }, [isConnected, isVideo, isCallVideoOff, permission?.granted, sendCallFrame])
@@ -125,6 +153,7 @@ export default function ActiveCallModal() {
                     source={{ uri: remoteVideoFrame }}
                     style={StyleSheet.absoluteFillObject}
                     resizeMode="cover"
+                    fadeDuration={0}
                   />
                 ) : (
                   <>
@@ -152,7 +181,17 @@ export default function ActiveCallModal() {
 
               {/* Local Self-View PiP */}
               <View style={styles.pipContainer}>
-                <CameraView ref={cameraRef} style={styles.cameraView} facing={facing} />
+                <CameraView
+                  ref={cameraRef}
+                  style={styles.cameraView}
+                  facing={facing}
+                  animateShutter={false}
+                  flash="off"
+                  enableTorch={false}
+                  onCameraReady={() => {
+                    isCameraReadyRef.current = true
+                  }}
+                />
                 <View style={styles.pipOverlay}>
                   <Text style={styles.pipLabel}>You</Text>
                 </View>
