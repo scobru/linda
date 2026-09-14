@@ -365,6 +365,12 @@ export class RemoteSessionView implements SessionView {
     void this.rpcClient.call<void>('session.broadcastPresence', online)
   }
 
+  /** Re-announces on the DHT after a network change. Deliberately awaited by nobody: the caller is
+   * a wifi/cellular handoff, not a user action. */
+  async resumeNetwork(): Promise<void> {
+    await this.rpcClient.call<void>('session.resumeNetwork')
+  }
+
   sendTyping(roomId: string, userId: string, typing: boolean): void {
     void this.rpcClient.call<void>('session.sendTyping', roomId, userId, typing)
   }

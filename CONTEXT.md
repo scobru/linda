@@ -38,8 +38,9 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
 - **`SessionView`:** L'interfaccia/seam polimorfa comune a cui fa riferimento l'interfaccia utente (`AppShell` e `CallOverlay`).
 
 ### `SessionContract`
-- **Stato:** Termine concordato, **non ancora implementato**. Oggi la stessa superficie è descritta tre volte a mano — `src/worker/dispatcher.ts`, `src/transport/remote-session-view.ts` e `mobile/src/bare/session-contract.ts` (l'unica delle tre derivata da `Session` e verificata in build). Questa voce fissa il vocabolario verso cui convergere.
-- **Definizione:** La dichiarazione unica di cosa `Session` espone attraverso un confine di processo, letta da entrambi i runtime fuori-processo (worker Bare desktop e worklet mobile).
+- **Stato:** Implementato per il percorso worker desktop in [session-contract.ts](src/app/session-contract.ts). Il dispatcher costruisce da lì i suoi inoltri; il proxy (`RemoteSessionView`) resta scritto a mano ma è **enumerato** dai test, che falliscono se un membro manca o se dichiara meno parametri di `Session`. Non ancora convergente: `mobile/src/bare/session-contract.ts` deriva tuttora il proprio elenco per conto suo.
+- **Bucket:** Ogni membro di `Session` cade in esattamente uno dei tre — inoltrato (con il suo `Effect`), servito dal mirror, o adattato — e il compilatore lo esige.
+- **Definizione:** La dichiarazione unica di cosa `Session` espone attraverso un confine di processo. Oggi la legge il worker Bare desktop; il worklet mobile è il prossimo a convergerci.
 - **Responsabilità:**
   - Classificare ogni metodo di `Session` come inoltro semplice (con il suo `Effect`) oppure come `Adapted`, con il motivo esplicito.
   - `Effect` — cosa il worker ripubblica dopo la chiamata: `none`, `roomState`, `bookmarks`, `roomState+bookmarks`. Quattro famiglie, non un caso per metodo.
