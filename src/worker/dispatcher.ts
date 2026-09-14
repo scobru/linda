@@ -175,12 +175,19 @@ export class WorkerDispatcher {
     const originalCallMediaFrame = events.onCallMediaFrame
     events.onCallMediaFrame = (frame) => {
       originalCallMediaFrame?.(frame)
-      this.pushEvent('callMediaFrame', frame)
+      const { payload, ...rest } = frame
+      this.pushEvent('callMediaFrame', rest, { field: 'payload', bytes: payload })
     }
   }
 
-  pushEvent(event: string, payload?: unknown): void {
-    this.rpc.event(0).send(packFrame({ event, payload }) as any)
+  /** Pushes an event to the client. `binaryField` names a property of `payload` whose bytes ride
+   * the frame's binary tail instead of the JSON header — `JSON.stringify` turns a `Uint8Array`
+   * into `{"0":255,…}`, an object with no `.buffer`, which is silent corruption rather than an
+   * error. The client puts the tail back on that property before handing the payload to listeners. */
+  pushEvent(event: string, payload?: unknown, binary?: { field: string; bytes: Uint8Array }): void {
+    this.rpc
+      .event(0)
+      .send(packFrame({ event, payload, binaryField: binary?.field }, binary?.bytes) as any)
   }
 
   pushRoomState(room: Room): void {
@@ -428,6 +435,14 @@ export class WorkerDispatcher {
       this.requireSession().removeFromDirectory(roomId)
     },
 
+    'session.sendTyping': (roomId: string, userId: string, typing: boolean) => {
+      this.requireSession().sendTyping(roomId, userId, typing)
+    },
+
+    'session.sendReadReceipt': (roomId: string, userId: string, messageId: string) => {
+      this.requireSession().sendReadReceipt(roomId, userId, messageId)
+    },
+
     'session.broadcastPresence': (online = true) => {
       this.requireSession().broadcastPresence(online)
     },
@@ -623,8 +638,8 @@ export class WorkerDispatcher {
       this.requireSession().sendCallControl(action)
     },
 
-    'session.sendCallFrame': async (frame: any) => {
-      this.requireSession().sendCallFrame(frame)
+    'session.sendCallFrame': async (frame: any, binary?: Uint8Array) => {
+      this.requireSession().sendCallFrame({ ...frame, payload: binary ?? new Uint8Array(0) })
     }
   }
 }

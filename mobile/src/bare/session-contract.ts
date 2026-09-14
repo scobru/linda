@@ -84,6 +84,8 @@ export const FORWARDED_SESSION_METHODS = [
   'sendCallControl',
   'sendCallFrame',
   'sendContactRequest',
+  'sendReadReceipt',
+  'sendTyping',
   'setAvatar',
   'setNickname',
   'setRoomBroadcast',

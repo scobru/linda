@@ -37,6 +37,15 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
   - In Mobile: proxy IPC asincrono tramite BareKit verso il worklet C++/Bare.
 - **`SessionView`:** L'interfaccia/seam polimorfa comune a cui fa riferimento l'interfaccia utente (`AppShell` e `CallOverlay`).
 
+### `SessionContract`
+- **Stato:** Termine concordato, **non ancora implementato**. Oggi la stessa superficie è descritta tre volte a mano — `src/worker/dispatcher.ts`, `src/transport/remote-session-view.ts` e `mobile/src/bare/session-contract.ts` (l'unica delle tre derivata da `Session` e verificata in build). Questa voce fissa il vocabolario verso cui convergere.
+- **Definizione:** La dichiarazione unica di cosa `Session` espone attraverso un confine di processo, letta da entrambi i runtime fuori-processo (worker Bare desktop e worklet mobile).
+- **Responsabilità:**
+  - Classificare ogni metodo di `Session` come inoltro semplice (con il suo `Effect`) oppure come `Adapted`, con il motivo esplicito.
+  - `Effect` — cosa il worker ripubblica dopo la chiamata: `none`, `roomState`, `bookmarks`, `roomState+bookmarks`. Quattro famiglie, non un caso per metodo.
+  - `Adapted` — i membri che un inoltro generico romperebbe: quelli che richiedono `wireRoom` sul valore di ritorno, quelli che restituiscono un `Room` vivo, binario/stream, o una `Map` che JSON appiattisce.
+- **Invariante:** La chiave del `Record` è il nome del metodo, quindi un membro aggiunto a `Session` e non classificato fa fallire la build nominandolo. Il dispatcher e il proxy sono **costruiti** dal contratto, mai scritti a mano: l'inoltro generico è `(...args) => call(name, ...args)`, per cui una divergenza di arità è impossibile per i membri inoltrati e resta possibile solo per gli `Adapted` — che sono il bersaglio del test di parità.
+
 ### `Room` & `Autobase`
 - **Definizione:** Struttura decentralizzata per le conversazioni di gruppo o dirette, supportata da Autobase (append-only log multi-writer con linearizzazione deterministica e risoluzione automatica dei conflitti).
 - **Storage:** Corestore / Hypercore con crittografia delle chiavi e sincronizzazione su DHT Hyperswarm.

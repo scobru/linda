@@ -3090,7 +3090,7 @@ export class AppShell extends HTMLElement {
   private notifyTyping(typing = true): void {
     const room = this.activeRoom
     if (!room || !this.session) return
-    for (const peer of this.session.peers.values()) peer.rpc.sendTyping({ roomId: room.id, userId: this.identity!.id, typing })
+    this.session.sendTyping(room.id, this.identity!.id, typing)
     if (this.typingTimer) clearTimeout(this.typingTimer)
     if (typing) this.typingTimer = setTimeout(() => this.notifyTyping(false), 3000)
   }
@@ -3107,7 +3107,7 @@ export class AppShell extends HTMLElement {
   private notifyRead(room: RoomView, messageId: string): void {
     if (!this.session || this.lastReadSent === messageId) return
     this.lastReadSent = messageId
-    for (const peer of this.session.peers.values()) peer.rpc.sendReadReceipt({ roomId: room.id, userId: this.identity!.id, messageId })
+    this.session.sendReadReceipt(room.id, this.identity!.id, messageId)
   }
 
   private onReadReceipt(roomId: string, userId: string): void {
