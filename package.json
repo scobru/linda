@@ -30,6 +30,7 @@
     "watch": "node build.js --watch",
     "typecheck": "tsc --noEmit",
     "test": "node test.js",
+    "test:call": "npx tsx --test test/media-pipeline.test.ts",
     "clean-storage": "node -e \"const fs=require('fs');fs.rmSync('./.dev-storage',{recursive:true,force:true});console.log('Storage cleaned.');\"",
     "start": "node build.js && electron ./electron/main.cjs",
     "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
