@@ -1,12 +1,13 @@
 import RPC from 'bare-rpc'
 import type { Duplex } from 'streamx'
-import { Session, type SessionEvents } from '../app/session.js'
+import { Session, type SessionEvents, type RoomBookmark } from '../app/session.js'
 import type { Room, ChatMessage, FileAttachment, MemberInfo, RoomFile } from '../rooms/room.js'
 import { LocalMediaServer } from '../files/media-server-node.js'
 import b4a from 'b4a'
 import { packFrame, unpackFrame } from '../transport/frame.js'
 import type { RemoteRoomState } from '../transport/remote-room-view.js'
 import type { RemoteSessionInitialState, RemoteSessionOpenOptions, WireIdentity } from '../transport/remote-session-view.js'
+import { FORWARDED, FORWARDED_METHODS, type Effect, type ForwardedMethod } from '../app/session-contract.js'
 
 export function extractRoomState(room: Room): RemoteRoomState & { roomId: string } {
   return {
@@ -253,7 +254,55 @@ export class WorkerDispatcher {
     }
   }
 
+  /**
+   * Every plain forward, built from `FORWARDED` rather than typed out one by one. The spread is
+   * an argument spread — `(...args)` in, `(...args)` on — so a mismatch between what the client
+   * sends and what `Session` expects is not expressible here. That is the point: the three defects
+   * this replaced were all a hand-written signature drifting from `Session`'s.
+   */
+  private forwardedHandlers(): Record<string, (...args: any[]) => any> {
+    return Object.fromEntries(
+      FORWARDED_METHODS.map((name: ForwardedMethod) => [
+        `session.${name}`,
+        async (...args: any[]) => {
+          const session = this.requireSession()
+          const result = await (session[name] as (...a: any[]) => any)(...args)
+          const extra = this.applyEffect(FORWARDED[name], args)
+          if (!extra) return result
+          // Every method with a bookmark effect returns void today; if one ever returns a value,
+          // the refreshed list still has to reach the client, so merge rather than pick.
+          return result === undefined ? extra : { ...extra, ...(result as object) }
+        }
+      ])
+    )
+  }
+
+  /**
+   * Republishes what the call changed. See `Effect` in session-contract.ts for the four shapes and
+   * the two invariants this relies on — the room id comes first, and a bookmark change answers
+   * with the refreshed list.
+   */
+  private applyEffect(effect: Effect, args: any[]): { bookmarks: RoomBookmark[] } | null {
+    if (effect === 'none') return null
+    const session = this.requireSession()
+
+    if (effect === 'roomState' || effect === 'roomState+bookmarks') {
+      const room = session.getRoom(args[0])
+      if (room) this.pushRoomState(room)
+    }
+
+    if (effect === 'bookmarks' || effect === 'roomState+bookmarks') {
+      const bookmarks = session.listBookmarks()
+      this.pushEvent('bookmarksChange', bookmarks)
+      return { bookmarks }
+    }
+
+    return null
+  }
+
   private handlers: Record<string, (...args: any[]) => any> = {
+    ...this.forwardedHandlers(),
+
     /**
      * Opens the session inside the worker. Nothing else could: `entry.ts` starts the dispatcher
      * with no session, and every other handler needs one, so before this existed a worker-backed
@@ -372,173 +421,42 @@ export class WorkerDispatcher {
       })
     },
 
-    'session.getPairingSnapshot': async () => {
-      return await this.requireSession().getPairingSnapshot()
-    },
 
-    'session.importPairingSnapshot': async (snapshot: Record<string, unknown>) => {
-      await this.requireSession().importPairingSnapshot(snapshot)
-    },
 
-    'session.deleteRoom': async (roomId: string) => {
-      await this.requireSession().deleteRoom(roomId)
-      const bookmarks = this.requireSession().listBookmarks()
-      this.pushEvent('bookmarksChange', bookmarks)
-      return { bookmarks }
-    },
 
-    'session.markRoomRead': (roomId: string) => {
-      this.requireSession().markRoomRead(roomId)
-      this.pushEvent('bookmarksChange', this.requireSession().listBookmarks())
-    },
 
-    'session.setRoomFavorite': async (roomId: string, favorite: boolean) => {
-      await this.requireSession().setRoomFavorite(roomId, favorite)
-      const bookmarks = this.requireSession().listBookmarks()
-      this.pushEvent('bookmarksChange', bookmarks)
-      return { bookmarks }
-    },
 
-    'session.setRoomBroadcast': async (roomId: string, broadcast: boolean) => {
-      await this.requireSession().setRoomBroadcast(roomId, broadcast)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.updateRoomMeta': async (
-      roomId: string,
-      opts: { name?: string; avatar?: string; description?: string }
-    ) => {
-      await this.requireSession().updateRoomMeta(roomId, opts)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-      const bookmarks = this.requireSession().listBookmarks()
-      this.pushEvent('bookmarksChange', bookmarks)
-      return { bookmarks }
-    },
 
-    'session.clearRoomHistory': (roomId: string) => {
-      this.requireSession().clearRoomHistory(roomId)
-      this.pushEvent('bookmarksChange', this.requireSession().listBookmarks())
-    },
 
-    'session.restoreRoomHistory': (roomId: string) => {
-      this.requireSession().restoreRoomHistory(roomId)
-      this.pushEvent('bookmarksChange', this.requireSession().listBookmarks())
-    },
 
-    'session.deleteMessage': async (roomId: string, messageId: string) => {
-      await this.requireSession().deleteMessage(roomId, messageId)
-    },
 
-    'session.removeFromDirectory': (roomId: string) => {
-      this.requireSession().removeFromDirectory(roomId)
-    },
 
-    'session.sendTyping': (roomId: string, userId: string, typing: boolean) => {
-      this.requireSession().sendTyping(roomId, userId, typing)
-    },
 
-    'session.sendReadReceipt': (roomId: string, userId: string, messageId: string) => {
-      this.requireSession().sendReadReceipt(roomId, userId, messageId)
-    },
 
-    'session.broadcastPresence': (online = true) => {
-      this.requireSession().broadcastPresence(online)
-    },
 
     'session.regenerateInvite': (roomId: string) => {
       const link = this.requireSession().regenerateInvite(roomId)
       return { inviteLink: link }
     },
 
-    'session.setNickname': async (nickname: string) => {
-      await this.requireSession().setNickname(nickname)
-    },
 
-    'session.setAvatar': async (avatar: string) => {
-      await this.requireSession().setAvatar(avatar)
-    },
 
-    'session.setWallpaper': async (wallpaperId: string) => {
-      await this.requireSession().setWallpaper(wallpaperId)
-    },
 
-    'session.setAppBackground': async (backgroundId: string) => {
-      await this.requireSession().setAppBackground(backgroundId)
-    },
 
-    'session.deleteContact': async (userId: string) => {
-      await this.requireSession().deleteContact(userId)
-    },
 
-    'session.sendContactRequest': async (userId: string, nickname: string) => {
-      return this.requireSession().sendContactRequest(userId, nickname)
-    },
 
-    'session.respondToContact': async (userId: string, accept: boolean) => {
-      await this.requireSession().respondToContact(userId, accept)
-    },
 
-    'session.createContactInvite': async () => {
-      return this.requireSession().createContactInvite()
-    },
 
-    'session.muteMember': async (roomId: string, identityId: string) => {
-      await this.requireSession().muteMember(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.unmuteMember': async (roomId: string, identityId: string) => {
-      await this.requireSession().unmuteMember(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.banMember': async (roomId: string, writerKeyHex: string, identityId: string) => {
-      await this.requireSession().banMember(roomId, writerKeyHex, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.unbanMember': async (roomId: string, identityId: string) => {
-      await this.requireSession().unbanMember(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.promoteToModerator': async (roomId: string, identityId: string) => {
-      await this.requireSession().promoteToModerator(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.demoteModerator': async (roomId: string, identityId: string) => {
-      await this.requireSession().demoteModerator(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.promoteToAdmin': async (roomId: string, identityId: string) => {
-      await this.requireSession().promoteToAdmin(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.demoteAdmin': async (roomId: string, identityId: string) => {
-      await this.requireSession().demoteAdmin(roomId, identityId)
-      const room = this.requireSession().getRoom(roomId)
-      if (room) this.pushRoomState(room)
-    },
 
-    'session.findOrphanBlobs': async () => {
-      return this.requireSession().findOrphanBlobs()
-    },
 
-    'session.deleteBlobs': async (blobKeys: string[]) => {
-      return this.requireSession().deleteBlobs(blobKeys)
-    },
 
     'files.download': async (driveKeyHex: string, drivePath: string) => {
       const buf = await this.requireSession().downloadFile(driveKeyHex, drivePath)
@@ -618,25 +536,13 @@ export class WorkerDispatcher {
     },
 
     // Call signaling & control methods
-    'session.startCall': async (peerId: string, roomId: string, media: { audio: boolean; video: boolean }) => {
-      return this.requireSession().startCall(peerId, roomId, media)
-    },
 
-    'session.answerCall': async (callId: string, accept: boolean) => {
-      this.requireSession().answerCall(callId, accept)
-    },
 
-    'session.endCall': async (callId?: string) => {
-      this.requireSession().endCall(callId)
-    },
 
     'session.getActiveCall': async () => {
       return this.requireSession().getActiveCall()
     },
 
-    'session.sendCallControl': async (action: string) => {
-      this.requireSession().sendCallControl(action)
-    },
 
     'session.sendCallFrame': async (frame: any, binary?: Uint8Array) => {
       this.requireSession().sendCallFrame({ ...frame, payload: binary ?? new Uint8Array(0) })
