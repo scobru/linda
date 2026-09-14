@@ -6,11 +6,11 @@ This document provides a clear, simple, and structured explanation of how **Lind
 
 ## 1. What is Linda Pear (In Simple Terms)
 
-**Linda Pear** is a **100% Peer-to-Peer (P2P)**, encrypted, **serverless** messaging and file-sharing application.
+**Linda Pear** is a **100% Peer-to-Peer (P2P)**, encrypted, **serverless** application for messaging, file sharing, and 1:1 voice and video calls.
 
 Unlike traditional messengers (such as WhatsApp, Telegram, or Signal) or other P2P apps that rely on third-party relay servers (like TURN/relay infrastructure):
 - **No central server**: There is no central database, no cloud backend, and no account registration with an email or phone number.
-- **Zero relay dependency**: Data flows directly from device to device.
+- **Zero relay dependency**: Data flows directly from device to device — including live call audio and video, which reuse the peers' existing Hyperswarm connection instead of WebRTC and a TURN server.
 - **Sovereign end-to-end cryptography**: User identities are cryptographic keypairs (derived from a 12-word BIP39 mnemonic seed phrase).
 - **Built on the Holepunch Stack**: Powered by the battle-tested open-source primitives created by Holepunch/Keet (*Hypercore*, *Corestore*, *Autobase*, *Hyperbee*, *Hyperswarm*, *Hyperdrive*).
 
@@ -34,7 +34,8 @@ To understand the codebase, here are the 6 foundational building blocks:
 |  • Autobase: multi-writer room log |  • Hyperswarm: DHT & Holepunching  |
 |  • Hyperbee: B-tree key-value store|  • Protomux / RPC: ephemeral data  |
 |  • Hyperdrive: P2P files & media   |    (typing, acks, write grants)    |
-|  • Corestore: Hypercore manager    |                                    |
+|  • Corestore: Hypercore manager    |  • linda-call/1: call signaling &  |
+|                                    |    live audio/video frames         |
 +------------------------------------+------------------------------------+
 |                        SECURITY & IDENTITY                              |
 |  • Libsodium / Argon2id: encrypted local storage with user passphrase   |
@@ -104,6 +105,19 @@ see `SwarmTransport.createLanDiscovery` and `Session`'s `createMediaServer` for 
 
 ---
 
+#### 📞 `src/call/` (1:1 Voice & Video Calls)
+
+Calls use **no WebRTC and no STUN/TURN relay**. Two peers already hold an authenticated,
+Noise-encrypted Hyperswarm connection; a call simply opens a second Protomux channel on that same
+socket, so it inherits the DHT's NAT traversal and encryption for free.
+
+- [call-encoding.ts](src/call/call-encoding.ts): `compact-encoding` codecs for the five signaling messages — `call_offer`, `call_answer`, `call_end`, `call_control` (mute/unmute, camera-on/camera-off) and `call_frame`. A media frame is a tiny header (`callId`, `seq`, `timestamp`, `kind` 0=audio/1=video, `keyframe`) followed by the raw binary payload, split back apart at the header boundary by the decoder.
+- [call-rpc.ts](src/call/call-rpc.ts): Opens the `linda-call/1` Protomux channel next to the existing `linda-rpc/1` chat channel on the same connection. Protomux keeps them independent, so a burst of media frames never starves a typing indicator. Sends on a closing peer are caught and discarded, same fire-and-forget resilience as the chat RPC.
+- [call-session.ts](src/call/call-session.ts): The signaling state machine — `idle → calling | ringing → connected → ended` — with a 30s ring timeout and an end reason (`hangup`, `rejected`, `timeout`, `error`, `busy`) on every teardown. Deliberately platform-agnostic: it knows nothing about capture or playback.
+- [media-pipeline.ts](src/call/media-pipeline.ts): Capture and playback, renderer-side only, because `getUserMedia` and WebCodecs are DOM APIs. Microphone at 16 kHz mono Int16 PCM (`AudioWorklet`, with a `ScriptProcessor` fallback); camera at 480×360 / ~20 fps encoded **VP8 via WebCodecs** at 400 kbps with a keyframe every ~2 s, degrading to canvas JPEG frames where WebCodecs is missing — the receiver detects which of the two the peer is sending and decodes accordingly. Also turns raw browser media errors into messages a user can act on (permission denied, device busy, no device).
+
+---
+
 #### 📁 `src/files/` (File Sharing & Media Streaming)
 - [drive.ts](src/files/drive.ts): `FileStore` abstraction built on **Hyperdrive** for seeding and fetching files P2P.
 - [media-range.ts](src/files/media-range.ts): Computes HTTP `Range` headers (e.g. `bytes=0-1048576`) to support seeking and instant playback.
@@ -146,6 +160,7 @@ shared rather than reimplemented per platform.
 
 #### 🖥️ `src/ui/` & `src/util/` (Desktop UI & Utilities)
 - [app-shell.ts](src/ui/app-shell.ts): Custom Web Component `<app-shell>` implementing the complete Electron GUI (authentication screens, room directory, chat stream, audio recorder, modals).
+- [call-overlay.ts](src/ui/call-overlay.ts): A deep module owning the whole UI and media lifecycle of a desktop 1:1 call — the incoming-call overlay, the active-call widget, the local `<video>` and remote `<canvas>`, an oscillator-generated ringtone and the duration timer. Its interface to `AppShell` is minimal (`mount`, `setSession`, `setPeerLookup`, `startCall`, event handlers) so a live call survives a global re-render of the app.
 - [qr.ts](src/ui/qr.ts) & [qr-core.ts](src/ui/qr-core.ts): QR code rendering and video stream scanning.
 - [desktop-host.ts](src/ui/desktop-host.ts): The window controls the shell needs (minimise, maximise, close, maximised-state), behind one interface with an `ElectronHost`, a `PearHost` and a `WebHost` behind it — the two desktop runtimes expose entirely different APIs for the same three buttons.
 - [wallpapers.ts](src/ui/wallpapers.ts): Preset chat wallpapers and background styles.
@@ -156,7 +171,7 @@ shared rather than reimplemented per platform.
 ---
 
 ### 🖥️ `electron/` (Desktop Shell)
-- [main.cjs](electron/main.cjs): Electron main process. Configures native window settings, security permissions (microphone capture for voice notes, screen capture, clipboard), and boots `index.html`.
+- [main.cjs](electron/main.cjs): Electron main process. Configures native window settings, security permissions (microphone and camera capture for voice notes and calls, screen capture, clipboard), and boots `index.html`.
 - [preload.cjs](electron/preload.cjs): Safe preload bridge for system-level APIs.
 
 ---
@@ -167,7 +182,7 @@ shared rather than reimplemented per platform.
 - [mobile/worklet/media-server.ts](mobile/worklet/media-server.ts): Mobile HTTP streaming server powered by `bare-http1`.
 - `mobile/src/bare/`: Proxy clients bridging React Native hooks to the Bare background worklet.
 - `mobile/src/screens/`: Screens for Room Chat, Room List, Contacts, Profile, QR Device Pairing, and Authentication.
-- `mobile/src/components/`: Reusable components (Chat Bubbles, Video Player Modal, Audio Player, Contact List Item).
+- `mobile/src/components/`: Reusable components (Chat Bubbles, Video Player Modal, Audio Player, Contact List Item, plus `IncomingCallModal` / `ActiveCallModal` for calls).
 
 ---
 
@@ -179,6 +194,7 @@ Run with `npm test`, or `LINDA_TEST_DHT=public npm test` to put the same asserti
 - [security.test.ts](test/security.test.ts): Verifies security boundaries against forged entries and unauthorized writers.
 - [media-stream.test.ts](test/media-stream.test.ts), [media-range.test.ts](test/media-range.test.ts) & [media-transport.test.ts](test/media-transport.test.ts): Validates chunked HTTP media streaming and the transport under it.
 - [room-files.test.ts](test/room-files.test.ts) & [drive-reuse.test.ts](test/drive-reuse.test.ts): File sharing, the Files index over the chat log, and drive reuse.
+- [call.test.ts](test/call.test.ts) & [media-pipeline.test.ts](test/media-pipeline.test.ts): Two real `Session`s placing a 1:1 call over the testnet — offer, accept, media frame, control message and hangup, plus the rejection path — and the capture/playback pipeline in isolation.
 - [contact-invite.test.ts](test/contact-invite.test.ts): The contact-link flow and the 1-to-1 room it opens.
 - [rejoin-restart.test.ts](test/rejoin-restart.test.ts): A write grant that has to survive a restart, because the owner was away when the invite was presented.
 - [room-open-retry.test.ts](test/room-open-retry.test.ts): Pins the one-`Room.open`-per-corestore-namespace invariant a first join depends on.
@@ -252,7 +268,16 @@ Run with `npm test`, or `LINDA_TEST_DHT=public npm test` to put the same asserti
    - **Files**: Replicated Hyperdrive shared file browser with search, download, and range-seek media streaming.
 3. This multi-view design requires **zero backend schema migrations**: all views are pure functional renderer projections of the identical underlying encrypted Autobase log.
 
-### J. LindaWeb Roadmap: Zero-Knowledge WebSocket Bridge & Headless Companion
+### J. 1:1 Voice & Video Call (Relay-Free)
+1. Call buttons appear in the room header only when the room resolves to a single peer — an accepted contact, or a room with exactly two members ([app-shell.ts](src/ui/app-shell.ts)). The voice button asks for `{ audio: true, video: false }`, the video button for `{ audio: true, video: true }`.
+2. `session.startCall(peerId, roomId, media)` requires that peer to be **currently connected** (there is no server to hold a ring for an offline device) and refuses a second concurrent call. It creates a `CallSession`, attaches the peer's `linda-call/1` channel, and dials: a `call_offer` goes out and a 30s ring timer starts.
+3. On the callee, `handleConnection` ([swarm.ts](src/network/swarm.ts)) drops the offer unless its `fromId` equals the Noise public key of the socket it arrived on — a peer on the lobby topic cannot forge a call as a third party. A valid offer with a call already in progress is answered `call_end` / `busy`; otherwise a `ringing` `CallSession` is created and the UI is notified.
+4. The callee accepts or rejects (`session.answerCall(callId, accept)`). An accepted call sends `call_answer` and both sides transition to `connected`, starting the duration timer.
+5. Each side starts its `MediaPipeline`: microphone at 16 kHz Int16 PCM, camera at 480×360 VP8 (WebCodecs) or JPEG fallback on desktop; `expo-camera` JPEG stills at ~5 fps on mobile, rendered incoming at ~12 fps to match what the React Native bridge sustains. Every captured frame is handed to `session.sendCallFrame()` and travels as a `call_frame` on the `linda-call/1` channel — the *same* socket already carrying chat RPC, so no second connection, no signaling server, no ICE, no TURN.
+6. Mute and camera toggles send `call_control` (`mute` / `unmute` / `camera-off` / `camera-on`); the remote side reflects them in `remoteMuted` / `remoteCameraOff` and updates the overlay without touching the media path.
+7. Hanging up (or the ring timeout, or a peer disconnect) sends `call_end` with a reason, tears the pipeline down, releases the camera and microphone tracks, and returns both sessions to `idle`.
+
+### K. LindaWeb Roadmap: Zero-Knowledge WebSocket Bridge & Headless Companion
 1. **The Browser Constraint**: Web browsers cannot execute raw UDP/TCP sockets or join the Hyperswarm DHT due to security sandbox restrictions; WebRTC requires external STUN/TURN relays.
 2. **The Sovereign Solution**: A lightweight headless companion daemon (`linda-daemon` or the local desktop client itself) acts as a local or remote gateway by exposing an authenticated WebSocket endpoint (`linda-bridge`).
 3. **Zero-Knowledge Wire Security**:
