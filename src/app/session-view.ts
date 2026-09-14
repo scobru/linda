@@ -65,6 +65,8 @@ type SessionMembers = Pick<Session,
   | 'deleteBlobs'
   | 'getNetworkStatus'
   | 'broadcastPresence'
+  | 'sendTyping'
+  | 'sendReadReceipt'
   | 'getNickname'
   | 'setNickname'
   | 'getAvatar'

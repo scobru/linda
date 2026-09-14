@@ -567,6 +567,19 @@ export class Session {
     }
   }
 
+  /** Fans a typing indicator out to every connected peer. The loop lives here rather than in the
+   * UI because `peers` holds live Protomux channels: a UI that iterates it works only while the
+   * session is in the same process, and silently does nothing when it is behind the worker RPC
+   * (`RemoteSessionView.peers` is necessarily empty). The mobile worklet already had to move the
+   * same loop across the bridge for this reason. */
+  sendTyping(roomId: string, userId: string, typing: boolean): void {
+    for (const peer of this.peers.values()) peer.rpc.sendTyping({ roomId, userId, typing })
+  }
+
+  /** Fans a read receipt out to every connected peer. Same reasoning as `sendTyping`. */
+  sendReadReceipt(roomId: string, userId: string, messageId: string): void {
+    for (const peer of this.peers.values()) peer.rpc.sendReadReceipt({ roomId, userId, messageId })
+  }
 
   async fileStore(): Promise<FileStore> {
     if (this.fileStoreInstance) return this.fileStoreInstance

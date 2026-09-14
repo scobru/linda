@@ -105,6 +105,53 @@ test('RpcClient and WorkerDispatcher round-trip requests, binary calls and push 
   assert.deepEqual(receivedEvent, { hello: 'world' }, 'Listener was unsubscribed and did not update')
 })
 
+test('call media frames keep their bytes across the worker boundary', async () => {
+  const [streamWorker, streamClient] = createDuplexPair()
+  const dispatcher = new WorkerDispatcher(streamWorker)
+  const client = new RpcClient(streamClient)
+
+  // The regression: a pushed event is a JSON header, and `JSON.stringify` turns a Uint8Array into
+  // {"0":255,"1":216,...} — an object with numeric keys and no `.buffer`. The media pipeline does
+  // `new Int16Array(payload.buffer, ...)` on what arrives, so the corruption is silent until a
+  // call is actually placed on the Pear build. Bytes ride the frame's binary tail instead.
+  const payload = new Uint8Array([0xff, 0xd8, 0x00, 0x01, 0xfe, 0x7f])
+
+  let received: any = null
+  client.on('callMediaFrame', (frame) => {
+    received = frame
+  })
+
+  dispatcher.pushEvent(
+    'callMediaFrame',
+    { callId: 'call-1', seq: 7, timestamp: 1234, kind: 1, keyframe: true },
+    { field: 'payload', bytes: payload }
+  )
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  assert.ok(received, 'the frame reached the client')
+  assert.equal(received.callId, 'call-1')
+  assert.equal(received.seq, 7)
+  assert.equal(received.kind, 1)
+  assert.equal(received.keyframe, true)
+  assert.ok(received.payload instanceof Uint8Array, 'payload arrives as bytes, not as a JSON object')
+  assert.deepEqual([...received.payload], [...payload])
+
+  // The payload must be aligned to its own buffer, not a view into the received frame: the tail
+  // starts at `4 + headerLen`, odd for half of all headers, and `MediaPipeline` builds an
+  // `Int16Array` over `payload.buffer` at `payload.byteOffset` — which throws on an odd offset.
+  assert.equal(received.payload.byteOffset, 0, 'payload must not be a view at an arbitrary offset')
+  assert.doesNotThrow(
+    () => new Int16Array(received.payload.buffer, received.payload.byteOffset, received.payload.byteLength / 2),
+    'audio playback builds an Int16Array over the payload'
+  )
+
+  // And the shape the old path produced, stated so the difference is not subtle: the same array
+  // through the JSON header comes back as a plain object with no byteLength.
+  const viaJson = JSON.parse(JSON.stringify({ payload }))
+  assert.ok(!(viaJson.payload instanceof Uint8Array))
+  assert.equal(viaJson.payload.byteLength, undefined)
+})
+
 test('RemoteSessionView and RemoteRoomView satisfy their contracts and drive a real Session over RPC', async () => {
   const dir = tmpDir()
   const identity = makeIdentity()

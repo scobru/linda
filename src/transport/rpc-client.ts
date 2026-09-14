@@ -18,7 +18,17 @@ export class RpcClient {
       if (req.reply) return
       if (!req.data) return
       try {
-        const { header } = unpackFrame(req.data)
+        const { header, binary } = unpackFrame(req.data)
+        // See `WorkerDispatcher.pushEvent`: bytes that cannot survive JSON ride the tail, and the
+        // header names the property they belong to. `slice()` rather than the view itself: the
+        // tail starts at `4 + headerLen`, an offset that is odd for half of all headers, and
+        // `MediaPipeline` builds an `Int16Array` over `payload.buffer` at `payload.byteOffset` —
+        // which throws on an unaligned offset. `new Uint8Array(view)` copies into a fresh buffer
+        // starting at 0, and the copy also outlives the received frame. Not `.slice()`: under Node
+        // the tail is a `Buffer`, whose `slice` returns another view rather than a copy.
+        if (header.binaryField && header.payload) {
+          header.payload[header.binaryField] = new Uint8Array(binary)
+        }
         const handlers = this.listeners.get(header.event)
         if (handlers) {
           for (const handler of handlers) handler(header.payload)

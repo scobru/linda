@@ -365,6 +365,14 @@ export class RemoteSessionView implements SessionView {
     void this.rpcClient.call<void>('session.broadcastPresence', online)
   }
 
+  sendTyping(roomId: string, userId: string, typing: boolean): void {
+    void this.rpcClient.call<void>('session.sendTyping', roomId, userId, typing)
+  }
+
+  sendReadReceipt(roomId: string, userId: string, messageId: string): void {
+    void this.rpcClient.call<void>('session.sendReadReceipt', roomId, userId, messageId)
+  }
+
   getNickname(): string {
     return this.nickname
   }
@@ -532,8 +540,8 @@ export class RemoteSessionView implements SessionView {
     await this.rpcClient.call<void>('session.unmuteMember', roomId, identityId)
   }
 
-  async banMember(roomId: string, identityId: string): Promise<void> {
-    await this.rpcClient.call<void>('session.banMember', roomId, identityId)
+  async banMember(roomId: string, writerKeyHex: string, identityId: string): Promise<void> {
+    await this.rpcClient.call<void>('session.banMember', roomId, writerKeyHex, identityId)
   }
 
   async unbanMember(roomId: string, identityId: string): Promise<void> {
@@ -584,7 +592,10 @@ export class RemoteSessionView implements SessionView {
   }
 
   sendCallFrame(frame: MediaFrameMessage): void {
-    void this.rpcClient.call<void>('session.sendCallFrame', frame)
+    // The payload goes in the frame's binary tail, not through the JSON header — see
+    // `WorkerDispatcher.pushEvent` for what JSON does to a `Uint8Array`.
+    const { payload, ...rest } = frame
+    void this.rpcClient.callBinary<void>('session.sendCallFrame', [rest], payload)
   }
 }
 

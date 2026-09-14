@@ -245,6 +245,33 @@ test('anti-drift: full parity test between in-process Session and RemoteSessionV
     assert.equal(remoteRoom.isModerator(targetUser), false)
     assert.equal(localRoom.isModerator(targetUser), false)
 
+    // Ban / unban. This one is here because the remote proxy used to declare two parameters for a
+    // three-parameter method: `banMember(roomId, identityId)` against
+    // `Session.banMember(roomId, writerKeyHex, identityId)`. TypeScript accepts that — a function
+    // taking fewer arguments is assignable — so the worker received the identity id in the writer
+    // key slot and `undefined` as the identity, and banned nobody. Passing a writer key that
+    // belongs to no member is fine: `revokeWrite` treats it as a key to remove and moves on.
+    const banTarget = 'dummy-member-id-5678'
+    const banWriterKey = 'ab'.repeat(32)
+    assert.equal(remoteRoom.isBanned(banTarget), false)
+
+    await remoteSession.banMember(remoteRoom.id, banWriterKey, banTarget)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(localRoom.isBanned(banTarget), true, 'the ban must reach the real Session')
+    assert.equal(remoteRoom.isBanned(banTarget), true)
+
+    await remoteSession.unbanMember(remoteRoom.id, banTarget)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(localRoom.isBanned(banTarget), false)
+    assert.equal(remoteRoom.isBanned(banTarget), false)
+
+    // Typing and read receipts. The UI used to fan these out itself by walking `session.peers`,
+    // which is empty by construction on the remote proxy — so the worker-backed desktop received
+    // them and sent none. They are session methods now; these calls assert the worker actually
+    // serves them (an unhandled method rejects, and the proxy's own calls are fire-and-forget).
+    await client.call('session.sendTyping', remoteRoom.id, identity.id, true)
+    await client.call('session.sendReadReceipt', remoteRoom.id, identity.id, 'some-message-id')
+
     // 10. Directory parity
     assert.deepEqual(remoteSession.listDirectory(), localSession.listDirectory())
     remoteSession.removeFromDirectory(remoteRoom.id)
