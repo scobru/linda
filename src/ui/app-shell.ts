@@ -11,6 +11,8 @@ import type { ChatMessage, RoomFile } from '../rooms/room.js'
 import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite, DEFAULT_CHANNEL, DEFAULT_WELCOME_CHANNEL, textToDataUrl, decodeTextFromImageFile } from './qr.js'
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
+import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
+import { canDeleteMessage, countHashtags, survivingHashtag } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -1985,23 +1987,16 @@ export class AppShell extends HTMLElement {
     const bar = this.querySelector('#hashtagBar') as HTMLElement | null
     if (!bar) return
 
-    const counts = new Map<string, number>()
-    for (const message of all) {
-      if (message.deleted) continue
-      for (const tag of extractHashtags(message.body)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-    }
-    // A tag the room no longer contains (its only message was deleted or cleared) must not stay
-    // selected, or the stream would sit empty with no pill to switch off.
-    if (this.activeHashtag && !counts.has(this.activeHashtag)) this.activeHashtag = null
+    const tags = countHashtags(all)
+    this.activeHashtag = survivingHashtag(this.activeHashtag, tags)
 
-    if (counts.size === 0) {
+    if (tags.length === 0) {
       bar.innerHTML = ''
       bar.classList.remove('has-tags')
       return
     }
     bar.classList.add('has-tags')
 
-    const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     bar.innerHTML = `
       <span class="hashtag-bar-label" title="Messages tagged with a hashtag">${ICONS.hash}</span>
       ${tags.map(([tag, count]) => `
@@ -2251,13 +2246,12 @@ export class AppShell extends HTMLElement {
 
   private renderAttachmentCard(message: ChatMessage): string {
     if (!message.file || message.deleted) return ''
-    const isVideo = message.file.mimeType
-      ? message.file.mimeType.startsWith('video/')
-      : /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
-    const isImg = !isVideo && (message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name))
-    const isAudio = !isImg && !isVideo && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
+    const kind = attachmentKind(message.file)
+    const isVideo = kind === 'video'
+    const isImg = kind === 'image'
+    const isAudio = kind === 'audio'
     if (isAudio) {
-      const isVoice = /^voice-\d{4}-/.test(message.file.name)
+      const isVoice = isVoiceMessage(message.file)
       return isVoice ? `
         <div class="voice-chip" data-audio-slot="${message.id}">
           <button class="voice-play-btn" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}" title="Play voice message">${ICONS.play}</button>
@@ -2756,7 +2750,7 @@ export class AppShell extends HTMLElement {
       // The extension has to match what the players sniff for, and MediaRecorder's mimeType
       // carries a codecs= suffix that would otherwise end up in the filename.
       const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm'
-      const name = `voice-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`
+      const name = voiceMessageName(ext)
       const drivePath = `/${room.id}/${Date.now()}-${name}`
       const shared = await fileStore.addBuffer(drivePath, buffer)
       this.forceScrollOnNextRender = true
@@ -2795,9 +2789,10 @@ export class AppShell extends HTMLElement {
     const shared = await fileStore.addBuffer(drivePath, buffer)
 
     let thumbnail: string | undefined = undefined
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name)) {
+    const uploadKind = attachmentKind({ name: file.name, mimeType: file.type })
+    if (uploadKind === 'image') {
       try { thumbnail = await resizeImageToDataUrl(file, 360) } catch { /* ignore */ }
-    } else if (file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(file.name)) {
+    } else if (uploadKind === 'video') {
       // Rides in the same `thumbnail` field images use, so it replicates to peers with the
       // message and every client that already understood thumbnails shows something.
       try { thumbnail = await videoPosterDataUrl(file) } catch { /* ignore */ }
@@ -2996,12 +2991,13 @@ export class AppShell extends HTMLElement {
     const html = visible.map((f: RoomFile) => {
       const isMine = f.authorId === this.identity!.id
       const canDelete = isMine || room.isOwner(this.identity!.id) || room.isModerator(this.identity!.id)
-      const isImg = f.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)
-      const isAudio = f.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name)
-      const isVideo = f.mimeType?.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(f.name)
-      const isZip = /\.(zip|tar|gz|7z|rar)$/i.test(f.name)
-      const isPdf = /\.pdf$/i.test(f.name) || f.mimeType === 'application/pdf'
-      const icon = isImg ? ICONS.image : isAudio ? ICONS.music : isVideo ? ICONS.video : isZip ? ICONS.archive : isPdf ? ICONS.file : ICONS.file
+      const kind = attachmentKind(f)
+      const isImg = kind === 'image'
+      const icon = kind === 'image' ? ICONS.image
+        : kind === 'audio' ? ICONS.music
+        : kind === 'video' ? ICONS.video
+        : kind === 'archive' ? ICONS.archive
+        : ICONS.file
       const timeStr = new Date(f.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
       return `
@@ -3131,10 +3127,13 @@ export class AppShell extends HTMLElement {
   }
 
   private canDeleteMessage(msg: ChatMessage): boolean {
-    if (msg.authorId === this.identity?.id) return true
     const room = this.activeRoom
-    if (!room || !this.identity) return false
-    return room.isOwner(this.identity.id) || room.isModerator(this.identity.id)
+    if (!this.identity) return false
+    return canDeleteMessage(msg, {
+      identityId: this.identity.id,
+      isOwner: !!room?.isOwner(this.identity.id),
+      isModerator: !!room?.isModerator(this.identity.id)
+    })
   }
 
   // --- Sub-Pages (Profile, Room Settings, Contacts, Discover, Pair) --------

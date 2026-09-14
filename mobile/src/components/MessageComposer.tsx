@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { voiceMessageName } from '@core/rooms/attachment-kind'
 
 const THUMBNAIL_WIDTH = 360
 
@@ -162,7 +163,7 @@ export default function MessageComposer({
       const uri = recorder.uri
       if (!send || !uri) return
       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
-      const name = `voice-${new Date().toISOString().replace(/[:.]/g, '-')}.m4a`
+      const name = voiceMessageName('m4a')
       onAttach?.(name, 'audio/m4a', base64)
     } catch (err) {
       Alert.alert('Could not save recording', (err as Error).message)
