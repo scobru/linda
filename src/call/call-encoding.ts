@@ -1,11 +1,11 @@
-import * as cenc from 'compact-encoding'
-import type { Encoding } from 'compact-encoding'
+import { messageEncoding } from '../network/message-encoding.js'
 
 // ---------------------------------------------------------------------------
-// Call signaling messages — travel over the `linda-call/1` Protomux channel.
-// Kept separate from the chat RPC encodings so the two protocol domains don't
-// intermix; the call channel is higher-frequency (media frames) and the code
-// that opens it should be loadable independently.
+// Call signaling messages — they travel over the `linda-call/1` Protomux channel.
+// Kept separate from the chat RPC encodings so the two protocol domains don't intermix; the call
+// channel is higher-frequency (media frames) and the code that opens it should be loadable
+// independently. The codecs themselves are derived from the field lists below — see
+// `network/message-encoding.ts`.
 // ---------------------------------------------------------------------------
 
 export interface CallOfferMessage {
@@ -16,11 +16,25 @@ export interface CallOfferMessage {
   video: boolean
 }
 
+export const callOfferEncoding = messageEncoding<CallOfferMessage>([
+  ['callId', 'string'],
+  ['fromId', 'string'],
+  ['roomId', 'string'],
+  ['audio', 'bool'],
+  ['video', 'bool']
+])
+
 export interface CallAnswerMessage {
   callId: string
   fromId: string
   accepted: boolean
 }
+
+export const callAnswerEncoding = messageEncoding<CallAnswerMessage>([
+  ['callId', 'string'],
+  ['fromId', 'string'],
+  ['accepted', 'bool']
+])
 
 export interface CallEndMessage {
   callId: string
@@ -28,15 +42,27 @@ export interface CallEndMessage {
   reason: string   // 'hangup' | 'rejected' | 'timeout' | 'error' | 'busy'
 }
 
+export const callEndEncoding = messageEncoding<CallEndMessage>([
+  ['callId', 'string'],
+  ['fromId', 'string'],
+  ['reason', 'string']
+])
+
 export interface CallControlMessage {
   callId: string
   fromId: string
   action: string   // 'mute' | 'unmute' | 'camera-on' | 'camera-off'
 }
 
-/** A single media frame (audio or video) with a tiny header and a raw binary
- *  payload carried after the encoded header bytes. Protomux delivers it as one
- *  contiguous buffer; the decoder splits it at the header/body boundary. */
+export const callControlEncoding = messageEncoding<CallControlMessage>([
+  ['callId', 'string'],
+  ['fromId', 'string'],
+  ['action', 'string']
+])
+
+/** A single media frame (audio or video) with a tiny header and a raw binary payload.
+ *  `compact-encoding`'s `buffer` primitive length-prefixes the bytes, so the decoder knows exactly
+ *  where the header stops and the payload starts without any external framing. */
 export interface MediaFrameMessage {
   callId: string
   seq: number
@@ -46,123 +72,11 @@ export interface MediaFrameMessage {
   payload: Uint8Array
 }
 
-// ── Encoders ─────────────────────────────────────────────────────────────────
-
-export const callOfferEncoding: Encoding<CallOfferMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.callId)
-    cenc.string.preencode(state, m.fromId)
-    cenc.string.preencode(state, m.roomId)
-    cenc.bool.preencode(state, m.audio)
-    cenc.bool.preencode(state, m.video)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.callId)
-    cenc.string.encode(state, m.fromId)
-    cenc.string.encode(state, m.roomId)
-    cenc.bool.encode(state, m.audio)
-    cenc.bool.encode(state, m.video)
-  },
-  decode(state) {
-    return {
-      callId: cenc.string.decode(state),
-      fromId: cenc.string.decode(state),
-      roomId: cenc.string.decode(state),
-      audio: cenc.bool.decode(state),
-      video: cenc.bool.decode(state)
-    }
-  }
-}
-
-export const callAnswerEncoding: Encoding<CallAnswerMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.callId)
-    cenc.string.preencode(state, m.fromId)
-    cenc.bool.preencode(state, m.accepted)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.callId)
-    cenc.string.encode(state, m.fromId)
-    cenc.bool.encode(state, m.accepted)
-  },
-  decode(state) {
-    return {
-      callId: cenc.string.decode(state),
-      fromId: cenc.string.decode(state),
-      accepted: cenc.bool.decode(state)
-    }
-  }
-}
-
-export const callEndEncoding: Encoding<CallEndMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.callId)
-    cenc.string.preencode(state, m.fromId)
-    cenc.string.preencode(state, m.reason)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.callId)
-    cenc.string.encode(state, m.fromId)
-    cenc.string.encode(state, m.reason)
-  },
-  decode(state) {
-    return {
-      callId: cenc.string.decode(state),
-      fromId: cenc.string.decode(state),
-      reason: cenc.string.decode(state)
-    }
-  }
-}
-
-export const callControlEncoding: Encoding<CallControlMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.callId)
-    cenc.string.preencode(state, m.fromId)
-    cenc.string.preencode(state, m.action)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.callId)
-    cenc.string.encode(state, m.fromId)
-    cenc.string.encode(state, m.action)
-  },
-  decode(state) {
-    return {
-      callId: cenc.string.decode(state),
-      fromId: cenc.string.decode(state),
-      action: cenc.string.decode(state)
-    }
-  }
-}
-
-/** Media frames carry a compact header followed by a variable-length binary
- *  payload. `compact-encoding`'s `buffer` primitive length-prefixes the bytes,
- *  so the decoder knows exactly where the header stops and the payload starts
- *  without any external framing. */
-export const mediaFrameEncoding: Encoding<MediaFrameMessage> = {
-  preencode(state, m) {
-    cenc.string.preencode(state, m.callId)
-    cenc.uint.preencode(state, m.seq)
-    cenc.uint.preencode(state, m.timestamp)
-    cenc.uint.preencode(state, m.kind)
-    cenc.bool.preencode(state, m.keyframe)
-    cenc.buffer.preencode(state, m.payload as Buffer)
-  },
-  encode(state, m) {
-    cenc.string.encode(state, m.callId)
-    cenc.uint.encode(state, m.seq)
-    cenc.uint.encode(state, m.timestamp)
-    cenc.uint.encode(state, m.kind)
-    cenc.bool.encode(state, m.keyframe)
-    cenc.buffer.encode(state, m.payload as Buffer)
-  },
-  decode(state) {
-    return {
-      callId: cenc.string.decode(state),
-      seq: cenc.uint.decode(state),
-      timestamp: cenc.uint.decode(state),
-      kind: cenc.uint.decode(state),
-      keyframe: cenc.bool.decode(state),
-      payload: cenc.buffer.decode(state)
-    }
-  }
-}
+export const mediaFrameEncoding = messageEncoding<MediaFrameMessage>([
+  ['callId', 'string'],
+  ['seq', 'uint'],
+  ['timestamp', 'uint'],
+  ['kind', 'uint'],
+  ['keyframe', 'bool'],
+  ['payload', 'buffer']
+])
