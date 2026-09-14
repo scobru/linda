@@ -27,15 +27,26 @@ test/          integration tests against real Hyperswarm
 
 Linda is built from the ground up for sovereign individuals with **100% serverless, zero-infrastructure peer-to-peer communication**.
 
-### Why No Voice or Video Calls?
+### Relay-Free Voice & Video Calls
 
-This is a **deliberate product stance**, not a missing feature:
+1:1 voice and video calls are **implemented and shipping** — with no WebRTC, and without a single
+STUN or TURN server.
 
-- **No Third-Party Relays**: Real-time WebRTC media streams across mobile networks (carrier CGNAT and symmetric NAT) strictly require TURN relay servers to proxy audio/video packets.
-- **True Independence**: Operating dedicated TURN server fleets requires corporate infrastructure, ongoing server budgets, and centralized hosting. Linda is an independent, sovereign project without a corporate software house behind it.
-- **Zero Trust & Sovereignty**: Relying on external or third-party relays introduces unvetted intermediaries that can log connection metadata, exhaust quotas, or silently fail. We refuse to depend on relays we do not control.
+The usual reason a chat app ends up depending on relays is WebRTC: real-time media across carrier
+CGNAT and symmetric NAT needs TURN servers to proxy the packets, and running a TURN fleet means
+corporate infrastructure, an ongoing server budget, and an intermediary that can log connection
+metadata, exhaust quotas, or silently fail. Linda is an independent, sovereign project and refuses
+to depend on relays it does not control.
 
-By eliminating real-time call plumbing entirely, Linda guarantees that all interactions—chat, encrypted file sharing, and identity discovery—operate exclusively over pure P2P primitives (Hyperswarm DHT, Autobase, Corestore, Hyperdrive) with zero centralized infrastructure.
+So calls reuse the transport the app already has. Two peers in a 1:1 conversation are already
+holding an authenticated Hyperswarm connection — NAT-traversed by the DHT's UDP holepunching and
+encrypted end-to-end with Noise. Placing a call opens a second Protomux channel (`linda-call/1`) on
+that *same* socket and streams media frames through it, alongside the chat RPC channel that keeps
+carrying typing indicators and read receipts.
+
+No new connection, no signaling server, no ICE, no TURN: if two peers can chat, they can call. Chat,
+encrypted file sharing, identity discovery **and calls** all operate exclusively over pure P2P
+primitives (Hyperswarm DHT, Autobase, Corestore, Hyperdrive) with zero centralized infrastructure.
 
 ## Unique Features
 
@@ -126,6 +137,39 @@ Connecting directly with peers is as simple as sharing a link or scanning a QR c
   and grants write access in a single coordinated handshake.
 - **Live peer presence**: Contact avatars and online/offline statuses update dynamically via Protomux RPC
   presence announcements.
+
+### 📞 1:1 Voice & Video Calls (no WebRTC, no TURN)
+
+Call buttons sit in the room header of any 1:1 conversation — a contact chat, or any room that has
+exactly two members. Everything below rides the two peers' existing Hyperswarm connection; the
+*why* is in [Relay-Free Voice & Video Calls](#relay-free-voice--video-calls) above.
+
+- **Signaling**: a dedicated Protomux channel `linda-call/1` ([call-rpc.ts](src/call/call-rpc.ts)),
+  multiplexed onto the same Noise-encrypted socket as `linda-rpc/1`, so a burst of media frames
+  never starves a typing indicator. Five `compact-encoding` message types
+  ([call-encoding.ts](src/call/call-encoding.ts)): `call_offer`, `call_answer`, `call_end`,
+  `call_control` (mute / unmute / camera-on / camera-off) and `call_frame` (binary media payload).
+- **State machine**: `idle → calling | ringing → connected → ended`
+  ([call-session.ts](src/call/call-session.ts)) — a 30s ring timeout, an automatic `busy` reject
+  while another call is live, and an explicit end reason (`hangup`, `rejected`, `timeout`, `error`,
+  `busy`) on every teardown.
+- **Audio (desktop)**: the Web Audio API captures the microphone at 16 kHz mono and ships raw Int16
+  PCM — an `AudioWorklet` where available, a `ScriptProcessor` (512 samples ≈ 32 ms per packet) as
+  fallback. Received frames are scheduled back-to-back on a 16 kHz playback `AudioContext`.
+- **Video (desktop)**: 480×360 captured at ~20 fps and encoded with **WebCodecs VP8** at 400 kbps,
+  keyframe every ~2 s. Runtimes without WebCodecs fall back to canvas JPEG frames, and the receiver
+  switches decoding path automatically based on what the peer actually sends; remote video is drawn
+  to a canvas ([media-pipeline.ts](src/call/media-pipeline.ts)).
+- **Video (mobile)**: `expo-camera` grabs JPEG stills at ~5 fps (quality 0.25) and the incoming
+  stream is rendered throttled to ~12 fps — what the React Native bridge sustains without stutter.
+  Front/back camera switching is live. Mobile does not capture microphone audio yet.
+- **Identity-bound**: an offer, answer, end, or control message is dropped unless its `fromId`
+  matches the Noise public key of the socket it arrived on ([swarm.ts](src/network/swarm.ts)), so a
+  peer on the lobby topic cannot forge a call as somebody else.
+- **UI**: a deep [CallOverlay](src/ui/call-overlay.ts) module on desktop — incoming-call overlay,
+  active-call widget, oscillator ringtone, duration timer — whose calls and video streams survive
+  global app re-renders; `IncomingCallModal` / `ActiveCallModal` plus a local push notification
+  when the app is backgrounded on mobile.
 
 ### 🎙️ Voice Notes & Audio Streaming
 
@@ -415,6 +459,8 @@ forgotten bump fails the workflow instead of reaching the downloads page.
 ## Known issues
 
 - Release APK is unsigned beyond the RN debug keystore — fine for beta distribution, not for a Play Store submission.
+- Calls are 1:1 only and require both peers to be connected at that moment (`startCall` fails with *Peer is not connected*) — there is no server to hold a ring for an offline device.
+- Mobile calls send and receive video but do not capture microphone audio yet; the desktop audio pipeline (16 kHz PCM) has no mobile counterpart.
 - Push notifications only fire while the app process is alive (foreground or backgrounded, not force-quit) — there's no server, so nothing can wake a fully-killed app. A relay to fix that would need to be opt-in and content-blind to keep the P2P privacy model.
 
 ## Testing
