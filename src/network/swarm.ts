@@ -12,7 +12,7 @@ export interface PeerConnection {
   remotePublicKey: Buffer
 }
 
-export interface SwarmHandlers extends RpcHandlers, CallRpcHandlers {
+export type SwarmHandlers = RpcHandlers & CallRpcHandlers & {
   onConnection?(peer: PeerConnection): void
   onDisconnection?(remotePublicKey: Buffer): void
 }
@@ -60,37 +60,13 @@ export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, tra
  * Shared by Hyperswarm's own `connection` event and by `LanDiscovery`'s directly-dialed sockets,
  * so a peer found either way ends up on the exact same path. */
 export function handleConnection(socket: Duplex, remotePublicKey: Buffer, handlers: SwarmHandlers): void {
-  // `fromId` is self-declared, but the connection's noise key is the same key the app uses as
-  // its identity id — so drop contact traffic that claims to come from anyone else. Without
-  // this, any peer on the lobby topic could forge a request as a third party, and our reply
-  // (routed by `fromId`) would go to a different socket than the one that asked.
+  // The identity a message claims to come from is self-declared; the connection it arrives on is
+  // not. Passing the remote's noise key — which is also its identity id — lets each channel drop
+  // messages whose declared sender disagrees with it, for the messages that declare one. Which
+  // ones those are, and why the rest don't, is stated with the messages themselves.
   const remoteId = b4a.toString(remotePublicKey, 'hex')
-  const rpc = attachRpc(socket, {
-    ...handlers,
-    onContactRequest: (message) => {
-      if (message.fromId === remoteId) handlers.onContactRequest?.(message)
-    },
-    onContactResponse: (message) => {
-      if (message.fromId === remoteId) handlers.onContactResponse?.(message)
-    }
-  })
-  const callRpc = attachCallRpc(socket, {
-    onCallOffer: (message) => {
-      if (message.fromId === remoteId) handlers.onCallOffer?.(message)
-    },
-    onCallAnswer: (message) => {
-      if (message.fromId === remoteId) handlers.onCallAnswer?.(message)
-    },
-    onCallEnd: (message) => {
-      if (message.fromId === remoteId) handlers.onCallEnd?.(message)
-    },
-    onCallControl: (message) => {
-      if (message.fromId === remoteId) handlers.onCallControl?.(message)
-    },
-    onMediaFrame: (message) => {
-      handlers.onMediaFrame?.(message)
-    }
-  })
+  const rpc = attachRpc(socket, handlers, remoteId)
+  const callRpc = attachCallRpc(socket, handlers, remoteId)
   handlers.onConnection?.({ socket, rpc, callRpc, remotePublicKey })
 
   socket.on('close', () => handlers.onDisconnection?.(remotePublicKey))

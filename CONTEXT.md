@@ -57,6 +57,13 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
 - **`RoomRules`:** Predicati puri — chi può cancellare un messaggio, il conteggio e l'ordinamento degli hashtag, quale tag selezionato sopravvive a un ricalcolo.
 - **Invariante:** Queste funzioni prendono **primitive, mai un `Room`**. Le due piattaforme tengono una stanza in forme diverse — `RoomView` con metodi sul desktop, `RoomState` con array su mobile — e una regola che chiedesse una stanza sarebbe usabile da un lato solo. È esattamente così che erano nate le copie divergenti.
 
+### `MessageEncoding` & `ProtocolChannel`
+- **Definizione:** Le due dichiarazioni da cui il filo è derivato, invece che scritto a mano: l'elenco dei campi di un messaggio in [message-encoding.ts](src/network/message-encoding.ts), e l'elenco ordinato dei messaggi di un canale in [protocol-channel.ts](src/network/protocol-channel.ts).
+- **`MessageEncoding`:** `preencode` / `encode` / `decode` costruite da un solo elenco di campi, quindi non possono divergere. `optionalString` è la regola della compatibilità all'indietro resa tipo: i campi opzionali stanno in fondo (imposto alla costruzione) e un frame più corto, spedito da un peer più vecchio, decodifica lo stesso.
+- **`ProtocolChannel`:** Da `[nome, encoding]` derivano sia `sendX` sia `onX`, per entrambi i canali (`linda-rpc/1` e `linda-call/1`).
+- **Invariante — l'ordine è il contratto:** Protomux assegna l'id di rete di un messaggio dalla sua posizione (`addMessage` fa `const type = this.messages.length`), esattamente come il frame porta l'ordine dei campi e non i loro nomi. In entrambi i casi si aggiunge in coda e non si riordina mai: due build che non concordano sull'ordine si decodificano a vicenda il messaggio sbagliato, in silenzio e solo tra peer.
+- **`sender`:** Il campo con cui un messaggio dichiara il proprio mittente (`fromId`, `userId`). La connessione è autenticata con Noise e la chiave del peer **è** il suo identity id, quindi un mittente dichiarato che non coincide è un falso e viene scartato prima di qualsiasi handler. Non dichiararlo è un'affermazione altrettanto precisa: `roomAnnounce.authorId` è l'autore della stanza, non chi la annuncia — i peer si riannunciano a vicenda le directory.
+
 ### `Identity` & `ProfileStore`
 - **Definizione:** Gestione dell'identità crittografica dell'utente (coppia di chiavi ED25519/Noise derivata da mnemonico BIP39), della rubrica dei contatti verificati e dei metadati locali (avatar, bio, bookmark stanze).
 
