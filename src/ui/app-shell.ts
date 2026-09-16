@@ -14,7 +14,7 @@ import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
 import { canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
-import { avatarColor, avatarInitials } from '../util/avatar.js'
+import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
@@ -98,7 +98,7 @@ export const PRESET_AVATARS = [
   }
 ]
 
-function resizeImageToDataUrl(file: File, maxDim = 128): Promise<string> {
+function resizeImageToDataUrl(file: File, maxDim = AVATAR_MAX_DIM): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = reject
@@ -119,7 +119,7 @@ function resizeImageToDataUrl(file: File, maxDim = 128): Promise<string> {
           return
         }
         ctx.drawImage(img, sx, sy, size, size, 0, 0, targetDim, targetDim)
-        resolve(canvas.toDataURL('image/jpeg', 0.85))
+        resolve(canvas.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY))
       }
       img.src = reader.result as string
     }
