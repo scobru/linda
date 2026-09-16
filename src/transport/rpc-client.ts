@@ -1,6 +1,7 @@
 import RPC from 'bare-rpc'
 import type { Duplex } from 'streamx'
 import { packFrame, unpackFrame } from './frame.js'
+import { withRpcDeadline } from './rpc-deadline.js'
 
 /**
  * Client-side RPC transport speaking over a Streamx Duplex (such as pear-run/pear-pipe
@@ -42,7 +43,10 @@ export class RpcClient {
   async call<T = any>(method: string, ...args: unknown[]): Promise<T> {
     const req = this.rpc.request(0)
     req.send(packFrame({ method, args }) as any)
-    const replyBuf = (await req.reply()) as Uint8Array | null
+    // Unbounded for everything but the login path — see `rpc-deadline.ts`. Without this, a worker
+    // that is alive and not answering left the window on "Unlocking..." with no error and no way
+    // back, which is the state mobile fixed for itself and the desktop kept.
+    const replyBuf = (await withRpcDeadline(req.reply() as Promise<Uint8Array | null>, method))
     if (!replyBuf) throw new Error(`Empty RPC reply for ${method}`)
     const { header } = unpackFrame(replyBuf)
     if (!header.ok) throw new Error(header.error || `RPC error in ${method}`)
@@ -56,7 +60,7 @@ export class RpcClient {
   ): Promise<{ result: T; binary: Uint8Array }> {
     const req = this.rpc.request(0)
     req.send(packFrame({ method, args }, binary) as any)
-    const replyBuf = (await req.reply()) as Uint8Array | null
+    const replyBuf = (await withRpcDeadline(req.reply() as Promise<Uint8Array | null>, method))
     if (!replyBuf) throw new Error(`Empty RPC reply for ${method}`)
     const { header, binary: replyBinary } = unpackFrame(replyBuf)
     if (!header.ok) throw new Error(header.error || `RPC error in ${method}`)
