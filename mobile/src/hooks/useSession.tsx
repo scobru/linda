@@ -399,8 +399,9 @@ export function SessionProvider({ children }: Props) {
     const s = sessionRef.current
     const ac = activeCallRef.current
     if (!s || !ac) return
+    // The camera already hands us base64; anything else is encoded once, here.
     const payload = typeof frame.payload === 'string' ? frame.payload : b4a.toString(frame.payload, 'base64')
-    void (s as any).sendCallFrame({
+    void s.sendCallFrame({
       callId: ac.callId,
       seq: Date.now(),
       timestamp: Date.now(),
