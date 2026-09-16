@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, mailboxSnippet, mailboxSubject, survivingHashtag } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, survivingHashtag } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -775,7 +775,7 @@ export class AppShell extends HTMLElement {
           if (lastMsg) {
             this.lastMessages.set(b.id, {
               author: this.displayName(lastMsg.authorId),
-              text: lastMsg.file ? `Shared an image` : lastMsg.body,
+              text: lastMessagePreview(lastMsg),
               time: lastMsg.timestamp
             })
             this.scheduleRenderApp()
@@ -817,7 +817,7 @@ export class AppShell extends HTMLElement {
   private notifyIncomingMessage(roomId: string, message: ChatMessage): void {
     this.lastMessages.set(roomId, {
       author: this.displayName(message.authorId),
-      text: message.file ? `Shared an image` : message.body,
+      text: lastMessagePreview(message),
       time: message.timestamp
     })
 
@@ -877,15 +877,9 @@ export class AppShell extends HTMLElement {
     // unopened. claimContactInvite clears the flag (renaming the room in the same stroke) the
     // moment the other side joins, and onBookmarksChange re-renders this view when that happens —
     // same join flow, it just isn't visible until there are two people in it.
-    const allBookmarks = this.session.listBookmarks()
-      .filter((b) => !b.contactInvite)
-      .sort((a, b) => {
-        if (a.isVault && !b.isVault) return -1
-        if (!a.isVault && b.isVault) return 1
-        if (a.favorite && !b.favorite) return -1
-        if (!a.favorite && b.favorite) return 1
-        return 0
-      })
+    const allBookmarks = orderRoomList(
+      this.session.listBookmarks().map((b) => ({ ...b, lastMessageTime: this.lastMessages.get(b.id)?.time }))
+    )
 
     const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
 

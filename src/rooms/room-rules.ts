@@ -1,4 +1,5 @@
 import { extractHashtags } from '../util/hashtag.js'
+import { isVoiceMessage } from './attachment-kind.js'
 import { formatBytes } from '../util/bytes.js'
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,55 @@ export interface Viewer {
 export function canDeleteMessage(message: { authorId: string }, viewer: Viewer): boolean {
   if (message.authorId === viewer.identityId) return true
   return viewer.isOwner || viewer.isModerator
+}
+
+/** A room as the room list sees it. `lastMessageTime` is absent for a room nobody has written in. */
+export interface RoomListEntry {
+  id: string
+  isVault?: boolean
+  favorite?: boolean
+  contactInvite?: boolean
+  lastMessageTime?: number | null
+}
+
+/**
+ * The room list: which rooms show, and in what order.
+ *
+ * Two disagreements, and the shells were each right about one of them.
+ *
+ * The desktop hid rooms behind an unclaimed contact link — a placeholder with nobody in it yet,
+ * which `claimContactInvite` renames and unflags the moment the other side joins. Mobile listed
+ * them, so an empty "New direct chat" sat in the phone's list for as long as the link went
+ * unopened. Hiding is right: there is no conversation there to open.
+ *
+ * Mobile sorted by the newest message, the desktop returned 0 and left bookmark insertion order —
+ * so the same account showed its rooms in two unrelated orders. Recency is what a chat list is
+ * for, and it is the only one of the two that moves a room when something happens in it.
+ *
+ * A room with no messages sorts to the bottom, which is where mobile already put it.
+ */
+export function orderRoomList<T extends RoomListEntry>(rooms: readonly T[]): T[] {
+  return rooms
+    .filter((room) => !room.contactInvite)
+    .slice()
+    .sort((a, b) => {
+      if (!!a.isVault !== !!b.isVault) return a.isVault ? -1 : 1
+      if (!!a.favorite !== !!b.favorite) return a.favorite ? -1 : 1
+      return (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0)
+    })
+}
+
+/**
+ * The one-line preview under a room's name.
+ *
+ * The desktop said "Shared an image" for every attachment — a PDF, a zip, a voice note, all of
+ * them images. Mobile named the file, which is never wrong, so that is the shape kept; a voice
+ * message is the one case where the name (`voice-2026-03-01T12-00-00.opus`) says less than the
+ * word does.
+ */
+export function lastMessagePreview(message: { body: string; file?: { name: string } }): string {
+  if (!message.file) return message.body
+  return isVoiceMessage(message.file) ? 'Voice message' : `Shared ${message.file.name}`
 }
 
 /** A day's worth of messages, newest day last, as both notes views show them. */

@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, mailboxSnippet, mailboxSubject, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, survivingHashtag } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -297,4 +297,50 @@ test('the day label is the long form both shells now show', () => {
   // The phone used to abbreviate it to "Sun, 1 Mar 2026".
   assert.match(group!.day, /2026/)
   assert.ok(group!.day.length > 12, `expected a long date label, got "${group!.day}"`)
+})
+
+// ---------------------------------------------------------------------------
+// The room list: which rooms show, and in what order. The shells were each right about one half.
+// ---------------------------------------------------------------------------
+
+test('the vault is first, then favorites, then whatever happened most recently', () => {
+  const ordered = orderRoomList([
+    { id: 'quiet', lastMessageTime: 10 },
+    { id: 'busy', lastMessageTime: 500 },
+    { id: 'fav', favorite: true, lastMessageTime: 1 },
+    { id: 'vault', isVault: true, lastMessageTime: 0 }
+  ])
+  assert.deepEqual(ordered.map((r) => r.id), ['vault', 'fav', 'busy', 'quiet'])
+})
+
+test('a room nobody has written in sinks to the bottom rather than holding its place', () => {
+  const ordered = orderRoomList([{ id: 'empty' }, { id: 'spoken', lastMessageTime: 5 }])
+  assert.deepEqual(ordered.map((r) => r.id), ['spoken', 'empty'])
+})
+
+test('a room behind an unclaimed contact link is not a conversation yet', () => {
+  // Mobile listed these, so an empty "New direct chat" sat in the phone's list for as long as the
+  // link went unopened. The desktop had always hidden them.
+  const ordered = orderRoomList([
+    { id: 'placeholder', contactInvite: true, lastMessageTime: 999 },
+    { id: 'real', lastMessageTime: 1 }
+  ])
+  assert.deepEqual(ordered.map((r) => r.id), ['real'])
+})
+
+test('ordering does not disturb the caller’s own list', () => {
+  const rooms = [{ id: 'b', lastMessageTime: 1 }, { id: 'a', lastMessageTime: 2 }]
+  orderRoomList(rooms)
+  assert.deepEqual(rooms.map((r) => r.id), ['b', 'a'])
+})
+
+test('the room-list preview names the file rather than calling everything an image', () => {
+  // The desktop said "Shared an image" for a PDF, a zip and a voice note alike.
+  assert.equal(lastMessagePreview({ body: 'hello' }), 'hello')
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'plan.pdf' } }), 'Shared plan.pdf')
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'holiday.jpg' } }), 'Shared holiday.jpg')
+})
+
+test('a voice message is worth a word, not a timestamped filename', () => {
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'voice-2026-03-01T12-00-00-000Z.opus' } }), 'Voice message')
 })

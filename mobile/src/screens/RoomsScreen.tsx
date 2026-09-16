@@ -9,7 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import type { RoomSummary } from '../bare/session-proxy'
 import { decodeInvite } from '@core/ui/qr-core'
-import { isRoomUnread } from '@core/rooms/room-rules'
+import { isRoomUnread, orderRoomList } from '@core/rooms/room-rules'
 import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
@@ -236,16 +236,10 @@ export default function RoomsScreen({ navigation }: Props) {
     if (activeFilter === 'favorites') {
       list = list.filter((b) => b.favorite)
     }
-    return list.slice().sort((a, b) => {
-      // Vault is always pinned first
-      if (a.isVault && !b.isVault) return -1
-      if (!a.isVault && b.isVault) return 1
-      // Then favorites
-      if (a.favorite && !b.favorite) return -1
-      if (!a.favorite && b.favorite) return 1
-      // Then newest message
-      return (b.lastMessageTime || 0) - (a.lastMessageTime || 0)
-    })
+    // Vault, then favorites, then newest — and without the rooms behind an unclaimed contact link,
+    // which the desktop has always hidden and this list used to show as empty "New direct chat"
+    // rows. Both rules live in room-rules.ts now.
+    return orderRoomList(list)
   }, [bookmarks, searchQuery, activeFilter])
 
   return (

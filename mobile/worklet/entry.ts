@@ -15,6 +15,7 @@ import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
 import { FORWARDED_SESSION_METHODS } from '../src/bare/session-contract.js'
 import { fromWireFrame, isPlayableFrame, toWireFrame, type WireMediaFrame } from '../src/bare/media-frame.js'
+import { lastMessagePreview } from '../../src/rooms/room-rules.js'
 import type { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
@@ -324,7 +325,7 @@ const methods: Record<string, (...args: any[]) => any> = {
           const m = await room.getMessage(i)
           if (m.deleted) continue
           lastMessageTime = m.timestamp
-          lastMessageText = m.file ? `Shared ${m.file.name}` : m.body
+          lastMessageText = lastMessagePreview(m)
           lastMessageAuthor = m.authorId
           break
         }
