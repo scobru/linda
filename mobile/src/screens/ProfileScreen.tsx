@@ -16,7 +16,8 @@ import { revealSecretKey, revealMnemonic, resetDevice, unlockIdentity } from '..
 import { storageDir } from '../bare/storage-dir'
 import { isBiometricSupported, isBiometricLockEnabled, enableBiometricLock, disableBiometricLock } from '../bare/biometric-lock'
 import Avatar from '../components/Avatar'
-import { spacing, radii, typography, shadows, PRESET_AVATARS, type ThemeColors } from '../theme'
+import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
+import { AVATAR_PRESETS, matchesPreset } from '@core/ui/avatar-presets'
 import { useTheme, type ThemeMode } from '../theme-context'
 import { usePrivateMode } from '../private-mode'
 import { formatBytes } from '@core/util/bytes'
@@ -213,12 +214,15 @@ export default function ProfileScreen({ navigation }: Props) {
             </Pressable>
             <Text style={styles.sectionTitle}>Choose Avatar</Text>
             <View style={styles.avatarGrid}>
-              {PRESET_AVATARS.map((preset) => (
+              {AVATAR_PRESETS.map((preset) => (
                 <Pressable
                   key={preset.id}
                   onPress={() => handleSelectAvatar(preset.svg)}
                   style={({ pressed }) => [
                     styles.presetBtn,
+                    // The desktop marks the chosen tile and mobile did not, so the same gallery
+                    // answered "which one is mine?" on one device and not the other.
+                    matchesPreset(preset, avatar) && styles.presetSelected,
                     pressed && styles.presetPressed,
                   ]}
                 >
@@ -491,7 +495,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: 'row', flexWrap: 'wrap',
     gap: spacing.md, justifyContent: 'center',
   },
-  presetBtn: { alignItems: 'center', gap: spacing.xs, padding: spacing.xs },
+  presetBtn: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    padding: spacing.xs,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: radii.md,
+  },
+  presetSelected: { borderColor: colors.accent, backgroundColor: colors.accent + '22' },
   presetPressed: { opacity: 0.7, transform: [{ scale: 0.95 }] },
   presetName: { color: colors.textTertiary, fontSize: typography.xs },
   field: {

@@ -190,22 +190,7 @@ export const shadows = {
 // and initials on both platforms.
 export { AVATAR_COLORS, avatarColor, avatarInitials } from '@core/util/avatar'
 
-export interface PresetAvatar {
-  id: string
-  name: string
-  svg: string
-}
-
-/** Native SVG text rendering on Android doesn't reliably resolve color-emoji glyphs (renders blank) — plain letters on a solid fill instead. */
-function presetSvg(fill: string, letter: string): string {
-  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="${fill}"/><text x="50" y="67" font-size="42" font-family="sans-serif" font-weight="700" fill="white" text-anchor="middle">${letter}</text></svg>`
-}
-
-export const PRESET_AVATARS: PresetAvatar[] = [
-  { id: 'cat', name: 'Cat', svg: presetSvg('%236366f1', 'C') },
-  { id: 'dog', name: 'Dog', svg: presetSvg('%233b82f6', 'D') },
-  { id: 'fox', name: 'Fox', svg: presetSvg('%23f59e0b', 'F') },
-  { id: 'robot', name: 'Robot', svg: presetSvg('%2310b981', 'R') },
-  { id: 'alien', name: 'Alien', svg: presetSvg('%238b5cf6', 'A') },
-  { id: 'pear', name: 'Pear', svg: presetSvg('%2314b8a6', 'P') },
-]
+// The preset gallery lives in `@core/ui/avatar-presets` now. The six that used to be here —
+// cat, dog, fox, robot, alien, pear — were each a coloured circle with one letter, which is what
+// `avatarColor` + `avatarInitials` below already draw for someone with no avatar set at all.
+// Choosing one handed a user the picture they already had.
