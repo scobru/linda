@@ -10,7 +10,7 @@ import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
-import type { CallInfo, CallMediaOptions } from '@core/call/call-session'
+import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
 import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
@@ -282,14 +282,7 @@ export function SessionProvider({ children }: Props) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
     })
     bareClient.on('callRemoteControl', ({ callId, action }: { callId: string; action: string }) => {
-      setActiveCall((prev) => {
-        if (!prev || prev.callId !== callId) return prev
-        if (action === 'mute') return { ...prev, remoteMuted: true }
-        if (action === 'unmute') return { ...prev, remoteMuted: false }
-        if (action === 'camera-off') return { ...prev, remoteCameraOff: true }
-        if (action === 'camera-on') return { ...prev, remoteCameraOff: false }
-        return prev
-      })
+      setActiveCall((prev) => (prev && prev.callId === callId ? applyRemoteControl(prev, action) : prev))
     })
 
     // A room's name/avatar/description edited on another device replicates in, but the local

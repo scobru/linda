@@ -24,10 +24,14 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
   - Stream audio PCM tramite `AudioContext` o WebRTC audio track.
   - Test e richiesta diagnostica permessi hardware su Electron/macOS/Windows.
 
-### `CallSession` & `CallRpc`
+### `CallSession`, `CallDesk` & `CallRpc`
 - **Definizione:** Moduli del Core P2P che implementano il protocollo di segnalazione e la macchina a stati della chiamata (`idle` -> `calling` / `ringing` -> `connected` -> `ended`).
 - **Canale:** Canale dedicato Protomux `linda-call/1` multiplexato sulle connessioni Hyperswarm crittografate con Noise.
 - **Messaggi:** `call_offer`, `call_answer`, `call_end`, `call_control` (mute/unmute/camera-off/camera-on), `call_frame` (payload multimediale binario).
+- **`CallSession`:** *Una* chiamata. Non sa nulla delle altre.
+- **`CallDesk`:** L'unico posto-chiamata del dispositivo, in [call-desk.ts](src/call/call-desk.ts). Tiene le regole che stanno *attorno* a una chiamata: una alla volta, un `busy` invece del silenzio a chi chiama mentre sei occupato (e sul canale di chi chiama, non su quello della chiamata in corso), un messaggio vale per la chiamata che nomina o per nessuna, e il posto si libera quando la chiamata finisce. Erano otto ripetizioni di due condizioni dentro `Session`, raggiungibili solo con uno swarm vivo e due peer veri.
+- **`applyRemoteControl`:** Il riduttore delle azioni remote, una volta sola: lo usano la macchina a stati e le due shell, ognuna delle quali tiene la propria copia di `CallInfo` da aggiornare. Un'azione sconosciuta non cambia nulla.
+- **Invariante degli eventi:** Il worklet mobile e l'app si parlano per nome (`pushEvent` / `bareClient.on`), quindi un ascoltatore senza produttore è muto e nessuno se ne accorge — è così che `callEnded` e `callRemoteControl` sono rimasti scollegati. Un test enumera i due insiemi.
 
 ### `Session` & `SessionView`
 - **Definizione:** Il punto d'accesso unificato all'istanza Linda del peer locale.

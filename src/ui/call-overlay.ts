@@ -1,5 +1,5 @@
 import { MediaPipeline } from '../call/media-pipeline.js'
-import type { CallInfo } from '../call/call-session.js'
+import { applyRemoteControl, type CallInfo } from '../call/call-session.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 import type { SessionView } from '../app/session-view.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
@@ -198,10 +198,7 @@ export class CallOverlay {
 
   handleCallRemoteControl(callId: string, action: string): void {
     if (this.activeCallInfo && this.activeCallInfo.callId === callId) {
-      if (action === 'mute') (this.activeCallInfo as any).remoteMuted = true
-      else if (action === 'unmute') (this.activeCallInfo as any).remoteMuted = false
-      else if (action === 'camera-off') (this.activeCallInfo as any).remoteCameraOff = true
-      else if (action === 'camera-on') (this.activeCallInfo as any).remoteCameraOff = false
+      this.activeCallInfo = applyRemoteControl(this.activeCallInfo, action)
       this.update()
     }
   }
