@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useContacts } from '../hooks/useContacts'
 import { useSession } from '../hooks/useSession'
+import { peerAvatar, peerName } from '@core/app/peer-display'
 import ContactListItem from '../components/ContactListItem'
 import { spacing, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
@@ -33,7 +34,7 @@ export default function ContactsScreen({ navigation }: Props) {
       { text: 'Remove', style: 'destructive', onPress: () => remove(userId) },
     ])
   }
-  const { onlineUsers, avatars } = useSession()
+  const { onlineUsers, avatars, nicknames } = useSession()
 
   const sections = [
     ...(incoming.length > 0 ? [{ title: 'Requests', data: incoming }] : []),
@@ -55,9 +56,12 @@ export default function ContactsScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <ContactListItem
             userId={item.userId}
-            nickname={item.nickname}
+            // Both were the snapshot taken when the request was accepted: a contact who changed
+            // their name or picture afterwards kept the old one here forever, while the same
+            // person showed up correctly in the room list one screen over.
+            nickname={peerName(item.userId, { live: nicknames.get(item.userId), snapshot: item.nickname })}
             status={item.status}
-            avatar={item.avatar || avatars.get(item.userId)}
+            avatar={peerAvatar({ live: avatars.get(item.userId), snapshot: item.avatar })}
             online={onlineUsers.has(item.userId)}
             onAccept={() => answer(item.userId, true)}
             onDecline={() => answer(item.userId, false)}

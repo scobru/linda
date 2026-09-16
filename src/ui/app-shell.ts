@@ -12,6 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
+import { peerAvatar, peerName } from '../app/peer-display.js'
 import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
@@ -1676,7 +1677,11 @@ export class AppShell extends HTMLElement {
     // Same DM-vs-group priority as renderRoomListItem — live avatar wins over the stale
     // creation-time snapshot for a DM.
     const roomAvatar = contact
-      ? (this.avatars.get(contact.userId) || this.session?.getPeerAvatar(contact.userId) || contact.avatar || bookmark?.avatar || room.avatar)
+      ? peerAvatar({
+          live: this.avatars.get(contact.userId),
+          stored: this.session?.getPeerAvatar(contact.userId),
+          snapshot: contact.avatar || bookmark?.avatar || room.avatar
+        })
       : (bookmark?.avatar || room.avatar)
     const roomDesc = bookmark?.description || room.description || ''
     // `canPost` folds in the ban, the mute and the broadcast gate — the cases where `apply()` would
@@ -3126,7 +3131,7 @@ export class AppShell extends HTMLElement {
   }
 
   private displayName(userId: string): string {
-    return this.nicknames.get(userId) || userId.slice(0, 8)
+    return peerName(userId, { live: this.nicknames.get(userId) })
   }
 
   private canDeleteMessage(msg: ChatMessage): boolean {
@@ -3813,10 +3818,16 @@ export class AppShell extends HTMLElement {
                 // `c.nickname` is a one-time snapshot from when the contact request was sent/accepted
                 // — blank if the other side hadn't set one yet, and never updated after. Live
                 // presence wins once it's known (same fallback chain as the sidebar's DM rooms).
-                const name = this.nicknames.get(c.userId) || c.nickname || c.userId.slice(0, 8)
+                const name = peerName(c.userId, { live: this.nicknames.get(c.userId), snapshot: c.nickname })
+                // The snapshot was last right when the request was accepted; presence is right now.
+                const picture = peerAvatar({
+                  live: this.avatars.get(c.userId),
+                  stored: this.session?.getPeerAvatar(c.userId),
+                  snapshot: c.avatar
+                })
                 return `
                 <div class="room-item" style="padding:0.6rem;background:var(--bg-subtle);border-radius:10px;border:1px solid var(--border);">
-                  ${avatarHtml(c.userId, 'md', name, c.avatar)}
+                  ${avatarHtml(c.userId, 'md', name, picture ?? '')}
                   <div style="flex:1;min-width:0;">
                     <div style="font-weight:700;color:var(--text);">${escapeHtml(name)}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);">${c.status === 'incoming' ? 'wants to connect' : c.status === 'outgoing' ? 'request sent' : ''}</div>

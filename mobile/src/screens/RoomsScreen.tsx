@@ -10,6 +10,7 @@ import { useSession } from '../hooks/useSession'
 import type { RoomSummary } from '../bare/session-proxy'
 import { decodeInvite } from '@core/ui/qr-core'
 import { isRoomUnread, matchesRoomQuery, orderRoomList } from '@core/rooms/room-rules'
+import { peerAvatar } from '@core/app/peer-display'
 import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
@@ -210,7 +211,7 @@ export default function RoomsScreen({ navigation }: Props) {
       <RoomRow
         id={item.id}
         name={item.name}
-        avatar={(peerId && avatars.get(peerId)) || item.avatar}
+        avatar={peerAvatar({ live: peerId ? avatars.get(peerId) : undefined, snapshot: item.avatar })}
         lastMessage={item.lastMessageText ?? undefined}
         timestamp={item.lastMessageTime ?? undefined}
         unread={isRoomUnread(item, null)}
