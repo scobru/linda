@@ -6,6 +6,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import { squareImageToDataUri } from '../avatar-image'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
+import { canRestrictMember, memberRole, memberRoleLabel } from '@core/rooms/room-rules'
 import { useContacts } from '../hooks/useContacts'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
@@ -270,7 +271,12 @@ export default function MembersScreen({ route, navigation }: Props) {
           const isMod = state.moderators.includes(item.identityId)
           const isMuted = state.muted.includes(item.identityId)
           const isSelf = item.identityId === myId
-          const isPrivileged = isAdmin || isMod
+          const standing = { isOwner, isAdmin, isModerator: isMod }
+          const actor = { isOwner: iAmOwner, isAdmin: iAmAdmin, isModerator: iCanModerate }
+          // Mirrors Room.apply(): this used to hide mute and ban from an admin acting on a
+          // moderator, which the log accepts — the same shape of bug as the moderator who could
+          // not delete a message from the phone.
+          const canRestrict = canRestrictMember(actor, standing, isSelf)
           const name = displayName(item.identityId)
           const totalAdmins = state.admins?.length || (state.ownerId ? 1 : 0)
 
@@ -280,8 +286,8 @@ export default function MembersScreen({ route, navigation }: Props) {
               <View style={styles.info}>
                 <Text style={styles.name}>{name}</Text>
                 <View style={styles.badgeRow}>
-                  {isAdmin && <Badge icon="star" label="Admin" color={colors.warning} />}
-                  {isMod && !isAdmin && <Badge icon="shield-outline" label="Mod" color={colors.info} />}
+                  {isAdmin && <Badge icon="star" label={memberRoleLabel(memberRole(standing))} color={colors.warning} />}
+                  {isMod && !isAdmin && <Badge icon="shield-outline" label={memberRoleLabel(memberRole(standing))} color={colors.info} />}
                   {isMuted && <Badge icon="volume-mute-outline" label="Muted" color={colors.textTertiary} />}
                 </View>
               </View>
@@ -323,7 +329,7 @@ export default function MembersScreen({ route, navigation }: Props) {
                     </>
                   )
                 )}
-                {iCanModerate && !isPrivileged && !isSelf && (
+                {canRestrict && (
                   <Pressable
                     onPress={() => run(() => isMuted ? session!.unmuteMember(roomId, item.identityId) : session!.muteMember(roomId, item.identityId))}
                     style={styles.actionBtn}
@@ -331,7 +337,7 @@ export default function MembersScreen({ route, navigation }: Props) {
                     <Text style={styles.actionText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
                   </Pressable>
                 )}
-                {iCanModerate && !isPrivileged && !isSelf && (
+                {canRestrict && (
                   <Pressable onPress={() => confirmBan(item)} style={[styles.actionBtn, styles.banBtn]}>
                     <Text style={styles.actionText}>Ban</Text>
                   </Pressable>

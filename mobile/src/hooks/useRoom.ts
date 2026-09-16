@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { RoomProxy as Room } from '../bare/room-proxy'
 import type { ChatMessage } from '@core/rooms/room'
+import { shouldSendTypingPing, TYPING_STOP_MS } from '@core/rooms/room-rules'
 
 // Only the tail is loaded on open; older messages come in on-demand via loadOlder() instead
 // of decrypting and shipping a room's entire history across the RN<->worklet bridge every time.
@@ -28,8 +29,6 @@ function cacheRoom(id: string, entry: { messages: LocalChatMessage[]; oldestLoad
 
 /** How long the peer's "typing…" stays up after the last keystroke, and how often we say so while
  * it keeps happening. The second only has to be shorter than the first. */
-const TYPING_STOP_MS = 3000
-const TYPING_PING_MS = 2000
 
 
 export interface UseRoomResult {
@@ -219,7 +218,7 @@ export function useRoom(room: Room | null | undefined, identityId: string, clear
     // put a bridge round trip, and a fan-out to every connected peer inside the worklet, on the
     // keyboard's critical path.
     const now = Date.now()
-    if (now - typingPingedAtRef.current >= TYPING_PING_MS) {
+    if (shouldSendTypingPing(typingPingedAtRef.current, now)) {
       typingPingedAtRef.current = now
       void room.sendTyping(identityId, true)
     }

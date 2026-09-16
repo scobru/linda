@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Image, Linking } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { splitOnHashtags } from '@core/util/hashtag'
 import { isAudio, isVideo, isVoiceMessage } from '@core/rooms/attachment-kind'
+import { DELETED_MESSAGE_TEXT } from '@core/rooms/room-rules'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -71,7 +72,7 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
       <View style={[styles.row, isSelf && styles.rowSelf]}>
         <View style={[styles.bubble, styles.deletedBubble, styles.deletedRow]}>
           <Ionicons name="trash-outline" size={13} color={colors.textTertiary} />
-          <Text style={styles.deletedText}>Message deleted</Text>
+          <Text style={styles.deletedText}>{DELETED_MESSAGE_TEXT}</Text>
         </View>
       </View>
     )

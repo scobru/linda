@@ -1,8 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator'
-
-/** What both platforms settle on for an avatar: small enough that a copy can ride along in a
- * presence message and sit in every member's bookmark. */
-export const AVATAR_MAX_DIM = 128
+import { AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '@core/util/avatar'
 
 /**
  * Squares off an avatar the way the desktop's `resizeImageToDataUrl` does: crop the middle out
@@ -38,7 +35,7 @@ export async function squareImageToDataUri(uri: string, maxDim = AVATAR_MAX_DIM)
       },
       { resize: { width: target } }
     ],
-    { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    { compress: AVATAR_JPEG_QUALITY, format: ImageManipulator.SaveFormat.JPEG, base64: true }
   )
   if (!result.base64) throw new Error('Could not process that image')
   return `data:image/jpeg;base64,${result.base64}`

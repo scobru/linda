@@ -2,13 +2,19 @@ import b4a from 'b4a'
 import { bareClient } from './client'
 import type { ChatMessage, MemberInfo, RoomFile } from '@core/rooms/room'
 
+/** The room as this device sees it. The last four are what `composerBlock()` needs to explain a
+ *  closed composer the same way the desktop does — a folded `canPost` cannot say *why*. */
 export interface RoomState {
   writable: boolean
   hasKey: boolean
   /** Only the owner and moderators may post. */
   broadcast: boolean
-  /** Whether this device's identity may post right now — false when muted, or in a broadcast room without admin rights. */
+  /** Whether this device's identity may post right now — false when banned, muted, or in a broadcast room without moderation rights. */
   canPost: boolean
+  banned: boolean
+  muted: boolean
+  canModerate: boolean
+  isAdmin: boolean
 }
 
 export class RoomProxy {
@@ -16,6 +22,10 @@ export class RoomProxy {
   hasKey = false
   broadcast = false
   canPost = false
+  banned = false
+  muted = false
+  canModerate = false
+  isAdmin = false
 
   constructor(readonly id: string) {
     bareClient.on('roomState', (payload: RoomState & { roomId: string }) => {
@@ -29,6 +39,10 @@ export class RoomProxy {
     this.hasKey = state.hasKey
     this.broadcast = state.broadcast
     this.canPost = state.canPost
+    this.banned = state.banned
+    this.muted = state.muted
+    this.canModerate = state.canModerate
+    this.isAdmin = state.isAdmin
   }
 
   onStateChange(listener: (state: RoomState) => void): () => void {

@@ -12,8 +12,9 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, countHashtags, survivingHashtag } from '../rooms/room-rules.js'
-import { avatarColor, avatarInitials } from '../util/avatar.js'
+import { peerAvatar, peerName } from '../app/peer-display.js'
+import { DELETED_MESSAGE_TEXT, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
@@ -97,7 +98,7 @@ export const PRESET_AVATARS = [
   }
 ]
 
-function resizeImageToDataUrl(file: File, maxDim = 128): Promise<string> {
+function resizeImageToDataUrl(file: File, maxDim = AVATAR_MAX_DIM): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = reject
@@ -118,7 +119,7 @@ function resizeImageToDataUrl(file: File, maxDim = 128): Promise<string> {
           return
         }
         ctx.drawImage(img, sx, sy, size, size, 0, 0, targetDim, targetDim)
-        resolve(canvas.toDataURL('image/jpeg', 0.85))
+        resolve(canvas.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY))
       }
       img.src = reader.result as string
     }
@@ -302,6 +303,10 @@ export class AppShell extends HTMLElement {
   private avatar = ''
   private remoteImageCache = new Map<string, string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
+  /** When the session opened, not when this shell was constructed: the quiet window is meant to
+   *  cover the replication burst that follows a session opening, and the shell can sit on the
+   *  unlock screen for minutes before that happens. See `isHistoricalMessage`. */
+  private sessionStartedAt = 0
   private renderAppQueued = false
   private readonly host = desktopHost()
   private updateAvailable: UpdateEvent | null = null
@@ -693,6 +698,7 @@ export class AppShell extends HTMLElement {
       // Electron it is a `Session` in this very process, under Pear a proxy for one running in a
       // Bare worker. Everything past this line goes through `SessionView` either way.
       this.session = session
+      this.sessionStartedAt = Date.now()
       this.callOverlay.setSession(session)
       this.callOverlay.setPeerLookup(this.nicknames, this.avatars)
     } catch (err: any) {
@@ -775,7 +781,7 @@ export class AppShell extends HTMLElement {
           if (lastMsg) {
             this.lastMessages.set(b.id, {
               author: this.displayName(lastMsg.authorId),
-              text: lastMsg.file ? `Shared an image` : lastMsg.body,
+              text: lastMessagePreview(lastMsg),
               time: lastMsg.timestamp
             })
             this.scheduleRenderApp()
@@ -817,15 +823,18 @@ export class AppShell extends HTMLElement {
   private notifyIncomingMessage(roomId: string, message: ChatMessage): void {
     this.lastMessages.set(roomId, {
       author: this.displayName(message.authorId),
-      text: message.file ? `Shared an image` : message.body,
+      text: lastMessagePreview(message),
       time: message.timestamp
     })
 
     if (document.hasFocus() && this.activeRoom?.id === roomId) return
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    // Replication catching up is not news. Without this, opening the app after a while replayed a
+    // notification — with a sound each — for every message that had arrived while it was closed.
+    if (isHistoricalMessage(message.timestamp || 0, this.sessionStartedAt, Date.now())) return
     this.playNotificationSound()
     const roomName = this.session?.listBookmarks().find((b) => b.id === roomId)?.name ?? 'linda-pear'
-    const notification = new Notification(`${this.displayName(message.authorId)} in ${roomName}`, { body: message.body.slice(0, 200) })
+    const notification = new Notification(`${this.displayName(message.authorId)} in ${roomName}`, { body: notificationBody(message) })
     notification.onclick = () => {
       window.focus()
       this.openRoom(roomId, roomName)
@@ -837,8 +846,10 @@ export class AppShell extends HTMLElement {
   /** Whether a room passes the sidebar's tab and search query. Shared by the full render and the
    * in-place filter so the two can never disagree about what should be on screen. */
   private matchesSidebarFilter(b: RoomBookmark): boolean {
-    const query = this.sidebarSearchQuery.trim().toLowerCase()
-    if (query && !b.name.toLowerCase().includes(query) && !b.description?.toLowerCase().includes(query)) return false
+    // Name, description and the last message — the phone searched the last message and not the
+    // description, so the same query found different rooms on the two devices.
+    const lastMessageText = this.lastMessages.get(b.id)?.text
+    if (!matchesRoomQuery({ ...b, lastMessageText }, this.sidebarSearchQuery)) return false
     if (this.activeFilter === 'favorites') return this.session!.isRoomFavorite(b.id)
     if (this.activeFilter === 'unread') return this.isRoomUnread(b)
     return true
@@ -877,15 +888,9 @@ export class AppShell extends HTMLElement {
     // unopened. claimContactInvite clears the flag (renaming the room in the same stroke) the
     // moment the other side joins, and onBookmarksChange re-renders this view when that happens —
     // same join flow, it just isn't visible until there are two people in it.
-    const allBookmarks = this.session.listBookmarks()
-      .filter((b) => !b.contactInvite)
-      .sort((a, b) => {
-        if (a.isVault && !b.isVault) return -1
-        if (!a.isVault && b.isVault) return 1
-        if (a.favorite && !b.favorite) return -1
-        if (!a.favorite && b.favorite) return 1
-        return 0
-      })
+    const allBookmarks = orderRoomList(
+      this.session.listBookmarks().map((b) => ({ ...b, lastMessageTime: this.lastMessages.get(b.id)?.time }))
+    )
 
     const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
 
@@ -1224,11 +1229,13 @@ export class AppShell extends HTMLElement {
   }
 
   /** Unread = this room has a message newer than the last time it was opened (never opened counts as the epoch). */
+  /** The rule itself is shared with the phone; what differs is only where each shell keeps the
+   *  last message — a render-time cache here, a field on the room summary there. */
   private isRoomUnread(b: RoomBookmark): boolean {
-    if (this.activeRoom?.id === b.id) return false
-    const lastMsgTime = this.lastMessages.get(b.id)?.time
-    if (!lastMsgTime) return false
-    return lastMsgTime > (b.lastReadAt ?? 0)
+    return isRoomUnread(
+      { id: b.id, lastMessageTime: this.lastMessages.get(b.id)?.time, lastReadAt: b.lastReadAt },
+      this.activeRoom?.id ?? null
+    )
   }
 
   private renderRoomListItem(b: RoomBookmark, visible = true): string {
@@ -1670,25 +1677,27 @@ export class AppShell extends HTMLElement {
     // Same DM-vs-group priority as renderRoomListItem — live avatar wins over the stale
     // creation-time snapshot for a DM.
     const roomAvatar = contact
-      ? (this.avatars.get(contact.userId) || this.session?.getPeerAvatar(contact.userId) || contact.avatar || bookmark?.avatar || room.avatar)
+      ? peerAvatar({
+          live: this.avatars.get(contact.userId),
+          stored: this.session?.getPeerAvatar(contact.userId),
+          snapshot: contact.avatar || bookmark?.avatar || room.avatar
+        })
       : (bookmark?.avatar || room.avatar)
     const roomDesc = bookmark?.description || room.description || ''
-    const muted = room.isMuted(this.identity!.id)
-    // `canPost` folds in the mute and the broadcast gate — the two cases where `apply()` would drop
-    // the message; `writable`/`hasKey` are the local ones where it could not be sent at all.
+    // `canPost` folds in the ban, the mute and the broadcast gate — the cases where `apply()` would
+    // drop the message; `writable`/`hasKey` are the local ones where it could not be sent at all.
     const canPost = room.canPost(this.identity!.id)
     const writable = room.writable && room.hasKey && canPost
-    const composerBlockedReason = muted
-      ? 'You are muted in this room'
-      : !canPost
-        ? 'Only admins can send messages in this broadcast room'
-        : !room.hasKey
-          ? 'Waiting for room encryption keys from an online peer...'
-          : !room.writable
-            ? (room.isAdmin(this.identity!.id)
-                ? 'Connecting to sync room access with an online peer...'
-                : 'You do not have write access to this room yet')
-            : ''
+    // The ladder itself lives in room-rules.ts, because the phone has to give the same answer.
+    const composerBlockedReason = composerBlock({
+      banned: room.isBanned(this.identity!.id),
+      muted: room.isMuted(this.identity!.id),
+      broadcast: room.isBroadcast,
+      canModerate: room.canModerate(this.identity!.id),
+      hasKey: room.hasKey,
+      writable: room.writable,
+      isAdmin: room.isAdmin(this.identity!.id)
+    })?.text ?? ''
     const memberCount = room.listMembers().length || 1
     const otherMember = !contact && memberCount === 2
       ? room.listMembers().find((m) => m.identityId !== this.identity?.id)
@@ -2337,18 +2346,10 @@ export class AppShell extends HTMLElement {
     const authorName = this.displayName(selectedMsg.authorId)
     const fullDate = new Date(selectedMsg.timestamp).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
     const bodyFormatted = selectedMsg.deleted
-      ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+      ? `<em style="color:var(--text-muted);">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</em>`
       : (selectedMsg.body ? linkifyHashtags(linkify(escapeHtml(selectedMsg.body))) : '')
 
-    const deriveSubject = (msg: ChatMessage) => {
-      if (msg.deleted) return 'Message deleted'
-      const firstLine = (msg.body || '').split('\n').find((l) => l.trim().length > 0)
-      if (!firstLine) return msg.file ? `Attachment: ${msg.file.name}` : '(No subject)'
-      const cleaned = firstLine.replace(/^#+\s*/, '').trim()
-      return cleaned.slice(0, 50) + (cleaned.length > 50 ? '…' : '')
-    }
-
-    const selectedSubject = deriveSubject(selectedMsg)
+    const selectedSubject = mailboxSubject(selectedMsg)
     const attachmentCard = selectedMsg.file && !selectedMsg.deleted
       ? this.renderAttachmentCard(selectedMsg)
       : ''
@@ -2359,7 +2360,7 @@ export class AppShell extends HTMLElement {
     if (selectedMsg.replyTo && byId.get(selectedMsg.replyTo)) {
       const parent = byId.get(selectedMsg.replyTo)!
       const parentAuthor = this.displayName(parent.authorId)
-      const parentSubject = deriveSubject(parent)
+      const parentSubject = mailboxSubject(parent)
       const parentSnippet = (parent.body || (parent.file ? parent.file.name : '')).slice(0, 90)
       replyBannerHtml = `
         <div class="mailbox-in-reply-to" data-jump-to-msg="${parent.id}" title="Jump to parent message">
@@ -2401,7 +2402,7 @@ export class AppShell extends HTMLElement {
     const listHtml = sorted.map((msg) => {
       const isSel = msg.id === selectedId
       const msgAuthor = this.displayName(msg.authorId)
-      const msgSubj = deriveSubject(msg)
+      const msgSubj = mailboxSubject(msg)
       const msgTime = formatRelativeTime(msg.timestamp)
       const msgAvatar = this.avatars.get(msg.authorId) || this.session?.getPeerAvatar(msg.authorId) || (msg.authorId === this.identity!.id ? this.avatar : '')
       const hasAttach = !!(msg.file && !msg.deleted)
@@ -2423,7 +2424,7 @@ export class AppShell extends HTMLElement {
               ${hasAttach ? `<span class="attach-icon">${ICONS.attach}</span> ` : ''}
               ${escapeHtml(msgSubj)}
             </div>
-            <div class="mailbox-item-preview">${escapeHtml((msg.body || '').slice(0, 75))}</div>
+            <div class="mailbox-item-preview">${escapeHtml(mailboxSnippet(msg).slice(0, 75))}</div>
           </div>
         </div>
       `
@@ -2509,29 +2510,26 @@ export class AppShell extends HTMLElement {
       `
     }
 
-    const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp)
     const entriesHtml: string[] = []
-    let lastDateStr = ''
+    // The day boundary and its label come from room-rules.ts, so the phone's notes tab splits in
+    // the same places and says the same words. The entry number keeps running across days.
+    let index = 0
 
-    for (let i = 0; i < sorted.length; i++) {
-      const msg = sorted[i]!
-      const date = new Date(msg.timestamp)
-      const dateStr = date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-      if (dateStr !== lastDateStr) {
-        entriesHtml.push(`
-          <div class="doc-date-divider">
-            <span class="doc-date-pill">${dateStr}</span>
-          </div>
-        `)
-        lastDateStr = dateStr
-      }
+    for (const group of groupMessagesByDay(messages)) {
+      entriesHtml.push(`
+        <div class="doc-date-divider">
+          <span class="doc-date-pill">${group.day}</span>
+        </div>
+      `)
 
+      for (const msg of group.items) {
+      index++
       const authorName = this.displayName(msg.authorId)
       const timeStr = formatMessageTime(msg.timestamp)
       const isMine = msg.authorId === this.identity!.id
       const canDelete = this.canDeleteMessage(msg)
       const bodyFormatted = msg.deleted
-        ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+        ? `<em style="color:var(--text-muted);">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</em>`
         : (msg.body ? linkifyHashtags(linkify(escapeHtml(msg.body))) : '')
       const attachmentCard = msg.file && !msg.deleted
         ? this.renderAttachmentCard(msg)
@@ -2558,7 +2556,7 @@ export class AppShell extends HTMLElement {
         <article class="doc-entry" id="doc-${msg.id}">
           <header class="doc-entry-header">
             <div class="doc-entry-meta">
-              <span class="doc-entry-index">#${i + 1}</span>
+              <span class="doc-entry-index">#${index}</span>
               <span class="doc-entry-author">${escapeHtml(authorName)}</span>
               <span class="doc-entry-time">${timeStr}</span>
             </div>
@@ -2576,6 +2574,7 @@ export class AppShell extends HTMLElement {
           </div>
         </article>
       `)
+      }
     }
 
     return `
@@ -2668,7 +2667,7 @@ export class AppShell extends HTMLElement {
           ` : ''}
           ${actions}
           ${replyQuote}
-          ${message.deleted ? `<div class="bubble" style="opacity:0.55;font-style:italic;"><span class="bubble-text">${ICONS.trash} Message deleted</span></div>` : ''}
+          ${message.deleted ? `<div class="bubble" style="opacity:0.55;font-style:italic;"><span class="bubble-text">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</span></div>` : ''}
           ${bodyText ? `<div class="bubble"><span class="bubble-text">${bodyText}</span></div>` : ''}
           ${fileHtml}
           ${reactions}
@@ -3082,13 +3081,22 @@ export class AppShell extends HTMLElement {
   // --- calls & presence ----------------------------------------------------
 
   private typingTimer: ReturnType<typeof setTimeout> | null = null
+  private typingPingedAt = 0
 
+  /** Called on every keystroke. The ping is throttled — see `TYPING_PING_MS`; the retraction never
+   *  is, and the timer restarts on each keystroke so it lands `TYPING_STOP_MS` after the last one. */
   private notifyTyping(typing = true): void {
     const room = this.activeRoom
     if (!room || !this.session) return
-    this.session.sendTyping(room.id, this.identity!.id, typing)
+    if (!typing) {
+      this.typingPingedAt = 0
+      this.session.sendTyping(room.id, this.identity!.id, false)
+    } else if (shouldSendTypingPing(this.typingPingedAt, Date.now())) {
+      this.typingPingedAt = Date.now()
+      this.session.sendTyping(room.id, this.identity!.id, true)
+    }
     if (this.typingTimer) clearTimeout(this.typingTimer)
-    if (typing) this.typingTimer = setTimeout(() => this.notifyTyping(false), 3000)
+    if (typing) this.typingTimer = setTimeout(() => this.notifyTyping(false), TYPING_STOP_MS)
   }
 
   private onTyping(roomId: string, userId: string, typing: boolean): void {
@@ -3123,7 +3131,7 @@ export class AppShell extends HTMLElement {
   }
 
   private displayName(userId: string): string {
-    return this.nicknames.get(userId) || userId.slice(0, 8)
+    return peerName(userId, { live: this.nicknames.get(userId) })
   }
 
   private canDeleteMessage(msg: ChatMessage): boolean {
@@ -3810,10 +3818,16 @@ export class AppShell extends HTMLElement {
                 // `c.nickname` is a one-time snapshot from when the contact request was sent/accepted
                 // — blank if the other side hadn't set one yet, and never updated after. Live
                 // presence wins once it's known (same fallback chain as the sidebar's DM rooms).
-                const name = this.nicknames.get(c.userId) || c.nickname || c.userId.slice(0, 8)
+                const name = peerName(c.userId, { live: this.nicknames.get(c.userId), snapshot: c.nickname })
+                // The snapshot was last right when the request was accepted; presence is right now.
+                const picture = peerAvatar({
+                  live: this.avatars.get(c.userId),
+                  stored: this.session?.getPeerAvatar(c.userId),
+                  snapshot: c.avatar
+                })
                 return `
                 <div class="room-item" style="padding:0.6rem;background:var(--bg-subtle);border-radius:10px;border:1px solid var(--border);">
-                  ${avatarHtml(c.userId, 'md', name, c.avatar)}
+                  ${avatarHtml(c.userId, 'md', name, picture ?? '')}
                   <div style="flex:1;min-width:0;">
                     <div style="font-weight:700;color:var(--text);">${escapeHtml(name)}</div>
                     <div style="font-size:0.75rem;color:var(--text-muted);">${c.status === 'incoming' ? 'wants to connect' : c.status === 'outgoing' ? 'request sent' : ''}</div>
@@ -3985,17 +3999,37 @@ export class AppShell extends HTMLElement {
                 const isMuted = room.isMuted(m.identityId)
                 const isBanned = room.isBanned(m.identityId)
                 const name = this.displayName(m.identityId)
-                const userAvatar = this.avatars.get(m.identityId) || this.session?.getPeerAvatar(m.identityId) || (isMe ? this.avatar : '')
-                const canModerateThis = !isMe && (iAmOwner || (iCanModerate && !isOwner && !isMod))
+                const userAvatar = peerAvatar({
+                  live: this.avatars.get(m.identityId),
+                  stored: this.session?.getPeerAvatar(m.identityId),
+                  snapshot: isMe ? this.avatar : undefined
+                })
+                // A promoted admin wore "Member" here, because this read `isOwner`/`isModerator`
+                // and never asked whether the member was an admin.
+                const role = memberRole({ isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod })
+                // Mirrors what `Room.apply()` accepts. This used to offer the action against an
+                // admin — to the owner and to any moderator — and the log dropped every one of
+                // them in silence.
+                const actor = { isOwner: iAmOwner, isAdmin: room.isAdmin(myId), isModerator: iCanModerate }
+                const standing = { isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod }
+                const canRestrict = canRestrictMember(actor, standing, isMe)
+                // Asked separately from `canRestrict`: an admin may not be muted or banned, but an
+                // admin is exactly who a role change is for. Folding the two into one condition is
+                // what left this page with no way to demote an admin at all.
+                const canChangeRole = canChangeMemberRole(actor, isMe)
 
                 return `
                   <div class="member-card">
-                    ${avatarHtml(m.identityId, 'md', name, userAvatar)}
+                    ${avatarHtml(m.identityId, 'md', name, userAvatar ?? '')}
                     <div class="member-card-info">
                       <div class="member-card-title-row">
                         <span class="member-card-name">${escapeHtml(name)}</span>
                         ${isMe ? '<span style="color:var(--accent);font-size:0.75rem;font-weight:600;">(you)</span>' : ''}
-                        ${isOwner ? `<span class="member-role-badge owner">${ICONS.crown} Admin</span>` : (isMod ? `<span class="member-role-badge mod">${ICONS.shieldSmall} Mod</span>` : '<span class="member-role-badge member">Member</span>')}
+                        ${role === 'owner' || role === 'admin'
+                          ? `<span class="member-role-badge owner">${ICONS.crown} ${memberRoleLabel(role)}</span>`
+                          : role === 'moderator'
+                            ? `<span class="member-role-badge mod">${ICONS.shieldSmall} ${memberRoleLabel(role)}</span>`
+                            : `<span class="member-role-badge member">${memberRoleLabel(role)}</span>`}
                         ${isMuted ? `<span class="member-role-badge muted">${ICONS.volumeOff} Muted</span>` : ''}
                         ${isBanned ? `<span class="member-role-badge banned">${ICONS.ban} Banned</span>` : ''}
                       </div>
@@ -4006,10 +4040,12 @@ export class AppShell extends HTMLElement {
                       <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-add-contact-id="${m.identityId}" data-add-contact-name="${escapeHtml(name)}" title="Send contact request">${ICONS.userPlus} Add contact</button>
                     ` : ''}
 
-                    ${canModerateThis ? `
+                    ${canChangeRole || canRestrict ? `
                       <div class="member-actions-row">
-                        ${iAmOwner ? (isOwner ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-admin-id="${m.identityId}" title="Demote from Admin">Demote Admin</button>
+                        ${canChangeRole ? (standing.isAdmin ? `
+                          ${room.listAdmins().length > 1 ? `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-admin-id="${m.identityId}" title="Demote from Admin">Demote Admin</button>
+                          ` : ''}
                         ` : `
                           <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-promote-admin-id="${m.identityId}" title="Promote to Admin">${ICONS.crown} Make Admin</button>
                           ${isMod ? `
@@ -4019,7 +4055,7 @@ export class AppShell extends HTMLElement {
                           `}
                         `) : ''}
 
-                        ${!isOwner ? `
+                        ${canRestrict ? `
                           ${isMuted ? `
                             <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">${ICONS.volumeOn} Unmute</button>
                           ` : `

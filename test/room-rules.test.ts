@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, countHashtags, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canChangeMemberRole, canDeleteMessage, canRestrictMember, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, memberRole, memberRoleLabel, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -113,4 +113,355 @@ test('a selected hashtag survives only while the room still has it', () => {
   assert.equal(survivingHashtag('gone', tags), null, 'its last message was deleted or cleared')
   assert.equal(survivingHashtag(null, tags), null)
   assert.equal(survivingHashtag('todo', []), null)
+})
+
+// ---------------------------------------------------------------------------
+// The composer ladder. Both shells had one and they disagreed on the order, so the same room
+// explained itself differently depending on the device — and each order hid a case the other
+// showed. These are the rungs, and the two mistakes.
+// ---------------------------------------------------------------------------
+
+const open = {
+  banned: false, muted: false, broadcast: false, canModerate: false,
+  hasKey: true, writable: true, isAdmin: false
+}
+
+test('a room you can post in blocks nothing', () => {
+  assert.equal(composerBlock(open), null)
+})
+
+test('keys still arriving are not a refusal of access', () => {
+  // Mobile tested `!writable || !hasKey` first and called it "You do not have write access to this
+  // room yet". On a fresh join that is a few seconds of key exchange, so the member was told their
+  // access was denied and to go ask for something they already had.
+  const block = composerBlock({ ...open, hasKey: false })
+  assert.equal(block?.kind, 'waiting-key')
+  assert.match(block!.text, /Waiting for room encryption keys/)
+})
+
+test('a ban says so, in a room that is not a broadcast room', () => {
+  // Desktop had no rung for it, and `Room.canPost()` is false for a banned member, so a ban came
+  // out as "Only admins can send messages in this broadcast room" — in an ordinary room.
+  const block = composerBlock({ ...open, banned: true })
+  assert.equal(block?.kind, 'banned')
+  assert.doesNotMatch(block!.text, /broadcast/)
+})
+
+test('what was decided about you outranks what is still in flight', () => {
+  // A muted member whose keys have not arrived is still muted once they do. Naming the transient
+  // state first means the message changes into another message rather than into a composer.
+  assert.equal(composerBlock({ ...open, muted: true, hasKey: false, writable: false })?.kind, 'muted')
+  assert.equal(composerBlock({ ...open, banned: true, muted: true })?.kind, 'banned')
+})
+
+test('a broadcast room blocks members and lets moderators through', () => {
+  assert.equal(composerBlock({ ...open, broadcast: true })?.kind, 'broadcast')
+  assert.equal(composerBlock({ ...open, broadcast: true, canModerate: true }), null)
+})
+
+test('an admin waiting on write access is syncing, not refused', () => {
+  // An admin already has the right; what is missing is a peer to replicate it from. Telling them
+  // they lack access points at a fix that does not exist.
+  assert.equal(composerBlock({ ...open, writable: false, isAdmin: true })?.kind, 'syncing')
+  assert.equal(composerBlock({ ...open, writable: false })?.kind, 'no-access')
+})
+
+test('every rung carries a sentence a user can act on', () => {
+  const states = [
+    { ...open, banned: true },
+    { ...open, muted: true },
+    { ...open, broadcast: true },
+    { ...open, hasKey: false },
+    { ...open, writable: false, isAdmin: true },
+    { ...open, writable: false }
+  ]
+  const kinds = states.map((state) => composerBlock(state)?.kind)
+  assert.deepEqual(kinds, ['banned', 'muted', 'broadcast', 'waiting-key', 'syncing', 'no-access'])
+  for (const state of states) assert.ok((composerBlock(state)?.text.length ?? 0) > 10)
+})
+
+// ---------------------------------------------------------------------------
+// The unread rule, which was written four times and agreed on three of them.
+// ---------------------------------------------------------------------------
+
+test('a room is unread when its newest message postdates the last look', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, null), true)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 100, lastReadAt: 200 }, null), false)
+})
+
+test('a room nobody has written in is not unread, however long ago you looked', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastReadAt: 0 }, null), false)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: null, lastReadAt: null }, null), false)
+})
+
+test('a room never opened is unread as soon as it has a message', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 1 }, null), true)
+})
+
+test('the room you are reading is not unread', () => {
+  // Only the desktop excluded it. On the phone a message arriving in the conversation you had
+  // open bumped the app-icon badge while you were looking at the message.
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r1'), false)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r2'), true)
+})
+
+// ---------------------------------------------------------------------------
+// The mailbox subject and its preview, which the two shells derived differently on every branch.
+// ---------------------------------------------------------------------------
+
+test('the subject is the first line that says something', () => {
+  assert.equal(mailboxSubject({ body: '\n\nDinner on Friday\nat eight' }), 'Dinner on Friday')
+})
+
+test('a markdown heading is a title, not a subject with a hash in it', () => {
+  // Desktop stripped it, mobile showed "# Shopping list".
+  assert.equal(mailboxSubject({ body: '# Shopping list' }), 'Shopping list')
+  assert.equal(mailboxSubject({ body: '### Notes' }), 'Notes')
+})
+
+test('a deleted message says so rather than claiming it had no subject', () => {
+  assert.equal(mailboxSubject({ body: 'anything', deleted: true }), 'Message deleted')
+  assert.equal(mailboxSnippet({ body: 'anything', deleted: true }), '')
+})
+
+test('an attachment with no body is labelled as one', () => {
+  // "plan.pdf" alone in a subject column reads like a truncated sentence.
+  assert.equal(mailboxSubject({ body: '', file: { name: 'plan.pdf', size: 2048 } }), 'Attachment: plan.pdf')
+  assert.equal(mailboxSubject({ body: '' }), '(No subject)')
+})
+
+test('a long subject is cut at fifty characters, once, for both shells', () => {
+  const subject = mailboxSubject({ body: 'x'.repeat(80) })
+  assert.equal(subject.length, 51)
+  assert.ok(subject.endsWith('…'))
+  assert.equal(mailboxSubject({ body: 'y'.repeat(50) }), 'y'.repeat(50))
+})
+
+test('the preview is what comes after the subject, not the subject again', () => {
+  // The desktop showed `body.slice(0, 75)`, which opens with the line the reader just read.
+  assert.equal(mailboxSnippet({ body: 'Dinner on Friday\nat eight, my place' }), 'at eight, my place')
+  assert.equal(mailboxSnippet({ body: '\n\nDinner on Friday\nat eight' }), 'at eight')
+})
+
+test('a one-line message with an attachment previews the attachment', () => {
+  assert.equal(mailboxSnippet({ body: 'Here it is', file: { name: 'plan.pdf', size: 2048 } }), 'plan.pdf (2 KB)')
+  assert.equal(mailboxSnippet({ body: 'Here it is' }), '')
+})
+
+// ---------------------------------------------------------------------------
+// Day grouping for the notes view.
+// ---------------------------------------------------------------------------
+
+const at = (iso: string) => new Date(iso).getTime()
+
+test('messages fall into one group per day, oldest day first', () => {
+  const groups = groupMessagesByDay([
+    { id: 'a', timestamp: at('2026-03-01T09:00:00Z') },
+    { id: 'b', timestamp: at('2026-03-01T22:00:00Z') },
+    { id: 'c', timestamp: at('2026-03-03T10:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 2)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['a', 'b'])
+  assert.deepEqual(groups[1]!.items.map((m) => m.id), ['c'])
+  assert.notEqual(groups[0]!.day, groups[1]!.day)
+})
+
+test('a list that arrives out of order still makes one group per day', () => {
+  // Only the desktop sorted first. Grouping starts a new day whenever the label changes, so an
+  // unordered list produced two dividers for one day, the second repeating a date already passed.
+  const groups = groupMessagesByDay([
+    { id: 'late', timestamp: at('2026-03-02T09:00:00Z') },
+    { id: 'early', timestamp: at('2026-03-01T09:00:00Z') },
+    { id: 'later', timestamp: at('2026-03-02T18:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 2)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['early'])
+  assert.deepEqual(groups[1]!.items.map((m) => m.id), ['late', 'later'])
+})
+
+test('deleted notes leave no group behind', () => {
+  const groups = groupMessagesByDay([
+    { id: 'gone', timestamp: at('2026-03-01T09:00:00Z'), deleted: true },
+    { id: 'kept', timestamp: at('2026-03-02T09:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['kept'])
+  assert.deepEqual(groupMessagesByDay([{ id: 'gone', timestamp: 1, deleted: true }]), [])
+})
+
+test('the day label is the long form both shells now show', () => {
+  const [group] = groupMessagesByDay([{ id: 'a', timestamp: at('2026-03-01T12:00:00Z') }])
+  // The phone used to abbreviate it to "Sun, 1 Mar 2026".
+  assert.match(group!.day, /2026/)
+  assert.ok(group!.day.length > 12, `expected a long date label, got "${group!.day}"`)
+})
+
+// ---------------------------------------------------------------------------
+// The room list: which rooms show, and in what order. The shells were each right about one half.
+// ---------------------------------------------------------------------------
+
+test('the vault is first, then favorites, then whatever happened most recently', () => {
+  const ordered = orderRoomList([
+    { id: 'quiet', lastMessageTime: 10 },
+    { id: 'busy', lastMessageTime: 500 },
+    { id: 'fav', favorite: true, lastMessageTime: 1 },
+    { id: 'vault', isVault: true, lastMessageTime: 0 }
+  ])
+  assert.deepEqual(ordered.map((r) => r.id), ['vault', 'fav', 'busy', 'quiet'])
+})
+
+test('a room nobody has written in sinks to the bottom rather than holding its place', () => {
+  const ordered = orderRoomList([{ id: 'empty' }, { id: 'spoken', lastMessageTime: 5 }])
+  assert.deepEqual(ordered.map((r) => r.id), ['spoken', 'empty'])
+})
+
+test('a room behind an unclaimed contact link is not a conversation yet', () => {
+  // Mobile listed these, so an empty "New direct chat" sat in the phone's list for as long as the
+  // link went unopened. The desktop had always hidden them.
+  const ordered = orderRoomList([
+    { id: 'placeholder', contactInvite: true, lastMessageTime: 999 },
+    { id: 'real', lastMessageTime: 1 }
+  ])
+  assert.deepEqual(ordered.map((r) => r.id), ['real'])
+})
+
+test('ordering does not disturb the caller’s own list', () => {
+  const rooms = [{ id: 'b', lastMessageTime: 1 }, { id: 'a', lastMessageTime: 2 }]
+  orderRoomList(rooms)
+  assert.deepEqual(rooms.map((r) => r.id), ['b', 'a'])
+})
+
+test('the room-list preview names the file rather than calling everything an image', () => {
+  // The desktop said "Shared an image" for a PDF, a zip and a voice note alike.
+  assert.equal(lastMessagePreview({ body: 'hello' }), 'hello')
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'plan.pdf' } }), 'Shared plan.pdf')
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'holiday.jpg' } }), 'Shared holiday.jpg')
+})
+
+test('a voice message is worth a word, not a timestamped filename', () => {
+  assert.equal(lastMessagePreview({ body: '', file: { name: 'voice-2026-03-01T12-00-00-000Z.opus' } }), 'Voice message')
+})
+
+// ---------------------------------------------------------------------------
+// Typing cadence.
+// ---------------------------------------------------------------------------
+
+test('a keystroke re-announces typing at most once per ping interval', () => {
+  // The desktop announced on every `input` event, and each one fans out to every connected peer:
+  // "hello everyone" put fourteen pings on the wire and told the receiver nothing new.
+  assert.equal(shouldSendTypingPing(0, 0), true, 'the first keystroke always announces')
+  assert.equal(shouldSendTypingPing(1_000, 1_000 + TYPING_PING_MS - 1), false)
+  assert.equal(shouldSendTypingPing(1_000, 1_000 + TYPING_PING_MS), true)
+})
+
+test('the ping interval stays under the window it is re-asserting', () => {
+  // Otherwise the receiver's indicator lapses between pings and flickers while someone types.
+  assert.ok(TYPING_PING_MS < TYPING_STOP_MS, `${TYPING_PING_MS} must be under ${TYPING_STOP_MS}`)
+})
+
+// ---------------------------------------------------------------------------
+// Room-list search.
+// ---------------------------------------------------------------------------
+
+const room = { name: 'Design crew', description: 'Mockups and critiques', lastMessageText: 'Shared logo.png' }
+
+test('a search matches the name, the description or the last message', () => {
+  // Desktop searched name + description, mobile name + last message. Neither contained the other,
+  // so each device could find a room the other could not.
+  assert.equal(matchesRoomQuery(room, 'design'), true)
+  assert.equal(matchesRoomQuery(room, 'critiques'), true, 'the description — mobile missed this')
+  assert.equal(matchesRoomQuery(room, 'logo.png'), true, 'the last message — the desktop missed this')
+  assert.equal(matchesRoomQuery(room, 'invoices'), false)
+})
+
+test('search ignores case and surrounding space, and an empty query matches everything', () => {
+  assert.equal(matchesRoomQuery(room, '  DESIGN  '), true)
+  assert.equal(matchesRoomQuery(room, ''), true)
+  assert.equal(matchesRoomQuery(room, '   '), true)
+})
+
+test('a room with no description or messages is still searchable by name', () => {
+  assert.equal(matchesRoomQuery({ name: 'Empty' }, 'emp'), true)
+  assert.equal(matchesRoomQuery({ name: 'Empty', lastMessageText: null }, 'other'), false)
+})
+
+// ---------------------------------------------------------------------------
+// Notifications: what they say, and when they are worth sending at all.
+// ---------------------------------------------------------------------------
+
+test('a notification names the attachment instead of saying nothing', () => {
+  // The desktop sent `body.slice(0, 200)` — a sound, a banner and no text for an attachment-only
+  // message. Mobile called every attachment an image.
+  assert.equal(notificationBody({ body: '', file: { name: 'plan.pdf' } }), 'Shared plan.pdf')
+  assert.equal(notificationBody({ body: 'see you at eight' }), 'see you at eight')
+  assert.equal(notificationBody({ body: 'x'.repeat(300) }).length, 200)
+})
+
+test('replication catching up is not worth interrupting for', () => {
+  // Only mobile asked. Opening the desktop after a while replayed a notification, with a sound
+  // each, for every message that had arrived while it was closed.
+  const now = 1_000_000
+  const justStarted = now - 1_000
+  const settled = now - 60_000
+
+  assert.equal(isHistoricalMessage(now, justStarted, now), true, 'inside the startup burst')
+  assert.equal(isHistoricalMessage(now, settled, now), false, 'a message sent right now')
+  assert.equal(isHistoricalMessage(now - 120_000, settled, now), true, 'two minutes old')
+  assert.equal(isHistoricalMessage(now - 30_000, settled, now), false, 'thirty seconds old still counts')
+})
+
+// ---------------------------------------------------------------------------
+// Membership: the badge, and which moderation actions survive `Room.apply()`.
+// ---------------------------------------------------------------------------
+
+const owner = { isOwner: true, isAdmin: true, isModerator: false }
+const admin = { isOwner: false, isAdmin: true, isModerator: false }
+const mod = { isOwner: false, isAdmin: false, isModerator: true }
+const plain = { isOwner: false, isAdmin: false, isModerator: false }
+
+test('a promoted admin wears the admin badge', () => {
+  // The desktop derived the badge from isOwner/isModerator alone, so someone its own "Make Admin"
+  // button had just promoted showed as "Member" there and "Admin" on the phone.
+  assert.equal(memberRole(admin), 'admin')
+  assert.equal(memberRoleLabel(memberRole(admin)), 'Admin')
+  assert.equal(memberRoleLabel(memberRole(owner)), 'Admin')
+  assert.equal(memberRoleLabel(memberRole(mod)), 'Mod')
+  assert.equal(memberRoleLabel(memberRole(plain)), 'Member')
+})
+
+test('nobody may mute or ban an admin, the owner included', () => {
+  // The desktop offered it to the owner and to any moderator. apply() drops the entry, so the
+  // click looked like it worked and did nothing at all.
+  assert.equal(canRestrictMember(owner, admin, false), false)
+  assert.equal(canRestrictMember(mod, admin, false), false)
+  assert.equal(canRestrictMember(admin, owner, false), false)
+})
+
+test('an admin may restrict a moderator', () => {
+  // Mobile hid this, which apply() accepts — the mirror of the moderator who could not delete a
+  // message from the phone.
+  assert.equal(canRestrictMember(admin, mod, false), true)
+  assert.equal(canRestrictMember(owner, mod, false), true)
+})
+
+test('a moderator may restrict a member but not another moderator', () => {
+  assert.equal(canRestrictMember(mod, plain, false), true)
+  assert.equal(canRestrictMember(mod, mod, false), false)
+})
+
+test('a plain member may restrict nobody, and nobody may restrict themselves', () => {
+  assert.equal(canRestrictMember(plain, plain, false), false)
+  assert.equal(canRestrictMember(owner, owner, true), false)
+  assert.equal(canRestrictMember(admin, plain, true), false)
+})
+
+test('only an admin changes roles', () => {
+  assert.equal(canChangeMemberRole(admin, false), true)
+  assert.equal(canChangeMemberRole(owner, false), true)
+  assert.equal(canChangeMemberRole(mod, false), false)
+  assert.equal(canChangeMemberRole(plain, false), false)
+  assert.equal(canChangeMemberRole(admin, true), false)
 })
