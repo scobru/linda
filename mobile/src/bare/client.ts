@@ -8,7 +8,7 @@ import { Worklet } from 'react-native-bare-kit'
 import RPC from 'bare-rpc'
 // bare-pack output has no type declarations; module.exports is a plain string
 import workletBundle from '../../worklet/dist/worklet.bundle.cjs'
-import { packFrame, unpackFrame } from './frame.js'
+import { packFrame, unpackFrame } from '@core/transport/frame'
 
 /** Names this app's worklet in bare-kit's process-wide registry. Starting a worklet under a name
  * terminates whichever one held that name before it (see BareKitModule's `worklets` map), which is

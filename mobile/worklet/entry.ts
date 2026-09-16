@@ -12,7 +12,7 @@ import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairId
 import { hostPairing, joinPairing, decodePairingCode } from '../../src/identity/pairing.js'
 import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
-import { packFrame, unpackFrame } from '../src/bare/frame.js'
+import { packFrame, unpackFrame } from '../../src/transport/frame.js'
 import { FORWARDED_SESSION_METHODS } from '../src/bare/session-contract.js'
 import { fromWireFrame, isPlayableFrame, toWireFrame, type WireMediaFrame } from '../src/bare/media-frame.js'
 import { lastMessagePreview } from '../../src/rooms/room-rules.js'
