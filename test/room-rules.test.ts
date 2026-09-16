@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -343,4 +343,21 @@ test('the room-list preview names the file rather than calling everything an ima
 
 test('a voice message is worth a word, not a timestamped filename', () => {
   assert.equal(lastMessagePreview({ body: '', file: { name: 'voice-2026-03-01T12-00-00-000Z.opus' } }), 'Voice message')
+})
+
+// ---------------------------------------------------------------------------
+// Typing cadence.
+// ---------------------------------------------------------------------------
+
+test('a keystroke re-announces typing at most once per ping interval', () => {
+  // The desktop announced on every `input` event, and each one fans out to every connected peer:
+  // "hello everyone" put fourteen pings on the wire and told the receiver nothing new.
+  assert.equal(shouldSendTypingPing(0, 0), true, 'the first keystroke always announces')
+  assert.equal(shouldSendTypingPing(1_000, 1_000 + TYPING_PING_MS - 1), false)
+  assert.equal(shouldSendTypingPing(1_000, 1_000 + TYPING_PING_MS), true)
+})
+
+test('the ping interval stays under the window it is re-asserting', () => {
+  // Otherwise the receiver's indicator lapses between pings and flickers while someone types.
+  assert.ok(TYPING_PING_MS < TYPING_STOP_MS, `${TYPING_PING_MS} must be under ${TYPING_STOP_MS}`)
 })

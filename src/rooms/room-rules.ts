@@ -34,6 +34,40 @@ export function canDeleteMessage(message: { authorId: string }, viewer: Viewer):
   return viewer.isOwner || viewer.isModerator
 }
 
+// ── Typing cadence ─────────────────────────────────────────────────────────
+
+/**
+ * How long a peer's "typing" claim stands before the sender retracts it.
+ *
+ * Both shells already used 3s, which is the part that has to agree: it is the receiver's indicator
+ * that hangs for this long, so a sender using a shorter window would blink off between keystrokes
+ * on the other side.
+ */
+export const TYPING_STOP_MS = 3000
+
+/**
+ * How often a keystroke may re-assert it.
+ *
+ * Mobile throttled; the desktop fired on every `input` event, and each one fans out to every
+ * connected peer. Typing "hello everyone" put fourteen pings on the wire instead of one, and told
+ * the receiver nothing new — its indicator is already sticky for `TYPING_STOP_MS`. Must stay below
+ * that, or the claim lapses between pings and the indicator flickers.
+ */
+export const TYPING_PING_MS = 2000
+
+/**
+ * Whether a keystroke should re-announce typing, given when the last announcement went out.
+ *
+ * `0` means never — which is also what both shells reset to when they retract the claim, so the
+ * first keystroke of a fresh burst always announces. Stated rather than left to arithmetic: with
+ * epoch milliseconds `now - 0 >= TYPING_PING_MS` happens to be true, and a caller that ever passed
+ * a relative clock would silently lose that first ping.
+ */
+export function shouldSendTypingPing(lastPingAt: number, now: number): boolean {
+  if (lastPingAt === 0) return true
+  return now - lastPingAt >= TYPING_PING_MS
+}
+
 /** A room as the room list sees it. `lastMessageTime` is absent for a room nobody has written in. */
 export interface RoomListEntry {
   id: string

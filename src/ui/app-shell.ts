@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, survivingHashtag } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -3066,13 +3066,22 @@ export class AppShell extends HTMLElement {
   // --- calls & presence ----------------------------------------------------
 
   private typingTimer: ReturnType<typeof setTimeout> | null = null
+  private typingPingedAt = 0
 
+  /** Called on every keystroke. The ping is throttled — see `TYPING_PING_MS`; the retraction never
+   *  is, and the timer restarts on each keystroke so it lands `TYPING_STOP_MS` after the last one. */
   private notifyTyping(typing = true): void {
     const room = this.activeRoom
     if (!room || !this.session) return
-    this.session.sendTyping(room.id, this.identity!.id, typing)
+    if (!typing) {
+      this.typingPingedAt = 0
+      this.session.sendTyping(room.id, this.identity!.id, false)
+    } else if (shouldSendTypingPing(this.typingPingedAt, Date.now())) {
+      this.typingPingedAt = Date.now()
+      this.session.sendTyping(room.id, this.identity!.id, true)
+    }
     if (this.typingTimer) clearTimeout(this.typingTimer)
-    if (typing) this.typingTimer = setTimeout(() => this.notifyTyping(false), 3000)
+    if (typing) this.typingTimer = setTimeout(() => this.notifyTyping(false), TYPING_STOP_MS)
   }
 
   private onTyping(roomId: string, userId: string, typing: boolean): void {
