@@ -110,3 +110,23 @@ test('the file that defeated the old stripper is now read whole', () => {
   assert.ok(code.includes('id="copyPublicKey"'), 'the swallowed region is still swallowed')
   assert.ok(code.includes('id="hideMnemonicBtn"'), 'the swallowed region is still swallowed')
 })
+
+test('no comment line in either shell survives stripping', () => {
+  // The property that would have caught the template bug on sight. An earlier version of this lexer
+  // treated a *closing* backtick as opening a second template, so its stack only ever grew and every
+  // file was read as template text from its first template onwards — leaving comments intact. That
+  // direction is the safe one, since a surviving comment can only cause a false positive in a scan
+  // and never hide a real rival, but it makes the scans mean something other than what they say.
+  const survivors: string[] = []
+  for (const file of sourceFiles()) {
+    const raw = fs.readFileSync(file, 'utf8').split('\n')
+    const code = codeOf(file).split('\n')
+    for (let i = 0; i < raw.length; i++) {
+      // Lines that are nothing but a comment: `//`, a jsdoc continuation, or a block opener.
+      if (/^\s*(\/\/|\*\s|\/\*\*)/.test(raw[i]!) && code[i]!.trim() !== '') {
+        survivors.push(`${file}:${i + 1}`)
+      }
+    }
+  }
+  assert.deepEqual(survivors.slice(0, 10), [])
+})
