@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -386,4 +386,29 @@ test('search ignores case and surrounding space, and an empty query matches ever
 test('a room with no description or messages is still searchable by name', () => {
   assert.equal(matchesRoomQuery({ name: 'Empty' }, 'emp'), true)
   assert.equal(matchesRoomQuery({ name: 'Empty', lastMessageText: null }, 'other'), false)
+})
+
+// ---------------------------------------------------------------------------
+// Notifications: what they say, and when they are worth sending at all.
+// ---------------------------------------------------------------------------
+
+test('a notification names the attachment instead of saying nothing', () => {
+  // The desktop sent `body.slice(0, 200)` — a sound, a banner and no text for an attachment-only
+  // message. Mobile called every attachment an image.
+  assert.equal(notificationBody({ body: '', file: { name: 'plan.pdf' } }), 'Shared plan.pdf')
+  assert.equal(notificationBody({ body: 'see you at eight' }), 'see you at eight')
+  assert.equal(notificationBody({ body: 'x'.repeat(300) }).length, 200)
+})
+
+test('replication catching up is not worth interrupting for', () => {
+  // Only mobile asked. Opening the desktop after a while replayed a notification, with a sound
+  // each, for every message that had arrived while it was closed.
+  const now = 1_000_000
+  const justStarted = now - 1_000
+  const settled = now - 60_000
+
+  assert.equal(isHistoricalMessage(now, justStarted, now), true, 'inside the startup burst')
+  assert.equal(isHistoricalMessage(now, settled, now), false, 'a message sent right now')
+  assert.equal(isHistoricalMessage(now - 120_000, settled, now), true, 'two minutes old')
+  assert.equal(isHistoricalMessage(now - 30_000, settled, now), false, 'thirty seconds old still counts')
 })

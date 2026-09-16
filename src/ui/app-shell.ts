@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -302,6 +302,10 @@ export class AppShell extends HTMLElement {
   private avatar = ''
   private remoteImageCache = new Map<string, string>()
   private lastMessages = new Map<string, { author: string; text: string; time: number }>()
+  /** When the session opened, not when this shell was constructed: the quiet window is meant to
+   *  cover the replication burst that follows a session opening, and the shell can sit on the
+   *  unlock screen for minutes before that happens. See `isHistoricalMessage`. */
+  private sessionStartedAt = 0
   private renderAppQueued = false
   private readonly host = desktopHost()
   private updateAvailable: UpdateEvent | null = null
@@ -693,6 +697,7 @@ export class AppShell extends HTMLElement {
       // Electron it is a `Session` in this very process, under Pear a proxy for one running in a
       // Bare worker. Everything past this line goes through `SessionView` either way.
       this.session = session
+      this.sessionStartedAt = Date.now()
       this.callOverlay.setSession(session)
       this.callOverlay.setPeerLookup(this.nicknames, this.avatars)
     } catch (err: any) {
@@ -823,9 +828,12 @@ export class AppShell extends HTMLElement {
 
     if (document.hasFocus() && this.activeRoom?.id === roomId) return
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    // Replication catching up is not news. Without this, opening the app after a while replayed a
+    // notification — with a sound each — for every message that had arrived while it was closed.
+    if (isHistoricalMessage(message.timestamp || 0, this.sessionStartedAt, Date.now())) return
     this.playNotificationSound()
     const roomName = this.session?.listBookmarks().find((b) => b.id === roomId)?.name ?? 'linda-pear'
-    const notification = new Notification(`${this.displayName(message.authorId)} in ${roomName}`, { body: message.body.slice(0, 200) })
+    const notification = new Notification(`${this.displayName(message.authorId)} in ${roomName}`, { body: notificationBody(message) })
     notification.onclick = () => {
       window.focus()
       this.openRoom(roomId, roomName)

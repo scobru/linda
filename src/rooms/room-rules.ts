@@ -3,7 +3,8 @@ import { isVoiceMessage } from './attachment-kind.js'
 import { formatBytes } from '../util/bytes.js'
 
 // ---------------------------------------------------------------------------
-// Rules about a room's contents that both shells apply, stated once.
+// The answers both shells give about a room, stated once: what its contents allow, how they are
+// listed and labelled, and when they are worth interrupting someone for.
 //
 // These were written twice — once in `ui/app-shell.ts`, once across the mobile screens — and the
 // copies had drifted: a moderator could delete another member's message from the desktop mailbox
@@ -52,6 +53,36 @@ export function matchesRoomQuery(
   if (!needle) return true
   return [room.name, room.description, room.lastMessageText]
     .some((field) => (field ?? '').toLowerCase().includes(needle))
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────
+
+/** Older than this and a message is history catching up, not news. */
+export const NOTIFICATION_MAX_AGE_MS = 60_000
+
+/** Replication floods in during the first moments after a session opens; nothing there is new. */
+export const NOTIFICATION_STARTUP_QUIET_MS = 4_000
+
+/**
+ * Whether a message arriving now is old news rather than something to interrupt for.
+ *
+ * Only mobile asked. On the desktop, opening the app after a while replayed a notification — with
+ * a sound each — for every message that had arrived while it was closed, as the log replicated in.
+ * The messages are not new; the app has just caught up with them.
+ */
+export function isHistoricalMessage(messageTime: number, sessionStartedAt: number, now: number): boolean {
+  return now - sessionStartedAt < NOTIFICATION_STARTUP_QUIET_MS || now - messageTime > NOTIFICATION_MAX_AGE_MS
+}
+
+/**
+ * What a notification says a message was.
+ *
+ * The desktop sent `body.slice(0, 200)`, which is empty for a message that is only an attachment —
+ * a sound, a banner, and no text at all. Mobile said "Shared an image" for every attachment,
+ * including the PDFs and the zips. Same answer as the room list: name the file.
+ */
+export function notificationBody(message: { body: string; file?: { name: string } }): string {
+  return lastMessagePreview(message).slice(0, 200)
 }
 
 // ── Typing cadence ─────────────────────────────────────────────────────────

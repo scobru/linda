@@ -11,7 +11,7 @@ import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
 import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
-import { isRoomUnread } from '@core/rooms/room-rules'
+import { isHistoricalMessage, isRoomUnread, notificationBody } from '@core/rooms/room-rules'
 import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
@@ -232,10 +232,8 @@ export function SessionProvider({ children }: Props) {
 
       if (AppState.currentState === 'active' && activeRoomIdRef.current === payload.roomId) return
 
-      // Suppress notifications for historical messages synced at startup or older than 60s
-      const msgTime = payload.message.timestamp || 0
-      const isHistorical = (Date.now() - initTimestamp < 4000) || (Date.now() - msgTime > 60000)
-      if (isHistorical) return
+      // Replication catching up is not news — same rule and the same windows as the desktop.
+      if (isHistoricalMessage(payload.message.timestamp || 0, initTimestamp, Date.now())) return
 
       const roomName = bookmarksRef.current?.find((b) => b.id === payload.roomId)?.name ?? 'linda-pear'
       const author = nicknamesRef.current.get(payload.message.authorId) ?? 'Someone'
@@ -243,9 +241,7 @@ export function SessionProvider({ children }: Props) {
       void Notifications.scheduleNotificationAsync({
         content: {
           title: secret ? 'linda' : `${author} in ${roomName}`,
-          body: secret
-            ? 'New message'
-            : payload.message.file ? 'Shared an image' : payload.message.body.slice(0, 200),
+          body: secret ? 'New message' : notificationBody(payload.message),
           sound: 'notification_ping.wav',
         },
         trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
