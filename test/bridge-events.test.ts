@@ -94,3 +94,37 @@ test('every field the desktop proxy caches is kept current by something', () => 
   })
   assert.deepEqual(orphans, [], 'these cached fields are set once and never updated again')
 })
+
+// ---------------------------------------------------------------------------
+// The same seam read the other way. A listener nobody feeds is silent; an event nobody hears is a
+// backend doing work — building a payload, encoding it, putting it on the wire — for no one. That
+// is cheap, but it is also how a feature comes to look implemented on one shell while the screen
+// that should show it was never written.
+// ---------------------------------------------------------------------------
+
+test('the worklet sends nothing the mobile app ignores', () => {
+  // This found `pushEvent('ready')` on the worklet's last line: a startup announcement with no
+  // listener anywhere in the app, and the only mention of that name in the repository.
+  const pushed = pushedBy(sourceFiles(['mobile/worklet']))
+
+  const listened = new Set<string>()
+  for (const file of sourceFiles(['mobile/src'])) {
+    for (const name of names(codeOf(file), /bareClient\.on\(\s*'([a-zA-Z]+)'/g)) listened.add(name)
+  }
+
+  const unheard = [...pushed].filter((name) => !listened.has(name)).sort()
+  assert.deepEqual(unheard, [], 'the worklet sends these events and nothing listens for them')
+})
+
+test('the worker sends nothing the desktop proxy ignores', () => {
+  const pushed = pushedBy(['src/worker/dispatcher.ts'])
+
+  const listened = new Set<string>()
+  for (const file of ['src/transport/remote-session-view.ts', 'src/transport/remote-room-view.ts']) {
+    for (const name of names(codeOf(file), /rpcClient\.on\(\s*'([a-zA-Z]+)'/g)) listened.add(name)
+    for (const name of names(codeOf(file), /client\.on\(\s*'([a-zA-Z]+)'/g)) listened.add(name)
+  }
+
+  const unheard = [...pushed].filter((name) => !listened.has(name)).sort()
+  assert.deepEqual(unheard, [], 'the worker sends these events and nothing listens for them')
+})
