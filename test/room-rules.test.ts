@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -360,4 +360,30 @@ test('a keystroke re-announces typing at most once per ping interval', () => {
 test('the ping interval stays under the window it is re-asserting', () => {
   // Otherwise the receiver's indicator lapses between pings and flickers while someone types.
   assert.ok(TYPING_PING_MS < TYPING_STOP_MS, `${TYPING_PING_MS} must be under ${TYPING_STOP_MS}`)
+})
+
+// ---------------------------------------------------------------------------
+// Room-list search.
+// ---------------------------------------------------------------------------
+
+const room = { name: 'Design crew', description: 'Mockups and critiques', lastMessageText: 'Shared logo.png' }
+
+test('a search matches the name, the description or the last message', () => {
+  // Desktop searched name + description, mobile name + last message. Neither contained the other,
+  // so each device could find a room the other could not.
+  assert.equal(matchesRoomQuery(room, 'design'), true)
+  assert.equal(matchesRoomQuery(room, 'critiques'), true, 'the description — mobile missed this')
+  assert.equal(matchesRoomQuery(room, 'logo.png'), true, 'the last message — the desktop missed this')
+  assert.equal(matchesRoomQuery(room, 'invoices'), false)
+})
+
+test('search ignores case and surrounding space, and an empty query matches everything', () => {
+  assert.equal(matchesRoomQuery(room, '  DESIGN  '), true)
+  assert.equal(matchesRoomQuery(room, ''), true)
+  assert.equal(matchesRoomQuery(room, '   '), true)
+})
+
+test('a room with no description or messages is still searchable by name', () => {
+  assert.equal(matchesRoomQuery({ name: 'Empty' }, 'emp'), true)
+  assert.equal(matchesRoomQuery({ name: 'Empty', lastMessageText: null }, 'other'), false)
 })

@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -837,8 +837,10 @@ export class AppShell extends HTMLElement {
   /** Whether a room passes the sidebar's tab and search query. Shared by the full render and the
    * in-place filter so the two can never disagree about what should be on screen. */
   private matchesSidebarFilter(b: RoomBookmark): boolean {
-    const query = this.sidebarSearchQuery.trim().toLowerCase()
-    if (query && !b.name.toLowerCase().includes(query) && !b.description?.toLowerCase().includes(query)) return false
+    // Name, description and the last message — the phone searched the last message and not the
+    // description, so the same query found different rooms on the two devices.
+    const lastMessageText = this.lastMessages.get(b.id)?.text
+    if (!matchesRoomQuery({ ...b, lastMessageText }, this.sidebarSearchQuery)) return false
     if (this.activeFilter === 'favorites') return this.session!.isRoomFavorite(b.id)
     if (this.activeFilter === 'unread') return this.isRoomUnread(b)
     return true

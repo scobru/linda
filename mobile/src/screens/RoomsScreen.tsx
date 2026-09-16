@@ -9,7 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import type { RoomSummary } from '../bare/session-proxy'
 import { decodeInvite } from '@core/ui/qr-core'
-import { isRoomUnread, orderRoomList } from '@core/rooms/room-rules'
+import { isRoomUnread, matchesRoomQuery, orderRoomList } from '@core/rooms/room-rules'
 import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
@@ -226,10 +226,7 @@ export default function RoomsScreen({ navigation }: Props) {
 
   const filteredBookmarks = useMemo(() => {
     let list = bookmarks
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim()
-      list = list.filter((b) => b.name.toLowerCase().includes(q) || (b.lastMessageText && b.lastMessageText.toLowerCase().includes(q)))
-    }
+    list = list.filter((b) => matchesRoomQuery(b, searchQuery))
     if (activeFilter === 'unread') {
       list = list.filter((b) => isRoomUnread(b, null))
     }

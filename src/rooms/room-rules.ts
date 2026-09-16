@@ -34,6 +34,26 @@ export function canDeleteMessage(message: { authorId: string }, viewer: Viewer):
   return viewer.isOwner || viewer.isModerator
 }
 
+/**
+ * Whether a room matches what was typed into the room-list search.
+ *
+ * The desktop searched the name and the description; mobile searched the name and the last
+ * message. Same box, same query, different results — and neither was a superset of the other, so
+ * each device could find a room the other could not.
+ *
+ * The rule is the union, which is also the least surprising one to use: if a word is visible in
+ * the row, searching it finds the row. An empty query matches everything.
+ */
+export function matchesRoomQuery(
+  room: { name: string; description?: string; lastMessageText?: string | null },
+  query: string
+): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return [room.name, room.description, room.lastMessageText]
+    .some((field) => (field ?? '').toLowerCase().includes(needle))
+}
+
 // ── Typing cadence ─────────────────────────────────────────────────────────
 
 /**
