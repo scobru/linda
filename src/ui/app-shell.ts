@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, isRoomUnread, survivingHashtag } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, mailboxSnippet, mailboxSubject, survivingHashtag } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -2340,15 +2340,7 @@ export class AppShell extends HTMLElement {
       ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
       : (selectedMsg.body ? linkifyHashtags(linkify(escapeHtml(selectedMsg.body))) : '')
 
-    const deriveSubject = (msg: ChatMessage) => {
-      if (msg.deleted) return 'Message deleted'
-      const firstLine = (msg.body || '').split('\n').find((l) => l.trim().length > 0)
-      if (!firstLine) return msg.file ? `Attachment: ${msg.file.name}` : '(No subject)'
-      const cleaned = firstLine.replace(/^#+\s*/, '').trim()
-      return cleaned.slice(0, 50) + (cleaned.length > 50 ? '…' : '')
-    }
-
-    const selectedSubject = deriveSubject(selectedMsg)
+    const selectedSubject = mailboxSubject(selectedMsg)
     const attachmentCard = selectedMsg.file && !selectedMsg.deleted
       ? this.renderAttachmentCard(selectedMsg)
       : ''
@@ -2359,7 +2351,7 @@ export class AppShell extends HTMLElement {
     if (selectedMsg.replyTo && byId.get(selectedMsg.replyTo)) {
       const parent = byId.get(selectedMsg.replyTo)!
       const parentAuthor = this.displayName(parent.authorId)
-      const parentSubject = deriveSubject(parent)
+      const parentSubject = mailboxSubject(parent)
       const parentSnippet = (parent.body || (parent.file ? parent.file.name : '')).slice(0, 90)
       replyBannerHtml = `
         <div class="mailbox-in-reply-to" data-jump-to-msg="${parent.id}" title="Jump to parent message">
@@ -2401,7 +2393,7 @@ export class AppShell extends HTMLElement {
     const listHtml = sorted.map((msg) => {
       const isSel = msg.id === selectedId
       const msgAuthor = this.displayName(msg.authorId)
-      const msgSubj = deriveSubject(msg)
+      const msgSubj = mailboxSubject(msg)
       const msgTime = formatRelativeTime(msg.timestamp)
       const msgAvatar = this.avatars.get(msg.authorId) || this.session?.getPeerAvatar(msg.authorId) || (msg.authorId === this.identity!.id ? this.avatar : '')
       const hasAttach = !!(msg.file && !msg.deleted)
@@ -2423,7 +2415,7 @@ export class AppShell extends HTMLElement {
               ${hasAttach ? `<span class="attach-icon">${ICONS.attach}</span> ` : ''}
               ${escapeHtml(msgSubj)}
             </div>
-            <div class="mailbox-item-preview">${escapeHtml((msg.body || '').slice(0, 75))}</div>
+            <div class="mailbox-item-preview">${escapeHtml(mailboxSnippet(msg).slice(0, 75))}</div>
           </div>
         </div>
       `
@@ -2509,23 +2501,20 @@ export class AppShell extends HTMLElement {
       `
     }
 
-    const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp)
     const entriesHtml: string[] = []
-    let lastDateStr = ''
+    // The day boundary and its label come from room-rules.ts, so the phone's notes tab splits in
+    // the same places and says the same words. The entry number keeps running across days.
+    let index = 0
 
-    for (let i = 0; i < sorted.length; i++) {
-      const msg = sorted[i]!
-      const date = new Date(msg.timestamp)
-      const dateStr = date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-      if (dateStr !== lastDateStr) {
-        entriesHtml.push(`
-          <div class="doc-date-divider">
-            <span class="doc-date-pill">${dateStr}</span>
-          </div>
-        `)
-        lastDateStr = dateStr
-      }
+    for (const group of groupMessagesByDay(messages)) {
+      entriesHtml.push(`
+        <div class="doc-date-divider">
+          <span class="doc-date-pill">${group.day}</span>
+        </div>
+      `)
 
+      for (const msg of group.items) {
+      index++
       const authorName = this.displayName(msg.authorId)
       const timeStr = formatMessageTime(msg.timestamp)
       const isMine = msg.authorId === this.identity!.id
@@ -2558,7 +2547,7 @@ export class AppShell extends HTMLElement {
         <article class="doc-entry" id="doc-${msg.id}">
           <header class="doc-entry-header">
             <div class="doc-entry-meta">
-              <span class="doc-entry-index">#${i + 1}</span>
+              <span class="doc-entry-index">#${index}</span>
               <span class="doc-entry-author">${escapeHtml(authorName)}</span>
               <span class="doc-entry-time">${timeStr}</span>
             </div>
@@ -2576,6 +2565,7 @@ export class AppShell extends HTMLElement {
           </div>
         </article>
       `)
+      }
     }
 
     return `

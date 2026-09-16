@@ -25,7 +25,7 @@ import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { attachmentKind, isAudio, isVideo } from '@core/rooms/attachment-kind'
-import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, mailboxSnippet, mailboxSubject, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -565,34 +565,9 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       .sort((a, b) => b.timestamp - a.timestamp)
   }, [filteredMessages])
 
-  const docDayGroups = useMemo(() => {
-    const nonDeleted = filteredMessages.filter((m) => !m.deleted)
-    const groups: { day: string; items: ChatMessage[] }[] = []
-    let currentDay = ''
-    let currentItems: ChatMessage[] = []
-
-    for (const m of nonDeleted) {
-      const day = new Date(m.timestamp).toLocaleDateString(undefined, {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
-      if (day !== currentDay) {
-        if (currentItems.length > 0) {
-          groups.push({ day: currentDay, items: currentItems })
-        }
-        currentDay = day
-        currentItems = [m]
-      } else {
-        currentItems.push(m)
-      }
-    }
-    if (currentItems.length > 0) {
-      groups.push({ day: currentDay, items: currentItems })
-    }
-    return groups
-  }, [filteredMessages])
+  // Same day boundary and same label as the desktop notes view — see room-rules.ts, which also
+  // does the sort this used to assume.
+  const docDayGroups = useMemo(() => groupMessagesByDay(filteredMessages), [filteredMessages])
 
   const handleSendMailboxReply = useCallback(async () => {
     if (!selectedMailboxMessage || !mailboxReplyText.trim()) return
@@ -886,9 +861,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.mailboxList}
             renderItem={({ item }) => {
-              const lines = item.body.trim().split('\n')
-              const subject = lines[0] || (item.file ? item.file.name : 'No subject')
-              const snippet = lines.length > 1 ? lines.slice(1).join(' ').trim() : (item.file ? `${item.file.name} (${formatBytes(item.file.size)})` : '')
+              const subject = mailboxSubject(item)
+              const snippet = mailboxSnippet(item)
               const author = getAuthorName(item.authorId)
               const isReply = !!(item.replyTo && messagesById.has(item.replyTo))
               const canDel = canDeleteMessage(item, viewer)

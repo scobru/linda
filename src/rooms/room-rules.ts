@@ -1,4 +1,5 @@
 import { extractHashtags } from '../util/hashtag.js'
+import { formatBytes } from '../util/bytes.js'
 
 // ---------------------------------------------------------------------------
 // Rules about a room's contents that both shells apply, stated once.
@@ -30,6 +31,89 @@ export interface Viewer {
 export function canDeleteMessage(message: { authorId: string }, viewer: Viewer): boolean {
   if (message.authorId === viewer.identityId) return true
   return viewer.isOwner || viewer.isModerator
+}
+
+/** A day's worth of messages, newest day last, as both notes views show them. */
+export interface DayGroup<T> {
+  /** The divider's label, already formatted for the reader's locale. */
+  day: string
+  items: T[]
+}
+
+/**
+ * Groups messages into days for the notes view.
+ *
+ * Both shells did this and differed in two ways that show. The label was "Monday, 16 September
+ * 2026" on the desktop and "Mon, 16 Sep 2026" on the phone; the long form is the one kept, since a
+ * divider pill has room for it on either screen and the notes view is the reading surface.
+ *
+ * And only the desktop sorted first. Grouping walks the list in order and starts a new day
+ * whenever the label changes, so a list that is not chronological silently produces two groups for
+ * the same day — with a divider in the middle repeating a date the reader has already passed. The
+ * sort belongs with the grouping rather than with whoever remembers to do it.
+ */
+export function groupMessagesByDay<T extends { timestamp: number; deleted?: boolean }>(
+  messages: readonly T[]
+): DayGroup<T>[] {
+  const groups: DayGroup<T>[] = []
+  const ordered = messages.filter((message) => !message.deleted).sort((a, b) => a.timestamp - b.timestamp)
+
+  for (const message of ordered) {
+    const day = new Date(message.timestamp).toLocaleDateString(undefined, {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    })
+    const current = groups[groups.length - 1]
+    if (current && current.day === day) current.items.push(message)
+    else groups.push({ day, items: [message] })
+  }
+
+  return groups
+}
+
+/** The part of a message the mailbox view reads. */
+export interface MailboxMessage {
+  body: string
+  file?: { name: string; size: number }
+  deleted?: boolean
+}
+
+/**
+ * The subject line of a mailbox message — its first meaningful line, the way a mail client shows it.
+ *
+ * Both shells derived this and disagreed on every branch. A note headed `# Shopping list` read
+ * "Shopping list" on the desktop and "# Shopping list" on the phone; a deleted message read
+ * "Message deleted" there and "No subject" here; an attachment with no body read
+ * "Attachment: plan.pdf" against a bare "plan.pdf".
+ *
+ * Each branch below is whichever of the two said more: the markdown heading stripped, because the
+ * `#` is markup and not a title; the deletion named, because "No subject" describes a message that
+ * never had one; the attachment labelled, because a filename alone in a subject column reads like
+ * a truncated sentence.
+ */
+export function mailboxSubject(message: MailboxMessage): string {
+  if (message.deleted) return 'Message deleted'
+  const firstLine = (message.body || '').split('\n').find((line) => line.trim().length > 0)
+  if (!firstLine) return message.file ? `Attachment: ${message.file.name}` : '(No subject)'
+  const cleaned = firstLine.replace(/^#+\s*/, '').trim()
+  return cleaned.length > 50 ? `${cleaned.slice(0, 50)}…` : cleaned
+}
+
+/**
+ * The preview under the subject: what the message says *after* its first line.
+ *
+ * The desktop took `body.slice(0, 75)`, which starts with the subject the reader has just read —
+ * two lines of the same words. Mobile's rule is the one a mail client follows, so it is the one
+ * here.
+ */
+export function mailboxSnippet(message: MailboxMessage): string {
+  if (message.deleted) return ''
+  // After the line the subject came from, not after the first line: a body that opens with a blank
+  // line would otherwise repeat the subject as its own preview.
+  const lines = (message.body || '').split('\n')
+  const subjectLine = lines.findIndex((line) => line.trim().length > 0)
+  const rest = subjectLine === -1 ? '' : lines.slice(subjectLine + 1).join(' ').trim()
+  if (rest) return rest
+  return message.file ? `${message.file.name} (${formatBytes(message.file.size)})` : ''
 }
 
 /** A room as the unread rule sees it: when its newest message landed, and when this device last

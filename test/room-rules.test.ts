@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, isRoomUnread, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isRoomUnread, mailboxSnippet, mailboxSubject, survivingHashtag } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -203,4 +203,98 @@ test('the room you are reading is not unread', () => {
   // open bumped the app-icon badge while you were looking at the message.
   assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r1'), false)
   assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r2'), true)
+})
+
+// ---------------------------------------------------------------------------
+// The mailbox subject and its preview, which the two shells derived differently on every branch.
+// ---------------------------------------------------------------------------
+
+test('the subject is the first line that says something', () => {
+  assert.equal(mailboxSubject({ body: '\n\nDinner on Friday\nat eight' }), 'Dinner on Friday')
+})
+
+test('a markdown heading is a title, not a subject with a hash in it', () => {
+  // Desktop stripped it, mobile showed "# Shopping list".
+  assert.equal(mailboxSubject({ body: '# Shopping list' }), 'Shopping list')
+  assert.equal(mailboxSubject({ body: '### Notes' }), 'Notes')
+})
+
+test('a deleted message says so rather than claiming it had no subject', () => {
+  assert.equal(mailboxSubject({ body: 'anything', deleted: true }), 'Message deleted')
+  assert.equal(mailboxSnippet({ body: 'anything', deleted: true }), '')
+})
+
+test('an attachment with no body is labelled as one', () => {
+  // "plan.pdf" alone in a subject column reads like a truncated sentence.
+  assert.equal(mailboxSubject({ body: '', file: { name: 'plan.pdf', size: 2048 } }), 'Attachment: plan.pdf')
+  assert.equal(mailboxSubject({ body: '' }), '(No subject)')
+})
+
+test('a long subject is cut at fifty characters, once, for both shells', () => {
+  const subject = mailboxSubject({ body: 'x'.repeat(80) })
+  assert.equal(subject.length, 51)
+  assert.ok(subject.endsWith('…'))
+  assert.equal(mailboxSubject({ body: 'y'.repeat(50) }), 'y'.repeat(50))
+})
+
+test('the preview is what comes after the subject, not the subject again', () => {
+  // The desktop showed `body.slice(0, 75)`, which opens with the line the reader just read.
+  assert.equal(mailboxSnippet({ body: 'Dinner on Friday\nat eight, my place' }), 'at eight, my place')
+  assert.equal(mailboxSnippet({ body: '\n\nDinner on Friday\nat eight' }), 'at eight')
+})
+
+test('a one-line message with an attachment previews the attachment', () => {
+  assert.equal(mailboxSnippet({ body: 'Here it is', file: { name: 'plan.pdf', size: 2048 } }), 'plan.pdf (2 KB)')
+  assert.equal(mailboxSnippet({ body: 'Here it is' }), '')
+})
+
+// ---------------------------------------------------------------------------
+// Day grouping for the notes view.
+// ---------------------------------------------------------------------------
+
+const at = (iso: string) => new Date(iso).getTime()
+
+test('messages fall into one group per day, oldest day first', () => {
+  const groups = groupMessagesByDay([
+    { id: 'a', timestamp: at('2026-03-01T09:00:00Z') },
+    { id: 'b', timestamp: at('2026-03-01T22:00:00Z') },
+    { id: 'c', timestamp: at('2026-03-03T10:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 2)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['a', 'b'])
+  assert.deepEqual(groups[1]!.items.map((m) => m.id), ['c'])
+  assert.notEqual(groups[0]!.day, groups[1]!.day)
+})
+
+test('a list that arrives out of order still makes one group per day', () => {
+  // Only the desktop sorted first. Grouping starts a new day whenever the label changes, so an
+  // unordered list produced two dividers for one day, the second repeating a date already passed.
+  const groups = groupMessagesByDay([
+    { id: 'late', timestamp: at('2026-03-02T09:00:00Z') },
+    { id: 'early', timestamp: at('2026-03-01T09:00:00Z') },
+    { id: 'later', timestamp: at('2026-03-02T18:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 2)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['early'])
+  assert.deepEqual(groups[1]!.items.map((m) => m.id), ['late', 'later'])
+})
+
+test('deleted notes leave no group behind', () => {
+  const groups = groupMessagesByDay([
+    { id: 'gone', timestamp: at('2026-03-01T09:00:00Z'), deleted: true },
+    { id: 'kept', timestamp: at('2026-03-02T09:00:00Z') }
+  ])
+
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0]!.items.map((m) => m.id), ['kept'])
+  assert.deepEqual(groupMessagesByDay([{ id: 'gone', timestamp: 1, deleted: true }]), [])
+})
+
+test('the day label is the long form both shells now show', () => {
+  const [group] = groupMessagesByDay([{ id: 'a', timestamp: at('2026-03-01T12:00:00Z') }])
+  // The phone used to abbreviate it to "Sun, 1 Mar 2026".
+  assert.match(group!.day, /2026/)
+  assert.ok(group!.day.length > 12, `expected a long date label, got "${group!.day}"`)
 })
