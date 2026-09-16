@@ -13,7 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
-import { canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -4010,11 +4010,13 @@ export class AppShell extends HTMLElement {
                 // Mirrors what `Room.apply()` accepts. This used to offer the action against an
                 // admin — to the owner and to any moderator — and the log dropped every one of
                 // them in silence.
-                const canModerateThis = canRestrictMember(
-                  { isOwner: iAmOwner, isAdmin: room.isAdmin(myId), isModerator: iCanModerate },
-                  { isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod },
-                  isMe
-                )
+                const actor = { isOwner: iAmOwner, isAdmin: room.isAdmin(myId), isModerator: iCanModerate }
+                const standing = { isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod }
+                const canRestrict = canRestrictMember(actor, standing, isMe)
+                // Asked separately from `canRestrict`: an admin may not be muted or banned, but an
+                // admin is exactly who a role change is for. Folding the two into one condition is
+                // what left this page with no way to demote an admin at all.
+                const canChangeRole = canChangeMemberRole(actor, isMe)
 
                 return `
                   <div class="member-card">
@@ -4038,10 +4040,12 @@ export class AppShell extends HTMLElement {
                       <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-add-contact-id="${m.identityId}" data-add-contact-name="${escapeHtml(name)}" title="Send contact request">${ICONS.userPlus} Add contact</button>
                     ` : ''}
 
-                    ${canModerateThis ? `
+                    ${canChangeRole || canRestrict ? `
                       <div class="member-actions-row">
-                        ${iAmOwner ? (isOwner ? `
-                          <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-admin-id="${m.identityId}" title="Demote from Admin">Demote Admin</button>
+                        ${canChangeRole ? (standing.isAdmin ? `
+                          ${room.listAdmins().length > 1 ? `
+                            <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--warning);" data-demote-admin-id="${m.identityId}" title="Demote from Admin">Demote Admin</button>
+                          ` : ''}
                         ` : `
                           <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--accent);" data-promote-admin-id="${m.identityId}" title="Promote to Admin">${ICONS.crown} Make Admin</button>
                           ${isMod ? `
@@ -4051,7 +4055,7 @@ export class AppShell extends HTMLElement {
                           `}
                         `) : ''}
 
-                        ${!isOwner ? `
+                        ${canRestrict ? `
                           ${isMuted ? `
                             <button class="ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem;color:var(--success);" data-unmute-id="${m.identityId}" title="Unmute user in this room">${ICONS.volumeOn} Unmute</button>
                           ` : `
