@@ -9,6 +9,7 @@
 // of `ForwardedSessionMethod`, which makes `FORWARDED_SESSION_METHODS` incomplete, which fails the
 // build. The choice to expose it or not becomes deliberate rather than accidental.
 import type { Session } from '@core/app/session'
+import type { WireMediaFrame } from './media-frame'
 
 type MethodNames<T> = {
   [K in keyof T]: T[K] extends (...args: never[]) => unknown ? K : never
@@ -106,11 +107,24 @@ const _everyMethodIsListed: [MissingFromList] extends [never]
 void _everyMethodIsListed
 
 /**
+ * Methods whose arguments change shape in transit, and what they become.
+ *
+ * Only one so far, and it was a cast until now: media frames cross as base64 rather than bytes
+ * (see `media-frame.ts` for why), so the app called `(session as any).sendCallFrame(…)` against a
+ * contract that said `Uint8Array`. Declaring the translation is the point — a cast says "trust
+ * me", this says what the boundary actually carries, and the worklet handler is typed by the same
+ * name on its own side.
+ */
+interface WireArgs {
+  sendCallFrame: [WireMediaFrame]
+}
+
+/**
  * The same surface as seen from the app side. Every call crosses a message boundary, so results
  * arrive as promises even where `Session` is synchronous.
  */
 export type RemoteSession = {
   [K in ForwardedSessionMethod]: Session[K] extends (...args: infer A) => infer R
-    ? (...args: A) => Promise<Awaited<R>>
+    ? (...args: K extends keyof WireArgs ? WireArgs[K] : A) => Promise<Awaited<R>>
     : never
 }

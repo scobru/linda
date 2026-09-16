@@ -14,6 +14,7 @@ import { Session, type SessionEvents } from '../../src/app/session.js'
 import type { Room } from '../../src/rooms/room.js'
 import { packFrame, unpackFrame } from '../src/bare/frame.js'
 import { FORWARDED_SESSION_METHODS } from '../src/bare/session-contract.js'
+import { fromWireFrame, isPlayableFrame, toWireFrame, type WireMediaFrame } from '../src/bare/media-frame.js'
 import type { WorkletMediaServer } from './media-server.js'
 
 declare const BareKit: { IPC: unknown }
@@ -248,9 +249,10 @@ const methods: Record<string, (...args: any[]) => any> = {
       // state change that follows it happened to carry the flag.
       onCallEnded: (info) => pushEvent('callEnded', info),
       onCallRemoteControl: (callId, action) => pushEvent('callRemoteControl', { callId, action }),
+      // Only the kinds the phone can actually show — see `PLAYABLE_FRAME_KINDS`. Encoding and
+      // shipping the rest cost the RN thread a JSON parse each for a listener that drops them.
       onCallMediaFrame: (frame) => {
-        const payload = frame.payload ? b4a.toString(frame.payload, 'base64') : ''
-        pushEvent('callMediaFrame', { ...frame, payload })
+        if (isPlayableFrame(frame.kind)) pushEvent('callMediaFrame', toWireFrame(frame))
       }
     }
     storageDir = dir
@@ -352,12 +354,8 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { roomId: room.id }
   },
 
-  'session.sendCallFrame': (frame: any) => {
-    if (frame && typeof frame.payload === 'string') {
-      frame.payload = b4a.from(frame.payload, 'base64')
-    }
-    return requireSession().sendCallFrame(frame)
-  },
+  // Overrides the generic forward: the payload arrives as base64 and `Session` wants bytes.
+  'session.sendCallFrame': (frame: WireMediaFrame) => requireSession().sendCallFrame(fromWireFrame(frame)),
 
 
 

@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
 import { bareClient } from '../bare/client'
+import { frameDataUri, VIDEO_FRAME, type WireMediaFrame } from '../bare/media-frame'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
 import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
@@ -57,18 +58,14 @@ export default function ActiveCallModal() {
       return
     }
 
-    return bareClient.on('callMediaFrame', (frame: { callId: string; kind: number; payload: string }) => {
-      if (frame.kind === 1 && frame.payload) {
-        const now = Date.now()
-        // Throttle to ~12 fps (80ms) to ensure smooth React Native bridge rendering and prevent stutter
-        if (now - lastFrameTimeRef.current < 80) return
-        lastFrameTimeRef.current = now
-
-        // Check for JPEG magic bytes in base64 ('/9j/') or valid payload
-        if (frame.payload.startsWith('/9j/')) {
-          setRemoteVideoFrame(`data:image/jpeg;base64,${frame.payload}`)
-        }
-      }
+    return bareClient.on('callMediaFrame', (frame: WireMediaFrame) => {
+      const now = Date.now()
+      // Throttle to ~12 fps (80ms) to ensure smooth React Native bridge rendering and prevent stutter
+      if (now - lastFrameTimeRef.current < 80) return
+      const uri = frameDataUri(frame)
+      if (!uri) return
+      lastFrameTimeRef.current = now
+      setRemoteVideoFrame(uri)
     })
   }, [isConnected, isVideo])
 
@@ -90,7 +87,7 @@ export default function ActiveCallModal() {
         })
         if (isMounted && pic?.base64) {
           sendCallFrame({
-            kind: 1,
+            kind: VIDEO_FRAME,
             payload: pic.base64,
             keyframe: true
           })
