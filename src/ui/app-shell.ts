@@ -13,7 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -3999,17 +3999,35 @@ export class AppShell extends HTMLElement {
                 const isMuted = room.isMuted(m.identityId)
                 const isBanned = room.isBanned(m.identityId)
                 const name = this.displayName(m.identityId)
-                const userAvatar = this.avatars.get(m.identityId) || this.session?.getPeerAvatar(m.identityId) || (isMe ? this.avatar : '')
-                const canModerateThis = !isMe && (iAmOwner || (iCanModerate && !isOwner && !isMod))
+                const userAvatar = peerAvatar({
+                  live: this.avatars.get(m.identityId),
+                  stored: this.session?.getPeerAvatar(m.identityId),
+                  snapshot: isMe ? this.avatar : undefined
+                })
+                // A promoted admin wore "Member" here, because this read `isOwner`/`isModerator`
+                // and never asked whether the member was an admin.
+                const role = memberRole({ isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod })
+                // Mirrors what `Room.apply()` accepts. This used to offer the action against an
+                // admin — to the owner and to any moderator — and the log dropped every one of
+                // them in silence.
+                const canModerateThis = canRestrictMember(
+                  { isOwner: iAmOwner, isAdmin: room.isAdmin(myId), isModerator: iCanModerate },
+                  { isOwner, isAdmin: room.isAdmin(m.identityId), isModerator: isMod },
+                  isMe
+                )
 
                 return `
                   <div class="member-card">
-                    ${avatarHtml(m.identityId, 'md', name, userAvatar)}
+                    ${avatarHtml(m.identityId, 'md', name, userAvatar ?? '')}
                     <div class="member-card-info">
                       <div class="member-card-title-row">
                         <span class="member-card-name">${escapeHtml(name)}</span>
                         ${isMe ? '<span style="color:var(--accent);font-size:0.75rem;font-weight:600;">(you)</span>' : ''}
-                        ${isOwner ? `<span class="member-role-badge owner">${ICONS.crown} Admin</span>` : (isMod ? `<span class="member-role-badge mod">${ICONS.shieldSmall} Mod</span>` : '<span class="member-role-badge member">Member</span>')}
+                        ${role === 'owner' || role === 'admin'
+                          ? `<span class="member-role-badge owner">${ICONS.crown} ${memberRoleLabel(role)}</span>`
+                          : role === 'moderator'
+                            ? `<span class="member-role-badge mod">${ICONS.shieldSmall} ${memberRoleLabel(role)}</span>`
+                            : `<span class="member-role-badge member">${memberRoleLabel(role)}</span>`}
                         ${isMuted ? `<span class="member-role-badge muted">${ICONS.volumeOff} Muted</span>` : ''}
                         ${isBanned ? `<span class="member-role-badge banned">${ICONS.ban} Banned</span>` : ''}
                       </div>

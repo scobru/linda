@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
+import { canChangeMemberRole, canDeleteMessage, canRestrictMember, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, memberRole, memberRoleLabel, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_PING_MS, TYPING_STOP_MS } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -411,4 +411,57 @@ test('replication catching up is not worth interrupting for', () => {
   assert.equal(isHistoricalMessage(now, settled, now), false, 'a message sent right now')
   assert.equal(isHistoricalMessage(now - 120_000, settled, now), true, 'two minutes old')
   assert.equal(isHistoricalMessage(now - 30_000, settled, now), false, 'thirty seconds old still counts')
+})
+
+// ---------------------------------------------------------------------------
+// Membership: the badge, and which moderation actions survive `Room.apply()`.
+// ---------------------------------------------------------------------------
+
+const owner = { isOwner: true, isAdmin: true, isModerator: false }
+const admin = { isOwner: false, isAdmin: true, isModerator: false }
+const mod = { isOwner: false, isAdmin: false, isModerator: true }
+const plain = { isOwner: false, isAdmin: false, isModerator: false }
+
+test('a promoted admin wears the admin badge', () => {
+  // The desktop derived the badge from isOwner/isModerator alone, so someone its own "Make Admin"
+  // button had just promoted showed as "Member" there and "Admin" on the phone.
+  assert.equal(memberRole(admin), 'admin')
+  assert.equal(memberRoleLabel(memberRole(admin)), 'Admin')
+  assert.equal(memberRoleLabel(memberRole(owner)), 'Admin')
+  assert.equal(memberRoleLabel(memberRole(mod)), 'Mod')
+  assert.equal(memberRoleLabel(memberRole(plain)), 'Member')
+})
+
+test('nobody may mute or ban an admin, the owner included', () => {
+  // The desktop offered it to the owner and to any moderator. apply() drops the entry, so the
+  // click looked like it worked and did nothing at all.
+  assert.equal(canRestrictMember(owner, admin, false), false)
+  assert.equal(canRestrictMember(mod, admin, false), false)
+  assert.equal(canRestrictMember(admin, owner, false), false)
+})
+
+test('an admin may restrict a moderator', () => {
+  // Mobile hid this, which apply() accepts — the mirror of the moderator who could not delete a
+  // message from the phone.
+  assert.equal(canRestrictMember(admin, mod, false), true)
+  assert.equal(canRestrictMember(owner, mod, false), true)
+})
+
+test('a moderator may restrict a member but not another moderator', () => {
+  assert.equal(canRestrictMember(mod, plain, false), true)
+  assert.equal(canRestrictMember(mod, mod, false), false)
+})
+
+test('a plain member may restrict nobody, and nobody may restrict themselves', () => {
+  assert.equal(canRestrictMember(plain, plain, false), false)
+  assert.equal(canRestrictMember(owner, owner, true), false)
+  assert.equal(canRestrictMember(admin, plain, true), false)
+})
+
+test('only an admin changes roles', () => {
+  assert.equal(canChangeMemberRole(admin, false), true)
+  assert.equal(canChangeMemberRole(owner, false), true)
+  assert.equal(canChangeMemberRole(mod, false), false)
+  assert.equal(canChangeMemberRole(plain, false), false)
+  assert.equal(canChangeMemberRole(admin, true), false)
 })

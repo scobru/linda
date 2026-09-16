@@ -55,6 +55,66 @@ export function matchesRoomQuery(
     .some((field) => (field ?? '').toLowerCase().includes(needle))
 }
 
+// ── Membership ─────────────────────────────────────────────────────────────
+
+/** Where a member stands in a room. `isAdmin` includes the owner, as `Room.isAdmin()` does. */
+export interface MemberStanding {
+  isOwner: boolean
+  isAdmin: boolean
+  isModerator: boolean
+}
+
+export type MemberRole = 'owner' | 'admin' | 'moderator' | 'member'
+
+/**
+ * The badge a member wears.
+ *
+ * The desktop derived it from `isOwner` and `isModerator` alone, so a **promoted admin** — someone
+ * the desktop's own "Make Admin" button had just created — wore "Member" there and "Admin" on the
+ * phone.
+ */
+export function memberRole(standing: MemberStanding): MemberRole {
+  if (standing.isOwner) return 'owner'
+  if (standing.isAdmin) return 'admin'
+  if (standing.isModerator) return 'moderator'
+  return 'member'
+}
+
+/** What that badge says. Owner and admin read the same, which is what both shells already showed. */
+export function memberRoleLabel(role: MemberRole): string {
+  return role === 'owner' || role === 'admin' ? 'Admin' : role === 'moderator' ? 'Mod' : 'Member'
+}
+
+/**
+ * Whether a mute or a ban by this actor would survive `Room.apply()`.
+ *
+ * Mirrors the gate there (`room.ts`, the `mute` and `ban` cases) rather than approximating it,
+ * because both shells approximated it and each was wrong in its own direction:
+ *
+ * - The desktop offered the action to an owner against an **admin**, and to a moderator against an
+ *   admin. `apply()` drops both. The click wrote an entry, every peer discarded it, and the UI
+ *   showed nothing at all — the worst kind of failure, one that looks like it worked.
+ * - Mobile hid it from an **admin acting on a moderator**, which `apply()` accepts. That is the
+ *   mirror of the bug #94 fixed for message deletion: a UI gating tighter than the log hides a
+ *   capability the member actually has.
+ *
+ * Nobody may restrict an admin, the owner included — an admin is removed by demotion first.
+ * Unmute and unban are looser in the log (any non-member may lift one), but a member who cannot be
+ * muted cannot be un-muted either, so the same predicate covers both directions of the toggle.
+ */
+export function canRestrictMember(actor: MemberStanding, target: MemberStanding, isSelf: boolean): boolean {
+  if (isSelf) return false
+  if (target.isAdmin) return false
+  if (actor.isAdmin) return true
+  if (actor.isModerator) return !target.isModerator
+  return false
+}
+
+/** Whether this actor may promote or demote at all — `apply()` asks only that they are an admin. */
+export function canChangeMemberRole(actor: MemberStanding, isSelf: boolean): boolean {
+  return !isSelf && actor.isAdmin
+}
+
 // ── Notifications ──────────────────────────────────────────────────────────
 
 /** Older than this and a message is history catching up, not news. */
