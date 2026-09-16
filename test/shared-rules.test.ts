@@ -41,7 +41,14 @@ const OWNED: { text: string; owner: string; rule: string; also?: string[] }[] = 
   { text: 'You have been removed from this room', owner: 'src/rooms/room-rules.ts', rule: 'composerBlock' },
   { text: '(No subject)', owner: 'src/rooms/room-rules.ts', rule: 'mailboxSubject' },
   { text: 'Message deleted', owner: 'src/rooms/room-rules.ts', rule: 'mailboxSubject' },
-  { text: 'Voice message', owner: 'src/rooms/room-rules.ts', rule: 'lastMessagePreview' }
+  { text: 'Voice message', owner: 'src/rooms/room-rules.ts', rule: 'lastMessagePreview' },
+  // The vault had five strings for one feature: the room's name, a stored description, and three
+  // labels — two on the desktop, one on mobile that read "Single-Writer Sovereign Vault", which is
+  // what a vault is in the log rather than what it is to the person who owns it.
+  { text: 'Personal Vault', owner: 'src/rooms/room-rules.ts', rule: 'PERSONAL_VAULT_NAME' },
+  { text: 'Private storage only you can write to', owner: 'src/rooms/room-rules.ts', rule: 'PERSONAL_VAULT_DESCRIPTION' },
+  { text: 'File not yet available on connected peers', owner: 'src/rooms/room-rules.ts', rule: 'FILE_NOT_YET_AVAILABLE' },
+  { text: 'Could not load or resize image', owner: 'src/util/avatar.ts', rule: 'IMAGE_LOAD_FAILED' }
 ]
 
 test('no shell keeps its own copy of a sentence a shared rule already owns', () => {
@@ -79,5 +86,19 @@ test('neither shell derives "unread" from the two timestamps itself', () => {
     if (file === 'src/rooms/room-rules.ts') return false
     return pattern.test(codeOf(file))
   })
+  assert.deepEqual(offenders, [])
+})
+
+test('the vault is not described by how it is implemented', () => {
+  // "Single-Writer" is an Autobase property, not a product name, and it was mobile's header for a
+  // room the same user's room list calls Personal Vault.
+  const offenders = sourceFiles().filter((file) => /Single-Writer|Sovereign Vault/i.test(codeOf(file)))
+  assert.deepEqual(offenders, [])
+})
+
+test('no shell tells a user a room file is gone when it is only offline', () => {
+  // The desktop said "not yet available"; mobile said "Download failed" over "File not available".
+  // Same condition — `downloadFile` returning nothing — and opposite advice about whether to retry.
+  const offenders = sourceFiles().filter((file) => /File not available on connected peers/.test(codeOf(file)))
   assert.deepEqual(offenders, [])
 })

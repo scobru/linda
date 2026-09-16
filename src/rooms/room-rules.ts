@@ -435,3 +435,38 @@ export function survivingHashtag(active: string | null, tags: readonly [string, 
   if (!active) return null
   return tags.some(([tag]) => tag === active) ? active : null
 }
+
+/**
+ * The name the Personal Vault room is created with.
+ *
+ * Shared because `Session.ensurePersonalVault` also matches it case-insensitively to adopt a vault
+ * made by a release that predates the `isVault` flag. Two literals, one of them a migration path:
+ * rename the room and the older vault silently stops being found, and its owner gets a second one.
+ */
+export const PERSONAL_VAULT_NAME = 'Personal Vault'
+
+/**
+ * What the vault is, in one line, wherever a room would otherwise say how many members it has.
+ *
+ * There were five strings for this one feature: the room's name, a stored description, and three
+ * separate labels — the desktop's room-list snippet said "Private personal vault & sovereign
+ * storage", its badge tooltip said "Personal Sovereign Vault", and mobile's chat header said
+ * "Single-Writer Sovereign Vault". That last one is an Autobase implementation detail: a vault is a
+ * room with one writer. It had surfaced as a product name, above a room the same user's room list
+ * calls "Personal Vault".
+ *
+ * This says what the property means to the person who has it rather than what it is called in the
+ * log, and it does not repeat the room's name, which every one of these surfaces shows alongside it.
+ */
+export const PERSONAL_VAULT_DESCRIPTION = 'Private storage only you can write to'
+
+/**
+ * Shown when a room file's bytes are not on any peer that is currently connected.
+ *
+ * "Yet" is the whole message. The desktop said "File not yet available on connected peers" and
+ * mobile said "Download failed" over "File not available on connected peers" — the same condition,
+ * `downloadFile` returning nothing, with opposite advice. On a peer-to-peer drive the device holding
+ * the blob is usually just offline, so the file almost always arrives; mobile was telling people to
+ * give up on it.
+ */
+export const FILE_NOT_YET_AVAILABLE = 'File not yet available on connected peers'

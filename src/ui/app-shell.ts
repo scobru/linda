@@ -14,8 +14,8 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
-import { DELETED_MESSAGE_TEXT, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
-import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '../util/avatar.js'
+import { DELETED_MESSAGE_TEXT, FILE_NOT_YET_AVAILABLE, PERSONAL_VAULT_DESCRIPTION, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM, IMAGE_LOAD_FAILED } from '../util/avatar.js'
 import { formatRelativeTime } from '../util/duration.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -1263,7 +1263,7 @@ export class AppShell extends HTMLElement {
 
     const lastMsgInfo = this.lastMessages.get(b.id)
     const lastAuthor = lastMsgInfo ? `${lastMsgInfo.author}: ` : ''
-    const lastSnippet = lastMsgInfo ? lastMsgInfo.text : (b.isVault ? 'Private personal vault & sovereign storage' : (b.description || (contact ? 'Direct Sovereign Chat' : 'E2E Sovereign Room')))
+    const lastSnippet = lastMsgInfo ? lastMsgInfo.text : (b.isVault ? PERSONAL_VAULT_DESCRIPTION : (b.description || (contact ? 'Direct Sovereign Chat' : 'E2E Sovereign Room')))
     const timeFormatted = lastMsgInfo ? formatRelativeTime(lastMsgInfo.time) : ''
     const unread = this.isRoomUnread(b)
 
@@ -1278,7 +1278,7 @@ export class AppShell extends HTMLElement {
             <div class="room-item-name-group">
               <span class="room-item-name">${escapeHtml(roomName)}</span>
               ${b.isVault
-                ? `<span class="vault-badge" title="Personal Sovereign Vault">🔐 VAULT</span>`
+                ? `<span class="vault-badge" title="${PERSONAL_VAULT_DESCRIPTION}">🔐 VAULT</span>`
                 : `<span class="verified-badge" title="End-to-End Encrypted">${ICONS.verified}</span>`}
             </div>
             ${timeFormatted ? `<span class="room-item-time">${timeFormatted}</span>` : ''}
@@ -2965,7 +2965,7 @@ export class AppShell extends HTMLElement {
     if (!this.activeRoom || !this.session) return
     try {
       const buffer = await this.session.downloadFile(driveKey, filePath)
-      if (!buffer) return alert('File not yet available on connected peers')
+      if (!buffer) return alert(FILE_NOT_YET_AVAILABLE)
       triggerBlobDownload(new Blob([new Uint8Array(buffer)]), name)
     } catch (err) {
       alert(`Download error: ${(err as Error).message}`)
@@ -3469,7 +3469,7 @@ export class AppShell extends HTMLElement {
         this.profileWorkingAvatar = await resizeImageToDataUrl(file, 128)
         this.renderProfilePage()
       } catch {
-        alert('Could not load or resize image')
+        alert(IMAGE_LOAD_FAILED)
       }
     })
 
