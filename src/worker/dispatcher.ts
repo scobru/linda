@@ -237,8 +237,13 @@ export class WorkerDispatcher {
   }
 
   private async handleRequest(req: any): Promise<void> {
-    const { header, binary } = unpackFrame(req.data)
     try {
+      // Inside the try, not above it. `unpackFrame` does a `JSON.parse` on bytes off a pipe, so a
+      // truncated or corrupt frame throws here — and this method is invoked as `void
+      // handleRequest(req)`, so that throw became an unhandled rejection and took the whole worker
+      // process down. Answering a bad frame costs one line: `req.reply` belongs to the request, not
+      // to anything the frame said, so it still works when nothing in the frame parsed.
+      const { header, binary } = unpackFrame(req.data)
       const handler = this.handlers[header.method]
       if (!handler) throw new Error(`Unknown RPC method: ${header.method}`)
       const raw = await handler(...(header.args || []), binary)

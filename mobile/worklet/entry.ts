@@ -91,8 +91,13 @@ const rpc = new RPC(IPC as any, (req: any) => {
 })
 
 async function handleRequest(req: any): Promise<void> {
-  const { header, binary } = unpackFrame(req.data)
   try {
+    // Inside the try — see the same line in `src/worker/dispatcher.ts`. A frame that does not parse
+    // threw out of this `void`-discarded promise and killed the worklet, and a dead worklet is worse
+    // here than on the desktop: there is no pipe to close, so `bare-rpc` never rejects the calls
+    // already in flight, and only the four login methods in `client.ts` have a deadline to fall back
+    // on. Everything else waited for a reply that could no longer come.
+    const { header, binary } = unpackFrame(req.data)
     const handler = methods[header.method]
     if (!handler) throw new Error(`unknown method ${header.method}`)
     const raw = await handler(...header.args, binary)
