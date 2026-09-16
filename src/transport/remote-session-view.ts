@@ -170,9 +170,13 @@ export class RemoteSessionView implements SessionView {
   }
 
   private wireEvents(): void {
-    this.rpcClient.on('sessionState', (payload: Partial<RemoteSessionInitialState>) => {
-      this.applyInitialState(payload)
-    })
+    // Two listeners used to sit here that the worker has never sent: `sessionState`, which would
+    // have re-applied the whole initial state, and `networkStatus`. Both were harmless — every
+    // field of `RemoteSessionInitialState` is kept current either by its own setter writing through
+    // before the RPC, or by an event that is genuinely sent (network status rides on
+    // `peerConnected`/`peerDisconnected`). A test now holds both of those facts, which is what makes
+    // removing them safe rather than hopeful: a listener nobody feeds is silent, not broken, and
+    // silent is how it survives long enough for someone to rely on it.
 
     this.rpcClient.on('bookmarksChange', (bookmarks: RoomBookmark[]) => {
       if (bookmarks) this.bookmarks = bookmarks
@@ -184,10 +188,6 @@ export class RemoteSessionView implements SessionView {
 
     this.rpcClient.on('directoryChange', (directory: RoomAnnounceMessage[]) => {
       if (directory) this.directory = directory
-    })
-
-    this.rpcClient.on('networkStatus', (status: NetworkStatus) => {
-      if (status) this.networkStatus = status
     })
 
     this.rpcClient.on('peerAvatar', (payload: { userId: string; avatar: string }) => {
