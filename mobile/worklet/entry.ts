@@ -443,4 +443,8 @@ const methods: Record<string, (...args: any[]) => any> = {
   }
 }
 
-pushEvent('ready')
+// No `pushEvent('ready')` here. The worklet used to announce itself and nothing in the app ever
+// listened — a handshake with one side. The client does not need it: `ensureStarted` starts the
+// worklet and bare-rpc buffers whatever is sent before it answers, and a runtime that has gone is
+// caught by the `terminated` check and the login deadlines instead. A readiness signal may be worth
+// having, but it should be designed and consumed deliberately rather than left half-built.
