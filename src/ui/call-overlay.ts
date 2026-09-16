@@ -3,6 +3,7 @@ import { applyRemoteControl, type CallInfo } from '../call/call-session.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 import type { SessionView } from '../app/session-view.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
+import { callDurationSeconds, formatCallDuration } from '../util/duration.js'
 
 function escapeHtml(input: string): string {
   return input
@@ -42,7 +43,6 @@ export class CallOverlay {
   private activeCallInfo: CallInfo | null = null
   private isLocalAudioMuted = false
   private isLocalVideoMuted = false
-  private callDurationSec = 0
   private callDurationTimer: ReturnType<typeof setInterval> | null = null
   private ringAudio: AudioContext | null = null
   private ringInterval: ReturnType<typeof setInterval> | null = null
@@ -83,7 +83,6 @@ export class CallOverlay {
     try {
       this.isLocalAudioMuted = false
       this.isLocalVideoMuted = false
-      this.callDurationSec = 0
       this.stopDurationTimer()
 
       if (!this.session) {
@@ -268,7 +267,7 @@ export class CallOverlay {
           if (info.state === 'calling') statusText = 'Calling...'
           else if (info.state === 'ringing') statusText = 'Ringing...'
           else if (isConnected) {
-            statusText = this.formatDuration(this.callDurationSec)
+            statusText = formatCallDuration(callDurationSeconds(info.startedAt, Date.now()))
             statusClass = ''
           }
 
@@ -396,7 +395,7 @@ export class CallOverlay {
     } else if (info.state === 'ringing') {
       statusText = 'Ringing...'
     } else if (isConnected) {
-      statusText = this.formatDuration(this.callDurationSec)
+      statusText = formatCallDuration(callDurationSeconds(info.startedAt, Date.now()))
       statusClass = ''
     }
 
@@ -506,17 +505,18 @@ export class CallOverlay {
     }
   }
 
+  /** Ticks once a second to repaint, but reads the elapsed time from `startedAt` each time rather
+   *  than counting — see `callDurationSeconds`. A tick that arrives late, or not at all while the
+   *  window is in the background, then costs a repaint rather than a second off the clock. */
   private startDurationTimer(): void {
     this.stopDurationTimer()
-    this.callDurationSec = 0
     this.callDurationTimer = setInterval(() => {
-      this.callDurationSec++
-      if (this.container) {
-        const timerEl = this.container.querySelector('#callTimerDisplay')
-        if (timerEl && this.activeCallInfo?.state === 'connected') {
-          const isVideo = this.activeCallInfo.media.video
-          timerEl.innerHTML = `${isVideo ? ICONS.video : ICONS.phone} ${this.formatDuration(this.callDurationSec)}`
-        }
+      if (!this.container) return
+      const timerEl = this.container.querySelector('#callTimerDisplay')
+      if (timerEl && this.activeCallInfo?.state === 'connected') {
+        const isVideo = this.activeCallInfo.media.video
+        const elapsed = callDurationSeconds(this.activeCallInfo.startedAt, Date.now())
+        timerEl.innerHTML = `${isVideo ? ICONS.video : ICONS.phone} ${formatCallDuration(elapsed)}`
       }
     }, 1000)
   }
@@ -528,9 +528,4 @@ export class CallOverlay {
     }
   }
 
-  private formatDuration(sec: number): string {
-    const mins = Math.floor(sec / 60)
-    const s = sec % 60
-    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
 }

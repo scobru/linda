@@ -16,12 +16,7 @@ import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
 import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
 import Avatar from './Avatar'
-
-function formatDuration(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
+import { formatCallDuration } from '@core/util/duration'
 
 export default function ActiveCallModal() {
   const {
@@ -135,7 +130,7 @@ export default function ActiveCallModal() {
             <Text style={styles.badgeText}>Direct P2P (Holepunch)</Text>
           </View>
           <Text style={styles.timer}>
-            {isConnected ? formatDuration(callDuration) : 'Calling...'}
+            {isConnected ? formatCallDuration(callDuration) : 'Calling...'}
           </Text>
         </View>
 
