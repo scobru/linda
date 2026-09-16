@@ -15,6 +15,7 @@ import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attac
 import { peerAvatar, peerName } from '../app/peer-display.js'
 import { DELETED_MESSAGE_TEXT, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '../util/avatar.js'
+import { formatRelativeTime } from '../util/duration.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
 import { WALLPAPERS, wallpaperDataUrl, wallpaperInk, DEFAULT_WALLPAPER } from './wallpapers.js'
@@ -4351,20 +4352,6 @@ function formatMessageTime(timestamp: number): string {
   if (!timestamp) return ''
   const d = new Date(timestamp)
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-}
-
-function formatRelativeTime(timestamp: number): string {
-  if (!timestamp) return ''
-  const diffSec = Math.floor((Date.now() - timestamp) / 1000)
-  if (diffSec < 60) return 'now'
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m`
-  const diffHours = Math.floor(diffMin / 60)
-  if (diffHours < 24) return `${diffHours}h`
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays < 30) return `${diffDays}d`
-  const diffMonths = Math.floor(diffDays / 30)
-  return `${diffMonths}mo`
 }
 
 customElements.define('app-shell', AppShell)
