@@ -12,6 +12,7 @@ import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
 import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
 import { isHistoricalMessage, isRoomUnread, notificationBody } from '@core/rooms/room-rules'
+import { callDurationSeconds } from '@core/util/duration'
 import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
@@ -91,7 +92,7 @@ export function SessionProvider({ children }: Props) {
     if (activeCall?.state === 'connected' && activeCall.startedAt) {
       const start = activeCall.startedAt
       const update = () => {
-        setCallDuration(Math.floor((Date.now() - start) / 1000))
+        setCallDuration(callDurationSeconds(start, Date.now()))
       }
       update()
       const timer = setInterval(update, 1000)
