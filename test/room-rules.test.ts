@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, countHashtags, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -113,4 +113,69 @@ test('a selected hashtag survives only while the room still has it', () => {
   assert.equal(survivingHashtag('gone', tags), null, 'its last message was deleted or cleared')
   assert.equal(survivingHashtag(null, tags), null)
   assert.equal(survivingHashtag('todo', []), null)
+})
+
+// ---------------------------------------------------------------------------
+// The composer ladder. Both shells had one and they disagreed on the order, so the same room
+// explained itself differently depending on the device — and each order hid a case the other
+// showed. These are the rungs, and the two mistakes.
+// ---------------------------------------------------------------------------
+
+const open = {
+  banned: false, muted: false, broadcast: false, canModerate: false,
+  hasKey: true, writable: true, isAdmin: false
+}
+
+test('a room you can post in blocks nothing', () => {
+  assert.equal(composerBlock(open), null)
+})
+
+test('keys still arriving are not a refusal of access', () => {
+  // Mobile tested `!writable || !hasKey` first and called it "You do not have write access to this
+  // room yet". On a fresh join that is a few seconds of key exchange, so the member was told their
+  // access was denied and to go ask for something they already had.
+  const block = composerBlock({ ...open, hasKey: false })
+  assert.equal(block?.kind, 'waiting-key')
+  assert.match(block!.text, /Waiting for room encryption keys/)
+})
+
+test('a ban says so, in a room that is not a broadcast room', () => {
+  // Desktop had no rung for it, and `Room.canPost()` is false for a banned member, so a ban came
+  // out as "Only admins can send messages in this broadcast room" — in an ordinary room.
+  const block = composerBlock({ ...open, banned: true })
+  assert.equal(block?.kind, 'banned')
+  assert.doesNotMatch(block!.text, /broadcast/)
+})
+
+test('what was decided about you outranks what is still in flight', () => {
+  // A muted member whose keys have not arrived is still muted once they do. Naming the transient
+  // state first means the message changes into another message rather than into a composer.
+  assert.equal(composerBlock({ ...open, muted: true, hasKey: false, writable: false })?.kind, 'muted')
+  assert.equal(composerBlock({ ...open, banned: true, muted: true })?.kind, 'banned')
+})
+
+test('a broadcast room blocks members and lets moderators through', () => {
+  assert.equal(composerBlock({ ...open, broadcast: true })?.kind, 'broadcast')
+  assert.equal(composerBlock({ ...open, broadcast: true, canModerate: true }), null)
+})
+
+test('an admin waiting on write access is syncing, not refused', () => {
+  // An admin already has the right; what is missing is a peer to replicate it from. Telling them
+  // they lack access points at a fix that does not exist.
+  assert.equal(composerBlock({ ...open, writable: false, isAdmin: true })?.kind, 'syncing')
+  assert.equal(composerBlock({ ...open, writable: false })?.kind, 'no-access')
+})
+
+test('every rung carries a sentence a user can act on', () => {
+  const states = [
+    { ...open, banned: true },
+    { ...open, muted: true },
+    { ...open, broadcast: true },
+    { ...open, hasKey: false },
+    { ...open, writable: false, isAdmin: true },
+    { ...open, writable: false }
+  ]
+  const kinds = states.map((state) => composerBlock(state)?.kind)
+  assert.deepEqual(kinds, ['banned', 'muted', 'broadcast', 'waiting-key', 'syncing', 'no-access'])
+  for (const state of states) assert.ok((composerBlock(state)?.text.length ?? 0) > 10)
 })

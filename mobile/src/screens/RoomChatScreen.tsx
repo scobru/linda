@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { useRoom } from '../hooks/useRoom'
-import { downloadFile } from '../bare/room-proxy'
+import { downloadFile, type RoomState } from '../bare/room-proxy'
 import type { ChatMessage, RoomFile } from '@core/rooms/room'
 import { formatBytes } from '@core/util/bytes'
 import { SvgXml } from 'react-native-svg'
@@ -25,7 +25,7 @@ import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { attachmentKind, isAudio, isVideo } from '@core/rooms/attachment-kind'
-import { canDeleteMessage, countHashtags, survivingHashtag } from '@core/rooms/room-rules'
+import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -103,6 +103,17 @@ const MessageRow = React.memo(function MessageRow({
     />
   )
 })
+
+/** Each rung of the shared ladder gets its own icon: a ban and a mute are not the same face, and a
+ *  key still arriving is a clock rather than either. */
+const COMPOSER_BLOCK_ICON: Record<ComposerBlock['kind'], 'ban-outline' | 'volume-mute-outline' | 'megaphone-outline' | 'time-outline' | 'sync-outline' | 'lock-closed-outline'> = {
+  banned: 'ban-outline',
+  muted: 'volume-mute-outline',
+  broadcast: 'megaphone-outline',
+  'waiting-key': 'time-outline',
+  syncing: 'sync-outline',
+  'no-access': 'lock-closed-outline'
+}
 
 export default function RoomChatScreen({ route, navigation }: Props) {
   const { colors, isDark } = useTheme()
@@ -191,10 +202,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const [writable, setWritable] = useState(false)
   const [hasKey, setHasKey] = useState(false)
-  // False when muted or in a broadcast room without admin rights — the two cases where the worklet
-  // would accept the message and every peer would then drop it while linearizing the log.
+  // False when banned, muted, or in a broadcast room without moderation rights — the cases where
+  // the worklet would accept the message and every peer would then drop it while linearizing.
   const [canPost, setCanPost] = useState(false)
-  const [broadcast, setBroadcast] = useState(false)
+  // Why the composer is closed, from the same ladder the desktop shell uses. Null when it is open.
+  const [blocked, setBlocked] = useState<ComposerBlock | null>(null)
   const [activeTab, setActiveTab] = useState<'chat' | 'mailbox' | 'document' | 'files'>('chat')
   const [selectedMailboxMessage, setSelectedMailboxMessage] = useState<ChatMessage | null>(null)
   const [mailboxReplyText, setMailboxReplyText] = useState('')
@@ -226,11 +238,19 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!room) return
-    const apply = (s: { writable: boolean; hasKey: boolean; canPost: boolean; broadcast?: boolean }) => {
+    const apply = (s: RoomState) => {
       setWritable(s.writable)
       setHasKey(s.hasKey)
       setCanPost(s.canPost)
-      setBroadcast(s.broadcast ?? false)
+      setBlocked(composerBlock({
+        banned: s.banned,
+        muted: s.muted,
+        broadcast: s.broadcast,
+        canModerate: s.canModerate,
+        hasKey: s.hasKey,
+        writable: s.writable,
+        isAdmin: s.isAdmin
+      }))
     }
     apply(room)
     void room.refreshState().then(apply)
@@ -1006,7 +1026,15 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               onChangeText={notifyTyping}
               placeholder={isVault ? "Write a private note to yourself..." : "Add to notes..."}
             />
-          ) : null}
+          ) : (
+            // Was `null`: the composer simply vanished with no reason given, while the same state
+            // in the same room explains itself on the desktop, which uses one composer for every
+            // tab. A missing control with no explanation reads as a bug in the app.
+            <View style={styles.composerBlocked}>
+              <Ionicons name={COMPOSER_BLOCK_ICON[blocked?.kind ?? 'no-access']} size={15} color={colors.textTertiary} />
+              <Text style={styles.composerBlockedText}>{blocked?.text ?? ''}</Text>
+            </View>
+          )}
         </View>
       ) : activeTab === 'files' ? (
         <View style={{ flex: 1 }}>
@@ -1204,18 +1232,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             />
           ) : (
             <View style={styles.composerBlocked}>
-              <Ionicons
-                name={!writable || !hasKey ? 'time-outline' : broadcast ? 'megaphone-outline' : 'volume-mute-outline'}
-                size={15}
-                color={colors.textTertiary}
-              />
-              <Text style={styles.composerBlockedText}>
-                {!writable || !hasKey
-                  ? 'You do not have write access to this room yet'
-                  : broadcast
-                    ? 'Only admins can send messages in this broadcast room'
-                    : 'You are muted in this room'}
-              </Text>
+              <Ionicons name={COMPOSER_BLOCK_ICON[blocked?.kind ?? 'no-access']} size={15} color={colors.textTertiary} />
+              <Text style={styles.composerBlockedText}>{blocked?.text ?? ''}</Text>
             </View>
           )}
         </>

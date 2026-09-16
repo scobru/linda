@@ -117,12 +117,19 @@ function requireSession(): Session {
 }
 
 function roomState(room: Room) {
+  // Everything `composerBlock()` asks for, so the phone can give the same answer as the desktop
+  // rather than collapsing a ban, a mute and a key still in flight into one sentence.
+  const id = identity?.id
   return {
     roomId: room.id,
     writable: room.writable,
     hasKey: room.hasKey,
     broadcast: room.isBroadcast,
-    canPost: identity ? room.canPost(identity.id) : false
+    canPost: id ? room.canPost(id) : false,
+    banned: id ? room.isBanned(id) : false,
+    muted: id ? room.isMuted(id) : false,
+    canModerate: id ? room.canModerate(id) : false,
+    isAdmin: id ? room.isAdmin(id) : false
   }
 }
 

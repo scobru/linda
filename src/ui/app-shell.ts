@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, countHashtags, survivingHashtag } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -1673,22 +1673,20 @@ export class AppShell extends HTMLElement {
       ? (this.avatars.get(contact.userId) || this.session?.getPeerAvatar(contact.userId) || contact.avatar || bookmark?.avatar || room.avatar)
       : (bookmark?.avatar || room.avatar)
     const roomDesc = bookmark?.description || room.description || ''
-    const muted = room.isMuted(this.identity!.id)
-    // `canPost` folds in the mute and the broadcast gate — the two cases where `apply()` would drop
-    // the message; `writable`/`hasKey` are the local ones where it could not be sent at all.
+    // `canPost` folds in the ban, the mute and the broadcast gate — the cases where `apply()` would
+    // drop the message; `writable`/`hasKey` are the local ones where it could not be sent at all.
     const canPost = room.canPost(this.identity!.id)
     const writable = room.writable && room.hasKey && canPost
-    const composerBlockedReason = muted
-      ? 'You are muted in this room'
-      : !canPost
-        ? 'Only admins can send messages in this broadcast room'
-        : !room.hasKey
-          ? 'Waiting for room encryption keys from an online peer...'
-          : !room.writable
-            ? (room.isAdmin(this.identity!.id)
-                ? 'Connecting to sync room access with an online peer...'
-                : 'You do not have write access to this room yet')
-            : ''
+    // The ladder itself lives in room-rules.ts, because the phone has to give the same answer.
+    const composerBlockedReason = composerBlock({
+      banned: room.isBanned(this.identity!.id),
+      muted: room.isMuted(this.identity!.id),
+      broadcast: room.isBroadcast,
+      canModerate: room.canModerate(this.identity!.id),
+      hasKey: room.hasKey,
+      writable: room.writable,
+      isAdmin: room.isAdmin(this.identity!.id)
+    })?.text ?? ''
     const memberCount = room.listMembers().length || 1
     const otherMember = !contact && memberCount === 2
       ? room.listMembers().find((m) => m.identityId !== this.identity?.id)
