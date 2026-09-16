@@ -13,7 +13,7 @@ import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
-import { canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { DELETED_MESSAGE_TEXT, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -2346,7 +2346,7 @@ export class AppShell extends HTMLElement {
     const authorName = this.displayName(selectedMsg.authorId)
     const fullDate = new Date(selectedMsg.timestamp).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
     const bodyFormatted = selectedMsg.deleted
-      ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+      ? `<em style="color:var(--text-muted);">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</em>`
       : (selectedMsg.body ? linkifyHashtags(linkify(escapeHtml(selectedMsg.body))) : '')
 
     const selectedSubject = mailboxSubject(selectedMsg)
@@ -2529,7 +2529,7 @@ export class AppShell extends HTMLElement {
       const isMine = msg.authorId === this.identity!.id
       const canDelete = this.canDeleteMessage(msg)
       const bodyFormatted = msg.deleted
-        ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+        ? `<em style="color:var(--text-muted);">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</em>`
         : (msg.body ? linkifyHashtags(linkify(escapeHtml(msg.body))) : '')
       const attachmentCard = msg.file && !msg.deleted
         ? this.renderAttachmentCard(msg)
@@ -2667,7 +2667,7 @@ export class AppShell extends HTMLElement {
           ` : ''}
           ${actions}
           ${replyQuote}
-          ${message.deleted ? `<div class="bubble" style="opacity:0.55;font-style:italic;"><span class="bubble-text">${ICONS.trash} Message deleted</span></div>` : ''}
+          ${message.deleted ? `<div class="bubble" style="opacity:0.55;font-style:italic;"><span class="bubble-text">${ICONS.trash} ${DELETED_MESSAGE_TEXT}</span></div>` : ''}
           ${bodyText ? `<div class="bubble"><span class="bubble-text">${bodyText}</span></div>` : ''}
           ${fileHtml}
           ${reactions}

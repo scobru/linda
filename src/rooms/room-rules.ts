@@ -265,6 +265,15 @@ export function groupMessagesByDay<T extends { timestamp: number; deleted?: bool
   return groups
 }
 
+/**
+ * What a message that has been deleted says instead.
+ *
+ * Four places render it — each shell's chat bubble, and the mailbox subject — because a deleted
+ * message's body is blanked by `Room.apply()` and something has to stand in its place. One
+ * constant so rewording it is one edit rather than a hunt through two shells.
+ */
+export const DELETED_MESSAGE_TEXT = 'Message deleted'
+
 /** The part of a message the mailbox view reads. */
 export interface MailboxMessage {
   body: string
@@ -286,7 +295,7 @@ export interface MailboxMessage {
  * a truncated sentence.
  */
 export function mailboxSubject(message: MailboxMessage): string {
-  if (message.deleted) return 'Message deleted'
+  if (message.deleted) return DELETED_MESSAGE_TEXT
   const firstLine = (message.body || '').split('\n').find((line) => line.trim().length > 0)
   if (!firstLine) return message.file ? `Attachment: ${message.file.name}` : '(No subject)'
   const cleaned = firstLine.replace(/^#+\s*/, '').trim()
