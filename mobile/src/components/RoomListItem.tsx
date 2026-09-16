@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatRelativeTime } from '@core/util/duration'
 import { View, Text, Pressable, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
@@ -17,15 +18,6 @@ interface Props {
   favorite?: boolean
   onPress: () => void
   onLongPress?: () => void
-}
-
-function formatRelativeTime(ts: number): string {
-  const now = Date.now()
-  const diff = now - ts
-  if (diff < 60_000) return 'now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
-  return `${Math.floor(diff / 86_400_000)}d`
 }
 
 export default function RoomListItem({ id, name, lastMessage, timestamp, unread, avatar, isVault, favorite, onPress, onLongPress }: Props) {
