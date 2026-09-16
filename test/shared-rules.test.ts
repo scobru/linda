@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import path from 'node:path'
+import { codeOf, codeOnly, sourceFiles } from './source-scan.js'
 
 // ---------------------------------------------------------------------------
 // Every rule in `room-rules.ts` is tested as a function, and none of those tests can tell whether
@@ -17,41 +17,14 @@ import path from 'node:path'
 // longer contains a rival.
 // ---------------------------------------------------------------------------
 
-/** Every source file in the two shells and the code they share. */
-function sourceFiles(): string[] {
-  const roots = ['src', 'mobile/src', 'mobile/worklet']
-  const files: string[] = []
-
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === 'dist') continue
-        walk(full)
-      } else if (/\.(ts|tsx)$/.test(entry.name)) {
-        files.push(full)
-      }
-    }
-  }
-
-  for (const root of roots) walk(path.join(process.cwd(), root))
-  return files.map((file) => path.relative(process.cwd(), file))
-}
-
-/**
- * The source with its comments removed.
- *
- * A comment is not a rival implementation, and these rules quote the sentences they replaced while
- * explaining why — including in this very file. Crude on purpose: a `//` inside a string literal
- * truncates that line, which can only ever hide a hit, never invent one.
- */
-function codeOnly(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-}
+// The comment stripper these scans depend on lives in `./source-scan.ts` and is tested there. It
+// used to be a regular expression defined here, which `accept="image/*"` in `src/ui/app-shell.ts`
+// defeated: the `/*` in that attribute opened a comment it closed 55,255 characters later, so a
+// third of that file was invisible to every check below from the day they were written.
 
 /** Matches the sentence as something the code produces, rather than as prose about it. */
-function saysLiterally(source: string, text: string): boolean {
-  const code = codeOnly(source)
+function saysLiterally(file: string, text: string): boolean {
+  const code = codeOf(file)
   return code.includes(`'${text}`) || code.includes(`"${text}`) || code.includes(`\`${text}`)
 }
 
@@ -78,7 +51,7 @@ test('no shell keeps its own copy of a sentence a shared rule already owns', () 
   const rivals: string[] = []
   for (const { text, owner, rule, also = [] } of OWNED) {
     const allowed = also
-    const found = files.filter((file) => saysLiterally(fs.readFileSync(file, 'utf8'), text))
+    const found = files.filter((file) => saysLiterally(file, text))
     assert.ok(found.includes(owner), `${rule} no longer says "${text}" — update this list with it`)
 
     for (const file of found) {
@@ -94,7 +67,7 @@ test('no shell keeps its own copy of a sentence a shared rule already owns', () 
 test('the string that called every attachment an image is gone', () => {
   // The desktop rendered "Shared an image" for a PDF, a zip and a voice note, in the room list and
   // again in notifications. `lastMessagePreview` names the file instead.
-  const offenders = sourceFiles().filter((file) => saysLiterally(fs.readFileSync(file, 'utf8'), 'Shared an image'))
+  const offenders = sourceFiles().filter((file) => saysLiterally(file, 'Shared an image'))
   assert.deepEqual(offenders, [])
 })
 
@@ -104,7 +77,7 @@ test('neither shell derives "unread" from the two timestamps itself', () => {
   const pattern = /lastMessageTime\s*(&&|>)[^\n]*lastReadAt/
   const offenders = sourceFiles().filter((file) => {
     if (file === 'src/rooms/room-rules.ts') return false
-    return pattern.test(codeOnly(fs.readFileSync(file, 'utf8')))
+    return pattern.test(codeOf(file))
   })
   assert.deepEqual(offenders, [])
 })

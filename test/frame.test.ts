@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import path from 'node:path'
 import b4a from 'b4a'
+import { sourceFiles } from './source-scan.js'
 import { packFrame, unpackFrame } from '../src/transport/frame.js'
 
 // ---------------------------------------------------------------------------
@@ -72,21 +72,7 @@ test('an empty binary tail is the same frame as no tail at all', () => {
 test('there is one frame codec, and both bridges import it', () => {
   // The duplicate is gone; this is what keeps the next one from being written. A runtime that
   // wants a frame imports this module — it does not define `packFrame` for itself.
-  const files: string[] = []
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === 'dist') continue
-        walk(full)
-      } else if (/\.(ts|tsx)$/.test(entry.name)) {
-        files.push(path.relative(process.cwd(), full))
-      }
-    }
-  }
-  for (const root of ['src', 'mobile/src', 'mobile/worklet']) walk(path.join(process.cwd(), root))
-
-  const definers = files.filter((file) => /function packFrame\b/.test(fs.readFileSync(file, 'utf8')))
+  const definers = sourceFiles().filter((file) => /function packFrame\b/.test(fs.readFileSync(file, 'utf8')))
   assert.deepEqual(definers, ['src/transport/frame.ts'])
 
   // And both backends are still wired to it, so the check above cannot pass by nobody using it.

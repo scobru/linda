@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import b4a from 'b4a'
 import { identityExists, createIdentity, unlockIdentity, recoverIdentity, pairIdentity, revealMnemonic, WrongPassphraseError, type Identity } from '../identity/index.js'
+import { classifySessionError, describeSessionError } from '../app/session-errors.js'
 import type { RoomBookmark } from '../app/session.js'
 import { openSession } from '../app/open-session.js'
 import type { SessionView, RoomView } from '../app/session-view.js'
@@ -543,7 +544,9 @@ export class AppShell extends HTMLElement {
         this.identity = unlockIdentity(pass, storageDir())
         this.enterApp()
       } catch (err) {
-        this.setError(err instanceof WrongPassphraseError ? 'Wrong passphrase' : 'Failed to unlock')
+        // 'Failed to unlock' said nothing and offered nothing. Anything that is not a wrong
+        // passphrase now gets the shared explanation, or its own text if there is no remedy to give.
+        this.setError(err instanceof WrongPassphraseError ? 'Wrong passphrase' : describeSessionError(err, 'desktop'))
       }
     }
     this.querySelector('#submit')!.addEventListener('click', submit)
@@ -703,12 +706,14 @@ export class AppShell extends HTMLElement {
       this.callOverlay.setSession(session)
       this.callOverlay.setPeerLookup(this.nicknames, this.avatars)
     } catch (err: any) {
-      const msg = err?.message || String(err)
-      if (msg.includes('locked') || msg.includes('FDLock')) {
-        this.setError(`Storage directory is already in use by another running instance of Linda. Please close the other instance.`)
-      } else {
-        this.setError(`Failed to open storage: ${msg}`)
-      }
+      // This matched two spellings of "locked" and knew nothing about a store belonging to another
+      // device — `classifySessionError` knows both, and mobile now asks the same question it does.
+      // The "Failed to open storage" framing is kept for a failure nothing recognises, where naming
+      // the step that failed is the only useful thing left to say.
+      const failure = classifySessionError(err)
+      this.setError(failure === 'unknown'
+        ? `Failed to open storage: ${err?.message || String(err)}`
+        : describeSessionError(err, 'desktop'))
       return
     }
 
