@@ -16,7 +16,8 @@ import { FileStore } from '../files/drive.js'
 import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
-import { CallSession, type CallInfo, type CallState, type CallEndReason, type CallMediaOptions } from '../call/call-session.js'
+import { type CallInfo, type CallState, type CallEndReason, type CallMediaOptions } from '../call/call-session.js'
+import { CallDesk } from '../call/call-desk.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 
 export type { RoomBookmark, ContactEntry, CallInfo, CallState, CallEndReason, CallMediaOptions, MediaFrameMessage }
@@ -112,7 +113,8 @@ export class Session {
   private readonly peerNicknames = new Map<string, string>()
   private writeRequestTimer: ReturnType<typeof setInterval> | null = null
   private readonly events: SessionEvents
-  private activeCall: CallSession | null = null
+  /** The device's one call slot — policy and routing live in `CallDesk`, not here. */
+  private readonly calls: CallDesk
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport, createMediaServer?: MediaServerFactory) {
     this.createMediaServer = createMediaServer
@@ -121,6 +123,13 @@ export class Session {
     this.store = store
     this.profileStore = profileStore
     this.events = events
+    this.calls = new CallDesk(identity.id, {
+      onIncomingCall: (info) => events.onIncomingCall?.(info),
+      onCallStateChange: (info) => events.onCallStateChange?.(info),
+      onCallEnded: (info) => events.onCallEnded?.(info),
+      onCallRemoteControl: (callId, action) => events.onCallRemoteControl?.(callId, action),
+      onCallMediaFrame: (frame) => events.onCallMediaFrame?.(frame)
+    }, () => randomId())
     for (const announce of this.loadDirectory()) this.directory.set(announce.roomId, announce)
 
     const swarmHandlers: SwarmHandlers = {
@@ -337,72 +346,18 @@ export class Session {
         events.onPeerConnected?.(peer)
       },
       onCallOffer: (message) => {
-        if (this.activeCall && this.activeCall.state !== 'ended') {
-          const peer = this.peers.get(message.fromId)
-          peer?.callRpc.sendCallEnd({
-            callId: message.callId,
-            fromId: this.identity.id,
-            reason: 'busy'
-          })
-          return
-        }
         const peer = this.peers.get(message.fromId)
-        if (!peer) return
-
-        const session = new CallSession(
-          message.callId,
-          message.fromId,
-          message.roomId,
-          this.identity.id,
-          'incoming',
-          { audio: message.audio, video: message.video },
-          {
-            onStateChange: (info) => {
-              this.events.onCallStateChange?.(info)
-              if (info.state === 'ended') {
-                this.events.onCallEnded?.(info)
-                if (this.activeCall === session) this.activeCall = null
-              }
-            },
-            onRemoteControl: (callId, action) => {
-              this.events.onCallRemoteControl?.(callId, action)
-            },
-            onMediaFrame: (frame) => {
-              this.events.onCallMediaFrame?.(frame)
-            }
-          }
-        )
-        session.attachChannel(peer.callRpc)
-        this.activeCall = session
-        session.ring()
-        this.events.onIncomingCall?.(session.info)
+        // An offer from a peer we hold no connection to has no channel to answer on, busy or not.
+        if (peer) this.calls.receive(message, peer)
       },
-      onCallAnswer: (message) => {
-        if (this.activeCall && this.activeCall.callId === message.callId) {
-          this.activeCall.handleAnswer(message)
-        }
-      },
-      onCallEnd: (message) => {
-        if (this.activeCall && this.activeCall.callId === message.callId) {
-          this.activeCall.handleEnd(message)
-        }
-      },
-      onCallControl: (message) => {
-        if (this.activeCall && this.activeCall.callId === message.callId) {
-          this.activeCall.handleControl(message)
-        }
-      },
-      onMediaFrame: (message) => {
-        if (this.activeCall && this.activeCall.callId === message.callId) {
-          this.activeCall.handleMediaFrame(message)
-        }
-      },
+      onCallAnswer: (message) => this.calls.handleAnswer(message),
+      onCallEnd: (message) => this.calls.handleEnd(message),
+      onCallControl: (message) => this.calls.handleControl(message),
+      onMediaFrame: (message) => this.calls.handleMediaFrame(message),
       onDisconnection: (publicKey) => {
         const remoteId = b4a.toString(publicKey, 'hex')
         this.peers.delete(remoteId)
-        if (this.activeCall && this.activeCall.peerId === remoteId) {
-          this.activeCall.handlePeerDisconnected()
-        }
+        this.calls.peerGone(remoteId)
         events.onPeerDisconnected?.(publicKey)
       }
     }
@@ -1819,75 +1774,31 @@ export class Session {
   async startCall(peerId: string, roomId: string, media: { audio: boolean; video: boolean }): Promise<CallInfo> {
     const peer = this.peers.get(peerId)
     if (!peer) throw new Error('Peer is not connected')
-    if (this.activeCall && this.activeCall.state !== 'ended') {
-      throw new Error('Already in an active call')
-    }
-
-    const callId = randomId()
-    const session = new CallSession(
-      callId,
-      peerId,
-      roomId,
-      this.identity.id,
-      'outgoing',
-      media,
-      {
-        onStateChange: (info) => {
-          this.events.onCallStateChange?.(info)
-          if (info.state === 'ended') {
-            this.events.onCallEnded?.(info)
-            if (this.activeCall === session) this.activeCall = null
-          }
-        },
-        onRemoteControl: (cId, action) => {
-          this.events.onCallRemoteControl?.(cId, action)
-        },
-        onMediaFrame: (frame) => {
-          this.events.onCallMediaFrame?.(frame)
-        }
-      }
-    )
-
-    session.attachChannel(peer.callRpc)
-    this.activeCall = session
-    session.dial()
-    return session.info
+    return this.calls.place(peerId, roomId, media, peer)
   }
 
   answerCall(callId: string, accept: boolean): void {
-    if (!this.activeCall || this.activeCall.callId !== callId) return
-    if (accept) {
-      this.activeCall.accept()
-    } else {
-      this.activeCall.reject()
-    }
+    this.calls.answer(callId, accept)
   }
 
   endCall(callId?: string): void {
-    if (!this.activeCall) return
-    if (!callId || this.activeCall.callId === callId) {
-      this.activeCall.hangup()
-      this.activeCall = null
-    }
+    this.calls.end(callId)
   }
 
   getActiveCall(): CallInfo | null {
-    return this.activeCall ? this.activeCall.info : null
+    return this.calls.current
   }
 
   sendCallControl(action: string): void {
-    this.activeCall?.sendControl(action)
+    this.calls.control(action)
   }
 
   sendCallFrame(frame: MediaFrameMessage): void {
-    this.activeCall?.sendFrame(frame)
+    this.calls.send(frame)
   }
 
   async close(): Promise<void> {
-    if (this.activeCall) {
-      this.activeCall.hangup()
-      this.activeCall = null
-    }
+    this.calls.end()
     if (this.mediaServer) {
       this.mediaServer.close()
       this.mediaServer = null

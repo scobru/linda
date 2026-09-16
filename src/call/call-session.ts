@@ -25,6 +25,31 @@ export interface CallMediaOptions {
   video: boolean
 }
 
+/** What the peer has switched off on their side, as both shells display it. */
+export interface RemoteControlState {
+  remoteMuted: boolean
+  remoteCameraOff: boolean
+}
+
+/**
+ * Applies a `call_control` action to a view of the call.
+ *
+ * The same four-way switch was written three times — here, in the desktop overlay's
+ * `handleCallRemoteControl`, and in mobile's `useSession` reducer — because each shell keeps its
+ * own copy of the call info and has to update it when the control event arrives. Returning a new
+ * object rather than mutating is what lets a React state setter and this class share one function.
+ * An unknown action leaves the state alone: a newer peer's vocabulary is not a reason to guess.
+ */
+export function applyRemoteControl<T extends RemoteControlState>(state: T, action: string): T {
+  switch (action) {
+    case 'mute': return { ...state, remoteMuted: true }
+    case 'unmute': return { ...state, remoteMuted: false }
+    case 'camera-off': return { ...state, remoteCameraOff: true }
+    case 'camera-on': return { ...state, remoteCameraOff: false }
+    default: return state
+  }
+}
+
 export interface CallInfo {
   callId: string
   peerId: string
@@ -56,8 +81,7 @@ export class CallSession {
   readonly media: CallMediaOptions
 
   private _state: CallState = 'idle'
-  private _remoteMuted = false
-  private _remoteCameraOff = false
+  private _remote: RemoteControlState = { remoteMuted: false, remoteCameraOff: false }
   private _startedAt: number | null = null
   private _endedAt: number | null = null
   private _endReason: CallEndReason | null = null
@@ -94,8 +118,8 @@ export class CallSession {
       state: this._state,
       direction: this.direction,
       media: this.media,
-      remoteMuted: this._remoteMuted,
-      remoteCameraOff: this._remoteCameraOff,
+      remoteMuted: this._remote.remoteMuted,
+      remoteCameraOff: this._remote.remoteCameraOff,
       startedAt: this._startedAt,
       endedAt: this._endedAt,
       endReason: this._endReason
@@ -127,7 +151,7 @@ export class CallSession {
 
   // ── Incoming call lifecycle ─────────────────────────────────────────────
 
-  /** Marks the call as ringing (called by the CallManager when an offer arrives). */
+  /** Marks the call as ringing (called by the `CallDesk` when an offer arrives). */
   ring(): void {
     if (this._state !== 'idle') return
     this._state = 'ringing'
@@ -192,7 +216,7 @@ export class CallSession {
     this.callRpc?.sendMediaFrame(frame)
   }
 
-  // ── Incoming message handlers (called by CallManager) ───────────────────
+  // ── Incoming message handlers (routed here by the `CallDesk`) ───────────
 
   handleAnswer(message: CallAnswerMessage): void {
     if (this._state !== 'calling') return
@@ -212,12 +236,7 @@ export class CallSession {
 
   handleControl(message: CallControlMessage): void {
     if (this._state !== 'connected') return
-    switch (message.action) {
-      case 'mute': this._remoteMuted = true; break
-      case 'unmute': this._remoteMuted = false; break
-      case 'camera-off': this._remoteCameraOff = true; break
-      case 'camera-on': this._remoteCameraOff = false; break
-    }
+    this._remote = applyRemoteControl(this._remote, message.action)
     this.events.onRemoteControl?.(this.callId, message.action)
     this.emitStateChange()
   }

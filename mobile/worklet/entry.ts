@@ -243,6 +243,11 @@ const methods: Record<string, (...args: any[]) => any> = {
       onReadReceipt: (m) => pushEvent('readReceipt', m),
       onIncomingCall: (info) => pushEvent('incomingCall', info),
       onCallStateChange: (info) => pushEvent('callStateChange', info),
+      // The app has listened for both of these since calls landed; nothing was sending them, so
+      // the end-of-call haptic never fired and a peer's mute never reached the phone until the
+      // state change that follows it happened to carry the flag.
+      onCallEnded: (info) => pushEvent('callEnded', info),
+      onCallRemoteControl: (callId, action) => pushEvent('callRemoteControl', { callId, action }),
       onCallMediaFrame: (frame) => {
         const payload = frame.payload ? b4a.toString(frame.payload, 'base64') : ''
         pushEvent('callMediaFrame', { ...frame, payload })

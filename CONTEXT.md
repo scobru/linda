@@ -24,10 +24,14 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
   - Stream audio PCM tramite `AudioContext` o WebRTC audio track.
   - Test e richiesta diagnostica permessi hardware su Electron/macOS/Windows.
 
-### `CallSession` & `CallRpc`
+### `CallSession`, `CallDesk` & `CallRpc`
 - **Definizione:** Moduli del Core P2P che implementano il protocollo di segnalazione e la macchina a stati della chiamata (`idle` -> `calling` / `ringing` -> `connected` -> `ended`).
 - **Canale:** Canale dedicato Protomux `linda-call/1` multiplexato sulle connessioni Hyperswarm crittografate con Noise.
 - **Messaggi:** `call_offer`, `call_answer`, `call_end`, `call_control` (mute/unmute/camera-off/camera-on), `call_frame` (payload multimediale binario).
+- **`CallSession`:** *Una* chiamata. Non sa nulla delle altre.
+- **`CallDesk`:** L'unico posto-chiamata del dispositivo, in [call-desk.ts](src/call/call-desk.ts). Tiene le regole che stanno *attorno* a una chiamata: una alla volta, un `busy` invece del silenzio a chi chiama mentre sei occupato (e sul canale di chi chiama, non su quello della chiamata in corso), un messaggio vale per la chiamata che nomina o per nessuna, e il posto si libera quando la chiamata finisce. Erano otto ripetizioni di due condizioni dentro `Session`, raggiungibili solo con uno swarm vivo e due peer veri.
+- **`applyRemoteControl`:** Il riduttore delle azioni remote, una volta sola: lo usano la macchina a stati e le due shell, ognuna delle quali tiene la propria copia di `CallInfo` da aggiornare. Un'azione sconosciuta non cambia nulla.
+- **Invariante degli eventi:** Il worklet mobile e l'app si parlano per nome (`pushEvent` / `bareClient.on`), quindi un ascoltatore senza produttore è muto e nessuno se ne accorge — è così che `callEnded` e `callRemoteControl` sono rimasti scollegati. Un test enumera i due insiemi.
 
 ### `Session` & `SessionView`
 - **Definizione:** Il punto d'accesso unificato all'istanza Linda del peer locale.
@@ -56,6 +60,13 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
 - **`AttachmentKind`:** Classifica un allegato (`image` | `audio` | `video` | `archive` | `pdf` | `other`) per MIME type e, in mancanza, per estensione. Contiene anche la convenzione del nome dei messaggi vocali (`voice-<ISO>.<ext>`) insieme alla funzione che la scrive, così produttore e lettore non possono divergere.
 - **`RoomRules`:** Predicati puri — chi può cancellare un messaggio, il conteggio e l'ordinamento degli hashtag, quale tag selezionato sopravvive a un ricalcolo.
 - **Invariante:** Queste funzioni prendono **primitive, mai un `Room`**. Le due piattaforme tengono una stanza in forme diverse — `RoomView` con metodi sul desktop, `RoomState` con array su mobile — e una regola che chiedesse una stanza sarebbe usabile da un lato solo. È esattamente così che erano nate le copie divergenti.
+
+### `MessageEncoding` & `ProtocolChannel`
+- **Definizione:** Le due dichiarazioni da cui il filo è derivato, invece che scritto a mano: l'elenco dei campi di un messaggio in [message-encoding.ts](src/network/message-encoding.ts), e l'elenco ordinato dei messaggi di un canale in [protocol-channel.ts](src/network/protocol-channel.ts).
+- **`MessageEncoding`:** `preencode` / `encode` / `decode` costruite da un solo elenco di campi, quindi non possono divergere. `optionalString` è la regola della compatibilità all'indietro resa tipo: i campi opzionali stanno in fondo (imposto alla costruzione) e un frame più corto, spedito da un peer più vecchio, decodifica lo stesso.
+- **`ProtocolChannel`:** Da `[nome, encoding]` derivano sia `sendX` sia `onX`, per entrambi i canali (`linda-rpc/1` e `linda-call/1`).
+- **Invariante — l'ordine è il contratto:** Protomux assegna l'id di rete di un messaggio dalla sua posizione (`addMessage` fa `const type = this.messages.length`), esattamente come il frame porta l'ordine dei campi e non i loro nomi. In entrambi i casi si aggiunge in coda e non si riordina mai: due build che non concordano sull'ordine si decodificano a vicenda il messaggio sbagliato, in silenzio e solo tra peer.
+- **`sender`:** Il campo con cui un messaggio dichiara il proprio mittente (`fromId`, `userId`). La connessione è autenticata con Noise e la chiave del peer **è** il suo identity id, quindi un mittente dichiarato che non coincide è un falso e viene scartato prima di qualsiasi handler. Non dichiararlo è un'affermazione altrettanto precisa: `roomAnnounce.authorId` è l'autore della stanza, non chi la annuncia — i peer si riannunciano a vicenda le directory.
 
 ### `Identity` & `ProfileStore`
 - **Definizione:** Gestione dell'identità crittografica dell'utente (coppia di chiavi ED25519/Noise derivata da mnemonico BIP39), della rubrica dei contatti verificati e dei metadati locali (avatar, bio, bookmark stanze).
