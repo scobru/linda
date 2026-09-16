@@ -1,0 +1,31 @@
+{
+  // The worklet is the mobile backend: it hosts the same `Session` the desktop runs, over the same
+  // `src/`. It was in neither typecheck — the root config includes only `src`, mobile's only
+  // `App.tsx` and `src/**` — which is how a handler typed `(frame: any)` that rewrote its argument
+  // in place lived there comfortably, and why every contract this repo makes the compiler enforce
+  // stopped at the worklet's door on the one platform where those seams broke twice.
+  //
+  // Standalone rather than extending mobile's config, which extends `expo/tsconfig.base`: every
+  // package this needs (`bare-*`, `typescript`, `@types/node`) is a root dependency, so CI can run
+  // it with the install it already does (`--workspaces=false`), without the React Native toolchain.
+  //
+  // Bare is Node-shaped rather than DOM-shaped, so: node types, no DOM lib. A worklet file that
+  // reaches for `document` should fail here.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    // The worklet pulls in `mobile/src/bare/*`, which addresses the core through the same alias the
+    // app uses. Same mapping, so one module is not two different types depending on who compiles it.
+    "paths": { "@core/*": ["./src/*"] }
+  },
+  "include": ["mobile/worklet/**/*.ts", "src/types/**/*"]
+}

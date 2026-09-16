@@ -28,7 +28,8 @@
   "scripts": {
     "build": "node build.js",
     "watch": "node build.js --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worklet.json",
+    "typecheck:worklet": "tsc --noEmit -p tsconfig.worklet.json",
     "test": "node test.js",
     "test:call": "npx tsx --test test/media-pipeline.test.ts",
     "clean-storage": "node -e \"const fs=require('fs');fs.rmSync('./.dev-storage',{recursive:true,force:true});console.log('Storage cleaned.');\"",

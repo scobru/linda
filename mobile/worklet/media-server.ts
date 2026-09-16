@@ -23,7 +23,12 @@ export class WorkletMediaServer {
       handle(req.url ?? '', req.headers.range).then((response) => {
         res.writeHead(response.status, response.headers)
         if (!response.stream) return res.end()
-        response.stream.pipe(res)
+        // `bare-http1`'s response implements the same write/end/on protocol as Node's, but the two
+        // runtimes ship unrelated declarations, so the compiler sees a `ServerResponse` where
+        // `Readable.pipe` asks for a `NodeJS.WritableStream`. Pairing the runtime-agnostic handler
+        // with this runtime's server is what this file is for; the mismatch is stated here, once,
+        // rather than by loosening the handler's own types for every caller.
+        response.stream.pipe(res as unknown as NodeJS.WritableStream)
         // Seeking abandons the current range mid-flight; without this the drive keeps pulling
         // blocks from peers to fill a response that nothing is reading.
         res.on('close', () => response.stream?.destroy())
