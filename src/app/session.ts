@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { Readable } from 'node:stream'
 import Corestore, { type HyperCore } from 'corestore'
+import { PERSONAL_VAULT_DESCRIPTION, PERSONAL_VAULT_NAME } from '../rooms/room-rules.js'
 import Hyperdrive from 'hyperdrive'
 import hypercoreCrypto from 'hypercore-crypto'
 import type Hyperswarm from 'hyperswarm'
@@ -730,7 +731,7 @@ export class Session {
     let vaultBookmark = bookmarks.find((b) => b.isVault)
     if (!vaultBookmark) {
       // Check if an existing room was named "Personal Vault" (e.g. prior release)
-      vaultBookmark = bookmarks.find((b) => b.name.trim().toLowerCase() === 'personal vault')
+      vaultBookmark = bookmarks.find((b) => b.name.trim().toLowerCase() === PERSONAL_VAULT_NAME.toLowerCase())
       if (vaultBookmark) {
         vaultBookmark = { ...vaultBookmark, isVault: true, favorite: true }
         await this.saveBookmark(vaultBookmark)
@@ -750,10 +751,10 @@ export class Session {
     }
 
     const room = await this.createRoom(
-      'Personal Vault',
+      PERSONAL_VAULT_NAME,
       false,
       'vault',
-      'Your sovereign P2P personal storage & notes'
+      PERSONAL_VAULT_DESCRIPTION
     )
     const createdBookmark = this.bookmarks.get(room.id)
     if (createdBookmark) {

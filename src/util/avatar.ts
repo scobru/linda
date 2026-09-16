@@ -31,3 +31,13 @@ export function avatarInitials(label: string): string {
   const clean = label.replace(/[@#]/g, '').trim()
   return clean.slice(0, 2).toUpperCase() || '?'
 }
+
+/**
+ * Shown when a picked image cannot be turned into an avatar.
+ *
+ * Both shells load the file and then square and shrink it, and either half can throw — so the
+ * desktop's wording is the accurate one. Mobile said "Could not load image" while calling
+ * `squareImageToDataUri`, which names the step that probably worked. Mobile keeps appending the
+ * underlying error, which the desktop does not and which is worth more than either title.
+ */
+export const IMAGE_LOAD_FAILED = 'Could not load or resize image'

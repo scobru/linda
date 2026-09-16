@@ -25,7 +25,7 @@ import MessageComposer from '../components/MessageComposer'
 import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { attachmentKind, isAudio, isVideo } from '@core/rooms/attachment-kind'
-import { canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, mailboxSnippet, mailboxSubject, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
+import { FILE_NOT_YET_AVAILABLE, PERSONAL_VAULT_DESCRIPTION, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, mailboxSnippet, mailboxSubject, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -276,7 +276,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     try {
       const base64 = await room.downloadRoomFile(file.path, file.driveKey)
       if (!base64) {
-        Alert.alert('Download failed', 'File not available on connected peers')
+        // Not a failure: the peer holding the bytes is usually just offline.
+        Alert.alert('Not available yet', FILE_NOT_YET_AVAILABLE)
         return
       }
       const localUri = `${FileSystem.cacheDirectory}${file.name}`
@@ -468,7 +469,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             )}
           </View>
           <Text style={{ color: colors.textTertiary, fontSize: 11 }}>
-            {isVault ? 'Single-Writer Sovereign Vault' : `${memberCount} member(s)`}
+            {isVault ? PERSONAL_VAULT_DESCRIPTION : `${memberCount} member(s)`}
           </Text>
         </View>
       ),

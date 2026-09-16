@@ -7,6 +7,7 @@ import { squareImageToDataUri } from '../avatar-image'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import { canRestrictMember, memberRole, memberRoleLabel } from '@core/rooms/room-rules'
+import { IMAGE_LOAD_FAILED } from '@core/util/avatar'
 import { useContacts } from '../hooks/useContacts'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
@@ -103,7 +104,7 @@ export default function MembersScreen({ route, navigation }: Props) {
     try {
       setMetaAvatar(await squareImageToDataUri(asset.uri))
     } catch (err) {
-      Alert.alert('Could not load image', (err as Error).message)
+      Alert.alert(IMAGE_LOAD_FAILED, (err as Error).message)
     }
   }, [])
 

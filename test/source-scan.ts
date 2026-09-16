@@ -70,30 +70,19 @@ export function codeOnly(source: string): string {
       continue
     }
     if (char === '`') {
-      // A template can hold `${ ... }` holding another template, so this tracks depth rather than
-      // scanning to the closing backtick.
-      templates.push(braces)
+      // Opening a template. `enterTemplate` consumes its text and leaves `i` either past the closing
+      // backtick (template done) or just past a `${`, at which point we are back in code and the
+      // brace depth below tracks where that hole ends.
       out.push(char)
-      i++
-      const end = scanTemplateChunk(source, i)
-      out.push(source.slice(i, end))
-      i = end
+      i = enterTemplate(source, i + 1, out, templates, braces)
+      lastSignificant = '`'
       continue
     }
     if (templates.length > 0 && char === '}' && braces === templates[templates.length - 1]) {
-      // Closing a `${`: back inside the template's text.
+      // Closing a `${` hole: back into the template's text.
       out.push(char)
-      i++
-      const end = scanTemplateChunk(source, i)
-      out.push(source.slice(i, end))
-      i = end
-      continue
-    }
-    if (templates.length > 0 && char === '`' ) {
-      templates.pop()
-      out.push(char)
-      i++
-      lastSignificant = char
+      i = enterTemplate(source, i + 1, out, templates, braces, /* resuming */ true)
+      lastSignificant = '`'
       continue
     }
 
@@ -132,16 +121,44 @@ function scanQuoted(source: string, start: number, quote: string): number {
   return source.length
 }
 
-/** Index of the next `` ` `` or `${` that ends this run of template text. */
-function scanTemplateChunk(source: string, start: number): number {
+/**
+ * Consumes one run of template text, starting just past a backtick or a `${`.
+ *
+ * Returns the index to carry on from, and leaves `templates` describing what is still open. The
+ * distinction that matters: a run of template text ends either at a backtick, which *closes* the
+ * template, or at a `${`, which opens a hole of ordinary code. Getting that backwards makes every
+ * closing backtick open a second template — the stack then only ever grows, and the code after the
+ * first template in a file is read as template text for the rest of the file.
+ */
+function enterTemplate(
+  source: string,
+  start: number,
+  out: string[],
+  templates: number[],
+  braces: number,
+  resuming = false
+): number {
+  if (!resuming) templates.push(braces)
+
   let i = start
   while (i < source.length) {
     const char = source[i]!
     if (char === '\\') { i += 2; continue }
-    if (char === '`') return i
-    if (char === '$' && source[i + 1] === '{') return i + 2
+    if (char === '`') {
+      // Closes this template.
+      out.push(source.slice(start, i + 1))
+      templates.pop()
+      return i + 1
+    }
+    if (char === '$' && source[i + 1] === '{') {
+      // Opens a hole: the caller carries on in code until the matching brace.
+      out.push(source.slice(start, i + 2))
+      return i + 2
+    }
     i++
   }
+  out.push(source.slice(start))
+  templates.pop()
   return source.length
 }
 
