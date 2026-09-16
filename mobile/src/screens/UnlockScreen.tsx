@@ -9,7 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { unlockIdentity, WrongPassphraseError } from '../bare/identity-client'
 import { storageDir } from '../bare/storage-dir'
 import { isBiometricLockEnabled, unlockWithBiometrics } from '../bare/biometric-lock'
-import { describeSessionError } from '../bare/session-errors'
+import { describeSessionError } from '@core/app/session-errors'
 import { useSession } from '../hooks/useSession'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
@@ -45,7 +45,7 @@ export default function UnlockScreen({ navigation }: Props) {
         setError('Wrong passphrase')
       } else {
         console.warn('[unlock] failed:', (err as Error)?.message)
-        setError(describeSessionError(err))
+        setError(describeSessionError(err, 'mobile'))
       }
       unlocking.current = false
       setLoading(false)
