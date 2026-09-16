@@ -32,6 +32,36 @@ export function canDeleteMessage(message: { authorId: string }, viewer: Viewer):
   return viewer.isOwner || viewer.isModerator
 }
 
+/** A room as the unread rule sees it: when its newest message landed, and when this device last
+ *  looked. Both are epoch ms, and both may be missing — a room nobody has written in, a room
+ *  nobody has opened. */
+export interface UnreadState {
+  id: string
+  lastMessageTime?: number | null
+  lastReadAt?: number | null
+}
+
+/**
+ * Whether a room should show as unread.
+ *
+ * Written four times — the desktop's `isRoomUnread`, mobile's room-list dot, mobile's unread
+ * filter, mobile's app-icon badge — and only the first of them excluded the room being read. So a
+ * message arriving in the conversation you have open right now bumped the phone's badge while you
+ * were looking at the message, and did nothing on the desktop.
+ *
+ * Excluding it is the right half of that disagreement: the room is read, by definition, because
+ * you are reading it. `markRoomRead` then persists what this already shows, rather than being the
+ * only thing that makes it true.
+ *
+ * `openRoomId` is null when no room is on screen — which on mobile is any time the room list
+ * itself is, since the screen clears it on blur.
+ */
+export function isRoomUnread(room: UnreadState, openRoomId: string | null): boolean {
+  if (openRoomId !== null && openRoomId === room.id) return false
+  const lastMessageTime = room.lastMessageTime ?? 0
+  return lastMessageTime > 0 && lastMessageTime > (room.lastReadAt ?? 0)
+}
+
 /**
  * Everything the composer gate depends on, resolved by the caller from whichever shape it holds.
  *

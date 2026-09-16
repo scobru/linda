@@ -9,6 +9,7 @@ import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
 import type { RoomSummary } from '../bare/session-proxy'
 import { decodeInvite } from '@core/ui/qr-core'
+import { isRoomUnread } from '@core/rooms/room-rules'
 import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
@@ -212,7 +213,7 @@ export default function RoomsScreen({ navigation }: Props) {
         avatar={(peerId && avatars.get(peerId)) || item.avatar}
         lastMessage={item.lastMessageText ?? undefined}
         timestamp={item.lastMessageTime ?? undefined}
-        unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
+        unread={isRoomUnread(item, null)}
         favorite={!!item.favorite}
         isVault={!!item.isVault}
         actions={rowActions}
@@ -230,7 +231,7 @@ export default function RoomsScreen({ navigation }: Props) {
       list = list.filter((b) => b.name.toLowerCase().includes(q) || (b.lastMessageText && b.lastMessageText.toLowerCase().includes(q)))
     }
     if (activeFilter === 'unread') {
-      list = list.filter((b) => !!b.lastMessageTime && b.lastMessageTime > (b.lastReadAt ?? 0))
+      list = list.filter((b) => isRoomUnread(b, null))
     }
     if (activeFilter === 'favorites') {
       list = list.filter((b) => b.favorite)

@@ -8,7 +8,7 @@ import {
   isVoiceMessage,
   voiceMessageName
 } from '../src/rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag } from '../src/rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, isRoomUnread, survivingHashtag } from '../src/rooms/room-rules.js'
 
 // These rules were written twice, once per platform, and nothing ran either copy: `app-shell.ts`
 // needs a DOM and the mobile screens need a device, so both were beyond the suite's reach. Pulled
@@ -178,4 +178,29 @@ test('every rung carries a sentence a user can act on', () => {
   const kinds = states.map((state) => composerBlock(state)?.kind)
   assert.deepEqual(kinds, ['banned', 'muted', 'broadcast', 'waiting-key', 'syncing', 'no-access'])
   for (const state of states) assert.ok((composerBlock(state)?.text.length ?? 0) > 10)
+})
+
+// ---------------------------------------------------------------------------
+// The unread rule, which was written four times and agreed on three of them.
+// ---------------------------------------------------------------------------
+
+test('a room is unread when its newest message postdates the last look', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, null), true)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 100, lastReadAt: 200 }, null), false)
+})
+
+test('a room nobody has written in is not unread, however long ago you looked', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastReadAt: 0 }, null), false)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: null, lastReadAt: null }, null), false)
+})
+
+test('a room never opened is unread as soon as it has a message', () => {
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 1 }, null), true)
+})
+
+test('the room you are reading is not unread', () => {
+  // Only the desktop excluded it. On the phone a message arriving in the conversation you had
+  // open bumped the app-icon badge while you were looking at the message.
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r1'), false)
+  assert.equal(isRoomUnread({ id: 'r1', lastMessageTime: 200, lastReadAt: 100 }, 'r2'), true)
 })

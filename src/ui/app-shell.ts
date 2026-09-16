@@ -12,7 +12,7 @@ import { inviteToDataUrl, decodeInviteFromImageFile, decodeInvite, encodeInvite,
 import { hostPairing, joinPairing, decodePairingCode } from '../identity/pairing.js'
 import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js'
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
-import { canDeleteMessage, composerBlock, countHashtags, survivingHashtag } from '../rooms/room-rules.js'
+import { canDeleteMessage, composerBlock, countHashtags, isRoomUnread, survivingHashtag } from '../rooms/room-rules.js'
 import { avatarColor, avatarInitials } from '../util/avatar.js'
 import { formatBytes } from '../util/bytes.js'
 import { APP_VERSION } from '../version.js'
@@ -1224,11 +1224,13 @@ export class AppShell extends HTMLElement {
   }
 
   /** Unread = this room has a message newer than the last time it was opened (never opened counts as the epoch). */
+  /** The rule itself is shared with the phone; what differs is only where each shell keeps the
+   *  last message — a render-time cache here, a field on the room summary there. */
   private isRoomUnread(b: RoomBookmark): boolean {
-    if (this.activeRoom?.id === b.id) return false
-    const lastMsgTime = this.lastMessages.get(b.id)?.time
-    if (!lastMsgTime) return false
-    return lastMsgTime > (b.lastReadAt ?? 0)
+    return isRoomUnread(
+      { id: b.id, lastMessageTime: this.lastMessages.get(b.id)?.time, lastReadAt: b.lastReadAt },
+      this.activeRoom?.id ?? null
+    )
   }
 
   private renderRoomListItem(b: RoomBookmark, visible = true): string {

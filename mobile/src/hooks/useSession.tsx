@@ -11,6 +11,7 @@ import type { Identity } from '../bare/identity-client'
 import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
 import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
+import { isRoomUnread } from '@core/rooms/room-rules'
 import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
@@ -99,10 +100,13 @@ export function SessionProvider({ children }: Props) {
     setCallDuration(0)
   }, [activeCall?.state, activeCall?.startedAt])
 
-  // App icon badge = count of unread rooms, same "latest message postdates lastReadAt" rule
-  // RoomsScreen uses for its own unread dot/filter.
+  // App icon badge = count of unread rooms, from the same `isRoomUnread` the room list and the
+  // desktop shell use — including its exclusion of the room on screen, which this count used to
+  // ignore: a message arriving in the conversation you had open bumped the badge while you were
+  // reading it. The ref is read at evaluation time, and `bookmarks` changes on every new message,
+  // which is exactly when this has to be recomputed.
   useEffect(() => {
-    const unreadCount = bookmarks.filter((b) => !!b.lastMessageTime && b.lastMessageTime > (b.lastReadAt ?? 0)).length
+    const unreadCount = bookmarks.filter((b) => isRoomUnread(b, activeRoomIdRef.current)).length
     void Notifications.setBadgeCountAsync(unreadCount)
   }, [bookmarks])
 
