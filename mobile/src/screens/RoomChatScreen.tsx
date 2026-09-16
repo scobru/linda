@@ -1307,7 +1307,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               <ScrollView contentContainerStyle={styles.readerContent}>
                 <View style={styles.readerMetaCard}>
                   <Text style={styles.readerSubject}>
-                    {selectedMailboxMessage.body.trim().split('\n')[0] || selectedMailboxMessage.file?.name || 'Message'}
+                    {mailboxSubject(selectedMailboxMessage)}
                   </Text>
                   <View style={styles.readerRow}>
                     <Avatar
@@ -1334,8 +1334,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 {selectedMailboxMessage.replyTo && messagesById.get(selectedMailboxMessage.replyTo) ? (() => {
                   const parent = messagesById.get(selectedMailboxMessage.replyTo)!
                   const pAuthor = getAuthorName(parent.authorId)
-                  const pLines = parent.body.trim().split('\n')
-                  const pSubj = pLines[0] || (parent.file ? parent.file.name : 'Message')
+                  const pSubj = mailboxSubject(parent)
                   return (
                     <Pressable
                       style={styles.readerReplyBanner}
