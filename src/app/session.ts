@@ -19,6 +19,7 @@ import { randomId } from '../util/id.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 import { type CallInfo, type CallState, type CallEndReason, type CallMediaOptions } from '../call/call-session.js'
 import { CallDesk } from '../call/call-desk.js'
+import { DEFAULT_AUDIO_CODEC } from '../call/audio-codec.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 
 export type { RoomBookmark, ContactEntry, CallInfo, CallState, CallEndReason, CallMediaOptions, MediaFrameMessage }
@@ -127,6 +128,8 @@ export class Session {
   /** Last backpressure state reported to the producer, so only the transitions travel. Starts
    *  `true` because a call that has sent nothing has not been told to hold anything back. */
   private callMediaWantsMore = true
+  /** What the shell running the media pipeline says it can speak — see `setAudioCodecs`. */
+  private audioCodecs: readonly string[] = [DEFAULT_AUDIO_CODEC]
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport, createMediaServer?: MediaServerFactory) {
     this.createMediaServer = createMediaServer
@@ -146,7 +149,7 @@ export class Session {
       },
       onCallRemoteControl: (callId, action) => events.onCallRemoteControl?.(callId, action),
       onCallMediaFrame: (frame) => events.onCallMediaFrame?.(frame)
-    }, () => randomId())
+    }, () => randomId(), () => this.audioCodecs)
     for (const announce of this.loadDirectory()) this.directory.set(announce.roomId, announce)
 
     const swarmHandlers: SwarmHandlers = {
@@ -1787,6 +1790,24 @@ export class Session {
   }
 
   // ── Call Management (1:1 Audio & Video) ───────────────────────────────────
+
+  /**
+   * Declares which audio codecs this device can actually speak, best first.
+   *
+   * The core knows which codecs *exist* (`audio-codec.ts`); only the shell knows which ones its
+   * media pipeline can run, and it has to ask the browser to find out. So capability is pushed in
+   * rather than assumed, and until it is, every call negotiates the floor — which is correct, not
+   * merely safe: a build that offered Opus before confirming it could encode it would agree to a
+   * call it then could not speak, and the peer would hear nothing at all.
+   */
+  setAudioCodecs(codecs: readonly string[]): void {
+    this.audioCodecs = [...codecs]
+  }
+
+  /** What this device last said it can speak. */
+  getAudioCodecs(): readonly string[] {
+    return this.audioCodecs
+  }
 
   async startCall(peerId: string, roomId: string, media: { audio: boolean; video: boolean }): Promise<CallInfo> {
     const peer = this.peers.get(peerId)

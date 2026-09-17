@@ -88,14 +88,29 @@ test('every chat message survives a round trip with its values intact', () => {
 })
 
 test('every call message survives a round trip with its values intact', () => {
+  // The codec fields are trailing optionals, so a message built without them encodes as `''` and
+  // decodes as `''` — which `audio-codec.ts` reads as the floor. That is the whole mechanism by
+  // which a peer predating codec negotiation keeps working.
   assert.deepEqual(
     roundTrip(callOfferEncoding, { callId: 'c1', fromId: 'f1', roomId: 'r1', audio: true, video: false }),
-    { callId: 'c1', fromId: 'f1', roomId: 'r1', audio: true, video: false }
+    { callId: 'c1', fromId: 'f1', roomId: 'r1', audio: true, video: false, audioCodecs: '' }
+  )
+
+  assert.deepEqual(
+    roundTrip(callOfferEncoding, {
+      callId: 'c1', fromId: 'f1', roomId: 'r1', audio: true, video: false, audioCodecs: 'opus,pcm16'
+    }),
+    { callId: 'c1', fromId: 'f1', roomId: 'r1', audio: true, video: false, audioCodecs: 'opus,pcm16' }
   )
 
   assert.deepEqual(
     roundTrip(callAnswerEncoding, { callId: 'c1', fromId: 'f1', accepted: false }),
-    { callId: 'c1', fromId: 'f1', accepted: false }
+    { callId: 'c1', fromId: 'f1', accepted: false, audioCodec: '' }
+  )
+
+  assert.deepEqual(
+    roundTrip(callAnswerEncoding, { callId: 'c1', fromId: 'f1', accepted: true, audioCodec: 'opus' }),
+    { callId: 'c1', fromId: 'f1', accepted: true, audioCodec: 'opus' }
   )
 
   assert.deepEqual(

@@ -659,6 +659,12 @@ export class AppShell extends HTMLElement {
       this.session = session
       this.sessionStartedAt = Date.now()
       this.callOverlay.setSession(session)
+      // What this browser can actually run, which the core has no way to know — see
+      // `Session.setAudioCodecs`. Not awaited: every call negotiates the floor until it lands, and
+      // the floor works, so a slow probe delays better audio rather than the app.
+      void MediaPipeline.supportedAudioCodecs()
+        .then((codecs) => session.setAudioCodecs(codecs))
+        .catch((err) => console.warn('[app-shell] audio codec probe failed:', err))
       this.callOverlay.setPeerLookup(this.nicknames, this.avatars)
     } catch (err: any) {
       // This matched two spellings of "locked" and knew nothing about a store belonging to another

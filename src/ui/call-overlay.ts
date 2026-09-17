@@ -94,10 +94,14 @@ export class CallOverlay {
       this.startRingtone('outgoing')
       this.update()
 
+      // The offer is out but the answer has not landed, so nothing is agreed yet: start on the
+      // floor and let `handleCallStateChange` restart on whatever the answer names. Audio sent
+      // before then goes nowhere anyway — `CallSession.sendFrame` drops frames until connected.
       await this.mediaPipeline.start({
         callId: info.callId,
         audio: media.audio,
         video: media.video,
+        audioCodec: info.audioCodec,
         onSendFrame: (frame) => this.session?.sendCallFrame(frame)
       })
 
@@ -137,6 +141,8 @@ export class CallOverlay {
         callId: info.callId,
         audio: true,
         video: info.media.video,
+        // Already decided: this side answered, and the answer carried the choice.
+        audioCodec: info.audioCodec,
         onSendFrame: (frame) => this.session?.sendCallFrame(frame)
       })
 
@@ -168,6 +174,9 @@ export class CallOverlay {
       if (info.state === 'connected') {
         this.stopRingtone()
         this.startDurationTimer()
+        // The answer is what names the codec, and on an outgoing call it lands here — after the
+        // pipeline was already started on the floor so the self-view could come up during the ring.
+        void this.mediaPipeline.useAudioCodec(info.audioCodec)
         if (info.media.video && this.container) {
           const localVideo = this.container.querySelector<HTMLVideoElement>('#callLocalVideo')
           this.mediaPipeline.attachLocalVideo(localVideo)

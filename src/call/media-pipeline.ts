@@ -1,5 +1,9 @@
 import type { MediaFrameMessage } from './call-encoding.js'
 import { MediaBackpressure } from './media-backpressure.js'
+import {
+  OPUS, PCM16, DEFAULT_AUDIO_CODEC, audioCodecSpec, audioCodecForFrameKind, type AudioCodecSpec
+} from './audio-codec.js'
+import { VIDEO_FRAME } from './call-encoding.js'
 
 // ---------------------------------------------------------------------------
 // Media Pipeline: Capture & Playback for 1:1 Audio and Audio+Video
@@ -16,6 +20,8 @@ export interface MediaPipelineConfig {
   callId: string
   audio: boolean
   video: boolean
+  /** The codec this call negotiated — see `audio-codec.ts`. Absent means the floor. */
+  audioCodec?: string
   onSendFrame: (frame: MediaFrameMessage) => void
 }
 
@@ -34,6 +40,16 @@ export class MediaPipeline {
   private audioWorkletNode: any = null
   private audioProcessor: ScriptProcessorNode | null = null
   private audioSeq = 0
+  /** The codec this call agreed on, and everything that follows from it (rate, packet size, kind). */
+  private audioSpec: AudioCodecSpec = audioCodecSpec(DEFAULT_AUDIO_CODEC)
+  private audioEncoder: any = null
+  private audioDecoder: any = null
+  /** Opus wants a monotonic presentation timestamp in microseconds, derived from samples emitted
+   *  rather than from the wall clock, so a slow tick does not read as a gap in the audio. */
+  private audioTimestampUs = 0
+  /** Re-buffering state for the ScriptProcessor fallback — see `bufferCapturedAudio`. */
+  private pendingCapture: Float32Array | null = null
+  private pendingOffset = 0
 
   // Audio playback (Web Audio API)
   private playbackContext: AudioContext | null = null
@@ -157,6 +173,7 @@ export class MediaPipeline {
 
     this.callId = config.callId
     this.onSendFrame = config.onSendFrame
+    this.audioSpec = audioCodecSpec(config.audioCodec ?? DEFAULT_AUDIO_CODEC)
     this.active = true
 
     // Request permissions via desktop bridge if available
@@ -222,6 +239,11 @@ export class MediaPipeline {
       if (config.audio) {
         await this.startAudioCapture()
         this.initAudioPlayback()
+        // Always, not only when this call negotiated Opus. What arrives is decided by whoever is
+        // sending, `handleIncomingFrame` routes on the frame's own kind rather than on what was
+        // agreed, and a decoder built on arrival of the first packet drops that packet while it
+        // configures. An `AudioDecoder` nothing ever feeds costs nothing.
+        this.initAudioDecoder()
       }
 
       if (config.video) {
@@ -293,13 +315,19 @@ export class MediaPipeline {
   handleIncomingFrame(frame: MediaFrameMessage): void {
     if (!this.active || frame.callId !== this.callId) return
 
-    if (frame.kind === 0) {
-      // Audio frame (PCM 16-bit 16kHz)
-      this.playAudioFrame(frame.payload)
-    } else if (frame.kind === 1) {
-      // Video frame
+    if (frame.kind === VIDEO_FRAME) {
       this.renderVideoFrame(frame)
+      return
     }
+
+    // Routed by what the kind says the bytes are, not by what this call negotiated. The two agree
+    // in every ordinary case; where they do not — a peer that ignored the negotiation, a build
+    // newer than this one — playing bytes as a format they are not is the one outcome worth ruling
+    // out, because PCM read as Opus is a decoder error and Opus read as PCM is noise at full scale.
+    const spec = audioCodecForFrameKind(frame.kind)
+    if (!spec) return
+    if (spec.name === OPUS) this.playOpusFrame(frame)
+    else this.playAudioSamples(MediaPipeline.decodePcm16(frame.payload), spec.sampleRate)
   }
 
   /** Stops all capture and playback and frees hardware resources. */
@@ -311,27 +339,13 @@ export class MediaPipeline {
       this.videoInterval = null
     }
 
-    if (this.audioWorkletNode) {
-      try {
-        this.audioWorkletNode.port.onmessage = null
-        this.audioWorkletNode.disconnect()
-      } catch {}
-      this.audioWorkletNode = null
+    this.stopAudioCapture()
+    if (this.audioDecoder) {
+      try { this.audioDecoder.close() } catch {}
+      this.audioDecoder = null
     }
+    this.audioSpec = audioCodecSpec(DEFAULT_AUDIO_CODEC)
 
-    if (this.audioProcessor) {
-      this.audioProcessor.onaudioprocess = null
-      this.audioProcessor.disconnect()
-      this.audioProcessor = null
-    }
-    if (this.audioSource) {
-      this.audioSource.disconnect()
-      this.audioSource = null
-    }
-    if (this.audioContext && this.audioContext.state !== 'closed') {
-      this.audioContext.close().catch(() => {})
-      this.audioContext = null
-    }
     this.flushScheduledAudio()
     if (this.playbackContext && this.playbackContext.state !== 'closed') {
       this.playbackContext.close().catch(() => {})
@@ -375,22 +389,132 @@ export class MediaPipeline {
 
   // ── Audio Capture & Playback (PCM over Web Audio API) ──────────────────────
 
+  /**
+   * Which audio codecs this build can actually run, best first — what `Session.setAudioCodecs` wants.
+   *
+   * Both halves are checked. Advertising a codec this device can encode but not decode would
+   * negotiate a call whose incoming audio it then cannot play, and the peer would have no way to
+   * find that out. PCM16 is appended unconditionally: it is the floor precisely because it asks
+   * nothing of the browser.
+   */
+  static async supportedAudioCodecs(): Promise<string[]> {
+    const codecs: string[] = []
+    const w = window as unknown as { AudioEncoder?: any; AudioDecoder?: any }
+    if (typeof window !== 'undefined' && w.AudioEncoder && w.AudioDecoder) {
+      const spec = audioCodecSpec(OPUS)
+      try {
+        const config = {
+          codec: 'opus',
+          sampleRate: spec.sampleRate,
+          numberOfChannels: 1,
+          bitrate: MediaPipeline.OPUS_BITRATE
+        }
+        const [encode, decode] = await Promise.all([
+          w.AudioEncoder.isConfigSupported(config),
+          w.AudioDecoder.isConfigSupported(config)
+        ])
+        if (encode?.supported && decode?.supported) codecs.push(OPUS)
+      } catch (err) {
+        console.warn('[media-pipeline] Opus support probe failed, staying on PCM:', err)
+      }
+    }
+    codecs.push(PCM16)
+    return codecs
+  }
+
+  /**
+   * Opus bitrate for one speech channel.
+   *
+   * 24 kbit/s is wideband-speech territory — roughly a tenth of the ~256 kbit/s the raw PCM16 path
+   * spends on the same audio, and indistinguishable from it for a voice call. The point is not the
+   * bytes saved but what they were costing: everything here shares one ordered stream with the
+   * video and with Hypercore replication, so audio that is ten times larger than it needs to be is
+   * ten times more of the queue that the picture and its own latency were waiting behind.
+   */
+  static readonly OPUS_BITRATE = 24_000
+
+  /**
+   * Tears down the capture half of the audio path, leaving playback and the camera alone.
+   *
+   * Extracted because switching codec mid-call needs exactly this and nothing more: the local
+   * `MediaStream` stays live, so the camera preview does not blink and the OS does not re-prompt
+   * for the microphone.
+   */
+  private stopAudioCapture(): void {
+    if (this.audioWorkletNode) {
+      try {
+        this.audioWorkletNode.port.onmessage = null
+        this.audioWorkletNode.disconnect()
+      } catch {}
+      this.audioWorkletNode = null
+    }
+    if (this.audioProcessor) {
+      this.audioProcessor.onaudioprocess = null
+      this.audioProcessor.disconnect()
+      this.audioProcessor = null
+    }
+    if (this.audioSource) {
+      this.audioSource.disconnect()
+      this.audioSource = null
+    }
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close().catch(() => {})
+      this.audioContext = null
+    }
+    if (this.audioEncoder) {
+      try { this.audioEncoder.close() } catch {}
+      this.audioEncoder = null
+    }
+    this.audioTimestampUs = 0
+    this.pendingCapture = null
+    this.pendingOffset = 0
+  }
+
+  /**
+   * Adopts the codec the call actually agreed on.
+   *
+   * The caller has to start capturing before it knows: it dials, and the answer that names the
+   * codec arrives afterwards. Starting on the floor and switching here is what lets the local
+   * camera preview come up during the ring without committing the audio format — the alternative
+   * was to hold the whole pipeline back until the peer picked up, and stare at a blank self-view.
+   *
+   * Only the capture half is rebuilt, because that is all that depends on the codec: the sample
+   * rate and packet size are its, while playback reads each frame's own kind and every buffer
+   * carries its own rate. Frames sent before this lands went nowhere regardless —
+   * `CallSession.sendFrame` drops everything until the call is connected.
+   */
+  async useAudioCodec(name: string): Promise<void> {
+    const spec = audioCodecSpec(name)
+    if (!this.active || spec.name === this.audioSpec.name) return
+    this.stopAudioCapture()
+    this.audioSpec = spec
+    if (this.localStream && this.localStream.getAudioTracks().length > 0) {
+      await this.startAudioCapture()
+    }
+  }
+
   private async startAudioCapture(): Promise<void> {
     if (!this.localStream) return
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    this.audioContext = new AudioCtx({ sampleRate: 16000 })
+    this.audioContext = new AudioCtx({ sampleRate: this.audioSpec.sampleRate })
 
     this.audioSource = this.audioContext.createMediaStreamSource(this.localStream)
+
+    if (this.audioSpec.name === OPUS) this.initAudioEncoder()
 
     // Prefer AudioWorkletNode to avoid ScriptProcessorNode deprecation and main-thread processing
     if (typeof AudioWorkletNode !== 'undefined' && this.audioContext.audioWorklet) {
       try {
+        // The worklet emits raw Float32 and nothing else. It used to convert to Int16 in here,
+        // which quietly made PCM16 the only format this pipeline could ever produce: Opus needs
+        // floats, and the one place that knew the samples had already thrown half of each away.
+        // Choosing the format belongs with the codec, in `emitAudio`, not on the audio thread.
         const workletCode = `
 class AudioCaptureProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super()
-    this.bufferSize = 512
-    this.buffer = new Int16Array(this.bufferSize)
+    this.bufferSize = options.processorOptions.frameSamples
+    this.buffer = new Float32Array(this.bufferSize)
     this.offset = 0
   }
   process(inputs) {
@@ -398,11 +522,9 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
     if (!input || !input[0]) return true
     const channel = input[0]
     for (let i = 0; i < channel.length; i++) {
-      const val = channel[i] || 0
-      const s = Math.max(-1, Math.min(1, val))
-      this.buffer[this.offset++] = s < 0 ? s * 0x8000 : s * 0x7FFF
+      this.buffer[this.offset++] = channel[i] || 0
       if (this.offset >= this.bufferSize) {
-        const copy = new Uint8Array(this.buffer.slice().buffer)
+        const copy = this.buffer.slice()
         this.port.postMessage(copy, [copy.buffer])
         this.offset = 0
       }
@@ -422,17 +544,11 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
 
         if (!this.active || !this.audioContext) return
 
-        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor')
-        this.audioWorkletNode.port.onmessage = (e: MessageEvent<Uint8Array>) => {
-          if (!this.active || this.isAudioMuted || !this.onSendFrame || !this.callId) return
-          this.onSendFrame({
-            callId: this.callId,
-            seq: this.audioSeq++,
-            timestamp: Date.now(),
-            kind: 0,
-            keyframe: true,
-            payload: e.data
-          })
+        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor', {
+          processorOptions: { frameSamples: this.audioSpec.frameSamples }
+        })
+        this.audioWorkletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+          this.emitAudio(e.data)
         }
 
         this.audioSource.connect(this.audioWorkletNode)
@@ -446,31 +562,11 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
       }
     }
 
-    // Fallback: ScriptProcessor (512 samples @ 16kHz = 32ms per packet)
-    this.audioProcessor = this.audioContext.createScriptProcessor(512, 1, 1)
-
+    // Fallback: ScriptProcessor. Its buffer size must be a power of two, which the codec's packet
+    // size is not obliged to be, so it re-buffers into `emitAudio` through `pendingCapture`.
+    this.audioProcessor = this.audioContext.createScriptProcessor(1024, 1, 1)
     this.audioProcessor.onaudioprocess = (e) => {
-      if (!this.active || this.isAudioMuted || !this.onSendFrame || !this.callId) return
-
-      const input = e.inputBuffer.getChannelData(0)
-      // Convert Float32 (-1.0..1.0) to Int16 PCM
-      const pcm16 = new Int16Array(input.length)
-      for (let i = 0; i < input.length; i++) {
-        const val = input[i] ?? 0
-        const s = Math.max(-1, Math.min(1, val))
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
-      }
-
-      const payload = new Uint8Array(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength)
-
-      this.onSendFrame({
-        callId: this.callId,
-        seq: this.audioSeq++,
-        timestamp: Date.now(),
-        kind: 0,
-        keyframe: true,
-        payload
-      })
+      this.bufferCapturedAudio(e.inputBuffer.getChannelData(0))
     }
 
     this.audioSource.connect(this.audioProcessor)
@@ -481,9 +577,172 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
     silentGain.connect(this.audioContext.destination)
   }
 
+  /** Re-buffers arbitrary capture chunks into exactly the packet size the codec wants. */
+  private bufferCapturedAudio(input: Float32Array): void {
+    const size = this.audioSpec.frameSamples
+    for (let i = 0; i < input.length; i++) {
+      if (!this.pendingCapture || this.pendingCapture.length !== size) {
+        this.pendingCapture = new Float32Array(size)
+        this.pendingOffset = 0
+      }
+      this.pendingCapture[this.pendingOffset++] = input[i] ?? 0
+      if (this.pendingOffset >= size) {
+        this.emitAudio(this.pendingCapture)
+        this.pendingCapture = null
+        this.pendingOffset = 0
+      }
+    }
+  }
+
+  /** One packet of captured samples, encoded however this call agreed to carry audio. */
+  private emitAudio(samples: Float32Array): void {
+    if (!this.active || this.isAudioMuted || !this.onSendFrame || !this.callId) return
+
+    if (this.audioSpec.name === OPUS) {
+      if (!this.audioEncoder || this.audioEncoder.state !== 'configured') return
+      try {
+        const AudioDataClass = (window as unknown as { AudioData: any }).AudioData
+        const data = new AudioDataClass({
+          format: 'f32-planar',
+          sampleRate: this.audioSpec.sampleRate,
+          numberOfFrames: samples.length,
+          numberOfChannels: 1,
+          timestamp: this.audioTimestampUs,
+          data: samples
+        })
+        // Counted from samples rather than read off the clock: the encoder reads this as the
+        // packet's place in the stream, and a wall-clock reading that drifted or stalled would
+        // describe a gap that is not in the audio.
+        this.audioTimestampUs += Math.round((samples.length / this.audioSpec.sampleRate) * 1_000_000)
+        this.audioEncoder.encode(data)
+        data.close()
+      } catch (err) {
+        console.warn('[media-pipeline] Opus encode failed:', err)
+      }
+      return
+    }
+
+    this.onSendFrame({
+      callId: this.callId,
+      seq: this.audioSeq++,
+      timestamp: Date.now(),
+      kind: this.audioSpec.frameKind,
+      keyframe: true,
+      payload: MediaPipeline.encodePcm16(samples)
+    })
+  }
+
+  /** Float32 samples as the little-endian PCM16 bytes the floor codec puts on the wire. */
+  static encodePcm16(samples: Float32Array): Uint8Array {
+    const bytes = new Uint8Array(samples.length * 2)
+    const view = new DataView(bytes.buffer)
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i] ?? 0))
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+    }
+    return bytes
+  }
+
+  private initAudioEncoder(): void {
+    const w = window as unknown as { AudioEncoder?: any }
+    if (!w.AudioEncoder) return
+    try {
+      this.audioEncoder = new w.AudioEncoder({
+        output: (chunk: any) => {
+          if (!this.active || !this.onSendFrame || !this.callId) return
+          const payload = new Uint8Array(chunk.byteLength)
+          chunk.copyTo(payload)
+          this.onSendFrame({
+            callId: this.callId,
+            seq: this.audioSeq++,
+            timestamp: Date.now(),
+            kind: this.audioSpec.frameKind,
+            keyframe: true,
+            payload
+          })
+        },
+        error: (err: Error) => {
+          console.error('[media-pipeline] AudioEncoder error:', err)
+          this.audioEncoder = null
+          this.fallBackToPcm('the Opus encoder failed mid-call')
+        }
+      })
+      this.audioEncoder.configure({
+        codec: 'opus',
+        sampleRate: this.audioSpec.sampleRate,
+        numberOfChannels: 1,
+        bitrate: MediaPipeline.OPUS_BITRATE
+      })
+    } catch (err) {
+      console.warn('[media-pipeline] AudioEncoder setup failed:', err)
+      this.audioEncoder = null
+      this.fallBackToPcm('the Opus encoder would not configure')
+    }
+  }
+
+  /**
+   * Drops this side's capture back to the floor codec when Opus stops working.
+   *
+   * Without it, an encoder that dies mid-call is total silence for the rest of it: `emitAudio` has
+   * nothing to encode with and the peer is sent nothing at all. Simply sending the raw samples
+   * instead would be worse than silence — they are captured at 48 kHz and a `pcm16` frame is played
+   * at 16, so the peer would hear a voice at a third speed. Rebuilding capture at the floor's own
+   * rate is what makes the switch audible as nothing more than a codec change.
+   *
+   * No renegotiation is needed, and that is the point of routing playback on each frame's `kind`
+   * rather than on what was agreed: every build that has ever shipped plays a `pcm16` frame,
+   * whatever the call settled on.
+   */
+  private fallBackToPcm(why: string): void {
+    if (this.audioSpec.name === PCM16) return
+    console.warn(`[media-pipeline] falling back to PCM16: ${why}`)
+    void this.useAudioCodec(PCM16)
+  }
+
+  private initAudioDecoder(): void {
+    const w = window as unknown as { AudioDecoder?: any }
+    if (!w.AudioDecoder) return
+    try {
+      this.audioDecoder = new w.AudioDecoder({
+        output: (data: any) => {
+          try {
+            const samples = new Float32Array(data.numberOfFrames)
+            data.copyTo(samples, { planeIndex: 0, format: 'f32-planar' })
+            this.playAudioSamples(samples, data.sampleRate)
+          } catch (err) {
+            console.warn('[media-pipeline] Opus output could not be read:', err)
+          } finally {
+            data.close()
+          }
+        },
+        error: (err: Error) => {
+          console.error('[media-pipeline] AudioDecoder error:', err)
+          this.audioDecoder = null
+        }
+      })
+      this.audioDecoder.configure({
+        codec: 'opus',
+        sampleRate: audioCodecSpec(OPUS).sampleRate,
+        numberOfChannels: 1
+      })
+    } catch (err) {
+      console.warn('[media-pipeline] AudioDecoder setup failed:', err)
+      this.audioDecoder = null
+    }
+  }
+
+  /**
+   * The output context, at the best rate anything here produces.
+   *
+   * Not tied to the negotiated codec: an `AudioBuffer` carries its own sample rate and the graph
+   * resamples it on the way out, so a frame is played correctly whatever rate it was captured at.
+   * That matters because the codec is an agreement, not a guarantee — a peer sending the kind we
+   * did not negotiate should sound wrong-free rather than chipmunked, and a fixed 16 kHz context
+   * would have thrown away most of what Opus is worth.
+   */
   private initAudioPlayback(): void {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    this.playbackContext = new AudioCtx({ sampleRate: 16000 })
+    this.playbackContext = new AudioCtx({ sampleRate: audioCodecSpec(OPUS).sampleRate })
     this.nextPlayTime = this.playbackContext.currentTime
   }
 
@@ -570,17 +829,39 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
     return { startAt: nextPlayTime, nextPlayTime: nextPlayTime + duration, resynced: false }
   }
 
-  private playAudioFrame(payload: Uint8Array): void {
+  /** Hands an Opus packet to the decoder, which plays it from its own output callback. */
+  private playOpusFrame(frame: MediaFrameMessage): void {
+    if (!frame.payload || frame.payload.length === 0) return
+    if (!this.audioDecoder || this.audioDecoder.state === 'closed') this.initAudioDecoder()
+    if (!this.audioDecoder || this.audioDecoder.state !== 'configured') return
+    try {
+      const EncodedAudioChunkClass = (window as unknown as { EncodedAudioChunk: any }).EncodedAudioChunk
+      this.audioDecoder.decode(new EncodedAudioChunkClass({
+        type: 'key',
+        timestamp: frame.timestamp,
+        data: frame.payload
+      }))
+    } catch (err) {
+      console.warn('[media-pipeline] Opus decode failed:', err)
+    }
+  }
+
+  /**
+   * Schedules decoded samples on the playback timeline, whatever rate they were captured at.
+   *
+   * The buffer type is named for the same reason `decodePcm16`'s return is: `copyToChannel` will
+   * not take a `Float32Array` over an `ArrayBufferLike`, and both callers allocate theirs here.
+   */
+  private playAudioSamples(float32: Float32Array<ArrayBuffer>, sampleRate: number): void {
     if (!this.playbackContext || this.playbackContext.state === 'closed') return
 
     if (this.playbackContext.state === 'suspended') {
       this.playbackContext.resume().catch(() => {})
     }
 
-    const float32 = MediaPipeline.decodePcm16(payload)
     if (float32.length === 0) return
 
-    const audioBuffer = this.playbackContext.createBuffer(1, float32.length, 16000)
+    const audioBuffer = this.playbackContext.createBuffer(1, float32.length, sampleRate)
     audioBuffer.copyToChannel(float32, 0)
 
     const schedule = MediaPipeline.scheduleAudioFrame(

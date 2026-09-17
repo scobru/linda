@@ -60,7 +60,10 @@ test('placing a call sends the offer on that peer’s channel', () => {
   assert.equal(info.direction, 'outgoing')
   assert.deepEqual(sent.map((s) => s.kind), ['offer'])
   assert.deepEqual(sent[0]!.message, {
-    callId: 'call-1', fromId: LOCAL, roomId: 'room-1', audio: true, video: true
+    callId: 'call-1', fromId: LOCAL, roomId: 'room-1', audio: true, video: true,
+    // The floor, because this desk was built without a capability list — see `CallDesk`'s
+    // `localAudioCodecs`. A shell that has probed its browser offers something better.
+    audioCodecs: 'pcm16'
   })
   assert.equal(d.current?.callId, 'call-1')
   assert.equal(d.busy, true)
@@ -162,7 +165,9 @@ test('answering sends the accepted flag, and rejecting ends the call as rejected
 
   d.receive({ callId: 'call-7', fromId: 'peer-b', roomId: 'room-2', audio: true, video: false }, peer)
   d.answer('call-7', true)
-  assert.deepEqual(sent.at(-1)!.message, { callId: 'call-7', fromId: LOCAL, accepted: true })
+  // The floor, because this desk was built without a capability list — see `CallDesk`'s
+  // `localAudioCodecs`. A shell that has probed its browser passes something better.
+  assert.deepEqual(sent.at(-1)!.message, { callId: 'call-7', fromId: LOCAL, accepted: true, audioCodec: 'pcm16' })
   assert.equal(d.current?.state, 'connected')
 
   const { peer: second, sent: secondSent } = fakePeer()

@@ -110,6 +110,8 @@ type SessionMembers = Pick<Session,
   | 'getActiveCall'
   | 'sendCallControl'
   | 'sendCallFrame'
+  | 'setAudioCodecs'
+  | 'getAudioCodecs'
 >
 
 export interface SessionView extends SessionMembers {

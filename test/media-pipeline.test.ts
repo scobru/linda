@@ -243,3 +243,33 @@ test('an audio frame decoded off the wire plays whatever offset protomux leaves 
 
   assert.ok(offsets.has(1), 'the sweep must actually produce a misaligned payload, or it proves nothing')
 })
+
+test('PCM16 survives a round trip through the wire format it uses', () => {
+  const samples = new Float32Array([0, 0.5, -0.5, 1, -1, 0.001, -0.001])
+  const out = MediaPipeline.decodePcm16(MediaPipeline.encodePcm16(samples))
+
+  assert.equal(out.length, samples.length)
+  assert.equal(out[0], 0)
+  assert.equal(out[3], 1, 'full scale positive comes back as full scale')
+  assert.equal(out[4], -1, 'and so does full scale negative')
+  for (let i = 0; i < samples.length; i++) {
+    // 16 bits over [-1, 1] is a step of about 3e-5; anything inside that is quantisation, not loss.
+    assert.ok(Math.abs((out[i] ?? 0) - (samples[i] ?? 0)) < 1e-4, `sample ${i} drifted`)
+  }
+})
+
+test('PCM16 encoding clamps rather than wrapping around', () => {
+  // A sample outside [-1, 1] is not unheard of after gain; wrapping it would turn a loud moment
+  // into a full-scale sign flip, which is the loudest possible click.
+  const out = MediaPipeline.decodePcm16(MediaPipeline.encodePcm16(new Float32Array([4, -4])))
+  assert.equal(out[0], 1)
+  assert.equal(out[1], -1)
+})
+
+test('PCM16 encoding produces exactly two bytes per sample, little-endian', () => {
+  const bytes = MediaPipeline.encodePcm16(new Float32Array([0, 1]))
+  assert.equal(bytes.length, 4)
+  // 0x7fff little-endian is ff 7f — stated here because the reader assumes it rather than negotiates it.
+  assert.equal(bytes[2], 0xff)
+  assert.equal(bytes[3], 0x7f)
+})

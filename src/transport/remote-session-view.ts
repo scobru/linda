@@ -11,6 +11,7 @@ import { RemoteRoomView, type RemoteRoomState } from './remote-room-view.js'
 import type { RpcClient } from './rpc-client.js'
 import type { CallInfo } from '../call/call-session.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
+import { DEFAULT_AUDIO_CODEC } from '../call/audio-codec.js'
 
 export type NetworkStatus = {
   connections: number
@@ -100,6 +101,8 @@ export class RemoteSessionView implements SessionView {
   peers: Map<string, PeerConnection> = new Map()
   private fileStoreKeyHex = ''
 
+  /** Declared by this side, so held by this side — see `getAudioCodecs`. */
+  private audioCodecs: readonly string[] = [DEFAULT_AUDIO_CODEC]
   private nickname = ''
   private avatar = ''
   private wallpaper = ''
@@ -382,6 +385,22 @@ export class RemoteSessionView implements SessionView {
 
   sendReadReceipt(roomId: string, userId: string, messageId: string): void {
     void this.rpcClient.call<void>('session.sendReadReceipt', roomId, userId, messageId)
+  }
+
+  /**
+   * What this shell told the worker it can speak.
+   *
+   * Answered locally rather than fetched, because this side is the one that declared it: the media
+   * pipeline whose capability this describes runs here, not in the worker. Starts at the floor, so
+   * a call placed before the capability probe finishes negotiates something that certainly works.
+   */
+  getAudioCodecs(): readonly string[] {
+    return this.audioCodecs
+  }
+
+  setAudioCodecs(codecs: readonly string[]): void {
+    this.audioCodecs = [...codecs]
+    void this.rpcClient.call<void>('session.setAudioCodecs', this.audioCodecs)
   }
 
   getNickname(): string {

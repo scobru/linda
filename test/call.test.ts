@@ -1,4 +1,5 @@
 import test, { after } from 'node:test'
+import { OPUS, PCM16 } from '../src/call/audio-codec.js'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -222,4 +223,81 @@ test('a frame sent with no call up reports the wire as unable to take more', asy
     payload: new Uint8Array(16)
   })
   assert.deepEqual(pressureA.slice(before), [false])
+})
+
+test('two peers that can both run Opus negotiate it end to end', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, incomingCallsB } = await createCallPair(t)
+
+  // What each shell says its media pipeline can run — on the desktop this comes from an async
+  // probe of the browser (`MediaPipeline.supportedAudioCodecs`).
+  sessionA.setAudioCodecs([OPUS, PCM16])
+  sessionB.setAudioCodecs([OPUS, PCM16])
+
+  const callInfoA = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  sessionB.answerCall(incomingCallsB[0]!.callId, true)
+
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+  await waitFor(() => sessionB.getActiveCall()?.state === 'connected', 'B to be connected')
+
+  // Both ends must hold the same value, or one is encoding what the other is not listening for.
+  assert.equal(sessionB.getActiveCall()?.audioCodec, OPUS, 'the answerer chose')
+  assert.equal(sessionA.getActiveCall()?.audioCodec, OPUS, 'and the caller learned it from the answer')
+
+  sessionA.endCall(callInfoA.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+})
+
+test('a peer that cannot run Opus drags the call down to the floor, from either side', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, incomingCallsB } = await createCallPair(t)
+
+  // The answerer is the one that cannot run it. It picks, so it picks what it can speak.
+  sessionA.setAudioCodecs([OPUS, PCM16])
+  sessionB.setAudioCodecs([PCM16])
+
+  const first = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  sessionB.answerCall(incomingCallsB[0]!.callId, true)
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+  await waitFor(() => sessionB.getActiveCall()?.state === 'connected', 'B to be connected')
+
+  assert.equal(sessionA.getActiveCall()?.audioCodec, PCM16)
+  assert.equal(sessionB.getActiveCall()?.audioCodec, PCM16)
+
+  sessionA.endCall(first.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+  await waitFor(() => sessionB.getActiveCall() === null, 'B active call to clear')
+
+  // And the mirror: now the caller is the limited one, so the offer never lists Opus at all.
+  sessionA.setAudioCodecs([PCM16])
+  sessionB.setAudioCodecs([OPUS, PCM16])
+
+  const before = incomingCallsB.length
+  const second = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > before, 'B to receive the second offer')
+  sessionB.answerCall(incomingCallsB[before]!.callId, true)
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected again')
+  await waitFor(() => sessionB.getActiveCall()?.state === 'connected', 'B to be connected again')
+
+  assert.equal(sessionA.getActiveCall()?.audioCodec, PCM16)
+  assert.equal(sessionB.getActiveCall()?.audioCodec, PCM16)
+
+  sessionA.endCall(second.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+})
+
+test('a session that never declared a capability still places and answers calls', async (t) => {
+  // The window before the browser probe finishes, and every build that predates it. Nothing is
+  // configured, so the floor is what both ends get — and the floor is a working call.
+  const { sessionA, sessionB, identityB, roomId, incomingCallsB } = await createCallPair(t)
+
+  const info = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  sessionB.answerCall(incomingCallsB[0]!.callId, true)
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+
+  assert.equal(sessionA.getActiveCall()?.audioCodec, PCM16)
+
+  sessionA.endCall(info.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
 })
