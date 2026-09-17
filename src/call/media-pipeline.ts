@@ -37,6 +37,8 @@ export class MediaPipeline {
   // Audio playback (Web Audio API)
   private playbackContext: AudioContext | null = null
   private nextPlayTime = 0
+  /** Buffers scheduled but not yet heard, so a jitter resync can drop them — see `playAudioFrame`. */
+  private scheduledSources = new Set<AudioBufferSourceNode>()
 
   // Video capture & encoding
   private videoInterval: ReturnType<typeof setInterval> | null = null
@@ -46,6 +48,9 @@ export class MediaPipeline {
   private videoEncoder: any = null
   private videoSeq = 0
   private frameCount = 0
+  /** JPEG-fallback pacing — see `shouldSendJpegFrame`. */
+  private lastJpegSentAt = 0
+  private jpegEncodeStartedAt: number | null = null
 
   // Video playback & decoding
   private videoDecoder: any = null
@@ -308,10 +313,12 @@ export class MediaPipeline {
       this.audioContext.close().catch(() => {})
       this.audioContext = null
     }
+    this.flushScheduledAudio()
     if (this.playbackContext && this.playbackContext.state !== 'closed') {
       this.playbackContext.close().catch(() => {})
       this.playbackContext = null
     }
+    this.nextPlayTime = 0
 
     if (this.videoEncoder) {
       try { this.videoEncoder.close() } catch {}
@@ -323,6 +330,8 @@ export class MediaPipeline {
     }
     this.hasReceivedKeyframe = false
     this.peerUsesJpeg = false
+    this.lastJpegSentAt = 0
+    this.jpegEncodeStartedAt = null
 
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
@@ -458,6 +467,89 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
     this.nextPlayTime = this.playbackContext.currentTime
   }
 
+  /**
+   * Reads a PCM16 payload as Float32 samples, whatever offset its bytes happen to sit at.
+   *
+   * This was `new Int16Array(payload.buffer, payload.byteOffset, …)`, which throws
+   * `RangeError: start offset of Int16Array should be a multiple of 2` on an odd `byteOffset` —
+   * and an odd one is entirely ordinary here. `compact-encoding`'s `buffer` decoder ends with
+   * `state.buffer.subarray(state.start, …)`, so a decoded payload is a *view* into the batch
+   * protomux handed it, at whatever offset the messages before it left behind. Mix video and chat
+   * into the same batch and that offset changes shape mid-call.
+   *
+   * The RPC bridge already dodged this by copying the binary tail (see `rpc-client.ts`), which is
+   * why the Pear/worker build never showed it — but Electron runs the core in-process
+   * (`app/open-session.ts`), so there the decoded view reaches this method untouched, and the throw
+   * lands inside protomux's `onmessage` with nothing to catch it: the rest of that batch is lost
+   * along with the frame. Audio that vanishes for stretches of a call and comes back on the next
+   * one is what that looks like from the outside.
+   *
+   * `DataView` has no alignment rule, so it reads the same bytes without the copy. The `true` is
+   * little-endian, stated rather than inherited: the capture side writes through an `Int16Array`,
+   * which is host-endian, and every platform this ships on is little-endian. Saying so here means
+   * a big-endian peer would be a wire bug to fix rather than silent noise.
+   *
+   * The return type names its buffer because `copyToChannel` will not take a `Float32Array` over an
+   * `ArrayBufferLike`; the samples are allocated here, so that is a statement of fact.
+   */
+  static decodePcm16(payload: Uint8Array): Float32Array<ArrayBuffer> {
+    // A trailing odd byte is not half a sample: the old `byteLength / 2` handed `Int16Array` a
+    // fractional length and threw. Truncating is what a short frame deserves.
+    const sampleCount = payload.byteLength >> 1
+    const view = new DataView(payload.buffer, payload.byteOffset, sampleCount * 2)
+    const float32 = new Float32Array(sampleCount)
+    for (let i = 0; i < sampleCount; i++) {
+      const val = view.getInt16(i * 2, true)
+      float32[i] = val / (val < 0 ? 0x8000 : 0x7fff)
+    }
+    return float32
+  }
+
+  /** Headroom given to a playback queue that has run dry, so the next frame is not scheduled in the past. */
+  static readonly AUDIO_JITTER_HEADROOM_S = 0.025
+
+  /**
+   * How far ahead of the clock the queue may run before it is thrown away and rebuilt.
+   *
+   * There was no ceiling at all: `nextPlayTime` only ever moved forward by each frame's duration,
+   * so every burst the network delivered late became permanent delay. A sender whose clock runs a
+   * hair fast does the same thing slowly, over minutes. Nothing brought it back, because nothing
+   * was measuring it — the call just drifted further behind until someone hung up.
+   *
+   * 150 ms is roughly five frames at 512 samples / 16 kHz. Below it, the lead is doing its job
+   * (absorbing jitter); above it, it is latency nobody asked for, and the cheapest way back is to
+   * drop what is queued rather than wait out the backlog in real time.
+   */
+  static readonly MAX_AUDIO_LEAD_S = 0.15
+
+  /**
+   * Where the next frame goes on the playback timeline.
+   *
+   * Pure, and separated from the Web Audio calls around it, because the three cases it decides
+   * between — queue healthy, queue dry, queue too far ahead — are the whole of the jitter policy
+   * and could not be tested at all while they were four lines inside a method that needs an
+   * `AudioContext` to run.
+   */
+  static scheduleAudioFrame(
+    nextPlayTime: number,
+    now: number,
+    duration: number
+  ): { startAt: number; nextPlayTime: number; resynced: boolean } {
+    // Dry: everything queued has already played, so start just far enough ahead to survive the
+    // next packet's jitter. Not a resync — there is no backlog to discard.
+    if (nextPlayTime < now) {
+      const startAt = now + MediaPipeline.AUDIO_JITTER_HEADROOM_S
+      return { startAt, nextPlayTime: startAt + duration, resynced: false }
+    }
+    // Too far ahead: the backlog is pure latency. Say so, so the caller can stop what it already
+    // scheduled — resetting this clock alone would leave the old buffers playing over the new one.
+    if (nextPlayTime - now > MediaPipeline.MAX_AUDIO_LEAD_S) {
+      const startAt = now + MediaPipeline.AUDIO_JITTER_HEADROOM_S
+      return { startAt, nextPlayTime: startAt + duration, resynced: true }
+    }
+    return { startAt: nextPlayTime, nextPlayTime: nextPlayTime + duration, resynced: false }
+  }
+
   private playAudioFrame(payload: Uint8Array): void {
     if (!this.playbackContext || this.playbackContext.state === 'closed') return
 
@@ -465,29 +557,38 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
       this.playbackContext.resume().catch(() => {})
     }
 
-    // Convert Int16 PCM back to Float32
-    const pcm16 = new Int16Array(payload.buffer, payload.byteOffset, payload.byteLength / 2)
-    const float32 = new Float32Array(pcm16.length)
-    for (let i = 0; i < pcm16.length; i++) {
-      const val = pcm16[i] ?? 0
-      float32[i] = val / (val < 0 ? 0x8000 : 0x7FFF)
-    }
+    const float32 = MediaPipeline.decodePcm16(payload)
+    if (float32.length === 0) return
 
     const audioBuffer = this.playbackContext.createBuffer(1, float32.length, 16000)
     audioBuffer.copyToChannel(float32, 0)
 
+    const schedule = MediaPipeline.scheduleAudioFrame(
+      this.nextPlayTime,
+      this.playbackContext.currentTime,
+      audioBuffer.duration
+    )
+    if (schedule.resynced) this.flushScheduledAudio()
+
     const source = this.playbackContext.createBufferSource()
     source.buffer = audioBuffer
     source.connect(this.playbackContext.destination)
+    // Held so a resync can cancel what has not been heard yet, and dropped again on its own end so
+    // the set tracks the queue rather than the whole call.
+    this.scheduledSources.add(source)
+    source.onended = () => this.scheduledSources.delete(source)
 
-    const now = this.playbackContext.currentTime
-    // Schedule seamlessly with jitter buffer headroom of 25ms
-    if (this.nextPlayTime < now) {
-      this.nextPlayTime = now + 0.025
+    source.start(schedule.startAt)
+    this.nextPlayTime = schedule.nextPlayTime
+  }
+
+  /** Stops and forgets every buffer that has not finished playing. */
+  private flushScheduledAudio(): void {
+    for (const source of this.scheduledSources) {
+      try { source.stop() } catch {}
+      source.onended = null
     }
-
-    source.start(this.nextPlayTime)
-    this.nextPlayTime += audioBuffer.duration
+    this.scheduledSources.clear()
   }
 
   // ── Video Capture & Playback (WebCodecs VP8 with JPEG fallback) ───────────
@@ -545,15 +646,21 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
       }
     }
 
-    // Capture loop at ~20 fps (50ms interval)
+    // Capture loop at ~20 fps (50ms interval). The JPEG path paces itself down from inside — see
+    // `shouldSendJpegFrame`.
     this.videoInterval = setInterval(() => {
       if (!this.active || this.isVideoMuted || !this.videoElementForCapture || !this.captureCtx || !this.captureCanvas) return
 
       try {
+        const useEncoder = !this.peerUsesJpeg && this.videoEncoder && this.videoEncoder.state === 'configured'
+        // Asked before drawing, because in JPEG mode most ticks do nothing and a `drawImage` of a
+        // 480x360 video per tick is not free.
+        if (!useEncoder && !MediaPipeline.shouldSendJpegFrame(Date.now(), this.lastJpegSentAt, this.jpegEncodeStartedAt)) return
+
         this.captureCtx.drawImage(this.videoElementForCapture, 0, 0, this.captureCanvas.width, this.captureCanvas.height)
         this.frameCount++
 
-        if (!this.peerUsesJpeg && this.videoEncoder && this.videoEncoder.state === 'configured') {
+        if (useEncoder) {
           const VideoFrameClass = (window as unknown as { VideoFrame: any }).VideoFrame
           const timestamp = Math.round(performance.now() * 1000)
           const frame = new VideoFrameClass(this.captureCanvas, { timestamp })
@@ -563,8 +670,13 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
           frame.close()
         } else {
           // JPEG fallback
+          this.lastJpegSentAt = Date.now()
+          this.jpegEncodeStartedAt = this.lastJpegSentAt
           this.captureCanvas.toBlob((blob) => {
-            if (!blob || !this.active || !this.onSendFrame || !this.callId) return
+            if (!blob || !this.active || !this.onSendFrame || !this.callId) {
+              this.jpegEncodeStartedAt = null
+              return
+            }
             blob.arrayBuffer().then((buf) => {
               this.onSendFrame?.({
                 callId: this.callId!,
@@ -574,13 +686,58 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
                 keyframe: true,
                 payload: new Uint8Array(buf)
               })
-            }).catch(() => {})
-          }, 'image/jpeg', 0.5)
+            }).catch(() => {}).finally(() => {
+              this.jpegEncodeStartedAt = null
+            })
+          }, 'image/jpeg', MediaPipeline.JPEG_FALLBACK_QUALITY)
         }
       } catch (err) {
         console.warn('[media-pipeline] Error capturing video frame:', err)
       }
     }, 50)
+  }
+
+  /** Frames per second the JPEG fallback sends — see `shouldSendJpegFrame` for why it is not 20. */
+  static readonly JPEG_FALLBACK_FPS = 8
+
+  /** JPEG quality for the same path. Lower than the VP8 path's effective quality on purpose: every
+   *  fallback frame is a whole intra-coded image, so quality is the only size knob there is. */
+  static readonly JPEG_FALLBACK_QUALITY = 0.35
+
+  /**
+   * Whether the JPEG fallback may send now.
+   *
+   * The fallback ran at the capture loop's full 20 fps, which is the single most expensive thing
+   * this pipeline could do. Every JPEG is a keyframe — there is no inter-frame coding to lean on —
+   * so a 480x360 frame at quality 0.5 is roughly 20 KB, and 20 of them a second is about 3 Mbit/s.
+   * That went out over the same ordered UDX stream as the call's audio and the session's Hypercore
+   * replication (`app/session.ts` replicates on the peer socket), so it did not degrade gracefully:
+   * it filled the send queue, and the ~31 audio packets a second queued up behind it. The video
+   * lagged and the audio broke up *because of each other*.
+   *
+   * Nothing chose this path deliberately, either. `peerUsesJpeg` latches on the first image payload
+   * that arrives, and mobile only ever sends JPEG (`mobile/src/bare/media-frame.ts`), so any call
+   * with a phone put the desktop here — 3 Mbit/s to a peer that renders at 12 fps and throttles the
+   * rest away.
+   *
+   * 8 fps at quality 0.35 is roughly 8 KB a frame, so ~500 kbit/s: in the same range as the VP8
+   * path it stands in for, and low enough to leave the audio room on the wire.
+   *
+   * `inFlightSince` is the other half. `toBlob` is asynchronous and nothing waited for it, so a
+   * slow encode did not slow the loop down — it just let the next one start on top. Under load
+   * that piles up encodes of frames whose moment has passed.
+   *
+   * It is a timestamp rather than a flag so the guard cannot outlive what it guards. A callback
+   * that never fires would otherwise latch the pipeline shut for the rest of the call — video
+   * silently gone, with no error anywhere — which is the same class of failure as the one this
+   * whole change is about. Past `JPEG_ENCODE_STALL_MS` the encode is written off and capture
+   * resumes; a straggler that lands afterwards only clears an already-cleared field.
+   */
+  static readonly JPEG_ENCODE_STALL_MS = 1000
+
+  static shouldSendJpegFrame(now: number, lastSentAt: number, inFlightSince: number | null): boolean {
+    if (inFlightSince !== null && now - inFlightSince < MediaPipeline.JPEG_ENCODE_STALL_MS) return false
+    return now - lastSentAt >= 1000 / MediaPipeline.JPEG_FALLBACK_FPS
   }
 
   private initVideoDecoding(): void {

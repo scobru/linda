@@ -20,6 +20,14 @@ function createWindow() {
       nodeIntegration: true,
       contextIsolation: false,
       sandbox: false,
+      // A call's video capture is a `setInterval` in the renderer (`src/call/media-pipeline.ts`),
+      // and Chromium throttles renderer timers to roughly 1 Hz once a window is hidden or fully
+      // occluded. So the moment you tabbed away from a call — to read something, to share a link —
+      // your camera went from 20 fps to about one frame a second for the person on the other end,
+      // with nothing on screen to say why. Audio survived it (the AudioWorklet runs on the audio
+      // thread, which is not throttled), which is exactly what made the report read as "the video
+      // lags" rather than "the window is in the background".
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.cjs')
     }
   })
