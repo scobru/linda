@@ -1,4 +1,5 @@
 import type { MediaFrameMessage } from './call-encoding.js'
+import { MediaBackpressure } from './media-backpressure.js'
 
 // ---------------------------------------------------------------------------
 // Media Pipeline: Capture & Playback for 1:1 Audio and Audio+Video
@@ -51,6 +52,8 @@ export class MediaPipeline {
   /** JPEG-fallback pacing — see `shouldSendJpegFrame`. */
   private lastJpegSentAt = 0
   private jpegEncodeStartedAt: number | null = null
+  /** What the wire says it can carry, and what this pipeline stops producing when it cannot. */
+  private readonly backpressure = new MediaBackpressure()
 
   // Video playback & decoding
   private videoDecoder: any = null
@@ -250,6 +253,22 @@ export class MediaPipeline {
     this.remoteCtx = canvas ? canvas.getContext('2d') : null
   }
 
+  /**
+   * What the wire last reported about its send buffer.
+   *
+   * Wired from `SessionEvents.onCallMediaPressure` through whichever shell is running this
+   * pipeline. Audio is never held back — it is small, it is the point of a call, and it is what
+   * keeps asking this question while video is paused.
+   */
+  setWirePressure(wantsMore: boolean): void {
+    this.backpressure.update(wantsMore, Date.now())
+  }
+
+  /** Frames this pipeline chose not to produce because the wire was behind. */
+  getDroppedVideoFrames(): number {
+    return this.backpressure.droppedFrames
+  }
+
   /** Mute or unmute the local microphone. */
   setAudioMuted(muted: boolean): void {
     this.isAudioMuted = muted
@@ -332,6 +351,7 @@ export class MediaPipeline {
     this.peerUsesJpeg = false
     this.lastJpegSentAt = 0
     this.jpegEncodeStartedAt = null
+    this.backpressure.reset()
 
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
@@ -653,9 +673,16 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
 
       try {
         const useEncoder = !this.peerUsesJpeg && this.videoEncoder && this.videoEncoder.state === 'configured'
-        // Asked before drawing, because in JPEG mode most ticks do nothing and a `drawImage` of a
-        // 480x360 video per tick is not free.
-        if (!useEncoder && !MediaPipeline.shouldSendJpegFrame(Date.now(), this.lastJpegSentAt, this.jpegEncodeStartedAt)) return
+        const now = Date.now()
+
+        // Asked before anything is drawn or encoded. A frame held back here costs the far end a
+        // gap; a frame pushed onto a full buffer costs it that same gap plus everything queued
+        // behind it, audio included — see `media-backpressure.ts`.
+        if (!this.backpressure.allowsVideo(now)) return
+
+        // Asked before drawing too, because in JPEG mode most ticks do nothing and a `drawImage` of
+        // a 480x360 video per tick is not free.
+        if (!useEncoder && !MediaPipeline.shouldSendJpegFrame(now, this.lastJpegSentAt, this.jpegEncodeStartedAt)) return
 
         this.captureCtx.drawImage(this.videoElementForCapture, 0, 0, this.captureCanvas.width, this.captureCanvas.height)
         this.frameCount++
@@ -664,13 +691,23 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
           const VideoFrameClass = (window as unknown as { VideoFrame: any }).VideoFrame
           const timestamp = Math.round(performance.now() * 1000)
           const frame = new VideoFrameClass(this.captureCanvas, { timestamp })
-          // Keyframe on first frame and every 40 frames (~2 seconds)
-          const keyframe = this.frameCount === 1 || this.frameCount % 40 === 1
+          // Keyframe on the first frame, every 40 frames (~2 seconds), and after a gap: a VP8 delta
+          // frame references its predecessor, so the first frame after dropped ones has to stand on
+          // its own or the far end stays broken until the next scheduled keyframe.
+          //
+          // The debt is taken first rather than left to the end of an `||` chain: `||` short-circuits,
+          // so a gap that happened to end on a scheduled keyframe would leave the debt unpaid and
+          // force a second, redundant keyframe onto the next frame — on a link that just told us it
+          // was struggling.
+          const owedKeyframe = this.backpressure.takeKeyframeDebt()
+          const keyframe = owedKeyframe || this.frameCount === 1 || this.frameCount % 40 === 1
           this.videoEncoder.encode(frame, { keyFrame: keyframe })
           frame.close()
         } else {
-          // JPEG fallback
-          this.lastJpegSentAt = Date.now()
+          // JPEG fallback. Every JPEG stands on its own, so a gap owes it nothing — the debt is
+          // cleared rather than acted on, so it does not survive a switch back to the encoder.
+          this.backpressure.takeKeyframeDebt()
+          this.lastJpegSentAt = now
           this.jpegEncodeStartedAt = this.lastJpegSentAt
           this.captureCanvas.toBlob((blob) => {
             if (!blob || !this.active || !this.onSendFrame || !this.callId) {

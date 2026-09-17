@@ -210,10 +210,17 @@ export class CallSession {
     })
   }
 
-  /** Sends a media frame to the remote peer. */
-  sendFrame(frame: MediaFrameMessage): void {
-    if (this._state !== 'connected') return
-    this.callRpc?.sendMediaFrame(frame)
+  /**
+   * Sends a media frame to the remote peer, answering whether the wire wants more.
+   *
+   * `false` means the send buffer is over its watermark — see `media-backpressure.ts` for what the
+   * producing end does with that. A frame sent while the call is not connected, or with no channel
+   * attached, answers `false` too: in both cases the frame went nowhere, and "went nowhere" is not
+   * a reason to produce the next one faster.
+   */
+  sendFrame(frame: MediaFrameMessage): boolean {
+    if (this._state !== 'connected') return false
+    return this.callRpc?.sendMediaFrame(frame) ?? false
   }
 
   // ── Incoming message handlers (routed here by the `CallDesk`) ───────────

@@ -60,7 +60,15 @@ declare module 'protomux' {
   }
 
   export interface MuxMessage<T> {
-    send(value: T): void
+    /**
+     * Returns the underlying `stream.write()`: `false` once the send buffer is over its watermark.
+     *
+     * This was declared `void`, which is what protomux's own docs imply but not what the code does
+     * (`mux.drained = mux.stream.write(state.buffer); return mux.drained`). A wrong `void` is worse
+     * than a missing type: it makes reading the answer a compile error, so the one signal the media
+     * path needed to stop outrunning the wire looked like it did not exist.
+     */
+    send(value: T): boolean
   }
 
   export interface MuxChannel {

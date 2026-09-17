@@ -266,7 +266,11 @@ const methods: Record<string, (...args: any[]) => any> = {
       // shipping the rest cost the RN thread a JSON parse each for a listener that drops them.
       onCallMediaFrame: (frame) => {
         if (isPlayableFrame(frame.kind)) pushEvent('callMediaFrame', toWireFrame(frame))
-      }
+      },
+      // The phone produces frames for the same wire the desktop does, over a bridge that costs it
+      // more per frame (base64 into JSON, on the thread that also renders). It gets the same right
+      // to stop producing them — see `call/media-backpressure.ts`.
+      onCallMediaPressure: (wantsMore) => pushEvent('callMediaPressure', { wantsMore })
     }
     storageDir = dir
     // No `createLanDiscovery` here — see `SwarmTransport.createLanDiscovery` in swarm.ts. It

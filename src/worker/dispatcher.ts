@@ -173,6 +173,12 @@ export class WorkerDispatcher {
       this.pushEvent('callRemoteControl', { callId, action })
     }
 
+    const originalCallMediaPressure = events.onCallMediaPressure
+    events.onCallMediaPressure = (wantsMore) => {
+      originalCallMediaPressure?.(wantsMore)
+      this.pushEvent('callMediaPressure', { wantsMore })
+    }
+
     const originalCallMediaFrame = events.onCallMediaFrame
     events.onCallMediaFrame = (frame) => {
       originalCallMediaFrame?.(frame)

@@ -645,7 +645,8 @@ export class AppShell extends HTMLElement {
         onCallStateChange: (info) => this.callOverlay.handleCallStateChange(info),
         onCallEnded: (info) => this.callOverlay.handleCallEnded(info),
         onCallRemoteControl: (callId, action) => this.callOverlay.handleCallRemoteControl(callId, action),
-        onCallMediaFrame: (frame) => this.callOverlay.handleIncomingFrame(frame)
+        onCallMediaFrame: (frame) => this.callOverlay.handleIncomingFrame(frame),
+        onCallMediaPressure: (wantsMore) => this.callOverlay.handleCallMediaPressure(wantsMore)
       },
       dhtPort: dhtPort(),
       createLanDiscovery: lanDiscoveryEnabled()

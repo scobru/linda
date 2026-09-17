@@ -100,8 +100,9 @@ export class CallDesk {
     this.active?.sendControl(action)
   }
 
-  send(frame: MediaFrameMessage): void {
-    this.active?.sendFrame(frame)
+  /** Sends a frame on the live call, answering whether the wire wants more — `false` with no call. */
+  send(frame: MediaFrameMessage): boolean {
+    return this.active?.sendFrame(frame) ?? false
   }
 
   // ── Messages off the wire ───────────────────────────────────────────────
