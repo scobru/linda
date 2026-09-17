@@ -206,6 +206,11 @@ export class CallOverlay {
     this.mediaPipeline.handleIncomingFrame(frame)
   }
 
+  /** The wire's backpressure, on its way to the thing producing frames for it. */
+  handleCallMediaPressure(wantsMore: boolean): void {
+    this.mediaPipeline.setWirePressure(wantsMore)
+  }
+
   toggleCallMute(): void {
     this.isLocalAudioMuted = !this.isLocalAudioMuted
     this.mediaPipeline.setAudioMuted(this.isLocalAudioMuted)

@@ -38,6 +38,14 @@ export interface SessionEvents {
   onCallEnded?(info: CallInfo): void
   onCallRemoteControl?(callId: string, action: string): void
   onCallMediaFrame?(frame: MediaFrameMessage): void
+  /**
+   * The wire's send buffer crossed its watermark, in one direction or the other.
+   *
+   * `wantsMore` is Protomux's own answer, forwarded only when it changes — every audio frame asks
+   * the question ~31 times a second, and the producing end needs the transitions, not the poll.
+   * See `call/media-backpressure.ts` for why anything asks at all.
+   */
+  onCallMediaPressure?(wantsMore: boolean): void
 }
 
 /** Drive paths are absolute; callers hand us both shapes. */
@@ -116,6 +124,9 @@ export class Session {
   private readonly events: SessionEvents
   /** The device's one call slot — policy and routing live in `CallDesk`, not here. */
   private readonly calls: CallDesk
+  /** Last backpressure state reported to the producer, so only the transitions travel. Starts
+   *  `true` because a call that has sent nothing has not been told to hold anything back. */
+  private callMediaWantsMore = true
 
   private constructor(identity: Identity, storageDir: string, store: Corestore, profileStore: ProfileStore, events: SessionEvents, transport: SwarmTransport, createMediaServer?: MediaServerFactory) {
     this.createMediaServer = createMediaServer
@@ -127,7 +138,12 @@ export class Session {
     this.calls = new CallDesk(identity.id, {
       onIncomingCall: (info) => events.onIncomingCall?.(info),
       onCallStateChange: (info) => events.onCallStateChange?.(info),
-      onCallEnded: (info) => events.onCallEnded?.(info),
+      onCallEnded: (info) => {
+        // A call that ended while the wire was backed up must not hand that state to the next one:
+        // nothing has been sent on it yet, so nothing has told it to hold back.
+        this.callMediaWantsMore = true
+        events.onCallEnded?.(info)
+      },
       onCallRemoteControl: (callId, action) => events.onCallRemoteControl?.(callId, action),
       onCallMediaFrame: (frame) => events.onCallMediaFrame?.(frame)
     }, () => randomId())
@@ -1794,8 +1810,20 @@ export class Session {
     this.calls.control(action)
   }
 
+  /**
+   * Sends a frame on the live call and reports the wire's own backpressure to whoever is producing.
+   *
+   * Reported on change rather than per frame because the producer needs to know when to stop and
+   * when it may start again, and a call's audio asks this question about thirty times a second. On
+   * the worker path each report is an event across a pipe, so a per-frame answer would be its own
+   * small flood — on the thing already under pressure.
+   */
   sendCallFrame(frame: MediaFrameMessage): void {
-    this.calls.send(frame)
+    const wantsMore = this.calls.send(frame)
+    if (wantsMore !== this.callMediaWantsMore) {
+      this.callMediaWantsMore = wantsMore
+      this.events.onCallMediaPressure?.(wantsMore)
+    }
   }
 
   async close(): Promise<void> {

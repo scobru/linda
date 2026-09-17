@@ -44,6 +44,7 @@ interface CallTestPair {
   roomId: string
   incomingCallsB: CallInfo[]
   framesB: MediaFrameMessage[]
+  pressureA: boolean[]
 }
 
 async function createCallPair(t: { after(fn: () => Promise<void>): void }): Promise<CallTestPair> {
@@ -54,8 +55,14 @@ async function createCallPair(t: { after(fn: () => Promise<void>): void }): Prom
 
   const incomingCallsB: CallInfo[] = []
   const framesB: MediaFrameMessage[] = []
+  const pressureA: boolean[] = []
 
-  const sessionA = await Session.create(identityA, path.join(base, 'a'), { transport: net })
+  const sessionA = await Session.create(identityA, path.join(base, 'a'), {
+    transport: net,
+    events: {
+      onCallMediaPressure: (wantsMore) => pressureA.push(wantsMore)
+    }
+  })
   const sessionB = await Session.create(identityB, path.join(base, 'b'), {
     transport: net,
     events: {
@@ -77,7 +84,7 @@ async function createCallPair(t: { after(fn: () => Promise<void>): void }): Prom
   await waitFor(() => sessionA.peers.size > 0 && sessionB.peers.size > 0, 'sessions to connect')
   await waitFor(() => roomB.writable && roomB.hasKey, 'B to be ready in room')
 
-  return { sessionA, sessionB, identityA, identityB, roomId: roomA.id, incomingCallsB, framesB }
+  return { sessionA, sessionB, identityA, identityB, roomId: roomA.id, incomingCallsB, framesB, pressureA }
 }
 
 test('1:1 call offer, accept, media frame, control, and hangup', async (t) => {
@@ -152,4 +159,67 @@ test('1:1 call rejection', async (t) => {
   await waitFor(() => sessionA.getActiveCall() === null, 'A active call to end on rejection')
   assert.equal(sessionA.getActiveCall(), null)
   assert.equal(sessionB.getActiveCall(), null)
+})
+
+test('backpressure is reported as transitions, not once per frame', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, incomingCallsB, pressureA } = await createCallPair(t)
+
+  const callInfoA = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  sessionB.answerCall(incomingCallsB[0]!.callId, true)
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+
+  // Six seconds of audio (512 samples at 16kHz is ~31 packets a second) pushed in one synchronous
+  // loop, with none of the pacing a real capture loop has. It fills the send buffer — which is the
+  // case this whole mechanism exists for, and the reason the old code's frames were arriving late
+  // rather than being dropped.
+  const payload = new Uint8Array(1024)
+  for (let seq = 0; seq < 200; seq++) {
+    sessionA.sendCallFrame({
+      callId: callInfoA.callId,
+      seq,
+      timestamp: Date.now(),
+      kind: 0,
+      keyframe: true,
+      payload
+    })
+  }
+
+  // What matters is that the producer is told when the answer *changes*. A report per frame would
+  // put 200 events on the pipe — on the worker path, across a process boundary, to relieve
+  // congestion.
+  assert.ok(pressureA.length < 10, `expected a handful of transitions, got ${pressureA.length}`)
+  for (let i = 1; i < pressureA.length; i++) {
+    assert.notEqual(pressureA[i], pressureA[i - 1], `entry ${i} repeats its predecessor`)
+  }
+  // And the burst must actually have been felt, or this asserts nothing.
+  assert.ok(pressureA.includes(false), 'a buffer filled that fast must have reported it')
+
+  sessionA.endCall(callInfoA.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+})
+
+test('a frame sent with no call up reports the wire as unable to take more', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, incomingCallsB, pressureA } = await createCallPair(t)
+
+  const callInfoA = await sessionA.startCall(identityB.id, roomId, { audio: true, video: false })
+  await waitFor(() => incomingCallsB.length > 0, 'B to receive call offer')
+  sessionB.answerCall(incomingCallsB[0]!.callId, true)
+  await waitFor(() => sessionA.getActiveCall()?.state === 'connected', 'A to be connected')
+
+  sessionA.endCall(callInfoA.callId)
+  await waitFor(() => sessionA.getActiveCall() === null, 'A active call to clear')
+
+  const before = pressureA.length
+  // A frame for a call that is over goes nowhere, and "went nowhere" must not read as "the wire is
+  // keeping up" — a producer told that would speed up into a socket that is gone.
+  sessionA.sendCallFrame({
+    callId: callInfoA.callId,
+    seq: 1,
+    timestamp: Date.now(),
+    kind: 0,
+    keyframe: true,
+    payload: new Uint8Array(16)
+  })
+  assert.deepEqual(pressureA.slice(before), [false])
 })

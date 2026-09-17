@@ -41,9 +41,20 @@ export type ChannelMessages = readonly (readonly [string, MessageSpec<any>])[]
 type Payload<S> = S extends MessageSpec<infer T> ? T : never
 type Named<M extends ChannelMessages> = { [E in M[number] as E[0]]: Payload<E[1]> }
 
-/** `[['typing', …]]` gives `sendTyping(message: TypingMessage): void`. */
+/**
+ * `[['typing', …]]` gives `sendTyping(message: TypingMessage): boolean`.
+ *
+ * The boolean is Protomux's own: its `send` returns the underlying `stream.write()`, so `false`
+ * means the send buffer is over its watermark and a caller that keeps going is queueing rather
+ * than sending. It was thrown away here, which is why nothing in the call path could tell a link
+ * that was carrying 20 fps from one that was falling behind at it — see `call/media-backpressure.ts`.
+ *
+ * Every existing caller ignores it, and a statement that ignores a return value stays valid, so
+ * this widens the type without touching them. A send that threw answers `false`: a channel on its
+ * way out is exactly as unable to carry the next frame as a full buffer.
+ */
 export type ChannelSender<M extends ChannelMessages> = {
-  [K in keyof Named<M> & string as `send${Capitalize<K>}`]: (message: Named<M>[K]) => void
+  [K in keyof Named<M> & string as `send${Capitalize<K>}`]: (message: Named<M>[K]) => boolean
 } & { close(): void }
 
 /** …and `onTyping?(message: TypingMessage, channel): void`. The channel is passed to every handler
@@ -102,11 +113,12 @@ export function protocolChannel<const M extends ChannelMessages>(protocol: strin
       // unusable and still throw synchronously on `send` in that window — a flaky mobile
       // connection hits it far more than a stable desktop one. Uncaught, that took the whole
       // session down instead of losing one message to a peer that was already on its way out.
-      sender[`send${capitalize(name)}`] = (message: unknown): void => {
+      sender[`send${capitalize(name)}`] = (message: unknown): boolean => {
         try {
-          registered.send(message)
+          return registered.send(message)
         } catch (err) {
           console.warn(`[${protocol}] send on a closing peer channel:`, (err as Error).message)
+          return false
         }
       }
     }

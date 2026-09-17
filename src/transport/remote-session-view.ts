@@ -70,6 +70,8 @@ export interface RemoteSessionEvents {
   onCallEnded?(info: CallInfo): void
   onCallRemoteControl?(callId: string, action: string): void
   onCallMediaFrame?(frame: MediaFrameMessage): void
+  /** See `SessionEvents.onCallMediaPressure` — the same signal, one process further out. */
+  onCallMediaPressure?(wantsMore: boolean): void
 }
 
 export interface RemoteSessionInitialState {
@@ -231,6 +233,9 @@ export class RemoteSessionView implements SessionView {
     })
     this.rpcClient.on('callMediaFrame', (frame: MediaFrameMessage) => {
       this.events.onCallMediaFrame?.(frame)
+    })
+    this.rpcClient.on('callMediaPressure', (payload: { wantsMore: boolean }) => {
+      this.events.onCallMediaPressure?.(payload.wantsMore)
     })
   }
 

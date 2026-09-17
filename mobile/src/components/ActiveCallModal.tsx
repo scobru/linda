@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
 import { bareClient } from '../bare/client'
 import { frameDataUri, VIDEO_FRAME, type WireMediaFrame } from '../bare/media-frame'
+import { MediaBackpressure } from '@core/call/media-backpressure'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
 import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
@@ -45,6 +46,19 @@ export default function ActiveCallModal() {
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null)
   const isCameraReadyRef = useRef(false)
   const lastFrameTimeRef = useRef(0)
+  // A ref, not state: this gates a `setInterval` and must never cause a re-render of a screen that
+  // is already rendering video frames.
+  const backpressureRef = useRef(new MediaBackpressure())
+
+  // What the wire says it can carry. Every JPEG this screen sends costs a base64 encode, a JSON
+  // stringify and a trip across the bridge before it even reaches the socket, so a frame the wire
+  // cannot take yet is worth more here than on the desktop.
+  useEffect(() => {
+    const gate = backpressureRef.current
+    return bareClient.on('callMediaPressure', (payload: { wantsMore: boolean }) => {
+      gate.update(payload.wantsMore, Date.now())
+    })
+  }, [])
 
   // Listen to incoming remote video frames locally without re-rendering the whole application
   useEffect(() => {
@@ -72,6 +86,8 @@ export default function ActiveCallModal() {
 
     const interval = setInterval(async () => {
       if (isCapturing || !isMounted || !cameraRef.current || !isCameraReadyRef.current) return
+      // Asked before the camera is, because `takePictureAsync` is the expensive half of this loop.
+      if (!backpressureRef.current.allowsVideo(Date.now())) return
       isCapturing = true
       try {
         const pic = await cameraRef.current.takePictureAsync({
@@ -97,6 +113,7 @@ export default function ActiveCallModal() {
     return () => {
       isMounted = false
       isCameraReadyRef.current = false
+      backpressureRef.current.reset()
       clearInterval(interval)
     }
   }, [isConnected, isVideo, isCallVideoOff, permission?.granted, sendCallFrame])

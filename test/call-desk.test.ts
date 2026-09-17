@@ -14,9 +14,14 @@ import type { MediaFrameMessage } from '../src/call/call-encoding.js'
 
 type Sent = { kind: string; message: Record<string, unknown> }
 
-function fakePeer(): { peer: CallPeer; sent: Sent[] } {
+/** `wantsMore` is what the channel's sends answer — Protomux's own `stream.write()` boolean. */
+function fakePeer(wantsMore = true): { peer: CallPeer; sent: Sent[]; setWantsMore(v: boolean): void } {
   const sent: Sent[] = []
-  const record = (kind: string) => (message: Record<string, unknown>) => { sent.push({ kind, message }) }
+  let drained = wantsMore
+  const record = (kind: string) => (message: Record<string, unknown>) => {
+    sent.push({ kind, message })
+    return drained
+  }
   const callRpc = {
     sendCallOffer: record('offer'),
     sendCallAnswer: record('answer'),
@@ -25,7 +30,7 @@ function fakePeer(): { peer: CallPeer; sent: Sent[] } {
     sendMediaFrame: record('frame'),
     close: () => {}
   } as unknown as CallRpcChannel
-  return { peer: { callRpc }, sent }
+  return { peer: { callRpc }, sent, setWantsMore: (v: boolean) => { drained = v } }
 }
 
 const LOCAL = 'me'
@@ -271,4 +276,36 @@ test('control and frames go nowhere until the call is connected', () => {
   d.control('mute')
   d.send(frame(info.callId))
   assert.deepEqual(sent.map((s) => s.kind), ['offer', 'control', 'frame'])
+})
+
+test('a frame send answers with what the wire said about itself', () => {
+  const { peer, sent, setWantsMore } = fakePeer()
+  const d = desk()
+  const info = connected(d, peer)
+
+  assert.equal(d.send(frame(info.callId)), true, 'a wire that wants more says so')
+
+  setWantsMore(false)
+  assert.equal(d.send(frame(info.callId)), false, 'and a full buffer says that instead')
+
+  setWantsMore(true)
+  assert.equal(d.send(frame(info.callId)), true, 'the answer is per send, not latched')
+
+  assert.equal(sent.filter((s) => s.kind === 'frame').length, 3, 'every frame was still sent')
+})
+
+test('a frame sent with no call up answers false rather than nothing', () => {
+  const d = desk()
+  // `undefined` here would read as falsy at the call site and work by accident; the producer asks a
+  // yes/no question and deserves one. Nowhere to send it is not a reason to produce the next one.
+  assert.equal(d.send(frame('call-1')), false)
+})
+
+test('a frame for a call that already ended does not report the wire as healthy', () => {
+  const { peer } = fakePeer()
+  const d = desk()
+  const info = connected(d, peer)
+  d.end(info.callId)
+
+  assert.equal(d.send(frame(info.callId)), false)
 })
