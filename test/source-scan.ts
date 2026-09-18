@@ -193,7 +193,7 @@ export function sourceFiles(roots = ['src', 'mobile/src', 'mobile/worklet']): st
         if (entry.name === 'node_modules' || entry.name === 'dist') continue
         walk(full)
       } else if (/\.(ts|tsx)$/.test(entry.name)) {
-        files.push(path.relative(process.cwd(), full))
+        files.push(path.relative(process.cwd(), full).replace(/\\/g, '/'))
       }
     }
   }
