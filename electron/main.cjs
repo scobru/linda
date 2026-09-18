@@ -1,6 +1,10 @@
 const { app, BrowserWindow, Menu, session, shell, clipboard, ipcMain, systemPreferences } = require('electron')
 const path = require('node:path')
 
+// Allow Web Audio API and media playback to start seamlessly during P2P calls without
+// requiring synchronous user gestures on incoming remote frames or background events.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 function createWindow() {
   Menu.setApplicationMenu(null)
 

@@ -51,12 +51,11 @@ test('the wire payload is the same base64 the camera produces', () => {
   assert.equal(toWireFrame(frame({ payload: bytes })).payload, b4a.toString(bytes, 'base64'))
 })
 
-test('audio frames stop at the boundary, because this platform has nowhere to play them', () => {
-  // Desktop sends ~31 audio packets a second on any call. Mobile neither captures nor plays call
-  // audio, so each of those was encoded, shipped, parsed on the RN thread, and dropped.
-  assert.equal(isPlayableFrame(AUDIO_FRAME), false)
+test('audio frames cross the boundary now that mobile supports call audio streaming', () => {
+  // Mobile now captures and plays call audio (16 kHz mono PCM16), so audio frames are accepted.
+  assert.equal(isPlayableFrame(AUDIO_FRAME), true)
   assert.equal(isPlayableFrame(VIDEO_FRAME), true)
-  assert.deepEqual([...PLAYABLE_FRAME_KINDS], [VIDEO_FRAME])
+  assert.deepEqual([...PLAYABLE_FRAME_KINDS], [VIDEO_FRAME, AUDIO_FRAME])
 })
 
 test('an unknown frame kind is not shown', () => {

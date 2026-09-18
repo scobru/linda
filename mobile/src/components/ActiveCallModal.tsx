@@ -10,8 +10,10 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
+import { requestRecordingPermissionsAsync } from 'expo-audio'
 import { bareClient } from '../bare/client'
-import { frameDataUri, VIDEO_FRAME, type WireMediaFrame } from '../bare/media-frame'
+import { frameDataUri, VIDEO_FRAME, AUDIO_FRAME, type WireMediaFrame } from '../bare/media-frame'
+import { callAudio } from '../call-audio'
 import { MediaBackpressure } from '@core/call/media-backpressure'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
@@ -77,6 +79,51 @@ export default function ActiveCallModal() {
       setRemoteVideoFrame(uri)
     })
   }, [isConnected, isVideo])
+
+  // Synchronize mute state with native audio module
+  useEffect(() => {
+    callAudio.setMuted(isCallMuted)
+  }, [isCallMuted])
+
+  // Bidirectional real-time audio capture and streaming playback
+  useEffect(() => {
+    if (!isConnected) {
+      callAudio.stopAll()
+      return
+    }
+
+    callAudio.startPlayback()
+
+    void requestRecordingPermissionsAsync()
+      .then((perm) => {
+        if (perm.granted) {
+          callAudio.startCapture()
+        }
+      })
+      .catch(() => {})
+
+    // 1. Play received audio frames through native speaker / earpiece
+    const unsubMedia = bareClient.on('callMediaFrame', (frame: WireMediaFrame) => {
+      if (frame.kind === AUDIO_FRAME && frame.payload) {
+        callAudio.playChunk(frame.payload)
+      }
+    })
+
+    // 2. Stream captured microphone chunks over Protomux linda-call channel
+    const unsubCapture = callAudio.onAudioCaptureChunk((base64Chunk: string) => {
+      sendCallFrame({
+        kind: AUDIO_FRAME,
+        payload: base64Chunk,
+        keyframe: true
+      })
+    })
+
+    return () => {
+      unsubMedia()
+      unsubCapture()
+      callAudio.stopAll()
+    }
+  }, [isConnected, sendCallFrame])
 
   // Periodic video frame capture & transmission from mobile camera
   useEffect(() => {

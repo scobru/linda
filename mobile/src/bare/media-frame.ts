@@ -22,21 +22,15 @@ import type { MediaFrameMessage } from '@core/call/call-encoding'
 // a second copy of them here is the drift this repo keeps writing guards against — the more so now
 // that there are three of them and this file names two.
 export { AUDIO_PCM16_FRAME as AUDIO_FRAME, VIDEO_FRAME } from '@core/call/call-encoding'
-import { VIDEO_FRAME as VIDEO } from '@core/call/call-encoding'
+import { VIDEO_FRAME as VIDEO, AUDIO_PCM16_FRAME as AUDIO } from '@core/call/call-encoding'
 
 /**
  * The frame kinds this platform can do something with.
  *
- * Desktop ships ~31 audio packets a second during any call (512 samples at 16 kHz, see
- * `media-pipeline.ts`). Mobile has no call-audio path in either direction — it neither captures
- * nor plays it — so every one of those was base64-encoded, JSON-stringified, pushed across the
- * bridge and dropped by a listener that only looks at video, on the same JS thread the component
- * throttles itself to 12 fps to protect. They stop at the boundary now.
- *
- * This is the list to extend when mobile grows an audio path, and it sits next to the codec so
- * that is one edit rather than a hunt.
+ * Video frames are rendered into Image components via `data:` URIs.
+ * Audio frames (PCM16 at 16 kHz) are forwarded to the native audio streaming player (AudioTrack).
  */
-export const PLAYABLE_FRAME_KINDS: readonly number[] = [VIDEO]
+export const PLAYABLE_FRAME_KINDS: readonly number[] = [VIDEO, AUDIO]
 
 export function isPlayableFrame(kind: number): boolean {
   return PLAYABLE_FRAME_KINDS.includes(kind)

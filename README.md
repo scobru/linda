@@ -160,9 +160,10 @@ exactly two members. Everything below rides the two peers' existing Hyperswarm c
   keyframe every ~2 s. Runtimes without WebCodecs fall back to canvas JPEG frames, and the receiver
   switches decoding path automatically based on what the peer actually sends; remote video is drawn
   to a canvas ([media-pipeline.ts](src/call/media-pipeline.ts)).
-- **Video (mobile)**: `expo-camera` grabs JPEG stills at ~5 fps (quality 0.25) and the incoming
+- **Video & Audio (mobile)**: `expo-camera` grabs JPEG stills at ~5 fps (quality 0.25) and the incoming
   stream is rendered throttled to ~12 fps — what the React Native bridge sustains without stutter.
-  Front/back camera switching is live. Mobile does not capture microphone audio yet.
+  Front/back camera switching is live. Real-time call audio is captured and streamed at 16 kHz mono
+  PCM16 via native `AudioRecord` and `AudioTrack` with hardware echo cancellation.
 - **Identity-bound**: an offer, answer, end, or control message is dropped unless its `fromId`
   matches the Noise public key of the socket it arrived on ([swarm.ts](src/network/swarm.ts)), so a
   peer on the lobby topic cannot forge a call as somebody else.

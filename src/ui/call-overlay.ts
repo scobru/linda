@@ -146,6 +146,13 @@ export class CallOverlay {
         onSendFrame: (frame) => this.session?.sendCallFrame(frame)
       })
 
+      if (info.media.video && this.container) {
+        const localVideo = this.container.querySelector<HTMLVideoElement>('#callLocalVideo')
+        this.mediaPipeline.attachLocalVideo(localVideo)
+        const remoteCanvas = this.container.querySelector<HTMLCanvasElement>('#callRemoteCanvas')
+        this.mediaPipeline.attachRemoteCanvas(remoteCanvas)
+      }
+
       this.update()
     } catch (err: any) {
       console.error('[call-overlay] Error accepting call:', err)
@@ -485,6 +492,9 @@ export class CallOverlay {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       if (!AudioCtx) return
       this.ringAudio = new AudioCtx()
+      if (this.ringAudio.state === 'suspended') {
+        this.ringAudio.resume().catch(() => {})
+      }
 
       const playTone = () => {
         if (!this.ringAudio || this.ringAudio.state === 'closed') return

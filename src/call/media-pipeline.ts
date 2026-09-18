@@ -348,6 +348,7 @@ export class MediaPipeline {
 
     this.flushScheduledAudio()
     if (this.playbackContext && this.playbackContext.state !== 'closed') {
+      this.playbackContext.onstatechange = null
       this.playbackContext.close().catch(() => {})
       this.playbackContext = null
     }
@@ -458,6 +459,7 @@ export class MediaPipeline {
       this.audioSource = null
     }
     if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.onstatechange = null
       this.audioContext.close().catch(() => {})
       this.audioContext = null
     }
@@ -497,6 +499,19 @@ export class MediaPipeline {
     if (!this.localStream) return
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     this.audioContext = new AudioCtx({ sampleRate: this.audioSpec.sampleRate })
+
+    this.audioContext.onstatechange = () => {
+      if (this.active && this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {})
+      }
+    }
+    if (this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume()
+      } catch (err) {
+        console.warn('[media-pipeline] AudioContext resume failed:', err)
+      }
+    }
 
     this.audioSource = this.audioContext.createMediaStreamSource(this.localStream)
 
@@ -744,6 +759,19 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     this.playbackContext = new AudioCtx({ sampleRate: audioCodecSpec(OPUS).sampleRate })
     this.nextPlayTime = this.playbackContext.currentTime
+
+    this.playbackContext.onstatechange = () => {
+      if (this.active && this.playbackContext && this.playbackContext.state === 'suspended') {
+        this.playbackContext.resume().catch(() => {})
+      }
+    }
+    if (this.playbackContext.state === 'suspended') {
+      this.playbackContext.resume().then(() => {
+        if (this.playbackContext) {
+          this.nextPlayTime = Math.max(this.nextPlayTime, this.playbackContext.currentTime)
+        }
+      }).catch(() => {})
+    }
   }
 
   /**
