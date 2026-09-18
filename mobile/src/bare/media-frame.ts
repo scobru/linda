@@ -18,8 +18,11 @@ import type { MediaFrameMessage } from '@core/call/call-encoding'
 // would mean encoding twice.
 // ---------------------------------------------------------------------------
 
-export const AUDIO_FRAME = 0
-export const VIDEO_FRAME = 1
+// Re-exported, not redeclared. These are wire values every installed build already agreed on, and
+// a second copy of them here is the drift this repo keeps writing guards against — the more so now
+// that there are three of them and this file names two.
+export { AUDIO_PCM16_FRAME as AUDIO_FRAME, VIDEO_FRAME } from '@core/call/call-encoding'
+import { VIDEO_FRAME as VIDEO } from '@core/call/call-encoding'
 
 /**
  * The frame kinds this platform can do something with.
@@ -33,7 +36,7 @@ export const VIDEO_FRAME = 1
  * This is the list to extend when mobile grows an audio path, and it sits next to the codec so
  * that is one edit rather than a hunt.
  */
-export const PLAYABLE_FRAME_KINDS: readonly number[] = [VIDEO_FRAME]
+export const PLAYABLE_FRAME_KINDS: readonly number[] = [VIDEO]
 
 export function isPlayableFrame(kind: number): boolean {
   return PLAYABLE_FRAME_KINDS.includes(kind)
@@ -61,6 +64,6 @@ export function fromWireFrame(frame: WireMediaFrame): MediaFrameMessage {
  * the last good one.
  */
 export function frameDataUri(frame: { kind: number; payload: string }): string | null {
-  if (frame.kind !== VIDEO_FRAME || !frame.payload.startsWith('/9j/')) return null
+  if (frame.kind !== VIDEO || !frame.payload.startsWith('/9j/')) return null
   return `data:image/jpeg;base64,${frame.payload}`
 }

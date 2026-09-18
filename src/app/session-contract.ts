@@ -62,6 +62,9 @@ type Mirrored =
   | 'isRoomFavorite'
   | 'inviteLinkFor'
   | 'getActiveCall'
+  // The client is the side that declares this — it owns the media pipeline whose capability it
+  // describes — so it can answer from what it last sent without a round trip.
+  | 'getAudioCodecs'
 
 /**
  * Members a generic forward would break, each for a reason:
@@ -151,6 +154,7 @@ export const FORWARDED: Record<ForwardedMethod, Effect> = {
   importPairingSnapshot: 'none',
 
   // Calls. `sendCallFrame` is absent on purpose — see `Adapted`.
+  setAudioCodecs: 'none',
   startCall: 'none',
   answerCall: 'none',
   endCall: 'none',

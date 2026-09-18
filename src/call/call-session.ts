@@ -1,5 +1,6 @@
 import type { CallRpcChannel } from './call-rpc.js'
 import type { CallOfferMessage, CallAnswerMessage, CallEndMessage, CallControlMessage, MediaFrameMessage } from './call-encoding.js'
+import { DEFAULT_AUDIO_CODEC, encodeAudioCodecList, readNegotiatedCodec } from './audio-codec.js'
 
 // ---------------------------------------------------------------------------
 // Call state machine
@@ -23,6 +24,9 @@ export type CallEndReason = 'hangup' | 'rejected' | 'timeout' | 'error' | 'busy'
 export interface CallMediaOptions {
   audio: boolean
   video: boolean
+  /** Audio codecs this device can actually speak, best first — see `audio-codec.ts`. Offered on an
+   *  outgoing call; absent means the floor, which is what every build understands. */
+  audioCodecs?: readonly string[]
 }
 
 /** What the peer has switched off on their side, as both shells display it. */
@@ -57,6 +61,8 @@ export interface CallInfo {
   state: CallState
   direction: 'outgoing' | 'incoming'
   media: CallMediaOptions
+  /** The one audio codec this call settled on. Both ends hold the same value once connected. */
+  audioCodec: string
   remoteMuted: boolean
   remoteCameraOff: boolean
   startedAt: number | null
@@ -81,6 +87,8 @@ export class CallSession {
   readonly media: CallMediaOptions
 
   private _state: CallState = 'idle'
+  /** Until an offer is answered or an answer is sent, the floor is the only safe assumption. */
+  private _audioCodec: string = DEFAULT_AUDIO_CODEC
   private _remote: RemoteControlState = { remoteMuted: false, remoteCameraOff: false }
   private _startedAt: number | null = null
   private _endedAt: number | null = null
@@ -118,12 +126,25 @@ export class CallSession {
       state: this._state,
       direction: this.direction,
       media: this.media,
+      audioCodec: this._audioCodec,
       remoteMuted: this._remote.remoteMuted,
       remoteCameraOff: this._remote.remoteCameraOff,
       startedAt: this._startedAt,
       endedAt: this._endedAt,
       endReason: this._endReason
     }
+  }
+
+  /**
+   * Records the codec chosen for an incoming call.
+   *
+   * Only the answering side has both lists, so only it can decide — `CallDesk` does the deciding
+   * and hands the result here, where `accept()` will put it in the answer. A call that is never
+   * accepted keeps the floor, which is what it was going to send nothing in anyway.
+   */
+  agreeAudioCodec(name: string): void {
+    if (this._state !== 'idle' && this._state !== 'ringing') return
+    this._audioCodec = name
   }
 
   /** Binds this call to a Protomux call channel on the peer's connection. */
@@ -143,7 +164,8 @@ export class CallSession {
       fromId: this.localId,
       roomId: this.roomId,
       audio: this.media.audio,
-      video: this.media.video
+      video: this.media.video,
+      audioCodecs: encodeAudioCodecList(this.media.audioCodecs ?? [DEFAULT_AUDIO_CODEC])
     })
     this.startRingTimeout()
     this.emitStateChange()
@@ -169,7 +191,8 @@ export class CallSession {
     this.callRpc.sendCallAnswer({
       callId: this.callId,
       fromId: this.localId,
-      accepted: true
+      accepted: true,
+      audioCodec: this._audioCodec
     })
     this.emitStateChange()
   }
@@ -229,6 +252,9 @@ export class CallSession {
     if (this._state !== 'calling') return
     this.clearRingTimeout()
     if (message.accepted) {
+      // Set before the state change, because `onStateChange` is what starts the media pipeline and
+      // it reads the codec off the very `CallInfo` this emits.
+      this._audioCodec = readNegotiatedCodec(message.audioCodec)
       this._state = 'connected'
       this._startedAt = Date.now()
       this.emitStateChange()

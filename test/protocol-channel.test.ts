@@ -92,7 +92,7 @@ test('a message sent on one side arrives at the matching handler on the other', 
 
 test('call messages ride their own channel on the same socket', async () => {
   const [a, b] = duplexPair()
-  const offer = delivery<{ callId: string; fromId: string; roomId: string; audio: boolean; video: boolean }>()
+  const offer = delivery<{ callId: string; fromId: string; roomId: string; audio: boolean; video: boolean; audioCodecs?: string }>()
   const frame = delivery<{ payload: Uint8Array }>()
 
   // Both protocols on one connection, which is how a real peer runs them.
@@ -109,7 +109,7 @@ test('call messages ride their own channel on the same socket', async () => {
     callId: 'c1', seq: 1, timestamp: 7, kind: 0, keyframe: false, payload: new Uint8Array([0, 255, 0])
   })
 
-  assert.deepEqual(await offer.settled, { callId: 'c1', fromId: ALICE, roomId: 'r1', audio: true, video: false })
+  assert.deepEqual(await offer.settled, { callId: 'c1', fromId: ALICE, roomId: 'r1', audio: true, video: false, audioCodecs: '' })
   const delivered = await frame.settled
   assert.notEqual(delivered, 'nothing')
   assert.deepEqual([...(delivered as { payload: Uint8Array }).payload], [0, 255, 0])

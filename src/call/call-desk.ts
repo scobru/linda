@@ -3,6 +3,7 @@ import type { CallRpcChannel } from './call-rpc.js'
 import type {
   CallOfferMessage, CallAnswerMessage, CallEndMessage, CallControlMessage, MediaFrameMessage
 } from './call-encoding.js'
+import { DEFAULT_AUDIO_CODEC, negotiateAudioCodec } from './audio-codec.js'
 
 // ---------------------------------------------------------------------------
 // The device's one call slot.
@@ -42,7 +43,15 @@ export class CallDesk {
     private readonly localId: string,
     private readonly events: CallDeskEvents,
     /** Injected so a test can name the calls it places; `Session` passes its own id generator. */
-    private readonly newCallId: () => string
+    private readonly newCallId: () => string,
+    /**
+     * What this device can actually speak, read fresh on every call rather than captured once.
+     *
+     * A function because the answer arrives late: the shell has to ask the browser whether it can
+     * encode Opus before it knows, and that is an async probe running while the app starts. A value
+     * snapshotted here would be whatever was true before the probe finished — the floor, forever.
+     */
+    private readonly localAudioCodecs: () => readonly string[] = () => [DEFAULT_AUDIO_CODEC]
   ) {}
 
   /** True while a call is live — dialling, ringing or connected. An ended call holds nothing. */
@@ -57,7 +66,9 @@ export class CallDesk {
   /** Dials a peer. Throws rather than silently replacing a call that is already up. */
   place(peerId: string, roomId: string, media: CallMediaOptions, peer: CallPeer): CallInfo {
     if (this.busy) throw new Error('Already in an active call')
-    const session = this.open(this.newCallId(), peerId, roomId, 'outgoing', media, peer)
+    // The caller offers what it can speak; the answerer picks one and says which in the answer.
+    const offered: CallMediaOptions = { ...media, audioCodecs: media.audioCodecs ?? this.localAudioCodecs() }
+    const session = this.open(this.newCallId(), peerId, roomId, 'outgoing', offered, peer)
     session.dial()
     return session.info
   }
@@ -77,6 +88,10 @@ export class CallDesk {
       offer.callId, offer.fromId, offer.roomId, 'incoming',
       { audio: offer.audio, video: offer.video }, peer
     )
+    // Only this side has seen both lists, so this is where the choice is made — see
+    // `negotiateAudioCodec`. It has to happen before `ring`, because accepting is what puts the
+    // answer on the wire and the user can accept the moment the ring is up.
+    session.agreeAudioCodec(negotiateAudioCodec(offer.audioCodecs, this.localAudioCodecs()))
     session.ring()
     this.events.onIncomingCall?.(session.info)
   }
