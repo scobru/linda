@@ -5,7 +5,7 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  StatusBar,
+  Platform,
   Image
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -175,27 +175,34 @@ export default function ActiveCallModal() {
     }
   }, [isConnected, isVideo, isCallVideoOff, permission?.granted, sendCallFrame])
 
-  if (!activeCall || activeCall.state === 'idle' || activeCall.state === 'ended') {
-    return null
-  }
-
-  const peerName = nicknames.get(activeCall.peerId) || 'Linda Contact'
-  const peerAvatar = avatars.get(activeCall.peerId)
+  const isVisible = Boolean(activeCall && activeCall.state !== 'idle' && activeCall.state !== 'ended')
+  const peerId = activeCall?.peerId ?? ''
+  const callId = activeCall?.callId ?? ''
+  const peerName = (peerId ? nicknames.get(peerId) : null) || 'Linda Contact'
+  const peerAvatar = peerId ? avatars.get(peerId) : undefined
+  const remoteMuted = Boolean(activeCall?.remoteMuted)
+  const remoteCameraOff = Boolean(activeCall?.remoteCameraOff)
 
   const toggleFacing = () => {
     setFacing((prev) => (prev === 'front' ? 'back' : 'front'))
   }
 
+  const statusLabel = isConnected
+    ? formatCallDuration(callDuration)
+    : activeCall?.state === 'ringing'
+      ? 'Ringing...'
+      : 'Calling...'
+
   return (
     <Modal
-      visible
+      visible={isVisible}
       animationType="fade"
-      statusBarTranslucent
       onRequestClose={() => {
-        void endCall(activeCall.callId)
+        if (callId) {
+          void endCall(callId)
+        }
       }}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#0b0e14" />
       <View style={styles.container}>
         {/* Top Header Bar */}
         <View style={styles.topBar}>
@@ -203,18 +210,16 @@ export default function ActiveCallModal() {
             <Ionicons name="shield-checkmark" size={14} color={colors.accentLight} />
             <Text style={styles.badgeText}>Direct P2P (Holepunch)</Text>
           </View>
-          <Text style={styles.timer}>
-            {isConnected ? formatCallDuration(callDuration) : 'Calling...'}
-          </Text>
+          <Text style={styles.timer}>{statusLabel}</Text>
         </View>
 
         {/* Main Body */}
         <View style={styles.mainArea}>
-          {isVideo && !isCallVideoOff && permission?.granted ? (
+          {isVisible && isVideo && !isCallVideoOff && permission?.granted ? (
             <View style={styles.videoStage}>
               {/* Remote participant card / video area */}
               <View style={styles.remoteVideoPlaceholder}>
-                {remoteVideoFrame && !activeCall.remoteCameraOff ? (
+                {remoteVideoFrame && !remoteCameraOff ? (
                   <Image
                     source={{ uri: remoteVideoFrame }}
                     style={StyleSheet.absoluteFillObject}
@@ -224,7 +229,7 @@ export default function ActiveCallModal() {
                 ) : (
                   <>
                     <Avatar
-                      id={activeCall.peerId}
+                      id={peerId}
                       label={peerName}
                       imageUrl={peerAvatar}
                       size="xl"
@@ -232,12 +237,12 @@ export default function ActiveCallModal() {
                     <Text style={styles.peerNameText}>{peerName}</Text>
                     <Text style={styles.subStatus}>
                       {isConnected
-                        ? (activeCall.remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
+                        ? (remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
                         : 'Dialing peer over Hyperswarm...'}
                     </Text>
                   </>
                 )}
-                {activeCall.remoteMuted && (
+                {remoteMuted && (
                   <View style={styles.remoteMutedPill}>
                     <Ionicons name="mic-off" size={14} color={colors.warning} />
                     <Text style={styles.remoteMutedText}>Peer is muted</Text>
@@ -254,6 +259,10 @@ export default function ActiveCallModal() {
                   animateShutter={false}
                   flash="off"
                   enableTorch={false}
+                  onMountError={(err) => {
+                    console.warn('[active-call] camera mount error:', err)
+                    isCameraReadyRef.current = false
+                  }}
                   onCameraReady={() => {
                     isCameraReadyRef.current = true
                   }}
@@ -267,7 +276,7 @@ export default function ActiveCallModal() {
             <View style={styles.audioStage}>
               <View style={styles.avatarWrapper}>
                 <Avatar
-                  id={activeCall.peerId}
+                  id={peerId}
                   label={peerName}
                   imageUrl={peerAvatar}
                   size="xl"
@@ -279,7 +288,7 @@ export default function ActiveCallModal() {
                   ? (isVideo ? 'Camera disabled' : '16 kHz HD Audio Stream')
                   : 'Ringing remote peer...'}
               </Text>
-              {activeCall.remoteMuted && (
+              {remoteMuted && (
                 <View style={styles.remoteMutedPill}>
                   <Ionicons name="mic-off" size={14} color={colors.warning} />
                   <Text style={styles.remoteMutedText}>Peer is muted</Text>
@@ -350,7 +359,7 @@ export default function ActiveCallModal() {
           <Pressable
             style={[styles.controlBtn, styles.hangupBtn]}
             onPress={() => {
-              void endCall(activeCall.callId)
+              if (callId) void endCall(callId)
             }}
             hitSlop={8}
             accessibilityLabel="End call"
@@ -374,7 +383,7 @@ const createStyles = (colors: ThemeColors) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingTop: 54,
+      paddingTop: Platform.OS === 'android' ? spacing.xl : 54,
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.md,
     },

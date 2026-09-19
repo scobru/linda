@@ -17,6 +17,19 @@ import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
 
+const safeHaptics = {
+  notification: (type: Haptics.NotificationFeedbackType) => {
+    try {
+      void Haptics.notificationAsync(type).catch(() => {})
+    } catch {}
+  },
+  impact: (style: Haptics.ImpactFeedbackStyle) => {
+    try {
+      void Haptics.impactAsync(style).catch(() => {})
+    } catch {}
+  }
+}
+
 interface SessionContextValue {
   session: SessionProxy | null
   identity: Identity | null
@@ -249,14 +262,15 @@ export function SessionProvider({ children }: Props) {
       }).catch(() => {})
     })
     bareClient.on('incomingCall', (info: CallInfo) => {
+      if (!info || !info.callId) return
       setIncomingCall(info)
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {})
+      safeHaptics.notification(Haptics.NotificationFeedbackType.Warning)
       if (AppState.currentState !== 'active') {
         const callerName = nicknamesRef.current.get(info.peerId) || 'Someone'
         void Notifications.scheduleNotificationAsync({
           content: {
             title: 'Incoming Linda Call',
-            body: `${callerName} is calling (${info.media.video ? 'Video' : 'Audio'})...`,
+            body: `${callerName} is calling (${info.media?.video ? 'Video' : 'Audio'})...`,
             sound: 'notification_ping.wav',
           },
           trigger: null,
@@ -264,6 +278,7 @@ export function SessionProvider({ children }: Props) {
       }
     })
     bareClient.on('callStateChange', (info: CallInfo) => {
+      if (!info) return
       if (info.state === 'ended') {
         setActiveCall(null)
         setIncomingCall(null)
@@ -273,14 +288,14 @@ export function SessionProvider({ children }: Props) {
         setActiveCall(info)
         if (info.state === 'connected') {
           setIncomingCall(null)
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+          safeHaptics.notification(Haptics.NotificationFeedbackType.Success)
         }
       }
     })
     bareClient.on('callEnded', () => {
       setActiveCall(null)
       setIncomingCall(null)
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      safeHaptics.notification(Haptics.NotificationFeedbackType.Error)
     })
     bareClient.on('callRemoteControl', ({ callId, action }: { callId: string; action: string }) => {
       setActiveCall((prev) => (prev && prev.callId === callId ? applyRemoteControl(prev, action) : prev))
@@ -346,16 +361,16 @@ export function SessionProvider({ children }: Props) {
     if (!s) throw new Error('no active session')
     setIsCallMuted(false)
     setIsCallVideoOff(false)
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+    safeHaptics.notification(Haptics.NotificationFeedbackType.Success)
     const info = await s.startCall(peerId, roomId, media ?? { audio: true, video: true })
-    setActiveCall(info)
+    if (info) setActiveCall(info)
     return info
   }, [])
 
   const answerCall = useCallback(async (callId: string, accept: boolean): Promise<void> => {
     const s = sessionRef.current
     if (!s) return
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    safeHaptics.impact(Haptics.ImpactFeedbackStyle.Medium)
     if (!accept) {
       setIncomingCall(null)
     }
@@ -369,7 +384,7 @@ export function SessionProvider({ children }: Props) {
   const endCall = useCallback(async (callId?: string): Promise<void> => {
     const s = sessionRef.current
     if (!s) return
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {})
+    safeHaptics.impact(Haptics.ImpactFeedbackStyle.Heavy)
     const targetId = callId || activeCall?.callId || incomingCall?.callId
     if (targetId) {
       await s.endCall(targetId)

@@ -5,8 +5,7 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Animated,
-  StatusBar
+  Animated
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useSession } from '../hooks/useSession'
@@ -19,11 +18,13 @@ export default function IncomingCallModal() {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
 
+  const isVisible = Boolean(incomingCall && incomingCall.state === 'ringing')
+
   // Pulsing animation for the ring
   const pulseAnim = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
-    if (incomingCall) {
+    if (isVisible) {
       const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -39,29 +40,32 @@ export default function IncomingCallModal() {
         ])
       )
       loop.start()
-      return () => loop.stop()
+      return () => {
+        loop.stop()
+        pulseAnim.setValue(1)
+      }
+    } else {
+      pulseAnim.setValue(1)
     }
-  }, [incomingCall, pulseAnim])
+  }, [isVisible, pulseAnim])
 
-  if (!incomingCall || incomingCall.state !== 'ringing') {
-    return null
-  }
-
-  const callerName = nicknames.get(incomingCall.peerId) || 'Linda Contact'
-  const callerAvatar = avatars.get(incomingCall.peerId)
-  const isVideo = incomingCall.media.video
+  const peerId = incomingCall?.peerId ?? ''
+  const callId = incomingCall?.callId ?? ''
+  const callerName = (peerId ? nicknames.get(peerId) : null) || 'Linda Contact'
+  const callerAvatar = peerId ? avatars.get(peerId) : undefined
+  const isVideo = Boolean(incomingCall?.media?.video)
 
   return (
     <Modal
-      visible
+      visible={isVisible}
       transparent
       animationType="slide"
-      statusBarTranslucent
       onRequestClose={() => {
-        void answerCall(incomingCall.callId, false)
+        if (callId) {
+          void answerCall(callId, false)
+        }
       }}
     >
-      <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.85)" />
       <View style={styles.overlay}>
         <View style={styles.card}>
           {/* Header badge */}
@@ -74,7 +78,7 @@ export default function IncomingCallModal() {
           <View style={styles.callerContainer}>
             <Animated.View style={[styles.avatarGlow, { transform: [{ scale: pulseAnim }] }]}>
               <Avatar
-                id={incomingCall.peerId}
+                id={peerId}
                 label={callerName}
                 imageUrl={callerAvatar}
                 size="xl"
@@ -94,9 +98,10 @@ export default function IncomingCallModal() {
               <Pressable
                 style={[styles.btn, styles.btnDecline]}
                 onPress={() => {
-                  void answerCall(incomingCall.callId, false)
+                  if (callId) void answerCall(callId, false)
                 }}
                 hitSlop={10}
+                accessibilityLabel="Decline incoming call"
               >
                 <Ionicons name="close" size={28} color="#ffffff" />
               </Pressable>
@@ -108,9 +113,10 @@ export default function IncomingCallModal() {
               <Pressable
                 style={[styles.btn, styles.btnAccept]}
                 onPress={() => {
-                  void answerCall(incomingCall.callId, true)
+                  if (callId) void answerCall(callId, true)
                 }}
                 hitSlop={10}
+                accessibilityLabel="Accept incoming call"
               >
                 <Ionicons name={isVideo ? 'videocam' : 'call'} size={28} color="#ffffff" />
               </Pressable>

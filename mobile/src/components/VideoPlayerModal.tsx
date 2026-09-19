@@ -23,7 +23,7 @@ export default function VideoPlayerModal({ uri, name, onClose }: Props) {
   const player = useVideoPlayer(uri, (p) => { p.play() })
 
   return (
-    <Modal visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.bar}>
           <Text style={styles.name} numberOfLines={1}>{name}</Text>
