@@ -21,6 +21,7 @@ import { type CallInfo, type CallState, type CallEndReason, type CallMediaOption
 import { CallDesk } from '../call/call-desk.js'
 import { DEFAULT_AUDIO_CODEC } from '../call/audio-codec.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
+import { DEFAULT_CHANNELS } from '../ui/qr-core.js'
 
 export type { RoomBookmark, ContactEntry, CallInfo, CallState, CallEndReason, CallMediaOptions, MediaFrameMessage }
 
@@ -189,7 +190,13 @@ export class Session {
         // with no invite and no further moderator action — removal stops being a moderation action
         // and becomes a timer.
         const isCurrentMember = room.listMembers().some((m) => m.identityId === message.identityId)
-        const hasValidInvite = room.isValidInvite(message.inviteCode) || this.redeemInvite(room.id, message.inviteCode)
+        const isDefaultChannel = DEFAULT_CHANNELS.some((ch) => {
+          const sep = ch.key.indexOf(':')
+          const bootstrap = sep === -1 ? ch.key : ch.key.slice(0, sep)
+          const code = sep === -1 ? '' : ch.key.slice(sep + 1)
+          return b4a.toString(room.bootstrapKey, 'hex') === bootstrap && (!code || message.inviteCode === code)
+        })
+        const hasValidInvite = isDefaultChannel || room.isValidInvite(message.inviteCode) || this.redeemInvite(room.id, message.inviteCode)
         if (!isCurrentMember && !hasValidInvite) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
@@ -360,7 +367,7 @@ export class Session {
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
           this.requestWriteIfNeeded(room, peer)
-          this.syncKeyIfOwner(room, peer)
+          this.syncKeyIfAdmin(room, peer)
         }
         this.flushPendingContacts(peer)
         events.onPeerConnected?.(peer)
@@ -1503,8 +1510,9 @@ export class Session {
     peer.rpc.sendRequestWrite({ bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), writerKey: b4a.toString(room.localWriterKey, 'hex'), identityId: this.identity.id, inviteCode })
   }
 
-  /** Pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
-  private syncKeyIfOwner(room: Room, peer: PeerConnection): void {
+  /** Pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. Any admin (not just the creator) can sync the key. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
+  private syncKeyIfAdmin(room: Room, peer: PeerConnection): void {
+    if (!room.isAdmin(this.identity.id)) return
     const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
     if (!room.listMembers().some((m) => m.identityId === peerIdentityId)) return
     if (room.isBanned(peerIdentityId)) return

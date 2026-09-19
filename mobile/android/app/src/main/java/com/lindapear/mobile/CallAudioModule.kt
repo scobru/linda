@@ -1,6 +1,8 @@
 package com.lindapear.mobile
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -43,65 +45,100 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
 
   companion object {
     const val SAMPLE_RATE = 16000
-    const val FRAME_SAMPLES = 512 // ~32ms packet size, matching desktop media pipeline
+    // 1024 samples @ 16kHz is 64ms (~15 packets/sec) — keeps voice latency imperceptible (<70ms)
+    // while halving bridge serialization pressure compared to 32ms packets.
+    const val FRAME_SAMPLES = 1024
     const val BYTES_PER_SAMPLE = 2
-    const val PACKET_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE // 1024 bytes
+    const val PACKET_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE // 2048 bytes
   }
 
   @ReactMethod
   fun startCapture() {
     if (isCapturing.get()) return
 
+    // Ensure RECORD_AUDIO runtime permission is granted before touching AudioRecord
+    if (reactApplicationContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+      return
+    }
+
     try {
-      audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+      try {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+      } catch (_: Throwable) {}
 
       val minBufSize = AudioRecord.getMinBufferSize(
         SAMPLE_RATE,
         AudioFormat.CHANNEL_IN_MONO,
         AudioFormat.ENCODING_PCM_16BIT
       )
+      if (minBufSize <= 0) return
       val bufSize = maxOf(minBufSize, PACKET_BYTES * 4)
 
-      val record = AudioRecord(
-        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-        SAMPLE_RATE,
-        AudioFormat.CHANNEL_IN_MONO,
-        AudioFormat.ENCODING_PCM_16BIT,
-        bufSize
-      )
+      val record = try {
+        AudioRecord(
+          MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+          SAMPLE_RATE,
+          AudioFormat.CHANNEL_IN_MONO,
+          AudioFormat.ENCODING_PCM_16BIT,
+          bufSize
+        )
+      } catch (_: Throwable) {
+        null
+      } ?: return
 
       if (record.state != AudioRecord.STATE_INITIALIZED) {
-        record.release()
+        try { record.release() } catch (_: Throwable) {}
         return
       }
 
-      val sessionId = record.audioSessionId
-      if (AcousticEchoCanceler.isAvailable()) {
-        try {
-          echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
-        } catch (_: Exception) {}
+      try {
+        val sessionId = record.audioSessionId
+        if (AcousticEchoCanceler.isAvailable()) {
+          try {
+            echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+          } catch (_: Throwable) {}
+        }
+        if (NoiseSuppressor.isAvailable()) {
+          try {
+            noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+          } catch (_: Throwable) {}
+        }
+      } catch (_: Throwable) {}
+
+      try {
+        record.startRecording()
+      } catch (_: Throwable) {
+        try { record.release() } catch (_: Throwable) {}
+        return
       }
-      if (NoiseSuppressor.isAvailable()) {
+
+      if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
         try {
-          noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
-        } catch (_: Exception) {}
+          record.stop()
+          record.release()
+        } catch (_: Throwable) {}
+        return
       }
 
       audioRecord = record
-      record.startRecording()
       isCapturing.set(true)
 
       captureThread = Thread({
         val buffer = ByteArray(PACKET_BYTES)
         while (isCapturing.get()) {
-          val read = record.read(buffer, 0, buffer.size)
-          if (read > 0 && !isMuted.get()) {
-            val base64 = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
-            emitEvent("onAudioCaptureChunk", base64)
+          try {
+            val rec = audioRecord ?: break
+            val read = rec.read(buffer, 0, buffer.size)
+            if (read > 0 && !isMuted.get()) {
+              val base64 = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
+              emitEvent("onAudioCaptureChunk", base64)
+            }
+          } catch (_: Throwable) {
+            break
           }
         }
       }, "LindaCallAudioCapture").apply { start() }
-    } catch (_: Exception) {
+    } catch (_: Throwable) {
       stopCapture()
     }
   }
@@ -110,24 +147,26 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   fun stopCapture() {
     isCapturing.set(false)
     captureThread?.let {
-      try { it.join(500) } catch (_: Exception) {}
+      try { it.join(300) } catch (_: Throwable) {}
       captureThread = null
     }
 
-    try { echoCanceler?.release() } catch (_: Exception) {}
+    try { echoCanceler?.release() } catch (_: Throwable) {}
     echoCanceler = null
 
-    try { noiseSuppressor?.release() } catch (_: Exception) {}
+    try { noiseSuppressor?.release() } catch (_: Throwable) {}
     noiseSuppressor = null
 
     try {
       audioRecord?.stop()
       audioRecord?.release()
-    } catch (_: Exception) {}
+    } catch (_: Throwable) {}
     audioRecord = null
 
     if (!isPlaying.get()) {
-      audioManager.mode = AudioManager.MODE_NORMAL
+      try {
+        audioManager.mode = AudioManager.MODE_NORMAL
+      } catch (_: Throwable) {}
     }
   }
 
@@ -136,14 +175,17 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     if (isPlaying.get()) return
 
     try {
-      audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+      try {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+      } catch (_: Throwable) {}
 
       val minBufSize = AudioTrack.getMinBufferSize(
         SAMPLE_RATE,
         AudioFormat.CHANNEL_OUT_MONO,
         AudioFormat.ENCODING_PCM_16BIT
       )
-      val bufSize = maxOf(minBufSize, PACKET_BYTES * 6)
+      if (minBufSize <= 0) return
+      val bufSize = maxOf(minBufSize, PACKET_BYTES * 4)
 
       val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -156,23 +198,31 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
         .build()
 
-      val track = AudioTrack(
-        attributes,
-        format,
-        bufSize,
-        AudioTrack.MODE_STREAM,
-        AudioManager.AUDIO_SESSION_ID_GENERATE
-      )
+      val track = try {
+        AudioTrack(
+          attributes,
+          format,
+          bufSize,
+          AudioTrack.MODE_STREAM,
+          AudioManager.AUDIO_SESSION_ID_GENERATE
+        )
+      } catch (_: Throwable) {
+        null
+      } ?: return
 
       if (track.state != AudioTrack.STATE_INITIALIZED) {
-        track.release()
+        try { track.release() } catch (_: Throwable) {}
         return
       }
 
-      audioTrack = track
-      track.play()
-      isPlaying.set(true)
-    } catch (_: Exception) {
+      try {
+        track.play()
+        audioTrack = track
+        isPlaying.set(true)
+      } catch (_: Throwable) {
+        try { track.release() } catch (_: Throwable) {}
+      }
+    } catch (_: Throwable) {
       stopPlayback()
     }
   }
@@ -180,14 +230,14 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   @ReactMethod
   fun playChunk(base64Payload: String) {
     val track = audioTrack ?: return
-    if (!isPlaying.get() || track.playState != AudioTrack.PLAYSTATE_PLAYING) return
+    if (!isPlaying.get() || track.state != AudioTrack.STATE_INITIALIZED || track.playState != AudioTrack.PLAYSTATE_PLAYING) return
 
     try {
       val data = Base64.decode(base64Payload, Base64.DEFAULT)
       if (data.isNotEmpty()) {
         track.write(data, 0, data.size)
       }
-    } catch (_: Exception) {}
+    } catch (_: Throwable) {}
   }
 
   @ReactMethod
@@ -197,11 +247,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
       audioTrack?.stop()
       audioTrack?.flush()
       audioTrack?.release()
-    } catch (_: Exception) {}
+    } catch (_: Throwable) {}
     audioTrack = null
 
     if (!isCapturing.get()) {
-      audioManager.mode = AudioManager.MODE_NORMAL
+      try {
+        audioManager.mode = AudioManager.MODE_NORMAL
+      } catch (_: Throwable) {}
     }
   }
 
@@ -214,7 +266,7 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   fun setSpeakerphoneOn(on: Boolean) {
     try {
       audioManager.isSpeakerphoneOn = on
-    } catch (_: Exception) {}
+    } catch (_: Throwable) {}
   }
 
   override fun onCatalystInstanceDestroy() {
@@ -225,9 +277,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
 
   private fun emitEvent(eventName: String, data: String) {
     if (reactApplicationContext.hasActiveReactInstance()) {
-      reactApplicationContext
-        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        .emit(eventName, data)
+      reactApplicationContext.runOnJSQueueThread {
+        try {
+          reactApplicationContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(eventName, data)
+        } catch (_: Throwable) {}
+      }
     }
   }
 }

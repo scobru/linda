@@ -130,11 +130,15 @@ export default function ActiveCallModal() {
     if (!isConnected || !isVideo || isCallVideoOff || !permission?.granted) return
     let isMounted = true
     let isCapturing = false
+    let consecutiveErrors = 0
+    let errorCooldownUntil = 0
 
     const interval = setInterval(async () => {
+      const now = Date.now()
+      if (now < errorCooldownUntil) return
       if (isCapturing || !isMounted || !cameraRef.current || !isCameraReadyRef.current) return
       // Asked before the camera is, because `takePictureAsync` is the expensive half of this loop.
-      if (!backpressureRef.current.allowsVideo(Date.now())) return
+      if (!backpressureRef.current.allowsVideo(now)) return
       isCapturing = true
       try {
         const pic = await cameraRef.current.takePictureAsync({
@@ -143,6 +147,7 @@ export default function ActiveCallModal() {
           shutterSound: false,
           skipProcessing: true
         })
+        consecutiveErrors = 0
         if (isMounted && pic?.base64) {
           sendCallFrame({
             kind: VIDEO_FRAME,
@@ -151,11 +156,16 @@ export default function ActiveCallModal() {
           })
         }
       } catch {
-        // Camera busy or transitioning
+        consecutiveErrors++
+        if (consecutiveErrors >= 3) {
+          // Camera hardware busy or transitioning; back off to let Camera2 recover
+          errorCooldownUntil = Date.now() + 1500
+          consecutiveErrors = 0
+        }
       } finally {
         isCapturing = false
       }
-    }, 200)
+    }, 500)
 
     return () => {
       isMounted = false
