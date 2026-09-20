@@ -2,11 +2,12 @@ import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   View,
   Text,
-  Modal,
   Pressable,
   StyleSheet,
   Platform,
-  Image
+  Image,
+  BackHandler,
+  StatusBar
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
@@ -144,8 +145,7 @@ export default function ActiveCallModal() {
         const pic = await cameraRef.current.takePictureAsync({
           quality: 0.25,
           base64: true,
-          shutterSound: false,
-          skipProcessing: true
+          shutterSound: false
         })
         consecutiveErrors = 0
         if (isMounted && pic?.base64) {
@@ -183,7 +183,23 @@ export default function ActiveCallModal() {
   const remoteMuted = Boolean(activeCall?.remoteMuted)
   const remoteCameraOff = Boolean(activeCall?.remoteCameraOff)
 
+  // Hardware back button support on Android
+  useEffect(() => {
+    if (!isVisible) return
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (callId) {
+        void endCall(callId)
+        return true
+      }
+      return false
+    })
+    return () => sub.remove()
+  }, [isVisible, callId, endCall])
+
+  if (!isVisible) return null
+
   const toggleFacing = () => {
+    isCameraReadyRef.current = false
     setFacing((prev) => (prev === 'front' ? 'back' : 'front'))
   }
 
@@ -194,29 +210,21 @@ export default function ActiveCallModal() {
       : 'Calling...'
 
   return (
-    <Modal
-      visible={isVisible}
-      animationType="fade"
-      onRequestClose={() => {
-        if (callId) {
-          void endCall(callId)
-        }
-      }}
-    >
-      <View style={styles.container}>
-        {/* Top Header Bar */}
-        <View style={styles.topBar}>
-          <View style={styles.badge}>
-            <Ionicons name="shield-checkmark" size={14} color={colors.accentLight} />
-            <Text style={styles.badgeText}>Direct P2P (Holepunch)</Text>
-          </View>
-          <Text style={styles.timer}>{statusLabel}</Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0b0e14" />
+      {/* Top Header Bar */}
+      <View style={styles.topBar}>
+        <View style={styles.badge}>
+          <Ionicons name="shield-checkmark" size={14} color={colors.accentLight} />
+          <Text style={styles.badgeText}>Direct P2P (Holepunch)</Text>
         </View>
+        <Text style={styles.timer}>{statusLabel}</Text>
+      </View>
 
-        {/* Main Body */}
-        <View style={styles.mainArea}>
-          {isVisible && isVideo && !isCallVideoOff && permission?.granted ? (
-            <View style={styles.videoStage}>
+      {/* Main Body */}
+      <View style={styles.mainArea}>
+        {isVideo && !isCallVideoOff && permission?.granted ? (
+          <View style={styles.videoStage}>
               {/* Remote participant card / video area */}
               <View style={styles.remoteVideoPlaceholder}>
                 {remoteVideoFrame && !remoteCameraOff ? (
@@ -368,14 +376,15 @@ export default function ActiveCallModal() {
           </Pressable>
         </View>
       </View>
-    </Modal>
   )
 }
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     container: {
-      flex: 1,
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 9999,
+      elevation: 9999,
       backgroundColor: '#0b0e14',
       justifyContent: 'space-between',
     },
@@ -487,11 +496,9 @@ const createStyles = (colors: ThemeColors) =>
       right: spacing.lg,
       width: 120,
       height: 160,
-      borderRadius: radii.md,
-      overflow: 'hidden',
+      borderRadius: Platform.OS === 'android' ? 0 : radii.md,
       borderWidth: 2,
       borderColor: colors.accent,
-      ...shadows.lg,
       backgroundColor: '#000000',
     },
     cameraView: {

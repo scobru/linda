@@ -2,10 +2,10 @@ import React, { useMemo, useEffect, useRef } from 'react'
 import {
   View,
   Text,
-  Modal,
   Pressable,
   StyleSheet,
-  Animated
+  Animated,
+  BackHandler
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useSession } from '../hooks/useSession'
@@ -55,84 +55,90 @@ export default function IncomingCallModal() {
   const callerAvatar = peerId ? avatars.get(peerId) : undefined
   const isVideo = Boolean(incomingCall?.media?.video)
 
+  // Hardware back button support on Android
+  useEffect(() => {
+    if (!isVisible) return
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (callId) {
+        void answerCall(callId, false)
+        return true
+      }
+      return false
+    })
+    return () => sub.remove()
+  }, [isVisible, callId, answerCall])
+
+  if (!isVisible) return null
+
   return (
-    <Modal
-      visible={isVisible}
-      transparent
-      animationType="slide"
-      onRequestClose={() => {
-        if (callId) {
-          void answerCall(callId, false)
-        }
-      }}
-    >
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          {/* Header badge */}
-          <View style={styles.badge}>
-            <Ionicons name="shield-checkmark" size={14} color={colors.accentLight} />
-            <Text style={styles.badgeText}>Linda P2P Encrypted Call</Text>
+    <View style={styles.overlay}>
+      <View style={styles.card}>
+        {/* Header badge */}
+        <View style={styles.badge}>
+          <Ionicons name="shield-checkmark" size={14} color={colors.accentLight} />
+          <Text style={styles.badgeText}>Linda P2P Encrypted Call</Text>
+        </View>
+
+        {/* Caller info */}
+        <View style={styles.callerContainer}>
+          <Animated.View style={[styles.avatarGlow, { transform: [{ scale: pulseAnim }] }]}>
+            <Avatar
+              id={peerId}
+              label={callerName}
+              imageUrl={callerAvatar}
+              size="xl"
+            />
+          </Animated.View>
+          <Text style={styles.callerName} numberOfLines={1}>{callerName}</Text>
+          <Text style={styles.callType}>
+            {isVideo ? 'Incoming Video Call...' : 'Incoming Audio Call...'}
+          </Text>
+          <Text style={styles.p2pNote}>Direct Hyperswarm Holepunch</Text>
+        </View>
+
+        {/* Action buttons */}
+        <View style={styles.actions}>
+          {/* Decline */}
+          <View style={styles.buttonWrapper}>
+            <Pressable
+              style={[styles.btn, styles.btnDecline]}
+              onPress={() => {
+                if (callId) void answerCall(callId, false)
+              }}
+              hitSlop={10}
+              accessibilityLabel="Decline incoming call"
+            >
+              <Ionicons name="close" size={28} color="#ffffff" />
+            </Pressable>
+            <Text style={styles.btnLabel}>Decline</Text>
           </View>
 
-          {/* Caller info */}
-          <View style={styles.callerContainer}>
-            <Animated.View style={[styles.avatarGlow, { transform: [{ scale: pulseAnim }] }]}>
-              <Avatar
-                id={peerId}
-                label={callerName}
-                imageUrl={callerAvatar}
-                size="xl"
-              />
-            </Animated.View>
-            <Text style={styles.callerName} numberOfLines={1}>{callerName}</Text>
-            <Text style={styles.callType}>
-              {isVideo ? 'Incoming Video Call...' : 'Incoming Audio Call...'}
-            </Text>
-            <Text style={styles.p2pNote}>Direct Hyperswarm Holepunch</Text>
-          </View>
-
-          {/* Action buttons */}
-          <View style={styles.actions}>
-            {/* Decline */}
-            <View style={styles.buttonWrapper}>
-              <Pressable
-                style={[styles.btn, styles.btnDecline]}
-                onPress={() => {
-                  if (callId) void answerCall(callId, false)
-                }}
-                hitSlop={10}
-                accessibilityLabel="Decline incoming call"
-              >
-                <Ionicons name="close" size={28} color="#ffffff" />
-              </Pressable>
-              <Text style={styles.btnLabel}>Decline</Text>
-            </View>
-
-            {/* Accept */}
-            <View style={styles.buttonWrapper}>
-              <Pressable
-                style={[styles.btn, styles.btnAccept]}
-                onPress={() => {
-                  if (callId) void answerCall(callId, true)
-                }}
-                hitSlop={10}
-                accessibilityLabel="Accept incoming call"
-              >
-                <Ionicons name={isVideo ? 'videocam' : 'call'} size={28} color="#ffffff" />
-              </Pressable>
-              <Text style={styles.btnLabel}>Accept</Text>
-            </View>
+          {/* Accept */}
+          <View style={styles.buttonWrapper}>
+            <Pressable
+              style={[styles.btn, styles.btnAccept]}
+              onPress={() => {
+                if (callId) void answerCall(callId, true)
+              }}
+              hitSlop={10}
+              accessibilityLabel="Accept incoming call"
+            >
+              <Ionicons name={isVideo ? 'videocam' : 'call'} size={28} color="#ffffff" />
+            </Pressable>
+            <Text style={styles.btnLabel}>Accept</Text>
           </View>
         </View>
       </View>
-    </Modal>
+    </View>
   )
 }
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     overlay: {
-      flex: 1,
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 9998,
+      elevation: 9998,
       backgroundColor: 'rgba(10, 14, 23, 0.88)',
       justifyContent: 'center',
       alignItems: 'center',
