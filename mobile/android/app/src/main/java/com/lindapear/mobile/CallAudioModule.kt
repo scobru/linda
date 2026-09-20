@@ -9,8 +9,6 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
-import android.media.audiofx.AcousticEchoCanceler
-import android.media.audiofx.NoiseSuppressor
 import android.util.Base64
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -20,8 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Native Android real-time audio pipeline for Linda 1:1 P2P calls.
- * Captures 16 kHz mono PCM16 from the microphone (with hardware AEC & noise suppression)
- * and streams received PCM16 chunks directly to the speaker / earpiece via AudioTrack.
+ * Captures 16 kHz mono PCM16 from the microphone (using VOICE_COMMUNICATION for system AEC)
+ * and streams received PCM16 chunks directly to the speaker / earpiece via AudioTrack in non-blocking mode.
  */
 class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
@@ -33,11 +31,10 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
 
   // Capture
   private var audioRecord: AudioRecord? = null
-  private var echoCanceler: AcousticEchoCanceler? = null
-  private var noiseSuppressor: NoiseSuppressor? = null
   private var captureThread: Thread? = null
   private val isCapturing = AtomicBoolean(false)
   private val isMuted = AtomicBoolean(false)
+  private var listenerCount = 0
 
   // Playback
   private var audioTrack: AudioTrack? = null
@@ -50,6 +47,16 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     const val FRAME_SAMPLES = 1024
     const val BYTES_PER_SAMPLE = 2
     const val PACKET_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE // 2048 bytes
+  }
+
+  @ReactMethod
+  fun addListener(eventName: String) {
+    listenerCount++
+  }
+
+  @ReactMethod
+  fun removeListeners(count: Int) {
+    listenerCount = maxOf(0, listenerCount - count)
   }
 
   @ReactMethod
@@ -90,20 +97,6 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         try { record.release() } catch (_: Throwable) {}
         return
       }
-
-      try {
-        val sessionId = record.audioSessionId
-        if (AcousticEchoCanceler.isAvailable()) {
-          try {
-            echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
-          } catch (_: Throwable) {}
-        }
-        if (NoiseSuppressor.isAvailable()) {
-          try {
-            noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
-          } catch (_: Throwable) {}
-        }
-      } catch (_: Throwable) {}
 
       try {
         record.startRecording()
@@ -151,15 +144,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
       captureThread = null
     }
 
-    try { echoCanceler?.release() } catch (_: Throwable) {}
-    echoCanceler = null
-
-    try { noiseSuppressor?.release() } catch (_: Throwable) {}
-    noiseSuppressor = null
-
     try {
-      audioRecord?.stop()
-      audioRecord?.release()
+      audioRecord?.let {
+        if (it.state == AudioRecord.STATE_INITIALIZED) {
+          try { it.stop() } catch (_: Throwable) {}
+          try { it.release() } catch (_: Throwable) {}
+        }
+      }
     } catch (_: Throwable) {}
     audioRecord = null
 
@@ -199,13 +190,12 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         .build()
 
       val track = try {
-        AudioTrack(
-          attributes,
-          format,
-          bufSize,
-          AudioTrack.MODE_STREAM,
-          AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
+        AudioTrack.Builder()
+          .setAudioAttributes(attributes)
+          .setAudioFormat(format)
+          .setBufferSizeInBytes(bufSize)
+          .setTransferMode(AudioTrack.MODE_STREAM)
+          .build()
       } catch (_: Throwable) {
         null
       } ?: return
@@ -235,7 +225,7 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     try {
       val data = Base64.decode(base64Payload, Base64.DEFAULT)
       if (data.isNotEmpty()) {
-        track.write(data, 0, data.size)
+        track.write(data, 0, data.size, AudioTrack.WRITE_NON_BLOCKING)
       }
     } catch (_: Throwable) {}
   }
@@ -244,9 +234,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   fun stopPlayback() {
     isPlaying.set(false)
     try {
-      audioTrack?.stop()
-      audioTrack?.flush()
-      audioTrack?.release()
+      audioTrack?.let {
+        if (it.state == AudioTrack.STATE_INITIALIZED) {
+          try { it.stop() } catch (_: Throwable) {}
+          try { it.flush() } catch (_: Throwable) {}
+          try { it.release() } catch (_: Throwable) {}
+        }
+      }
     } catch (_: Throwable) {}
     audioTrack = null
 
@@ -276,14 +270,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   }
 
   private fun emitEvent(eventName: String, data: String) {
-    if (reactApplicationContext.hasActiveReactInstance()) {
-      reactApplicationContext.runOnJSQueueThread {
-        try {
-          reactApplicationContext
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-            .emit(eventName, data)
-        } catch (_: Throwable) {}
+    if (listenerCount <= 0) return
+    try {
+      if (reactApplicationContext.hasActiveReactInstance()) {
+        reactApplicationContext
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          ?.emit(eventName, data)
       }
-    }
+    } catch (_: Throwable) {}
   }
 }

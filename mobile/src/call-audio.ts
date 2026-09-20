@@ -1,10 +1,14 @@
-import { NativeModules, DeviceEventEmitter, Platform } from 'react-native'
+import { NativeModules, NativeEventEmitter, Platform } from 'react-native'
 
 const { CallAudio } = NativeModules
 
+const callAudioEmitter = (Platform.OS === 'android' && CallAudio)
+  ? new NativeEventEmitter(CallAudio)
+  : null
+
 /**
  * Mobile call audio bridge for real-time 16kHz mono PCM16 streaming during P2P calls.
- * Wraps Android's AudioRecord (with hardware AEC) and AudioTrack streaming playback.
+ * Wraps Android's AudioRecord (with hardware AEC via VOICE_COMMUNICATION) and AudioTrack streaming playback.
  */
 class CallAudioManager {
   private isAvailable(): boolean {
@@ -87,10 +91,11 @@ class CallAudioManager {
   }
 
   onAudioCaptureChunk(listener: (base64Chunk: string) => void): () => void {
-    if (!this.isAvailable()) return () => {}
-    const subscription = DeviceEventEmitter.addListener('onAudioCaptureChunk', listener)
+    if (!this.isAvailable() || !callAudioEmitter) return () => {}
+    const subscription = callAudioEmitter.addListener('onAudioCaptureChunk', listener)
     return () => subscription.remove()
   }
 }
 
 export const callAudio = new CallAudioManager()
+
