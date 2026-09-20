@@ -56,6 +56,9 @@ export default function ActiveCallModal() {
   // What the wire says it can carry. Every JPEG this screen sends costs a base64 encode, a JSON
   // stringify and a trip across the bridge before it even reaches the socket, so a frame the wire
   // cannot take yet is worth more here than on the desktop.
+  const sendCallFrameRef = useRef(sendCallFrame)
+  sendCallFrameRef.current = sendCallFrame
+
   useEffect(() => {
     const gate = backpressureRef.current
     return bareClient.on('callMediaPressure', (payload: { wantsMore: boolean }) => {
@@ -112,7 +115,7 @@ export default function ActiveCallModal() {
 
     // 2. Stream captured microphone chunks over Protomux linda-call channel
     const unsubCapture = callAudio.onAudioCaptureChunk((base64Chunk: string) => {
-      sendCallFrame({
+      sendCallFrameRef.current({
         kind: AUDIO_FRAME,
         payload: base64Chunk,
         keyframe: true
@@ -124,7 +127,7 @@ export default function ActiveCallModal() {
       unsubCapture()
       callAudio.stopAll()
     }
-  }, [isConnected, sendCallFrame])
+  }, [isConnected])
 
   // Periodic video frame capture & transmission from mobile camera
   useEffect(() => {
@@ -149,7 +152,7 @@ export default function ActiveCallModal() {
         })
         consecutiveErrors = 0
         if (isMounted && pic?.base64) {
-          sendCallFrame({
+          sendCallFrameRef.current({
             kind: VIDEO_FRAME,
             payload: pic.base64,
             keyframe: true
@@ -173,7 +176,7 @@ export default function ActiveCallModal() {
       backpressureRef.current.reset()
       clearInterval(interval)
     }
-  }, [isConnected, isVideo, isCallVideoOff, permission?.granted, sendCallFrame])
+  }, [isConnected, isVideo, isCallVideoOff, permission?.granted])
 
   const isVisible = Boolean(activeCall && activeCall.state !== 'idle' && activeCall.state !== 'ended')
   const peerId = activeCall?.peerId ?? ''
