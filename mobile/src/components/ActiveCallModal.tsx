@@ -42,6 +42,25 @@ function callEndLabel(reason: string): string {
   }
 }
 
+/**
+ * Which side decided, in words, for the endings where that is the whole question.
+ *
+ * "Connection lost" reads the same whether this phone lost the peer or the peer's machine lost
+ * this phone and said so — the reason travels on the wire, so both ends print the other's. Only
+ * the origin, which is decided locally, tells them apart, and telling them apart is the difference
+ * between a fault here and a fault there.
+ */
+function callEndOriginLabel(reason: string, origin: string): string | null {
+  if (reason !== 'error') return null
+  switch (origin) {
+    case 'peer-disconnected': return 'this device lost the connection'
+    case 'remote': return 'the other device reported the loss'
+    case 'no-info': return 'the call ended without saying why'
+    case 'unreported': return 'ended by a build that predates this notice'
+    default: return origin
+  }
+}
+
 /** How long the notice stays up before it stops being news. */
 const CALL_END_NOTICE_MS = 6000
 
@@ -256,10 +275,14 @@ export default function ActiveCallModal() {
 
   if (!isVisible) {
     if (!lastCallEnd) return null
+    const originLabel = callEndOriginLabel(lastCallEnd.reason, lastCallEnd.origin)
     return (
       <Pressable style={styles.endNotice} onPress={dismissLastCallEnd}>
         <Ionicons name="call-outline" size={16} color={colors.warning} />
-        <Text style={styles.endNoticeText}>{callEndLabel(lastCallEnd.reason)}</Text>
+        <View style={styles.endNoticeBody}>
+          <Text style={styles.endNoticeText}>{callEndLabel(lastCallEnd.reason)}</Text>
+          {originLabel && <Text style={styles.endNoticeDetail}>{originLabel}</Text>}
+        </View>
       </Pressable>
     )
   }
@@ -495,9 +518,17 @@ const createStyles = (colors: ThemeColors) =>
       backgroundColor: colors.bgElevated,
       ...shadows.md,
     },
+    endNoticeBody: {
+      flex: 1,
+    },
     endNoticeText: {
       color: colors.textPrimary,
       fontSize: typography.md,
+    },
+    endNoticeDetail: {
+      color: colors.textSecondary,
+      fontSize: typography.xs,
+      marginTop: 2,
     },
     container: {
       ...StyleSheet.absoluteFillObject,

@@ -314,3 +314,90 @@ test('a frame for a call that already ended does not report the wire as healthy'
 
   assert.equal(d.send(frame(info.callId)), false)
 })
+
+// ---------------------------------------------------------------------------
+// Which side ended the call, as opposed to what the ending was called.
+//
+// `endReason` crosses the wire, so a call that ends as `error` prints "Connection lost" on both
+// phones — the one whose connection went away and the one that was merely told. That made the
+// fault impossible to place from the screen: every report said the same thing, whichever machine
+// was actually at fault. `endOrigin` is decided locally and never sent, so it always names the
+// side reading it.
+// ---------------------------------------------------------------------------
+
+test('a peer dropping off the swarm is this side’s own loss', () => {
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  connected(d, peer)
+
+  d.peerGone('peer-a')
+
+  assert.equal(ended!.endReason, 'error')
+  assert.equal(ended!.endOrigin, 'peer-disconnected')
+})
+
+test('the same reason arriving from the peer is not this side’s loss', () => {
+  // The distinction the screen could not draw: identical `endReason`, opposite fault.
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  const info = connected(d, peer)
+
+  d.handleEnd({ callId: info.callId, fromId: 'peer-a', reason: 'error' })
+
+  assert.equal(ended!.endReason, 'error', 'the wire reason is still the peer’s own word for it')
+  assert.equal(ended!.endOrigin, 'remote')
+})
+
+test('hanging up here is named as here, and the peer is told only the reason', () => {
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer, sent } = fakePeer()
+  connected(d, peer)
+
+  d.end()
+
+  assert.equal(ended!.endReason, 'hangup')
+  assert.equal(ended!.endOrigin, 'local')
+  // The origin is a local reading, not a field: nothing about it may appear on the wire, or the
+  // peer would be told which side we blame and both ends would print the same thing again.
+  const end = sent.find((s) => s.kind === 'end')!
+  assert.deepEqual(Object.keys(end.message).sort(), ['callId', 'fromId', 'reason'])
+})
+
+test('a peer that declines is a remote decision, though nothing was lost', () => {
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  const info = d.place('peer-a', 'room-1', { audio: true, video: false }, peer)
+
+  d.handleAnswer({ callId: info.callId, fromId: 'peer-a', accepted: false })
+
+  assert.equal(ended!.endReason, 'rejected')
+  assert.equal(ended!.endOrigin, 'remote')
+})
+
+test('declining here names this side', () => {
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  d.receive({
+    callId: 'in-1', fromId: 'peer-a', roomId: 'room-1', audio: true, video: false, audioCodecs: ''
+  }, peer)
+
+  d.answer('in-1', false)
+
+  assert.equal(ended!.endReason, 'rejected')
+  assert.equal(ended!.endOrigin, 'local')
+})
+
+test('a live call carries no origin at all', () => {
+  // The field says how a call ended; a call that has not ended must not appear to have an opinion.
+  const d = desk()
+  const { peer } = fakePeer()
+  const info = connected(d, peer)
+
+  assert.equal(info.endOrigin, null)
+  assert.equal(d.current?.endOrigin, null)
+})
