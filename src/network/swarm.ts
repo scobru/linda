@@ -14,7 +14,13 @@ export interface PeerConnection {
 
 export type SwarmHandlers = RpcHandlers & CallRpcHandlers & {
   onConnection?(peer: PeerConnection): void
-  onDisconnection?(remotePublicKey: Buffer): void
+  /**
+   * A connection closed. The socket is named because closing one is not the same as losing the
+   * peer: `onConnection` may deliberately destroy a redundant second connection to a peer that is
+   * already held, and that destroy lands here under the very same public key. Only the handler
+   * knows which socket it kept, so only the handler can tell the two apart — see `Session`.
+   */
+  onDisconnection?(remotePublicKey: Buffer, socket: Duplex): void
 }
 
 /** Behind a VPN the DHT's default UDP port is unreachable from outside, so holepunching fails and
@@ -69,7 +75,7 @@ export function handleConnection(socket: Duplex, remotePublicKey: Buffer, handle
   const callRpc = attachCallRpc(socket, handlers, remoteId)
   handlers.onConnection?.({ socket, rpc, callRpc, remotePublicKey })
 
-  socket.on('close', () => handlers.onDisconnection?.(remotePublicKey))
+  socket.on('close', () => handlers.onDisconnection?.(remotePublicKey, socket))
   socket.on('error', () => {})
 }
 
