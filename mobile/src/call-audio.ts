@@ -23,11 +23,24 @@ const { CallAudio } = NativeModules
  *   - calls stop crashing  → it is this module, and the hunt narrows to `CallAudioModule.kt`
  *   - calls still crash    → it is NOT this module, and everything looked at so far is off target
  *
- * Either answer is worth a build. Calls have no audio on this one; that is the cost of the answer.
+ * ANSWERED: with both halves off, the app stops crashing. It is this module, not the bridge —
+ * which carries the same ~31 frames a second either way, since the desktop keeps sending them and
+ * the worklet keeps pushing them across; only the native calls below were skipped.
+ *
+ * So the flag is two flags now, one per half, and the next build narrows it again the same way:
+ * turn on exactly one and see which brings the crash back. Capture is the richer suspect — it owns
+ * a thread and an `AudioRecord` and talks to the HAL through `VOICE_COMMUNICATION` — but playback
+ * has its own `AudioTrack`, and guessing between them is what the last five releases were.
  */
-export const NATIVE_CALL_AUDIO_ENABLED = false
+export const NATIVE_CALL_CAPTURE_ENABLED = false
 
-const callAudioEmitter = (NATIVE_CALL_AUDIO_ENABLED && Platform.OS === 'android' && CallAudio)
+/** The other half: `AudioTrack`, fed by `playChunk` from the JS thread. */
+export const NATIVE_CALL_PLAYBACK_ENABLED = false
+
+/** True when this build touches the native module at all — what the UI reads. */
+export const NATIVE_CALL_AUDIO_ENABLED = NATIVE_CALL_CAPTURE_ENABLED || NATIVE_CALL_PLAYBACK_ENABLED
+
+const callAudioEmitter = (NATIVE_CALL_CAPTURE_ENABLED && Platform.OS === 'android' && CallAudio)
   ? new NativeEventEmitter(CallAudio)
   : null
 
@@ -36,17 +49,25 @@ const callAudioEmitter = (NATIVE_CALL_AUDIO_ENABLED && Platform.OS === 'android'
  * Wraps Android's AudioRecord (with hardware AEC via VOICE_COMMUNICATION) and AudioTrack streaming playback.
  */
 class CallAudioManager {
-  private isAvailable(): boolean {
-    return NATIVE_CALL_AUDIO_ENABLED && Platform.OS === 'android' && !!CallAudio
+  private hasModule(): boolean {
+    return Platform.OS === 'android' && !!CallAudio
   }
 
-  /** Whether this build talks to the native audio module at all — see the switch above. */
+  private captureAvailable(): boolean {
+    return NATIVE_CALL_CAPTURE_ENABLED && this.hasModule()
+  }
+
+  private playbackAvailable(): boolean {
+    return NATIVE_CALL_PLAYBACK_ENABLED && this.hasModule()
+  }
+
+  /** Whether this build talks to the native audio module at all — see the switches above. */
   isEnabled(): boolean {
-    return this.isAvailable()
+    return NATIVE_CALL_AUDIO_ENABLED && this.hasModule()
   }
 
   startCapture(): void {
-    if (this.isAvailable()) {
+    if (this.captureAvailable()) {
       try {
         CallAudio.startCapture()
       } catch (err) {
@@ -56,7 +77,7 @@ class CallAudioManager {
   }
 
   stopCapture(): void {
-    if (this.isAvailable()) {
+    if (this.captureAvailable()) {
       try {
         CallAudio.stopCapture()
       } catch (err) {
@@ -66,7 +87,7 @@ class CallAudioManager {
   }
 
   startPlayback(): void {
-    if (this.isAvailable()) {
+    if (this.playbackAvailable()) {
       try {
         CallAudio.startPlayback()
       } catch (err) {
@@ -76,7 +97,7 @@ class CallAudioManager {
   }
 
   playChunk(base64Payload: string): void {
-    if (this.isAvailable() && base64Payload) {
+    if (this.playbackAvailable() && base64Payload) {
       try {
         CallAudio.playChunk(base64Payload)
       } catch (err) {
@@ -86,7 +107,7 @@ class CallAudioManager {
   }
 
   stopPlayback(): void {
-    if (this.isAvailable()) {
+    if (this.playbackAvailable()) {
       try {
         CallAudio.stopPlayback()
       } catch (err) {
@@ -96,7 +117,7 @@ class CallAudioManager {
   }
 
   setMuted(muted: boolean): void {
-    if (this.isAvailable()) {
+    if (this.captureAvailable()) {
       try {
         CallAudio.setMuted(muted)
       } catch (err) {
@@ -106,7 +127,7 @@ class CallAudioManager {
   }
 
   setSpeakerphoneOn(on: boolean): void {
-    if (this.isAvailable()) {
+    if (this.isEnabled()) {
       try {
         CallAudio.setSpeakerphoneOn(on)
       } catch (err) {
@@ -121,7 +142,7 @@ class CallAudioManager {
   }
 
   onAudioCaptureChunk(listener: (base64Chunk: string) => void): () => void {
-    if (!this.isAvailable() || !callAudioEmitter) return () => {}
+    if (!this.captureAvailable() || !callAudioEmitter) return () => {}
     const subscription = callAudioEmitter.addListener('onAudioCaptureChunk', listener)
     return () => subscription.remove()
   }

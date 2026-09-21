@@ -50,6 +50,9 @@ interface SessionContextValue {
   startCall: (peerId: string, roomId: string, media?: CallMediaOptions) => Promise<CallInfo>
   answerCall: (callId: string, accept: boolean) => Promise<void>
   endCall: (callId?: string) => Promise<void>
+  /** Why the last call ended, until it is dismissed — see `callEnded` below. */
+  lastCallEnd: { reason: string; at: number } | null
+  dismissLastCallEnd: () => void
   toggleCallMute: () => void
   toggleCallVideo: () => void
   sendCallFrame: (frame: { kind: number; payload: string | Uint8Array; keyframe?: boolean }) => void
@@ -87,6 +90,7 @@ export function SessionProvider({ children }: Props) {
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const [avatars, setAvatars] = useState<Map<string, string>>(new Map())
   const [activeCall, setActiveCall] = useState<CallInfo | null>(null)
+  const [lastCallEnd, setLastCallEnd] = useState<{ reason: string; at: number } | null>(null)
   const [incomingCall, setIncomingCall] = useState<CallInfo | null>(null)
   const [callDuration, setCallDuration] = useState(0)
   const [isCallMuted, setIsCallMuted] = useState(false)
@@ -292,7 +296,16 @@ export function SessionProvider({ children }: Props) {
         }
       }
     })
-    bareClient.on('callEnded', () => {
+    // The core has always said why a call ended — `CallInfo.endReason` is one of hangup, rejected,
+    // timeout, error or busy. This handler took no argument at all, so every one of those arrived
+    // and was dropped, and a call that died of a lost connection looked exactly like one the peer
+    // hung up: the screen simply vanished and you were back at your contacts with nothing said.
+    bareClient.on('callEnded', (info: CallInfo | undefined) => {
+      const reason = info?.endReason ?? 'error'
+      // Also logged, because `expo start --dev-client` puts it in the Metro terminal, which is a
+      // great deal easier to reach than a device log.
+      console.warn('[call] ended:', reason)
+      setLastCallEnd({ reason, at: Date.now() })
       setActiveCall(null)
       setIncomingCall(null)
       safeHaptics.notification(Haptics.NotificationFeedbackType.Error)
@@ -381,6 +394,8 @@ export function SessionProvider({ children }: Props) {
     }
   }, [incomingCall])
 
+  const dismissLastCallEnd = useCallback(() => setLastCallEnd(null), [])
+
   const endCall = useCallback(async (callId?: string): Promise<void> => {
     const s = sessionRef.current
     if (!s) return
@@ -449,6 +464,8 @@ export function SessionProvider({ children }: Props) {
     startCall,
     answerCall,
     endCall,
+    lastCallEnd,
+    dismissLastCallEnd,
     toggleCallMute,
     toggleCallVideo,
     sendCallFrame,
@@ -474,6 +491,8 @@ export function SessionProvider({ children }: Props) {
     startCall,
     answerCall,
     endCall,
+    lastCallEnd,
+    dismissLastCallEnd,
     toggleCallMute,
     toggleCallVideo,
     sendCallFrame,
