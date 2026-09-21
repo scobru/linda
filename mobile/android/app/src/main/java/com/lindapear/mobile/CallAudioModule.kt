@@ -32,9 +32,22 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   private val captureLock = Any()
   private val playbackLock = Any()
 
-  // Capture
-  private var audioRecord: AudioRecord? = null
+  // Capture. There is deliberately no `audioRecord` field: the record belongs to the capture
+  // thread, which is the only code that reads, stops or releases it — see `startCapture`.
   private var captureThread: Thread? = null
+  /**
+   * The live capture's own run flag, or null when none is running.
+   *
+   * One flag per thread rather than one shared one, because a stop and an immediate restart can
+   * overlap: `stopCapture` only signals, so the outgoing thread may still be finishing when the
+   * next `startCapture` has already begun. Sharing a flag would let the old thread's cleanup switch
+   * off the new thread's loop. Each generation therefore stops only itself, and only the generation
+   * this field still points at is allowed to touch the state below.
+   *
+   * Volatile, not lock-guarded: the capture thread reads it on its way out, and taking
+   * `captureLock` there would deadlock against a `startCapture` waiting on `join`.
+   */
+  @Volatile private var currentCaptureRun: AtomicBoolean? = null
   private val isCapturing = AtomicBoolean(false)
   private val isMuted = AtomicBoolean(false)
   private var listenerCount = 0
@@ -149,6 +162,14 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     synchronized(captureLock) {
       if (isCapturing.get()) return
 
+      // A previous capture may still be winding down — `stopCapture` signals and returns without
+      // waiting for the thread to notice. Starting a second `AudioRecord` while the first still
+      // holds the microphone gets one of them a HAL error, so wait the old one out first.
+      captureThread?.let {
+        try { it.join(500) } catch (_: Throwable) {}
+      }
+      captureThread = null
+
       // Ensure RECORD_AUDIO runtime permission is granted before touching AudioRecord
       if (reactApplicationContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
         return
@@ -184,49 +205,78 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
           return
         }
 
-        audioRecord = record
+        val running = AtomicBoolean(true)
         isCapturing.set(true)
+        currentCaptureRun = running
 
+        // The record is captured by the thread and by nothing else. It used to live in a field that
+        // `stopCapture` released after a `join(1000)` — a join whose result was never checked, over
+        // a comment asserting the thread had finished. When that join timed out, `release()` freed
+        // the native object while the thread was still inside `read()`, and a use-after-free in the
+        // audio HAL is a SIGSEGV that no `catch (Throwable)` on either side can see.
+        //
+        // So the thread owns it for its whole life and is the only code that stops or releases it.
+        // `stopCapture` now only sets the flag; the loop notices within one packet (~64ms at
+        // 16 kHz) and cleans up after itself. The worst case that remains is a thread that never
+        // exits, which leaks a microphone rather than killing the process.
         val thread = Thread({
           val buffer = ByteArray(PACKET_BYTES)
-          while (isCapturing.get() && !Thread.currentThread().isInterrupted) {
-            try {
-              val rec = audioRecord ?: break
-              val read = rec.read(buffer, 0, buffer.size)
-              if (read > 0) {
-                if (!isMuted.get()) {
-                  val base64 = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
-                  emitEvent("onAudioCaptureChunk", base64)
+          try {
+            while (running.get() && !Thread.currentThread().isInterrupted) {
+              try {
+                val read = record.read(buffer, 0, buffer.size)
+                if (read > 0) {
+                  if (!isMuted.get()) {
+                    val base64 = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
+                    emitEvent("onAudioCaptureChunk", base64)
+                  }
+                } else if (read < 0) {
+                  // AudioRecord error code (e.g. ERROR_INVALID_OPERATION, ERROR_DEAD_OBJECT)
+                  // Sleep to avoid busy-spinning and burning 100% CPU
+                  try {
+                    Thread.sleep(30)
+                  } catch (_: InterruptedException) {
+                    break
+                  }
+                } else {
+                  // read == 0
+                  try {
+                    Thread.sleep(10)
+                  } catch (_: InterruptedException) {
+                    break
+                  }
                 }
-              } else if (read < 0) {
-                // AudioRecord error code (e.g. ERROR_INVALID_OPERATION, ERROR_DEAD_OBJECT)
-                // Sleep to avoid busy-spinning and burning 100% CPU
-                try {
-                  Thread.sleep(30)
-                } catch (_: InterruptedException) {
-                  break
-                }
-              } else {
-                // read == 0
-                try {
-                  Thread.sleep(10)
-                } catch (_: InterruptedException) {
-                  break
-                }
+              } catch (_: InterruptedException) {
+                break
+              } catch (_: Throwable) {
+                break
               }
-            } catch (_: InterruptedException) {
-              break
-            } catch (_: Throwable) {
-              break
+            }
+          } finally {
+            // The one place this object is torn down, on the one thread that was ever reading it.
+            try {
+              if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) record.stop()
+            } catch (_: Throwable) {}
+            try { record.release() } catch (_: Throwable) {}
+            // Shared state only if this is still the capture the module thinks is running. A
+            // thread that a restart has already replaced must retire quietly, or its cleanup
+            // switches off the capture that took its place.
+            if (currentCaptureRun === running) {
+              currentCaptureRun = null
+              isCapturing.set(false)
+              if (!isPlaying.get()) {
+                try { audioManager.mode = AudioManager.MODE_NORMAL } catch (_: Throwable) {}
+              }
             }
           }
         }, "LindaCallAudioCapture")
         captureThread = thread
         thread.start()
       } catch (_: Throwable) {
+        // `thread.start()` itself failing is the only way here once the flags are set, and then no
+        // `finally` will ever run to undo them.
+        currentCaptureRun = null
         isCapturing.set(false)
-        try { audioRecord?.release() } catch (_: Throwable) {}
-        audioRecord = null
       }
     }
   }
@@ -234,55 +284,13 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
   @ReactMethod
   fun stopCapture() {
     synchronized(captureLock) {
-      if (!isCapturing.compareAndSet(true, false)) {
-        val leakedRecord = audioRecord
-        val leakedThread = captureThread
-        captureThread = null
-        audioRecord = null
-        if (leakedThread != null || leakedRecord != null) {
-          try { leakedRecord?.stop() } catch (_: Throwable) {}
-          try { leakedThread?.interrupt(); leakedThread?.join(500) } catch (_: Throwable) {}
-          try { leakedRecord?.release() } catch (_: Throwable) {}
-        }
-        return
-      }
-
-      val record = audioRecord
-      val thread = captureThread
-
-      // 1. Call stop() FIRST: this unblocks any blocking native rec.read() call in the capture thread
-      try {
-        record?.let {
-          if (it.state == AudioRecord.STATE_INITIALIZED && it.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-            it.stop()
-          }
-        }
-      } catch (_: Throwable) {}
-
-      // 2. Interrupt and wait for captureThread to cleanly finish
-      thread?.let {
-        try {
-          it.interrupt()
-          it.join(1000)
-        } catch (_: Throwable) {}
-      }
-      captureThread = null
-
-      // 3. Thread is finished, so it is 100% safe to release native AudioRecord memory without SIGSEGV
-      try {
-        record?.let {
-          if (it.state == AudioRecord.STATE_INITIALIZED) {
-            it.release()
-          }
-        }
-      } catch (_: Throwable) {}
-      audioRecord = null
-
-      if (!isPlaying.get()) {
-        try {
-          audioManager.mode = AudioManager.MODE_NORMAL
-        } catch (_: Throwable) {}
-      }
+      // Signal only. Everything the capture thread owns, the capture thread releases — see the
+      // comment in `startCapture`. `interrupt` is for the sleeps in the error paths; the read
+      // itself returns within one packet, so the loop notices its flag on its own.
+      currentCaptureRun?.set(false)
+      currentCaptureRun = null
+      isCapturing.set(false)
+      captureThread?.interrupt()
     }
   }
 
@@ -319,17 +327,37 @@ class CallAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     }
   }
 
+  /**
+   * Writes one received packet to the speaker.
+   *
+   * Decoding happens outside the lock and the write inside it. The lock is the fix: this read
+   * `audioTrack` into a local, checked its state, and then wrote to it, with nothing stopping
+   * `stopPlayback` from calling `release()` in between. `AudioTrack.release()` frees the native
+   * track *before* it sets the Java state back to uninitialised, so the state check can pass on an
+   * object that is already gone — and a write into freed audio memory is a SIGSEGV, not a Java
+   * exception, so the `catch` here never saw it.
+   *
+   * `WRITE_NON_BLOCKING` is what makes holding the lock free: the call returns as soon as it has
+   * copied what fits, so it cannot hold up a hang-up.
+   */
   @ReactMethod
   fun playChunk(base64Payload: String) {
     if (!isPlaying.get()) return
-    val track = audioTrack ?: return
-    try {
-      if (track.state != AudioTrack.STATE_INITIALIZED || track.playState != AudioTrack.PLAYSTATE_PLAYING) return
-      val data = Base64.decode(base64Payload, Base64.DEFAULT)
-      if (data.isNotEmpty()) {
+    val data = try {
+      Base64.decode(base64Payload, Base64.DEFAULT)
+    } catch (_: Throwable) {
+      return
+    }
+    if (data.isEmpty()) return
+
+    synchronized(playbackLock) {
+      if (!isPlaying.get()) return
+      val track = audioTrack ?: return
+      try {
+        if (track.state != AudioTrack.STATE_INITIALIZED || track.playState != AudioTrack.PLAYSTATE_PLAYING) return
         track.write(data, 0, data.size, AudioTrack.WRITE_NON_BLOCKING)
-      }
-    } catch (_: Throwable) {}
+      } catch (_: Throwable) {}
+    }
   }
 
   @ReactMethod
