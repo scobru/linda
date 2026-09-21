@@ -14,7 +14,7 @@ import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
 import { requestRecordingPermissionsAsync } from 'expo-audio'
 import { bareClient } from '../bare/client'
 import { frameDataUri, VIDEO_FRAME, AUDIO_FRAME, type WireMediaFrame } from '../bare/media-frame'
-import { callAudio } from '../call-audio'
+import { callAudio, NATIVE_CALL_AUDIO_ENABLED } from '../call-audio'
 import { MediaBackpressure } from '@core/call/media-backpressure'
 import { pickCaptureSize } from '@core/call/capture-size'
 import { useSession } from '../hooks/useSession'
@@ -334,7 +334,11 @@ export default function ActiveCallModal() {
               <Text style={styles.peerNameText}>{peerName}</Text>
               <Text style={styles.subStatus}>
                 {isConnected
-                  ? (isVideo ? 'Camera disabled' : '16 kHz HD Audio Stream')
+                  ? (!NATIVE_CALL_AUDIO_ENABLED
+                      // A build with the native audio module switched off would otherwise claim to
+                      // be streaming audio while sending and playing none — see `call-audio.ts`.
+                      ? 'Audio off — diagnostic build'
+                      : isVideo ? 'Camera disabled' : '16 kHz HD Audio Stream')
                   : 'Ringing remote peer...'}
               </Text>
               {remoteMuted && (
