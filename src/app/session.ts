@@ -381,8 +381,17 @@ export class Session {
       onCallEnd: (message) => this.calls.handleEnd(message),
       onCallControl: (message) => this.calls.handleControl(message),
       onMediaFrame: (message) => this.calls.handleMediaFrame(message),
-      onDisconnection: (publicKey) => {
+      onDisconnection: (publicKey, socket) => {
         const remoteId = b4a.toString(publicKey, 'hex')
+        // Identity, not id — the same rule `CallDesk` keeps about its call slot, for the same
+        // reason. `onConnection` above destroys a redundant second socket to a peer already held,
+        // and that destroy fires this handler under that peer's own public key. Acting on it
+        // forgot a peer whose first socket was still open and replicating, and ended the call
+        // running over it as `error`: on the phone, a call that dropped to "Connection lost" the
+        // moment a duplicate connection happened to arrive. Afterwards the peer was missing from
+        // the map entirely, so dialling it answered "Peer is not connected" and its offers were
+        // discarded for having no channel to reply on.
+        if (this.peers.get(remoteId)?.socket !== socket) return
         this.peers.delete(remoteId)
         this.calls.peerGone(remoteId)
         events.onPeerDisconnected?.(publicKey)
