@@ -23,6 +23,28 @@ import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
 import Avatar from './Avatar'
 import { formatCallDuration } from '@core/util/duration'
 
+/**
+ * What each of the core's end reasons means to whoever was on the call.
+ *
+ * Every one of these used to look identical from the outside — the call screen vanished and you
+ * were back at your contacts. A peer declining, a peer already on another call, nobody answering
+ * and the connection dropping are four different things, and only one of them is worth retrying
+ * immediately.
+ */
+function callEndLabel(reason: string): string {
+  switch (reason) {
+    case 'hangup': return 'Call ended'
+    case 'rejected': return 'Call declined'
+    case 'timeout': return 'No answer'
+    case 'busy': return 'Peer is already on a call'
+    case 'error': return 'Connection lost'
+    default: return `Call ended (${reason})`
+  }
+}
+
+/** How long the notice stays up before it stops being news. */
+const CALL_END_NOTICE_MS = 6000
+
 export default function ActiveCallModal() {
   const {
     activeCall,
@@ -34,7 +56,9 @@ export default function ActiveCallModal() {
     toggleCallVideo,
     nicknames,
     avatars,
-    sendCallFrame
+    sendCallFrame,
+    lastCallEnd,
+    dismissLastCallEnd
   } = useSession()
 
   const { colors } = useTheme()
@@ -197,6 +221,14 @@ export default function ActiveCallModal() {
     }
   }, [isConnected, isVideo, isCallVideoOff, permission?.granted])
 
+  // The notice is the only thing this component shows once a call is over, so it clears itself
+  // rather than waiting for a screen the user may never open.
+  useEffect(() => {
+    if (!lastCallEnd) return
+    const timer = setTimeout(dismissLastCallEnd, CALL_END_NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [lastCallEnd, dismissLastCallEnd])
+
   const isVisible = Boolean(activeCall && activeCall.state !== 'idle' && activeCall.state !== 'ended')
   const peerId = activeCall?.peerId ?? ''
   const callId = activeCall?.callId ?? ''
@@ -218,7 +250,15 @@ export default function ActiveCallModal() {
     return () => sub.remove()
   }, [isVisible, callId, endCall])
 
-  if (!isVisible) return null
+  if (!isVisible) {
+    if (!lastCallEnd) return null
+    return (
+      <Pressable style={styles.endNotice} onPress={dismissLastCallEnd}>
+        <Ionicons name="call-outline" size={16} color={colors.warning} />
+        <Text style={styles.endNoticeText}>{callEndLabel(lastCallEnd.reason)}</Text>
+      </Pressable>
+    )
+  }
 
   const toggleFacing = () => {
     isCameraReadyRef.current = false
@@ -426,6 +466,26 @@ export default function ActiveCallModal() {
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
+    endNotice: {
+      // `shadows.md` carries its own `elevation`, so it goes last rather than being overridden.
+      position: 'absolute',
+      left: spacing.lg,
+      right: spacing.lg,
+      bottom: spacing.xl,
+      zIndex: 9999,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radii.lg,
+      backgroundColor: colors.bgElevated,
+      ...shadows.md,
+    },
+    endNoticeText: {
+      color: colors.textPrimary,
+      fontSize: typography.md,
+    },
     container: {
       ...StyleSheet.absoluteFillObject,
       zIndex: 9999,
