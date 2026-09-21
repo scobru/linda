@@ -16,6 +16,7 @@ import { bareClient } from '../bare/client'
 import { frameDataUri, VIDEO_FRAME, AUDIO_FRAME, type WireMediaFrame } from '../bare/media-frame'
 import { callAudio } from '../call-audio'
 import { MediaBackpressure } from '@core/call/media-backpressure'
+import { pickCaptureSize } from '@core/call/capture-size'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
 import { spacing, typography, radii, shadows, type ThemeColors } from '../theme'
@@ -42,6 +43,14 @@ export default function ActiveCallModal() {
   const [facing, setFacing] = useState<CameraType>('front')
   const [permission, requestPermission] = useCameraPermissions()
   const cameraRef = useRef<CameraView>(null)
+  /**
+   * What the camera is told to capture at.
+   *
+   * Undefined until the device has been asked what it offers, which is the only state in which the
+   * old full-sensor behaviour still applies — and `isCameraReadyRef` keeps the capture loop from
+   * taking a frame before then, so in practice nothing is ever captured unconstrained.
+   */
+  const [pictureSize, setPictureSize] = useState<string | undefined>(undefined)
 
   const isConnected = activeCall?.state === 'connected'
   const isVideo = activeCall?.media.video
@@ -98,8 +107,17 @@ export default function ActiveCallModal() {
 
     callAudio.startPlayback()
 
+    // `cancelled` closes a window that leaked a live microphone: the permission request is async,
+    // so a call that ended — or a state change that re-ran this effect — while it was in flight ran
+    // the cleanup first and then let the late `.then()` start capture anyway. Nothing was scheduled
+    // to stop that capture, so the `AudioRecord` and its thread outlived the call, the audio mode
+    // stayed in-communication, and the next call's `startCapture` returned early against the stale
+    // one it could not see.
+    let cancelled = false
+
     void requestRecordingPermissionsAsync()
       .then((perm) => {
+        if (cancelled) return
         if (perm.granted) {
           callAudio.startCapture()
         }
@@ -123,6 +141,7 @@ export default function ActiveCallModal() {
     })
 
     return () => {
+      cancelled = true
       unsubMedia()
       unsubCapture()
       callAudio.stopAll()
@@ -274,8 +293,27 @@ export default function ActiveCallModal() {
                     console.warn('[active-call] camera mount error:', err)
                     isCameraReadyRef.current = false
                   }}
+                  pictureSize={pictureSize}
                   onCameraReady={() => {
-                    isCameraReadyRef.current = true
+                    // Asked here rather than on mount: the list is only available once the camera
+                    // has actually opened.
+                    //
+                    // `isCameraReadyRef` is set in `finally`, after the answer, rather than before
+                    // asking — that flag is what lets the capture loop take a picture, and a frame
+                    // taken in the gap would be the full-sensor one this whole change exists to
+                    // stop. `finally` and not `then`, so a device that refuses to list its sizes
+                    // still gets a video call, unconstrained as it was before.
+                    void cameraRef.current?.getAvailablePictureSizesAsync()
+                      .then((sizes) => {
+                        const picked = pickCaptureSize(sizes ?? [])
+                        if (picked) setPictureSize(picked)
+                      })
+                      .catch((err) => {
+                        console.warn('[active-call] could not read camera picture sizes:', err)
+                      })
+                      .finally(() => {
+                        isCameraReadyRef.current = true
+                      })
                   }}
                 />
                 <View style={styles.pipOverlay}>

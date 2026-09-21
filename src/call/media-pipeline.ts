@@ -4,6 +4,7 @@ import {
   OPUS, PCM16, DEFAULT_AUDIO_CODEC, audioCodecSpec, audioCodecForFrameKind, type AudioCodecSpec
 } from './audio-codec.js'
 import { VIDEO_FRAME } from './call-encoding.js'
+import { CALL_CAPTURE_WIDTH, CALL_CAPTURE_HEIGHT } from './capture-size.js'
 
 // ---------------------------------------------------------------------------
 // Media Pipeline: Capture & Playback for 1:1 Audio and Audio+Video
@@ -933,8 +934,9 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
     await this.videoElementForCapture.play().catch(() => {})
 
     this.captureCanvas = document.createElement('canvas')
-    this.captureCanvas.width = 480
-    this.captureCanvas.height = 360
+    // Shared with the phone, which picks the nearest size its camera offers — see `capture-size.ts`.
+    this.captureCanvas.width = CALL_CAPTURE_WIDTH
+    this.captureCanvas.height = CALL_CAPTURE_HEIGHT
     this.captureCtx = this.captureCanvas.getContext('2d')
 
     const hasWebCodecs = typeof (window as unknown as { VideoEncoder?: unknown }).VideoEncoder !== 'undefined'
@@ -964,8 +966,8 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
 
         this.videoEncoder.configure({
           codec: 'vp8',
-          width: 480,
-          height: 360,
+          width: CALL_CAPTURE_WIDTH,
+          height: CALL_CAPTURE_HEIGHT,
           bitrate: 400_000,
           framerate: 20
         })
