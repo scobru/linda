@@ -31,11 +31,17 @@ const { CallAudio } = NativeModules
  * turn on exactly one and see which brings the crash back. Capture is the richer suspect — it owns
  * a thread and an `AudioRecord` and talks to the HAL through `VOICE_COMMUNICATION` — but playback
  * has its own `AudioTrack`, and guessing between them is what the last five releases were.
+ *
+ * BOTH BACK ON in v1.14.79. The builds that crashed were also the builds in which every call lost
+ * its connection the moment the app returned to the foreground — and the microphone permission
+ * dialog closing is such a return, landing exactly as `startCapture` runs. v1.14.78 stopped that
+ * self-inflicted drop, so the module has never yet run under a call that stays up. If the crash
+ * comes back, the split above is still here: turn exactly one of these off and rebuild.
  */
-export const NATIVE_CALL_CAPTURE_ENABLED = false
+export const NATIVE_CALL_CAPTURE_ENABLED = true
 
 /** The other half: `AudioTrack`, fed by `playChunk` from the JS thread. */
-export const NATIVE_CALL_PLAYBACK_ENABLED = false
+export const NATIVE_CALL_PLAYBACK_ENABLED = true
 
 /** True when this build touches the native module at all — what the UI reads. */
 export const NATIVE_CALL_AUDIO_ENABLED = NATIVE_CALL_CAPTURE_ENABLED || NATIVE_CALL_PLAYBACK_ENABLED
