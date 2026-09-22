@@ -8,6 +8,7 @@ import Navigation from './src/navigation'
 import { identityExists } from './src/bare/identity-client'
 import { storageDir } from './src/bare/storage-dir'
 import { ensureNotificationChannel } from './src/notifications'
+import { reportLastCrash } from './src/crash-report'
 import IncomingCallModal from './src/components/IncomingCallModal'
 import ActiveCallModal from './src/components/ActiveCallModal'
 
@@ -30,6 +31,10 @@ function AppShell() {
 
   useEffect(() => {
     void identityExists(storageDir()).then((exists) => setInitialRoute(exists ? 'Unlock' : 'Create'))
+  }, [])
+
+  useEffect(() => {
+    void reportLastCrash()
   }, [])
 
   if (!initialRoute) return <View style={{ flex: 1, backgroundColor: colors.bgPrimary }} />
