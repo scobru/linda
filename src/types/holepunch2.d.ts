@@ -42,6 +42,9 @@ declare module 'hyperswarm' {
      * own heuristic of noticing its external address shift in DHT replies. */
     suspend(): Promise<void>
     resume(): Promise<void>
+    /** Keeps dialling this peer by its own key, topics or not, until `leavePeer`. */
+    joinPeer(publicKey: Buffer): void
+    leavePeer(publicKey: Buffer): void
     on(event: 'connection', listener: (socket: Duplex, info: PeerInfo) => void): this
     on(event: string, listener: (...args: any[]) => void): this
   }

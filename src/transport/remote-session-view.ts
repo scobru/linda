@@ -10,6 +10,7 @@ import type { ChatMessage } from '../rooms/room.js'
 import { RemoteRoomView, type RemoteRoomState } from './remote-room-view.js'
 import type { RpcClient } from './rpc-client.js'
 import type { CallInfo } from '../call/call-session.js'
+import type { NetworkResyncCause } from '../app/session.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 import { DEFAULT_AUDIO_CODEC } from '../call/audio-codec.js'
 
@@ -375,8 +376,8 @@ export class RemoteSessionView implements SessionView {
 
   /** Re-announces on the DHT after a network change. Deliberately awaited by nobody: the caller is
    * a wifi/cellular handoff, not a user action. */
-  async resumeNetwork(): Promise<void> {
-    await this.rpcClient.call<void>('session.resumeNetwork')
+  async resumeNetwork(cause: NetworkResyncCause = 'network-change'): Promise<void> {
+    await this.rpcClient.call<void>('session.resumeNetwork', cause)
   }
 
   sendTyping(roomId: string, userId: string, typing: boolean): void {

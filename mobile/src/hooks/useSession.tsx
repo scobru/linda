@@ -8,7 +8,7 @@ import { getDhtPort } from '../dht-port'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
-import type { ContactEntry } from '@core/app/session'
+import type { ContactEntry, NetworkResyncCause } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
 import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
 import { isHistoricalMessage, isRoomUnread, notificationBody } from '@core/rooms/room-rules'
@@ -198,17 +198,29 @@ export function SessionProvider({ children }: Props) {
     // Debounced: turning wifi off fires several type changes in quick succession (wifi -> none ->
     // cellular as the radio actually switches over) — waiting for it to settle avoids resyncing
     // against the momentary "none" state in between.
+    //
+    // The cause travels with it because a resync closes every connection, the call's included: the
+    // core skips a foreground one while a call is up — see `Session.resumeNetwork`. Within one
+    // debounce window a network change outranks a foreground return, since it is the one that
+    // says the old socket routes nowhere.
     let lastNetworkType: string | null = null
     let resyncTimer: ReturnType<typeof setTimeout> | null = null
-    const scheduleResync = () => {
+    let resyncCause: NetworkResyncCause | null = null
+    const scheduleResync = (cause: NetworkResyncCause) => {
+      if (resyncCause !== 'network-change') resyncCause = cause
       if (resyncTimer) clearTimeout(resyncTimer)
-      resyncTimer = setTimeout(() => { resyncTimer = null; void sessionRef.current?.resumeNetwork() }, 800)
+      resyncTimer = setTimeout(() => {
+        const settled = resyncCause ?? cause
+        resyncTimer = null
+        resyncCause = null
+        void sessionRef.current?.resumeNetwork(settled)
+      }, 800)
     }
     NetInfo.addEventListener((state) => {
       if (lastNetworkType === null) { lastNetworkType = state.type; return }
       if (state.type === lastNetworkType) return
       lastNetworkType = state.type
-      scheduleResync()
+      scheduleResync('network-change')
     })
 
     // A phone left backgrounded for a while can have its NAT's UDP mapping expire on the
@@ -219,7 +231,7 @@ export function SessionProvider({ children }: Props) {
     let lastAppState = AppState.currentState
     AppState.addEventListener('change', (next) => {
       if (next === 'active' && lastAppState !== 'active') {
-        scheduleResync()
+        scheduleResync('foreground')
         stopBackgroundConnection()
       } else if (next !== 'active' && lastAppState === 'active') {
         // Only worth holding the process up while there is a session to keep connected.
@@ -292,7 +304,9 @@ export function SessionProvider({ children }: Props) {
         setActiveCall(info)
         if (info.state === 'connected') {
           setIncomingCall(null)
-          safeHaptics.notification(Haptics.NotificationFeedbackType.Success)
+          // Not for a call that has just lost its connection and is waiting for it back — see
+          // `CallInfo.reconnecting`. Its return is worth the buzz; its loss is not a success.
+          if (!info.reconnecting) safeHaptics.notification(Haptics.NotificationFeedbackType.Success)
         }
       }
     })

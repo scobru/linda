@@ -50,6 +50,13 @@ export interface SessionEvents {
   onCallMediaPressure?(wantsMore: boolean): void
 }
 
+/** Why the network is being resynced — see `Session.resumeNetwork`. */
+export type NetworkResyncCause =
+  /** The OS reported a different network: the old one routes nowhere any more. */
+  | 'network-change'
+  /** The app came back to the foreground. Nothing is known to be broken. */
+  | 'foreground'
+
 /** Drive paths are absolute; callers hand us both shapes. */
 function drivePath(filePath: string): string {
   return filePath.startsWith('/') ? filePath : `/${filePath}`
@@ -141,7 +148,10 @@ export class Session {
     this.events = events
     this.calls = new CallDesk(identity.id, {
       onIncomingCall: (info) => events.onIncomingCall?.(info),
-      onCallStateChange: (info) => events.onCallStateChange?.(info),
+      onCallStateChange: (info) => {
+        this.followHeldCall(info)
+        events.onCallStateChange?.(info)
+      },
       onCallEnded: (info) => {
         // A call that ended while the wire was backed up must not hand that state to the next one:
         // nothing has been sent on it yet, so nothing has told it to hold back.
@@ -363,6 +373,9 @@ export class Session {
         }
         this.store.replicate(peer.socket)
         this.peers.set(remoteId, peer)
+        // A call held open across this peer's last connection carries on over this one — and a
+        // call that ended while it could not hear is finally said to have ended. See `CallDesk`.
+        this.calls.peerBack(remoteId, peer)
         peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar })
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
@@ -1721,6 +1734,42 @@ export class Session {
 
   private resumeNetworkPromise: Promise<void> | null = null
 
+  /** The peer of a call being held open across a dropped connection — see `followHeldCall`. */
+  private redial: { peerId: string; joined: boolean } | null = null
+
+  /**
+   * While a call is held across a dropped connection, dials its peer directly.
+   *
+   * Hyperswarm would find the peer again by itself, but through topic discovery: on its retry
+   * timer, and only from whichever side was the client. `joinPeer` dials the peer's own key at once,
+   * from both ends, and whichever connection lands first carries the call on — see
+   * `CallDesk.peerBack`. Let go as soon as the call is linked again or over, so the peer goes back
+   * to being an ordinary topic peer.
+   */
+  private followHeldCall(info: CallInfo): void {
+    const held = info.state === 'connected' && info.reconnecting
+    if (held && this.redial?.peerId !== info.peerId) {
+      this.releaseRedial()
+      const redial = { peerId: info.peerId, joined: false }
+      this.redial = redial
+      // Not in the middle of a resync. `suspend()` throws Hyperswarm's connect queue away but
+      // leaves whoever was in it marked as queued, and a peer marked that way is never queued by
+      // topic discovery again. The drop that started this hold is usually that very resync.
+      void (this.resumeNetworkPromise ?? Promise.resolve()).catch(() => {}).then(() => {
+        if (this.redial !== redial) return
+        this.swarm.joinPeer(b4a.from(redial.peerId, 'hex'))
+        redial.joined = true
+      })
+    } else if (!held && this.redial?.peerId === info.peerId) {
+      this.releaseRedial()
+    }
+  }
+
+  private releaseRedial(): void {
+    if (this.redial?.joined) this.swarm.leavePeer(b4a.from(this.redial.peerId, 'hex'))
+    this.redial = null
+  }
+
   /** Call after the OS reports a network change (e.g. mobile switching wifi <-> cellular). The
    * swarm's UDP socket stays bound to whatever interface/NAT mapping was active when it was
    * created — hyperdht's own "network-change" heuristic only fires from noticing its external
@@ -1732,8 +1781,18 @@ export class Session {
    * own suspended flag and can leave the swarm neither cleanly suspended nor resumed, needing a
    * force-restart to recover. Coalesced into a single in-flight cycle instead: a call that arrives
    * while one is already running just waits on it — since resume() always rebinds against
-   * whatever network is active *when it runs*, that's still correct for the latest state. */
-  async resumeNetwork(): Promise<void> {
+   * whatever network is active *when it runs*, that's still correct for the latest state.
+   *
+   * `cause` matters only while a call is up. `suspend()` closes every connection, the call's among
+   * them, and a `foreground` resync — the app coming back, nothing known to be broken — is
+   * insurance against a NAT mapping that expired while it was away. That is not worth a call whose
+   * connection plainly works, and on a phone the foreground return very often *is* the call:
+   * answering from the notification, the microphone permission dialog closing, the screen coming
+   * back on. It is skipped, not deferred — suspending straight after a hangup would destroy the
+   * socket before the `call_end` left it. A `network-change` still runs: the old network routes
+   * nowhere, so the call's connection is already lost, and the call is held across the rebind. */
+  async resumeNetwork(cause: NetworkResyncCause = 'network-change'): Promise<void> {
+    if (cause === 'foreground' && this.calls.busy) return
     if (this.resumeNetworkPromise) return this.resumeNetworkPromise
     this.resumeNetworkPromise = (async () => {
       try {

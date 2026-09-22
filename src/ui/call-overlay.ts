@@ -293,6 +293,8 @@ export class CallOverlay {
           let statusClass = 'ringing'
           if (info.state === 'calling') statusText = 'Calling...'
           else if (info.state === 'ringing') statusText = 'Ringing...'
+          // Held across a dropped connection — see `CallInfo.reconnecting`. Styled as waiting.
+          else if (isConnected && info.reconnecting) statusText = 'Reconnecting...'
           else if (isConnected) {
             statusText = formatCallDuration(callDurationSeconds(info.startedAt, Date.now()))
             statusClass = ''
@@ -421,6 +423,8 @@ export class CallOverlay {
       statusText = 'Calling...'
     } else if (info.state === 'ringing') {
       statusText = 'Ringing...'
+    } else if (isConnected && info.reconnecting) {
+      statusText = 'Reconnecting...'
     } else if (isConnected) {
       statusText = formatCallDuration(callDurationSeconds(info.startedAt, Date.now()))
       statusClass = ''
@@ -543,7 +547,8 @@ export class CallOverlay {
     this.callDurationTimer = setInterval(() => {
       if (!this.container) return
       const timerEl = this.container.querySelector('#callTimerDisplay')
-      if (timerEl && this.activeCallInfo?.state === 'connected') {
+      // A held call's status line says so instead — see `update`.
+      if (timerEl && this.activeCallInfo?.state === 'connected' && !this.activeCallInfo.reconnecting) {
         const isVideo = this.activeCallInfo.media.video
         const elapsed = callDurationSeconds(this.activeCallInfo.startedAt, Date.now())
         timerEl.innerHTML = `${isVideo ? ICONS.video : ICONS.phone} ${formatCallDuration(elapsed)}`
