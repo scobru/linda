@@ -1,7 +1,7 @@
 {
   "name": "linda-pear",
   "productName": "linda",
-  "version": "1.14.75",
+  "version": "1.14.76",
   "private": true,
   "type": "module",
   "workspaces": [
