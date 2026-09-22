@@ -21,6 +21,12 @@ class P2pForegroundService : Service() {
   companion object {
     private const val CHANNEL_ID = "linda-background-connection"
     private const val NOTIFICATION_ID = 4200
+
+    /**
+     * Asks a running (or about-to-run) instance to stop itself — see `ForegroundServiceModule.stop`
+     * for why this goes through `onStartCommand` rather than `stopService`.
+     */
+    const val ACTION_STOP = "com.lindapear.mobile.action.STOP_BACKGROUND_CONNECTION"
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -28,7 +34,22 @@ class P2pForegroundService : Service() {
   // minSdkVersion is 29 (see mobile/android/gradle.properties), well past the API levels that
   // would make notification channels or FOREGROUND_SERVICE_TYPE_DATA_SYNC optional.
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+    if (intent?.action == ACTION_STOP) {
+      // Intents reach this method in the order they were sent, so any start that preceded this
+      // stop has already been through the `startForeground` below — the contract is kept.
+      try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Throwable) {}
+      stopSelf()
+      return START_NOT_STICKY
+    }
+    try {
+      startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+    } catch (_: Throwable) {
+      // Refused — a background-start restriction, or the daily dataSync allowance Android 15+
+      // imposes having run out. Without the foreground status this service is only a liability
+      // (the system would kill the app for not having it), so it leaves instead.
+      stopSelf()
+      return START_NOT_STICKY
+    }
     // Not START_STICKY. This service holds no connection of its own — it only keeps the process
     // that runs the Bare worklet out of Doze (see the class comment), so restarting it after the
     // system has killed that process leaves a foreground notification claiming Linda is connected
