@@ -50,15 +50,20 @@ function callEndLabel(reason: string): string {
  * the origin, which is decided locally, tells them apart, and telling them apart is the difference
  * between a fault here and a fault there.
  */
-function callEndOriginLabel(reason: string, origin: string): string | null {
+function callEndOriginLabel(reason: string, origin: string, detail?: string | null): string | null {
   if (reason !== 'error') return null
-  switch (origin) {
-    case 'peer-disconnected': return 'this device lost the connection'
-    case 'remote': return 'the other device reported the loss'
-    case 'no-info': return 'the call ended without saying why'
-    case 'unreported': return 'ended by a build that predates this notice'
-    default: return origin
-  }
+  const side = ((): string => {
+    switch (origin) {
+      case 'peer-disconnected': return 'this device lost the connection'
+      case 'remote': return 'the other device reported the loss'
+      case 'no-info': return 'the call ended without saying why'
+      case 'unreported': return 'ended by a build that predates this notice'
+      default: return origin
+    }
+  })()
+  // The transport's own words, when it left any. Nothing in the app closes a peer's socket, so a
+  // connection that went away went away for a reason, and this is the only place it is ever said.
+  return detail ? `${side} — ${detail}` : side
 }
 
 /** How long the notice stays up before it stops being news. */
@@ -248,6 +253,10 @@ export default function ActiveCallModal() {
   // rather than waiting for a screen the user may never open.
   useEffect(() => {
     if (!lastCallEnd) return
+    // A notice carrying the transport's own error message waits to be tapped away. "Call ended"
+    // goes stale in a few seconds; a line naming why a connection died is evidence, and six
+    // seconds is not long enough to read it, let alone report it.
+    if (lastCallEnd.detail) return
     const timer = setTimeout(dismissLastCallEnd, CALL_END_NOTICE_MS)
     return () => clearTimeout(timer)
   }, [lastCallEnd, dismissLastCallEnd])
@@ -275,7 +284,7 @@ export default function ActiveCallModal() {
 
   if (!isVisible) {
     if (!lastCallEnd) return null
-    const originLabel = callEndOriginLabel(lastCallEnd.reason, lastCallEnd.origin)
+    const originLabel = callEndOriginLabel(lastCallEnd.reason, lastCallEnd.origin, lastCallEnd.detail)
     return (
       <Pressable style={styles.endNotice} onPress={dismissLastCallEnd}>
         <Ionicons name="call-outline" size={16} color={colors.warning} />

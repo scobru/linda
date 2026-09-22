@@ -178,3 +178,29 @@ test('the peer is still forgotten when the socket actually held for it closes', 
   socket.destroy()
   await waitFor(() => session.peers.size === 0, 'the peer to be dropped when its own socket closes')
 })
+
+test('a connection that died of something says what, instead of only that it closed', async () => {
+  // `swarm.ts` handled 'error' with an empty function. That is what a socket says on its way out,
+  // and it was the only account of why a call would drop to "Connection lost": with it discarded,
+  // the phone could report that the connection went away and nothing whatever about the cause.
+  const seen: Array<{ socket: Duplex; error: Error | null }> = []
+  const handlers: SwarmHandlers = {
+    onDisconnection: (_key, socket, error) => { seen.push({ socket, error }) }
+  }
+
+  const key = b4a.alloc(32, 2) as unknown as Buffer
+  const [failing] = duplexPair()
+  const [orderly] = duplexPair()
+  handleConnection(failing, key, handlers)
+  handleConnection(orderly, key, handlers)
+
+  failing.destroy(new Error('stream destroyed by remote'))
+  orderly.destroy()
+  await waitFor(() => seen.length === 2, 'both sockets to report themselves')
+
+  const failed = seen.find((s) => s.socket === failing)!
+  assert.equal(failed.error?.message, 'stream destroyed by remote')
+
+  const closed = seen.find((s) => s.socket === orderly)!
+  assert.equal(closed.error, null, 'an ordinary close invents no cause')
+})
