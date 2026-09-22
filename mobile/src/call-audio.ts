@@ -37,8 +37,14 @@ const { CallAudio } = NativeModules
  * dialog closing is such a return, landing exactly as `startCapture` runs. v1.14.78 stopped that
  * self-inflicted drop, so the module has never yet run under a call that stays up. If the crash
  * comes back, the split above is still here: turn exactly one of these off and rebuild.
+ *
+ * IT CAME BACK in v1.14.79, with both on — so the drop was not the cause. v1.14.80 is the split:
+ * playback on, capture off. Turning capture off removes more than `AudioRecord` — it also stops
+ * the ~15 outgoing audio frames a second that cross from here into the worklet and onto the wire,
+ * so a build that stops crashing with capture off points at that whole outgoing path, not only at
+ * the native half of it. A build that still crashes points at playback.
  */
-export const NATIVE_CALL_CAPTURE_ENABLED = true
+export const NATIVE_CALL_CAPTURE_ENABLED = false
 
 /** The other half: `AudioTrack`, fed by `playChunk` from the JS thread. */
 export const NATIVE_CALL_PLAYBACK_ENABLED = true
