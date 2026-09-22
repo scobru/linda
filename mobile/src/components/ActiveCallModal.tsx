@@ -42,6 +42,25 @@ function callEndLabel(reason: string): string {
   }
 }
 
+/**
+ * Which side decided, in words, for the endings where that is the whole question.
+ *
+ * "Connection lost" reads the same whether this phone lost the peer or the peer's machine lost
+ * this phone and said so — the reason travels on the wire, so both ends print the other's. Only
+ * the origin, which is decided locally, tells them apart, and telling them apart is the difference
+ * between a fault here and a fault there.
+ */
+function callEndOriginLabel(reason: string, origin: string): string | null {
+  if (reason !== 'error') return null
+  switch (origin) {
+    case 'peer-disconnected': return 'this device lost the connection'
+    case 'remote': return 'the other device reported the loss'
+    case 'no-info': return 'the call ended without saying why'
+    case 'unreported': return 'ended by a build that predates this notice'
+    default: return origin
+  }
+}
+
 /** How long the notice stays up before it stops being news. */
 const CALL_END_NOTICE_MS = 6000
 
@@ -78,6 +97,10 @@ export default function ActiveCallModal() {
 
   const isConnected = activeCall?.state === 'connected'
   const isVideo = activeCall?.media.video
+  // Whether *this* side has a camera to show. It decides the self-view and what gets captured, and
+  // nothing else: the remote video is the peer's to send or not, and was hidden for a while by this
+  // being folded into the same condition that chose the whole video layout.
+  const localCameraOn = !isCallVideoOff && !!permission?.granted
 
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null)
   const isCameraReadyRef = useRef(false)
@@ -174,7 +197,7 @@ export default function ActiveCallModal() {
 
   // Periodic video frame capture & transmission from mobile camera
   useEffect(() => {
-    if (!isConnected || !isVideo || isCallVideoOff || !permission?.granted) return
+    if (!isConnected || !isVideo || !localCameraOn) return
     let isMounted = true
     let isCapturing = false
     let consecutiveErrors = 0
@@ -219,7 +242,7 @@ export default function ActiveCallModal() {
       backpressureRef.current.reset()
       clearInterval(interval)
     }
-  }, [isConnected, isVideo, isCallVideoOff, permission?.granted])
+  }, [isConnected, isVideo, localCameraOn])
 
   // The notice is the only thing this component shows once a call is over, so it clears itself
   // rather than waiting for a screen the user may never open.
@@ -252,10 +275,14 @@ export default function ActiveCallModal() {
 
   if (!isVisible) {
     if (!lastCallEnd) return null
+    const originLabel = callEndOriginLabel(lastCallEnd.reason, lastCallEnd.origin)
     return (
       <Pressable style={styles.endNotice} onPress={dismissLastCallEnd}>
         <Ionicons name="call-outline" size={16} color={colors.warning} />
-        <Text style={styles.endNoticeText}>{callEndLabel(lastCallEnd.reason)}</Text>
+        <View style={styles.endNoticeBody}>
+          <Text style={styles.endNoticeText}>{callEndLabel(lastCallEnd.reason)}</Text>
+          {originLabel && <Text style={styles.endNoticeDetail}>{originLabel}</Text>}
+        </View>
       </Pressable>
     )
   }
@@ -285,7 +312,7 @@ export default function ActiveCallModal() {
 
       {/* Main Body */}
       <View style={styles.mainArea}>
-        {isVideo && !isCallVideoOff && permission?.granted ? (
+        {isVideo ? (
           <View style={styles.videoStage}>
               {/* Remote participant card / video area */}
               <View style={styles.remoteVideoPlaceholder}>
@@ -322,44 +349,66 @@ export default function ActiveCallModal() {
 
               {/* Local Self-View PiP */}
               <View style={styles.pipContainer}>
-                <CameraView
-                  ref={cameraRef}
-                  style={styles.cameraView}
-                  facing={facing}
-                  animateShutter={false}
-                  flash="off"
-                  enableTorch={false}
-                  onMountError={(err) => {
-                    console.warn('[active-call] camera mount error:', err)
-                    isCameraReadyRef.current = false
-                  }}
-                  pictureSize={pictureSize}
-                  onCameraReady={() => {
-                    // Asked here rather than on mount: the list is only available once the camera
-                    // has actually opened.
-                    //
-                    // `isCameraReadyRef` is set in `finally`, after the answer, rather than before
-                    // asking — that flag is what lets the capture loop take a picture, and a frame
-                    // taken in the gap would be the full-sensor one this whole change exists to
-                    // stop. `finally` and not `then`, so a device that refuses to list its sizes
-                    // still gets a video call, unconstrained as it was before.
-                    void cameraRef.current?.getAvailablePictureSizesAsync()
-                      .then((sizes) => {
-                        const picked = pickCaptureSize(sizes ?? [])
-                        if (picked) setPictureSize(picked)
-                      })
-                      .catch((err) => {
-                        console.warn('[active-call] could not read camera picture sizes:', err)
-                      })
-                      .finally(() => {
-                        isCameraReadyRef.current = true
-                      })
-                  }}
-                />
+                {localCameraOn ? (
+                  <CameraView
+                    ref={cameraRef}
+                    style={styles.cameraView}
+                    facing={facing}
+                    animateShutter={false}
+                    flash="off"
+                    enableTorch={false}
+                    onMountError={(err) => {
+                      console.warn('[active-call] camera mount error:', err)
+                      isCameraReadyRef.current = false
+                    }}
+                    pictureSize={pictureSize}
+                    onCameraReady={() => {
+                      // Asked here rather than on mount: the list is only available once the camera
+                      // has actually opened.
+                      //
+                      // `isCameraReadyRef` is set in `finally`, after the answer, rather than before
+                      // asking — that flag is what lets the capture loop take a picture, and a frame
+                      // taken in the gap would be the full-sensor one this whole change exists to
+                      // stop. `finally` and not `then`, so a device that refuses to list its sizes
+                      // still gets a video call, unconstrained as it was before.
+                      void cameraRef.current?.getAvailablePictureSizesAsync()
+                        .then((sizes) => {
+                          const picked = pickCaptureSize(sizes ?? [])
+                          if (picked) setPictureSize(picked)
+                        })
+                        .catch((err) => {
+                          console.warn('[active-call] could not read camera picture sizes:', err)
+                        })
+                        .finally(() => {
+                          isCameraReadyRef.current = true
+                        })
+                    }}
+                  />
+                ) : (
+                  <View style={styles.pipOff}>
+                    <Ionicons name="videocam-off" size={22} color="#94a3b8" />
+                    <Text style={styles.pipOffText}>
+                      {permission?.granted ? 'Camera off' : 'No camera access'}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.pipOverlay}>
                   <Text style={styles.pipLabel}>You</Text>
                 </View>
               </View>
+
+              {/* The camera this side never got permission for — asked here, where the call is. */}
+              {!permission?.granted && (
+                <Pressable
+                  style={styles.videoPermissionBtn}
+                  onPress={() => {
+                    void requestPermission()
+                  }}
+                >
+                  <Ionicons name="camera-outline" size={16} color="#ffffff" />
+                  <Text style={styles.permissionBtnText}>Enable Camera</Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <View style={styles.audioStage}>
@@ -378,7 +427,7 @@ export default function ActiveCallModal() {
                       // A build with the native audio module switched off would otherwise claim to
                       // be streaming audio while sending and playing none — see `call-audio.ts`.
                       ? 'Audio off — diagnostic build'
-                      : isVideo ? 'Camera disabled' : '16 kHz HD Audio Stream')
+                      : '16 kHz HD Audio Stream')
                   : 'Ringing remote peer...'}
               </Text>
               {remoteMuted && (
@@ -386,19 +435,6 @@ export default function ActiveCallModal() {
                   <Ionicons name="mic-off" size={14} color={colors.warning} />
                   <Text style={styles.remoteMutedText}>Peer is muted</Text>
                 </View>
-              )}
-
-              {/* Ask camera permission button if needed */}
-              {isVideo && !permission?.granted && (
-                <Pressable
-                  style={styles.permissionBtn}
-                  onPress={() => {
-                    void requestPermission()
-                  }}
-                >
-                  <Ionicons name="camera-outline" size={16} color="#ffffff" />
-                  <Text style={styles.permissionBtnText}>Enable Camera</Text>
-                </Pressable>
               )}
             </View>
           )}
@@ -482,9 +518,17 @@ const createStyles = (colors: ThemeColors) =>
       backgroundColor: colors.bgElevated,
       ...shadows.md,
     },
+    endNoticeBody: {
+      flex: 1,
+    },
     endNoticeText: {
       color: colors.textPrimary,
       fontSize: typography.md,
+    },
+    endNoticeDetail: {
+      color: colors.textSecondary,
+      fontSize: typography.xs,
+      marginTop: 2,
     },
     container: {
       ...StyleSheet.absoluteFillObject,
@@ -565,7 +609,10 @@ const createStyles = (colors: ThemeColors) =>
       fontSize: typography.xs,
       fontWeight: typography.medium,
     },
-    permissionBtn: {
+    videoPermissionBtn: {
+      position: 'absolute',
+      bottom: spacing.lg,
+      left: spacing.lg,
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
@@ -573,7 +620,6 @@ const createStyles = (colors: ThemeColors) =>
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
       borderRadius: radii.full,
-      marginTop: spacing.lg,
     },
     permissionBtnText: {
       color: '#ffffff',
@@ -610,6 +656,18 @@ const createStyles = (colors: ThemeColors) =>
       flex: 1,
       width: '100%',
       height: '100%',
+    },
+    pipOff: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 4,
+    },
+    pipOffText: {
+      color: '#94a3b8',
+      fontSize: 10,
+      textAlign: 'center',
     },
     pipOverlay: {
       position: 'absolute',

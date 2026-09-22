@@ -21,6 +21,25 @@ import { DEFAULT_AUDIO_CODEC, encodeAudioCodecList, readNegotiatedCodec } from '
 export type CallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended'
 export type CallEndReason = 'hangup' | 'rejected' | 'timeout' | 'error' | 'busy'
 
+/**
+ * Where the end came from, as opposed to what it was called.
+ *
+ * The reason travels on the wire, so both ends of a call report the same one — which is what made
+ * "Connection lost" so hard to place. A call ending as `error` on this phone can mean this side
+ * lost the peer, or that the *other* side lost it and said so, and those are different faults in
+ * different machines. This is decided locally and never sent, so it always names the side reading
+ * it.
+ */
+export type CallEndOrigin =
+  /** We hung up or rejected. */
+  | 'local'
+  /** Nobody answered within the ring timeout. */
+  | 'local-timeout'
+  /** The peer sent an end message — the reason beside this one is theirs, not ours. */
+  | 'remote'
+  /** Our connection to the peer went away underneath the call. */
+  | 'peer-disconnected'
+
 export interface CallMediaOptions {
   audio: boolean
   video: boolean
@@ -68,6 +87,8 @@ export interface CallInfo {
   startedAt: number | null
   endedAt: number | null
   endReason: CallEndReason | null
+  /** Which side's fault the ending was. Local only — see `CallEndOrigin`. */
+  endOrigin: CallEndOrigin | null
 }
 
 export interface CallSessionEvents {
@@ -93,6 +114,7 @@ export class CallSession {
   private _startedAt: number | null = null
   private _endedAt: number | null = null
   private _endReason: CallEndReason | null = null
+  private _endOrigin: CallEndOrigin | null = null
   private ringTimer: ReturnType<typeof setTimeout> | null = null
   private readonly events: CallSessionEvents
   private callRpc: CallRpcChannel | null = null
@@ -131,7 +153,8 @@ export class CallSession {
       remoteCameraOff: this._remote.remoteCameraOff,
       startedAt: this._startedAt,
       endedAt: this._endedAt,
-      endReason: this._endReason
+      endReason: this._endReason,
+      endOrigin: this._endOrigin
     }
   }
 
@@ -207,7 +230,7 @@ export class CallSession {
       fromId: this.localId,
       accepted: false
     })
-    this.end('rejected')
+    this.end('rejected', 'local')
   }
 
   // ── Shared lifecycle ────────────────────────────────────────────────────
@@ -220,7 +243,7 @@ export class CallSession {
       fromId: this.localId,
       reason: 'hangup'
     })
-    this.end('hangup')
+    this.end('hangup', 'local')
   }
 
   /** Sends a control action (mute/unmute/camera-on/camera-off) to the remote peer. */
@@ -259,12 +282,12 @@ export class CallSession {
       this._startedAt = Date.now()
       this.emitStateChange()
     } else {
-      this.end('rejected')
+      this.end('rejected', 'remote')
     }
   }
 
   handleEnd(message: CallEndMessage): void {
-    this.end(message.reason as CallEndReason || 'hangup')
+    this.end(message.reason as CallEndReason || 'hangup', 'remote')
   }
 
   handleControl(message: CallControlMessage): void {
@@ -282,17 +305,18 @@ export class CallSession {
   /** Called when the peer disconnects from the swarm entirely. */
   handlePeerDisconnected(): void {
     if (this._state === 'ended' || this._state === 'idle') return
-    this.end('error')
+    this.end('error', 'peer-disconnected')
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
 
-  private end(reason: CallEndReason): void {
+  private end(reason: CallEndReason, origin: CallEndOrigin): void {
     if (this._state === 'ended') return
     this.clearRingTimeout()
     this._state = 'ended'
     this._endedAt = Date.now()
     this._endReason = reason
+    this._endOrigin = origin
     this.emitStateChange()
   }
 
@@ -306,7 +330,7 @@ export class CallSession {
             reason: 'timeout'
           })
         }
-        this.end('timeout')
+        this.end('timeout', 'local-timeout')
       }
     }, RING_TIMEOUT_MS)
     this.ringTimer.unref?.()
