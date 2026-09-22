@@ -239,6 +239,11 @@ export class MediaPipeline {
 
       if (config.audio) {
         await this.startAudioCapture()
+        // The call can end while the microphone is still being opened — a peer that goes away
+        // during the accept is exactly the case that produced this. `stop()` has already run by
+        // then, so everything built past this point would belong to no call and never be torn
+        // down again.
+        if (!this.active) return
         this.initAudioPlayback()
         // Always, not only when this call negotiated Opus. What arrives is decided by whoever is
         // sending, `handleIncomingFrame` routes on the frame's own kind rather than on what was
@@ -496,30 +501,49 @@ export class MediaPipeline {
     }
   }
 
+  /**
+   * Opens the microphone and starts emitting packets of the current codec's size.
+   *
+   * Every step past the first `await` asks `superseded()` first, and it asks by *identity*: is the
+   * context this invocation created still the one the pipeline holds? Two invocations overlap by
+   * design — `start()` begins capture on the floor codec while the answer that names Opus is still
+   * in flight, and `useAudioCodec` then tears that down and rebuilds. The old invocation wakes up
+   * inside the new one's pipeline, and a check for *a* context is satisfied by the replacement, so
+   * it would go on to attach its nodes to a context that is not its own, or fall through to the
+   * ScriptProcessor path and read `createScriptProcessor` off a context already closed and nulled.
+   * That last one is what refused the call outright: "Could not accept call: Cannot read
+   * properties of null (reading 'createScriptProcessor')".
+   */
   private async startAudioCapture(): Promise<void> {
     if (!this.localStream) return
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    this.audioContext = new AudioCtx({ sampleRate: this.audioSpec.sampleRate })
+    const context = new AudioCtx({ sampleRate: this.audioSpec.sampleRate })
+    this.audioContext = context
 
-    this.audioContext.onstatechange = () => {
-      if (this.active && this.audioContext && this.audioContext.state === 'suspended') {
-        this.audioContext.resume().catch(() => {})
+    /** True once this invocation is no longer the one whose capture the pipeline is running. */
+    const superseded = (): boolean => !this.active || this.audioContext !== context
+
+    context.onstatechange = () => {
+      if (this.active && this.audioContext === context && context.state === 'suspended') {
+        context.resume().catch(() => {})
       }
     }
-    if (this.audioContext.state === 'suspended') {
+    if (context.state === 'suspended') {
       try {
-        await this.audioContext.resume()
+        await context.resume()
       } catch (err) {
         console.warn('[media-pipeline] AudioContext resume failed:', err)
       }
     }
+    if (superseded()) return
 
-    this.audioSource = this.audioContext.createMediaStreamSource(this.localStream)
+    const source = context.createMediaStreamSource(this.localStream)
+    this.audioSource = source
 
     if (this.audioSpec.name === OPUS) this.initAudioEncoder()
 
     // Prefer AudioWorkletNode to avoid ScriptProcessorNode deprecation and main-thread processing
-    if (typeof AudioWorkletNode !== 'undefined' && this.audioContext.audioWorklet) {
+    if (typeof AudioWorkletNode !== 'undefined' && context.audioWorklet) {
       try {
         // The worklet emits raw Float32 and nothing else. It used to convert to Int16 in here,
         // which quietly made PCM16 the only format this pipeline could ever produce: Opus needs
@@ -553,44 +577,52 @@ registerProcessor('audio-capture-processor', AudioCaptureProcessor)
         const blob = new Blob([workletCode], { type: 'application/javascript' })
         const url = URL.createObjectURL(blob)
         try {
-          await this.audioContext.audioWorklet.addModule(url)
+          await context.audioWorklet.addModule(url)
         } finally {
           URL.revokeObjectURL(url)
         }
 
-        if (!this.active || !this.audioContext) return
+        if (superseded()) return
 
-        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-capture-processor', {
+        const worklet = new AudioWorkletNode(context, 'audio-capture-processor', {
           processorOptions: { frameSamples: this.audioSpec.frameSamples }
         })
-        this.audioWorkletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        this.audioWorkletNode = worklet
+        worklet.port.onmessage = (e: MessageEvent<Float32Array>) => {
           this.emitAudio(e.data)
         }
 
-        this.audioSource.connect(this.audioWorkletNode)
-        const silentGain = this.audioContext.createGain()
+        source.connect(worklet)
+        const silentGain = context.createGain()
         silentGain.gain.value = 0
-        this.audioWorkletNode.connect(silentGain)
-        silentGain.connect(this.audioContext.destination)
+        worklet.connect(silentGain)
+        silentGain.connect(context.destination)
         return
       } catch (workletErr) {
+        // A rejection here is also how a superseded invocation finds out: its own context was
+        // closed underneath it, so `addModule` refuses. Falling through would then build the
+        // fallback on whatever the pipeline holds now.
+        if (superseded()) return
         console.warn('[media-pipeline] AudioWorklet setup failed, falling back to ScriptProcessor:', workletErr)
       }
     }
 
     // Fallback: ScriptProcessor. Its buffer size must be a power of two, which the codec's packet
     // size is not obliged to be, so it re-buffers into `emitAudio` through `pendingCapture`.
-    this.audioProcessor = this.audioContext.createScriptProcessor(1024, 1, 1)
-    this.audioProcessor.onaudioprocess = (e) => {
+    if (superseded()) return
+
+    const processor = context.createScriptProcessor(1024, 1, 1)
+    this.audioProcessor = processor
+    processor.onaudioprocess = (e) => {
       this.bufferCapturedAudio(e.inputBuffer.getChannelData(0))
     }
 
-    this.audioSource.connect(this.audioProcessor)
+    source.connect(processor)
     // Connect to a mute destination to keep the processor ticking without audio feedback
-    const silentGain = this.audioContext.createGain()
+    const silentGain = context.createGain()
     silentGain.gain.value = 0
-    this.audioProcessor.connect(silentGain)
-    silentGain.connect(this.audioContext.destination)
+    processor.connect(silentGain)
+    silentGain.connect(context.destination)
   }
 
   /** Re-buffers arbitrary capture chunks into exactly the packet size the codec wants. */
