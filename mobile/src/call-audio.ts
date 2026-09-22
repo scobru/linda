@@ -38,13 +38,13 @@ const { CallAudio } = NativeModules
  * self-inflicted drop, so the module has never yet run under a call that stays up. If the crash
  * comes back, the split above is still here: turn exactly one of these off and rebuild.
  *
- * IT CAME BACK in v1.14.79, with both on — so the drop was not the cause. v1.14.80 is the split:
- * playback on, capture off. Turning capture off removes more than `AudioRecord` — it also stops
- * the ~15 outgoing audio frames a second that cross from here into the worklet and onto the wire,
- * so a build that stops crashing with capture off points at that whole outgoing path, not only at
- * the native half of it. A build that still crashes points at playback.
+ * IT CAME BACK in v1.14.79, and still with playback alone in v1.14.80 — and the crash report
+ * v1.14.81 added finally showed what it was: `ForegroundServiceDidNotStartInTimeException`, from
+ * the background-connection service being stopped before it could go foreground. Not this module
+ * at all; see `ForegroundServiceModule.stop`. Both halves are back on in v1.14.82 with that fixed.
+ * Should the app die during a call again, the report on the next launch says where.
  */
-export const NATIVE_CALL_CAPTURE_ENABLED = false
+export const NATIVE_CALL_CAPTURE_ENABLED = true
 
 /** The other half: `AudioTrack`, fed by `playChunk` from the JS thread. */
 export const NATIVE_CALL_PLAYBACK_ENABLED = true
