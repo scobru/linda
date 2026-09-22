@@ -27,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
             // packages.add(MyReactNativePackage())
             packages.add(ForegroundServicePackage())
             packages.add(CallAudioPackage())
+            packages.add(CrashReportPackage())
             return packages
           }
 
@@ -44,6 +45,8 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // First, so a crash anywhere after this — native init included — is written down.
+    CrashReport.install(this)
     SoLoader.init(this, OpenSourceMergedSoMapping)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
