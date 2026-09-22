@@ -401,3 +401,46 @@ test('a live call carries no origin at all', () => {
   assert.equal(info.endOrigin, null)
   assert.equal(d.current?.endOrigin, null)
 })
+
+test('what the transport said on its way out reaches the call that died of it', () => {
+  // `peer-disconnected` names who was lost and never why. Nothing in this app closes a peer's
+  // socket, so a call ending this way ended because the transport gave up — and its account of
+  // that was being swallowed by an empty error handler in `swarm.ts`, leaving a phone with
+  // "Connection lost" and nothing else, round after round.
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  connected(d, peer)
+
+  d.peerGone('peer-a', 'stream destroyed by remote')
+
+  assert.equal(ended!.endReason, 'error')
+  assert.equal(ended!.endOrigin, 'peer-disconnected')
+  assert.equal(ended!.endDetail, 'stream destroyed by remote')
+})
+
+test('a connection that simply closed carries no detail rather than an invented one', () => {
+  // Most closes are ordinary and say nothing. Null is the honest answer; a placeholder here would
+  // read on screen as though the transport had reported something.
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  connected(d, peer)
+
+  d.peerGone('peer-a')
+
+  assert.equal(ended!.endOrigin, 'peer-disconnected')
+  assert.equal(ended!.endDetail, null)
+})
+
+test('an ending decided here carries no transport detail either', () => {
+  let ended: CallInfo | null = null
+  const d = desk({ onCallEnded: (info: CallInfo) => { ended = info } })
+  const { peer } = fakePeer()
+  connected(d, peer)
+
+  d.end()
+
+  assert.equal(ended!.endOrigin, 'local')
+  assert.equal(ended!.endDetail, null, 'we hung up; the transport had nothing to do with it')
+})

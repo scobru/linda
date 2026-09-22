@@ -51,7 +51,7 @@ interface SessionContextValue {
   answerCall: (callId: string, accept: boolean) => Promise<void>
   endCall: (callId?: string) => Promise<void>
   /** Why the last call ended, and which side decided — until it is dismissed, see `callEnded`. */
-  lastCallEnd: { reason: string; origin: string; at: number } | null
+  lastCallEnd: { reason: string; origin: string; detail: string | null; at: number } | null
   dismissLastCallEnd: () => void
   toggleCallMute: () => void
   toggleCallVideo: () => void
@@ -90,7 +90,7 @@ export function SessionProvider({ children }: Props) {
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const [avatars, setAvatars] = useState<Map<string, string>>(new Map())
   const [activeCall, setActiveCall] = useState<CallInfo | null>(null)
-  const [lastCallEnd, setLastCallEnd] = useState<{ reason: string; origin: string; at: number } | null>(null)
+  const [lastCallEnd, setLastCallEnd] = useState<{ reason: string; origin: string; detail: string | null; at: number } | null>(null)
   const [incomingCall, setIncomingCall] = useState<CallInfo | null>(null)
   const [callDuration, setCallDuration] = useState(0)
   const [isCallMuted, setIsCallMuted] = useState(false)
@@ -306,10 +306,13 @@ export function SessionProvider({ children }: Props) {
       // indistinguishable on screen from the peer actually going away. `no-info` says which.
       const reason = info?.endReason ?? 'error'
       const origin = info?.endOrigin ?? (info ? 'unreported' : 'no-info')
+      // What the transport said for itself on its way out, when it said anything — see
+      // `SwarmHandlers.onDisconnection`. Null far more often than not.
+      const detail = info?.endDetail ?? null
       // Also logged, because `expo start --dev-client` puts it in the Metro terminal, which is a
       // great deal easier to reach than a device log.
-      console.warn('[call] ended:', reason, `(${origin})`)
-      setLastCallEnd({ reason, origin, at: Date.now() })
+      console.warn('[call] ended:', reason, `(${origin})`, detail ?? '')
+      setLastCallEnd({ reason, origin, detail, at: Date.now() })
       setActiveCall(null)
       setIncomingCall(null)
       safeHaptics.notification(Haptics.NotificationFeedbackType.Error)

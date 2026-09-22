@@ -19,8 +19,13 @@ export type SwarmHandlers = RpcHandlers & CallRpcHandlers & {
    * peer: `onConnection` may deliberately destroy a redundant second connection to a peer that is
    * already held, and that destroy lands here under the very same public key. Only the handler
    * knows which socket it kept, so only the handler can tell the two apart — see `Session`.
+   *
+   * `error` is what killed it, when something did, and null for an ordinary close. Nothing in this
+   * app destroys a peer's socket except that redundant-connection case, so a call dropping to
+   * "Connection lost" means the transport gave up — and until this was carried, its reason was
+   * swallowed by the empty error handler below and the screen could only say that it happened.
    */
-  onDisconnection?(remotePublicKey: Buffer, socket: Duplex): void
+  onDisconnection?(remotePublicKey: Buffer, socket: Duplex, error: Error | null): void
 }
 
 /** Behind a VPN the DHT's default UDP port is unreachable from outside, so holepunching fails and
@@ -75,8 +80,15 @@ export function handleConnection(socket: Duplex, remotePublicKey: Buffer, handle
   const callRpc = attachCallRpc(socket, handlers, remoteId)
   handlers.onConnection?.({ socket, rpc, callRpc, remotePublicKey })
 
-  socket.on('close', () => handlers.onDisconnection?.(remotePublicKey, socket))
-  socket.on('error', () => {})
+  // Kept, not swallowed: 'error' lands before 'close', and by then it is the only account of why
+  // the connection ended. Logged as well as carried, because the two ends of a call are two
+  // machines and only one of them has a screen to be told on.
+  let socketError: Error | null = null
+  socket.on('error', (err: Error) => {
+    socketError = err
+    console.warn(`[swarm] connection to ${remoteId.slice(0, 8)} failed: ${err?.message ?? err}`)
+  })
+  socket.on('close', () => handlers.onDisconnection?.(remotePublicKey, socket, socketError))
 }
 
 /** Announces on the topic without waiting for `discovery.flushed()`. That flush waits for the DHT

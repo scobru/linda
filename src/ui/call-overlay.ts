@@ -201,7 +201,10 @@ export class CallOverlay {
   handleCallEnded(info: CallInfo): void {
     // A call has two ends and only one of them was able to say anything. The reason crosses the
     // wire, so both sides print the same one; `endOrigin` is decided here and names this side.
-    console.warn(`[call] ended: ${info.endReason ?? 'unknown'} (${info.endOrigin ?? 'unreported'})`)
+    console.warn(
+      `[call] ended: ${info.endReason ?? 'unknown'} (${info.endOrigin ?? 'unreported'})` +
+      (info.endDetail ? ` — ${info.endDetail}` : '')
+    )
     this.stopRingtone()
     this.stopDurationTimer()
     this.mediaPipeline.stop()

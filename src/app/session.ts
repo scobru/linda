@@ -381,7 +381,7 @@ export class Session {
       onCallEnd: (message) => this.calls.handleEnd(message),
       onCallControl: (message) => this.calls.handleControl(message),
       onMediaFrame: (message) => this.calls.handleMediaFrame(message),
-      onDisconnection: (publicKey, socket) => {
+      onDisconnection: (publicKey, socket, error) => {
         const remoteId = b4a.toString(publicKey, 'hex')
         // Identity, not id — the same rule `CallDesk` keeps about its call slot, for the same
         // reason. `onConnection` above destroys a redundant second socket to a peer already held,
@@ -393,7 +393,9 @@ export class Session {
         // discarded for having no channel to reply on.
         if (this.peers.get(remoteId)?.socket !== socket) return
         this.peers.delete(remoteId)
-        this.calls.peerGone(remoteId)
+        // Whatever the transport said on its way out. A call ending as `error` could say who was
+        // lost but never why, which is the whole of what a phone showing "Connection lost" knows.
+        this.calls.peerGone(remoteId, error?.message)
         events.onPeerDisconnected?.(publicKey)
       }
     }

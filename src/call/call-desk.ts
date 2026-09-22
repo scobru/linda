@@ -142,9 +142,13 @@ export class CallDesk {
     this.forCall(frame.callId)?.handleMediaFrame(frame)
   }
 
-  /** The peer dropped off the swarm: a call with it cannot recover, so it ends as an error. */
-  peerGone(peerId: string): void {
-    if (this.active?.peerId === peerId) this.active.handlePeerDisconnected()
+  /**
+   * The peer dropped off the swarm: a call with it cannot recover, so it ends as an error.
+   *
+   * `detail` is the transport's own account of why, when it gave one — see `SwarmHandlers`.
+   */
+  peerGone(peerId: string, detail?: string): void {
+    if (this.active?.peerId === peerId) this.active.handlePeerDisconnected(detail)
   }
 
   // ── Private ─────────────────────────────────────────────────────────────

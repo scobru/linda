@@ -89,6 +89,13 @@ export interface CallInfo {
   endReason: CallEndReason | null
   /** Which side's fault the ending was. Local only — see `CallEndOrigin`. */
   endOrigin: CallEndOrigin | null
+  /**
+   * What the layer below said, when it said anything — the transport's own error message for a
+   * connection that went away, for instance. Free text, local only, and null far more often than
+   * not: it exists because "the peer disconnected" names *who*, never *why*, and the why was being
+   * discarded at the socket.
+   */
+  endDetail: string | null
 }
 
 export interface CallSessionEvents {
@@ -115,6 +122,7 @@ export class CallSession {
   private _endedAt: number | null = null
   private _endReason: CallEndReason | null = null
   private _endOrigin: CallEndOrigin | null = null
+  private _endDetail: string | null = null
   private ringTimer: ReturnType<typeof setTimeout> | null = null
   private readonly events: CallSessionEvents
   private callRpc: CallRpcChannel | null = null
@@ -154,7 +162,8 @@ export class CallSession {
       startedAt: this._startedAt,
       endedAt: this._endedAt,
       endReason: this._endReason,
-      endOrigin: this._endOrigin
+      endOrigin: this._endOrigin,
+      endDetail: this._endDetail
     }
   }
 
@@ -302,21 +311,28 @@ export class CallSession {
     this.events.onMediaFrame?.(frame)
   }
 
-  /** Called when the peer disconnects from the swarm entirely. */
-  handlePeerDisconnected(): void {
+  /**
+   * Called when the peer disconnects from the swarm entirely.
+   *
+   * `detail` is whatever closed the connection said for itself — the transport's error message,
+   * when there was one. It is the difference between "the connection went away" and knowing that
+   * it went away because, say, the stream was destroyed by a protocol error.
+   */
+  handlePeerDisconnected(detail?: string): void {
     if (this._state === 'ended' || this._state === 'idle') return
-    this.end('error', 'peer-disconnected')
+    this.end('error', 'peer-disconnected', detail)
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
 
-  private end(reason: CallEndReason, origin: CallEndOrigin): void {
+  private end(reason: CallEndReason, origin: CallEndOrigin, detail?: string): void {
     if (this._state === 'ended') return
     this.clearRingTimeout()
     this._state = 'ended'
     this._endedAt = Date.now()
     this._endReason = reason
     this._endOrigin = origin
+    this._endDetail = detail ?? null
     this.emitStateChange()
   }
 
