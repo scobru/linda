@@ -9,7 +9,8 @@ import { DEFAULT_AUDIO_CODEC, encodeAudioCodecList, readNegotiatedCodec } from '
 // device and a single remote peer. The lifecycle is:
 //
 //   IDLE → CALLING (we dialled) or RINGING (they dialled)
-//        → CONNECTED (media streaming)
+//        → CONNECTED (media streaming — held open across a dropped connection, see
+//                     `handlePeerDisconnected`)
 //        → ENDED
 //
 // Media capture/playback is NOT handled here — that lives in media-pipeline.ts
@@ -96,16 +97,59 @@ export interface CallInfo {
    * discarded at the socket.
    */
   endDetail: string | null
+  /**
+   * True while a connected call has lost its connection and has not yet heard from the peer over a
+   * new one — see `CallSession.handlePeerDisconnected`.
+   *
+   * Not a state of its own on purpose: the call *is* still connected as far as both people are
+   * concerned — the media pipeline keeps running, the clock keeps counting — and every shell treats
+   * anything but `connected` as "tear the media down". Local only, never sent.
+   */
+  reconnecting: boolean
 }
 
 export interface CallSessionEvents {
   onStateChange?(info: CallInfo): void
   onRemoteControl?(callId: string, action: string): void
   onMediaFrame?(frame: MediaFrameMessage): void
+  /**
+   * The call ended while its connection was down, so the peer was never told.
+   *
+   * The message is the one that would have gone out. Whoever holds the peer's next connection owes
+   * it to them — see `CallDesk.peerBack` — or the peer, still waiting out its own grace, reattaches
+   * to a call that no longer exists here and sits in it with nothing on the line.
+   */
+  onEndUnsent?(message: CallEndMessage): void
 }
 
 /** How long we wait for the remote peer to answer before giving up. */
 const RING_TIMEOUT_MS = 30_000
+
+/**
+ * How long a connected call survives the loss of its connection.
+ *
+ * A call rides one Hyperswarm socket, and on a phone that socket is not forever: a wifi/cellular
+ * handoff, a NAT rebinding its port, the app's own network resync all close it — and Hyperswarm
+ * opens a fresh one to the same peer a few seconds later. Ending the call the instant the first
+ * one closed is what made every one of those blips a dropped call. Long enough to outlast a
+ * handoff plus a re-punch on a cellular NAT, short enough that a peer who really left is given up
+ * on while the person is still looking at the screen.
+ */
+export const RECONNECT_GRACE_MS = 30_000
+
+/**
+ * Which control actions cancel each other out, so that a reconnect replays the latest of each.
+ * An action outside these pairs stands for itself.
+ */
+const CONTROL_GROUP: Readonly<Record<string, string>> = {
+  mute: 'audio',
+  unmute: 'audio',
+  'camera-off': 'video',
+  'camera-on': 'video'
+}
+
+/** Where every call starts: nothing switched off. What a reconnect says when nothing was toggled. */
+const INITIAL_CONTROLS: ReadonlyArray<readonly [string, string]> = [['audio', 'unmute'], ['video', 'camera-on']]
 
 export class CallSession {
   readonly callId: string
@@ -124,6 +168,12 @@ export class CallSession {
   private _endOrigin: CallEndOrigin | null = null
   private _endDetail: string | null = null
   private ringTimer: ReturnType<typeof setTimeout> | null = null
+  /** Runs from a lost connection until the peer is heard from again — see `handlePeerDisconnected`. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  /** What the transport said when the connection went, kept for the ending if it never comes back. */
+  private lostDetail: string | null = null
+  /** The latest control action of each kind we sent, so a fresh connection can be told where we are. */
+  private readonly sentControls = new Map<string, string>()
   private readonly events: CallSessionEvents
   private callRpc: CallRpcChannel | null = null
   private readonly localId: string  // our own identity id
@@ -163,8 +213,14 @@ export class CallSession {
       endedAt: this._endedAt,
       endReason: this._endReason,
       endOrigin: this._endOrigin,
-      endDetail: this._endDetail
+      endDetail: this._endDetail,
+      reconnecting: this.reconnectTimer !== null
     }
+  }
+
+  /** True from a lost connection until the peer is heard from again. */
+  get reconnecting(): boolean {
+    return this.reconnectTimer !== null
   }
 
   /**
@@ -247,17 +303,19 @@ export class CallSession {
   /** Ends the call from our side. */
   hangup(): void {
     if (this._state === 'ended' || this._state === 'idle') return
-    this.callRpc?.sendCallEnd({
-      callId: this.callId,
-      fromId: this.localId,
-      reason: 'hangup'
-    })
+    this.tellEnded('hangup')
     this.end('hangup', 'local')
   }
 
-  /** Sends a control action (mute/unmute/camera-on/camera-off) to the remote peer. */
+  /**
+   * Sends a control action (mute/unmute/camera-on/camera-off) to the remote peer.
+   *
+   * Remembered as well as sent: one made while the connection is down has nowhere to go, and one
+   * made just before it went may never have arrived. `reattachChannel` replays the latest of each.
+   */
   sendControl(action: string): void {
     if (this._state !== 'connected') return
+    this.sentControls.set(CONTROL_GROUP[action] ?? action, action)
     this.callRpc?.sendCallControl({
       callId: this.callId,
       fromId: this.localId,
@@ -301,6 +359,7 @@ export class CallSession {
 
   handleControl(message: CallControlMessage): void {
     if (this._state !== 'connected') return
+    this.heardFromPeer()
     this._remote = applyRemoteControl(this._remote, message.action)
     this.events.onRemoteControl?.(this.callId, message.action)
     this.emitStateChange()
@@ -308,11 +367,26 @@ export class CallSession {
 
   handleMediaFrame(frame: MediaFrameMessage): void {
     if (this._state !== 'connected') return
+    if (this.heardFromPeer()) this.emitStateChange()
     this.events.onMediaFrame?.(frame)
   }
 
   /**
-   * Called when the peer disconnects from the swarm entirely.
+   * Called when the connection this call rides on closes.
+   *
+   * A connected call is held rather than ended: the channel is dropped, `reconnecting` goes up, and
+   * the call gives the peer `RECONNECT_GRACE_MS` to come back on a fresh connection — see
+   * `reattachChannel` — *and to be heard from on it*. A peer that reconnects is not yet a peer that
+   * still has this call: one that restarted, or runs a build that ended its side the moment its own
+   * socket closed, comes back with nothing, and a call reattached to it would sit connected to
+   * nobody. So the clock stops at the first control or frame from the peer, not at the reconnect.
+   * If that never comes, the call ends as the error it would have been, and the peer is told.
+   *
+   * One clock for the whole gap, not one per connection: a link that keeps coming back and dying
+   * before the peer is heard from does not keep a call alive forever.
+   *
+   * A call still ringing ends at once, as before. Nothing has been said yet that a new connection
+   * would carry on, the ring timeout is already counting, and dialling again costs one tap.
    *
    * `detail` is whatever closed the connection said for itself — the transport's error message,
    * when there was one. It is the difference between "the connection went away" and knowing that
@@ -320,14 +394,68 @@ export class CallSession {
    */
   handlePeerDisconnected(detail?: string): void {
     if (this._state === 'ended' || this._state === 'idle') return
-    this.end('error', 'peer-disconnected', detail)
+    if (this._state !== 'connected') {
+      this.end('error', 'peer-disconnected', detail)
+      return
+    }
+    this.callRpc = null
+    // The latest word wins: a connection that came back and went again is described by how it
+    // went the second time.
+    this.lostDetail = detail ?? null
+    if (this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      // Linked again but never heard from: the peer came back without this call.
+      const why = this.callRpc ? 'reconnected, but the peer no longer had this call' : this.lostDetail
+      this.tellEnded('error')
+      this.end('error', 'peer-disconnected', why ?? undefined)
+    }, RECONNECT_GRACE_MS)
+    this.reconnectTimer.unref?.()
+    this.emitStateChange()
+  }
+
+  /**
+   * The peer is back on a fresh connection: carry the held call over to it.
+   *
+   * Says where we are — the latest control action of each kind, and the starting ones for any kind
+   * never touched — because the peer's picture of us is whatever last reached it: a mute made
+   * during the gap, or sent into a socket that was already dying, never did. That it is never
+   * empty matters as much: it is what the peer hears from us, and hearing from us is what ends
+   * *its* wait (see `handlePeerDisconnected`). A call with a live channel ignores this.
+   */
+  reattachChannel(channel: CallRpcChannel): void {
+    if (this._state !== 'connected' || this.callRpc) return
+    this.callRpc = channel
+    const current = new Map(INITIAL_CONTROLS)
+    for (const [group, action] of this.sentControls) current.set(group, action)
+    for (const action of current.values()) {
+      channel.sendCallControl({ callId: this.callId, fromId: this.localId, action })
+    }
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
 
+  /**
+   * Whether this message is the peer being heard from again after a lost connection, closing the
+   * gap if so. Only over a new connection: while there is none, nothing can arrive to count.
+   */
+  private heardFromPeer(): boolean {
+    if (!this.reconnectTimer || !this.callRpc) return false
+    this.clearReconnectTimer()
+    this.lostDetail = null
+    return true
+  }
+
+  /** Tells the peer the call is over — now if the connection is up, on its next one if not. */
+  private tellEnded(reason: CallEndReason): void {
+    const message: CallEndMessage = { callId: this.callId, fromId: this.localId, reason }
+    if (this.callRpc) this.callRpc.sendCallEnd(message)
+    else this.events.onEndUnsent?.(message)
+  }
+
   private end(reason: CallEndReason, origin: CallEndOrigin, detail?: string): void {
     if (this._state === 'ended') return
     this.clearRingTimeout()
+    this.clearReconnectTimer()
     this._state = 'ended'
     this._endedAt = Date.now()
     this._endReason = reason
@@ -350,6 +478,13 @@ export class CallSession {
       }
     }, RING_TIMEOUT_MS)
     this.ringTimer.unref?.()
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
   }
 
   private clearRingTimeout(): void {

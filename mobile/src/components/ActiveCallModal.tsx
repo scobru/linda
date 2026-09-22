@@ -101,6 +101,9 @@ export default function ActiveCallModal() {
   const [pictureSize, setPictureSize] = useState<string | undefined>(undefined)
 
   const isConnected = activeCall?.state === 'connected'
+  /** Connected, but its connection dropped and the core is waiting for it back — see
+   *  `CallInfo.reconnecting`. Everything keeps running; only what the screen says changes. */
+  const isReconnecting = isConnected && Boolean(activeCall?.reconnecting)
   const isVideo = activeCall?.media.video
   // Whether *this* side has a camera to show. It decides the self-view and what gets captured, and
   // nothing else: the remote video is the peer's to send or not, and was hidden for a while by this
@@ -301,8 +304,9 @@ export default function ActiveCallModal() {
     setFacing((prev) => (prev === 'front' ? 'back' : 'front'))
   }
 
+  // A held call keeps its clock, but the clock is not what matters while the peer cannot hear you.
   const statusLabel = isConnected
-    ? formatCallDuration(callDuration)
+    ? isReconnecting ? 'Reconnecting...' : formatCallDuration(callDuration)
     : activeCall?.state === 'ringing'
       ? 'Ringing...'
       : 'Calling...'
@@ -342,9 +346,11 @@ export default function ActiveCallModal() {
                     />
                     <Text style={styles.peerNameText}>{peerName}</Text>
                     <Text style={styles.subStatus}>
-                      {isConnected
-                        ? (remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
-                        : 'Dialing peer over Hyperswarm...'}
+                      {isReconnecting
+                        ? 'Connection lost — reconnecting...'
+                        : isConnected
+                          ? (remoteCameraOff ? 'Peer turned camera off' : 'P2P Media Stream Connected')
+                          : 'Dialing peer over Hyperswarm...'}
                     </Text>
                   </>
                 )}
@@ -431,13 +437,15 @@ export default function ActiveCallModal() {
               </View>
               <Text style={styles.peerNameText}>{peerName}</Text>
               <Text style={styles.subStatus}>
-                {isConnected
-                  ? (!NATIVE_CALL_AUDIO_ENABLED
-                      // A build with the native audio module switched off would otherwise claim to
-                      // be streaming audio while sending and playing none — see `call-audio.ts`.
-                      ? 'Audio off — diagnostic build'
-                      : '16 kHz HD Audio Stream')
-                  : 'Ringing remote peer...'}
+                {isReconnecting
+                  ? 'Connection lost — reconnecting...'
+                  : isConnected
+                    ? (!NATIVE_CALL_AUDIO_ENABLED
+                        // A build with the native audio module switched off would otherwise claim to
+                        // be streaming audio while sending and playing none — see `call-audio.ts`.
+                        ? 'Audio off — diagnostic build'
+                        : '16 kHz HD Audio Stream')
+                    : 'Ringing remote peer...'}
               </Text>
               {remoteMuted && (
                 <View style={styles.remoteMutedPill}>

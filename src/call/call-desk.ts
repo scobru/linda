@@ -38,6 +38,14 @@ export interface CallDeskEvents {
 
 export class CallDesk {
   private active: CallSession | null = null
+  /**
+   * Endings the peer was never told about, by peer id — see `CallSessionEvents.onEndUnsent`.
+   *
+   * One per peer at most, since a newer ending supersedes an older one, and delivered the moment
+   * that peer's next connection arrives. An entry for a peer that never comes back costs a few
+   * bytes; one delivered long after is dropped by the peer's own desk, which holds no such call.
+   */
+  private readonly owedEnds = new Map<string, CallEndMessage>()
 
   constructor(
     private readonly localId: string,
@@ -143,12 +151,29 @@ export class CallDesk {
   }
 
   /**
-   * The peer dropped off the swarm: a call with it cannot recover, so it ends as an error.
+   * The connection to a peer closed. A connected call with it is held for the peer to come back —
+   * see `CallSession.handlePeerDisconnected` — and anything short of connected ends as an error.
    *
    * `detail` is the transport's own account of why, when it gave one — see `SwarmHandlers`.
    */
   peerGone(peerId: string, detail?: string): void {
     if (this.active?.peerId === peerId) this.active.handlePeerDisconnected(detail)
+  }
+
+  /**
+   * A peer is reachable again on a fresh connection.
+   *
+   * Settles what the gap left open: the ending we owe it, if a call with it ended while it could
+   * not hear, and the held call, if one is waiting for it — which moves onto this connection and
+   * waits to hear from the peer on it (see `CallSession.handlePeerDisconnected`).
+   */
+  peerBack(peerId: string, peer: CallPeer): void {
+    const owed = this.owedEnds.get(peerId)
+    if (owed) {
+      this.owedEnds.delete(peerId)
+      peer.callRpc.sendCallEnd(owed)
+    }
+    if (this.active?.peerId === peerId) this.active.reattachChannel(peer.callRpc)
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
@@ -175,7 +200,8 @@ export class CallDesk {
         }
       },
       onRemoteControl: (id, action) => this.events.onCallRemoteControl?.(id, action),
-      onMediaFrame: (frame) => this.events.onCallMediaFrame?.(frame)
+      onMediaFrame: (frame) => this.events.onCallMediaFrame?.(frame),
+      onEndUnsent: (message) => this.owedEnds.set(peerId, message)
     })
     session.attachChannel(peer.callRpc)
     this.active = session
