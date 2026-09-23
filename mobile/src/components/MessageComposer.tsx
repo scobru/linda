@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { spacing, radii, typography, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { voiceMessageName } from '@core/rooms/attachment-kind'
+import { commandSuggestions, type BotProfile } from '@core/bot/bot-profile'
 
 const THUMBNAIL_WIDTH = 360
 
@@ -59,10 +60,14 @@ interface Props {
   onCancelEdit?: () => void
   onSubmitEdit?: (id: string, body: string) => void
   onChangeText?: (text: string) => void
+  /** The room's bots: their commands are offered while a `/word` is being typed. */
+  commandBots?: ReadonlyMap<string, BotProfile>
+  /** A bot's name, shown next to its command when more than one bot is in the room. */
+  botName?: (botId: string) => string
 }
 
 export default function MessageComposer({
-  onSend, onAttach, replyTo, editingMessage, placeholder, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText,
+  onSend, onAttach, replyTo, editingMessage, placeholder, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText, commandBots, botName,
 }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
@@ -88,6 +93,13 @@ export default function MessageComposer({
    * with a fresh `defaultValue` is — while clearing after a send uses the native `clear()` command,
    * which keeps focus and the keyboard up. */
   const [inputGeneration, setInputGeneration] = useState(0)
+  /** The `/word` being typed, while there is one — the only text the suggestions depend on, so
+   * ordinary typing leaves this at '' and costs no render. */
+  const [commandQuery, setCommandQuery] = useState('')
+  const suggestions = useMemo(
+    () => (commandQuery && commandBots && !editingMessage ? commandSuggestions(commandQuery, commandBots) : []),
+    [commandQuery, commandBots, editingMessage]
+  )
 
   // When editingMessage changes, put its body in the field
   React.useEffect(() => {
@@ -112,6 +124,7 @@ export default function MessageComposer({
     // a row is what the old ordering looked like on a busy JS thread.
     textRef.current = ''
     setHasText(false)
+    setCommandQuery('')
     inputRef.current?.clear()
 
     if (editingMessage) {
@@ -220,6 +233,28 @@ export default function MessageComposer({
         </View>
       )}
 
+      {/* Commands the room's bots answer. Picking one sends it, as a bot's command menu does elsewhere. */}
+      {suggestions.length > 0 && !recording && (
+        <View style={styles.suggestions}>
+          {suggestions.map((s) => (
+            <Pressable
+              key={s.name}
+              onPress={() => {
+                textRef.current = `/${s.name}`
+                handleSend()
+              }}
+              style={({ pressed }) => [styles.suggestion, pressed && styles.attachButtonPressed]}
+            >
+              <Text style={styles.suggestionName}>/{s.name}</Text>
+              {!!s.description && <Text style={styles.suggestionDescription} numberOfLines={1}>{s.description}</Text>}
+              {commandBots && commandBots.size > 1 && botName && (
+                <Text style={styles.suggestionBot} numberOfLines={1}>{botName(s.botId)}</Text>
+              )}
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {/* Recording row — replaces the composer while a voice message is being captured */}
       {recording ? (
         <View style={styles.container}>
@@ -259,6 +294,7 @@ export default function MessageComposer({
             // button only cares whether the field crossed between empty and non-empty.
             const filled = t.trim().length > 0
             setHasText((was) => (was === filled ? was : filled))
+            setCommandQuery(/^\/\w*$/.test(t) ? t : '')
             onChangeText?.(t)
           }}
           placeholder={placeholder || "Message"}
@@ -387,6 +423,32 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   attachIcon: {
     fontSize: 20,
+  },
+  suggestions: {
+    backgroundColor: colors.bgTertiary,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  suggestion: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  suggestionName: {
+    color: colors.textPrimary,
+    fontSize: typography.md,
+    fontWeight: typography.bold,
+  },
+  suggestionDescription: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontSize: typography.sm,
+  },
+  suggestionBot: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
   },
   banner: {
     flexDirection: 'row',

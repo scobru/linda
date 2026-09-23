@@ -15,6 +15,7 @@ import { extractHashtags, hasHashtag, linkifyHashtags } from '../util/hashtag.js
 import { attachmentKind, isVoiceMessage, voiceMessageName } from '../rooms/attachment-kind.js'
 import { peerAvatar, peerName } from '../app/peer-display.js'
 import { DELETED_MESSAGE_TEXT, FILE_NOT_YET_AVAILABLE, PERSONAL_VAULT_DESCRIPTION, canChangeMemberRole, canRestrictMember, memberRole, memberRoleLabel, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, isHistoricalMessage, isRoomUnread, lastMessagePreview, mailboxSnippet, mailboxSubject, matchesRoomQuery, notificationBody, orderRoomList, shouldSendTypingPing, survivingHashtag, TYPING_STOP_MS } from '../rooms/room-rules.js'
+import { botsAmong, commandSuggestions, withBotPresence, type BotProfile } from '../bot/bot-profile.js'
 import { avatarColor, avatarInitials, AVATAR_JPEG_QUALITY, AVATAR_MAX_DIM, IMAGE_LOAD_FAILED } from '../util/avatar.js'
 import { formatRelativeTime } from '../util/duration.js'
 import { formatBytes } from '../util/bytes.js'
@@ -203,6 +204,9 @@ type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
 
 type FilterTab = 'all' | 'unread' | 'favorites'
 
+/** Next to the name of a peer that has announced itself as a bot. A claim it makes about itself, like its nickname. */
+const BOT_BADGE = '<span class="member-role-badge bot" style="font-size:0.6rem;padding:0.05rem 0.35rem;" title="This account says it is a bot">BOT</span>'
+
 export class AppShell extends HTMLElement {
   private view: View = 'create'
   private identity: Identity | null = null
@@ -253,6 +257,8 @@ export class AppShell extends HTMLElement {
   private readBy = new Set<string>()
   private lastReadSent: string | null = null
   private onlineUsers = new Set<string>()
+  /** Peers that have announced themselves as bots, with their commands — see `bot-profile.ts`. */
+  private bots: ReadonlyMap<string, BotProfile> = new Map()
   private nicknames = new Map<string, string>()
   private avatars = new Map<string, string>()
   private nickname = ''
@@ -630,7 +636,7 @@ export class AppShell extends HTMLElement {
     try {
       const session = await openSession(this.identity, storageDir(), { events: {
         onTyping: (m) => this.onTyping(m.roomId, m.userId, m.typing),
-        onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar),
+        onPresence: (m) => this.onPresence(m.userId, m.online, m.nickname, m.avatar, m.bot),
         onReadReceipt: (m) => this.onReadReceipt(m.roomId, m.userId),
         onDirectoryChange: () => { if (this.view === 'discover') this.render() },
         onContactsChange: () => { if (this.view === 'people') this.render() },
@@ -1193,6 +1199,8 @@ export class AppShell extends HTMLElement {
         try { el.setSelectionRange(focused.selectionStart, focused.selectionEnd) } catch { /* input type doesn't support range selection */ }
       }
     }
+    // What was typed survives the re-render, so the commands suggested for it do too.
+    if (focused?.id === 'body') this.renderCommandSuggestions()
   }
 
   /** Unread = this room has a message newer than the last time it was opened (never opened counts as the epoch). */
@@ -1763,6 +1771,7 @@ export class AppShell extends HTMLElement {
         <!-- Composer Bar -->
         <footer class="composer">
           ${writable ? `
+            <div id="commandSuggestions" class="command-suggestions" hidden></div>
             <div class="composer-capsule">
               <button class="composer-plus-btn" id="attachBtn" title="Attach file or image via Hyperdrive">+</button>
               <input id="file" type="file" style="display:none" />
@@ -1860,6 +1869,15 @@ export class AppShell extends HTMLElement {
     const bodyInput = this.querySelector('#body') as HTMLInputElement
     bodyInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') void this.sendMessage()
+      // Tab completes the first suggested command, the way a shell would.
+      if (e.key === 'Tab' && !e.shiftKey) {
+        const first = this.querySelector<HTMLElement>('#commandSuggestions [data-command]')
+        if (first) {
+          e.preventDefault()
+          bodyInput.value = `/${first.dataset.command} `
+          this.renderCommandSuggestions()
+        }
+      }
     })
     bodyInput?.addEventListener('input', () => {
       const sendBtn = this.querySelector('#send')
@@ -1868,6 +1886,14 @@ export class AppShell extends HTMLElement {
         else sendBtn.classList.remove('active')
       }
       this.notifyTyping()
+      this.renderCommandSuggestions()
+    })
+    this.querySelector('#commandSuggestions')?.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest<HTMLElement>('[data-command]')
+      if (!item || !bodyInput) return
+      // Like a bot's command menu elsewhere: picking a command sends it.
+      bodyInput.value = `/${item.dataset.command}`
+      void this.sendMessage().finally(() => this.renderCommandSuggestions())
     })
 
     this.querySelector('#attachBtn')?.addEventListener('click', () => {
@@ -2629,6 +2655,7 @@ export class AppShell extends HTMLElement {
             <div class="msg-header-line">
               <span class="msg-author">${escapeHtml(authorName)}</span>
               ${authorRoleBadge}
+              ${this.bots.has(message.authorId) ? BOT_BADGE : ''}
               <span class="msg-time">${timeFormatted}</span>
             </div>
           ` : ''}
@@ -2641,6 +2668,24 @@ export class AppShell extends HTMLElement {
         </div>
       </div>
     `
+  }
+
+  /** The commands the room's bots answer that match what is in the composer — see `commandSuggestions`. */
+  private renderCommandSuggestions(): void {
+    const box = this.querySelector('#commandSuggestions') as HTMLElement | null
+    const input = this.querySelector('#body') as HTMLInputElement | null
+    const room = this.activeRoom
+    if (!box) return
+    const bots = room && this.bots.size > 0 ? botsAmong(this.bots, room.listMembers().map((m) => m.identityId)) : new Map()
+    const suggestions = input && !this.editingMessage ? commandSuggestions(input.value, bots) : []
+    box.hidden = suggestions.length === 0
+    box.innerHTML = suggestions.map((s) => `
+      <button type="button" class="command-suggestion" data-command="${escapeHtml(s.name)}">
+        <span class="command-name">/${escapeHtml(s.name)}</span>
+        ${s.description ? `<span class="command-description">${escapeHtml(s.description)}</span>` : ''}
+        ${bots.size > 1 ? `<span class="command-bot">${escapeHtml(this.displayName(s.botId))}</span>` : ''}
+      </button>
+    `).join('')
   }
 
   private async sendMessage(): Promise<void> {
@@ -3088,7 +3133,8 @@ export class AppShell extends HTMLElement {
     if (el) el.textContent = this.readBy.size > 0 ? `Seen by ${[...this.readBy].map((id) => this.displayName(id)).join(', ')}` : ''
   }
 
-  private onPresence(userId: string, online: boolean, nickname: string, avatar?: string): void {
+  private onPresence(userId: string, online: boolean, nickname: string, avatar?: string, bot?: string): void {
+    this.bots = withBotPresence(this.bots, { userId, bot })
     if (online) this.onlineUsers.add(userId)
     else this.onlineUsers.delete(userId)
     if (nickname) this.nicknames.set(userId, nickname)
@@ -3999,6 +4045,7 @@ export class AppShell extends HTMLElement {
                             : `<span class="member-role-badge member">${memberRoleLabel(role)}</span>`}
                         ${isMuted ? `<span class="member-role-badge muted">${ICONS.volumeOff} Muted</span>` : ''}
                         ${isBanned ? `<span class="member-role-badge banned">${ICONS.ban} Banned</span>` : ''}
+                        ${this.bots.has(m.identityId) ? '<span class="member-role-badge bot" title="This account says it is a bot">BOT</span>' : ''}
                       </div>
                       <div class="member-card-id" title="${m.identityId}">${m.identityId.slice(0, 16)}…${m.identityId.slice(-6)}</div>
                     </div>

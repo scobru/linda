@@ -17,6 +17,7 @@ import { callDurationSeconds } from '@core/util/duration'
 import { privateModeEnabled } from '../private-mode'
 import * as Haptics from 'expo-haptics'
 import b4a from 'b4a'
+import { withBotPresence, type BotProfile } from '@core/bot/bot-profile'
 
 const safeHaptics = {
   notification: (type: Haptics.NotificationFeedbackType) => {
@@ -41,6 +42,8 @@ interface SessionContextValue {
   onlineUsers: Set<string>
   nicknames: Map<string, string>
   avatars: Map<string, string>
+  /** Peers that have announced themselves as bots, with their commands — see `bot-profile.ts`. */
+  bots: ReadonlyMap<string, BotProfile>
 
   // Calls
   activeCall: CallInfo | null
@@ -89,6 +92,7 @@ export function SessionProvider({ children }: Props) {
   const [contacts, setContacts] = useState<ContactEntry[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
+  const [bots, setBots] = useState<ReadonlyMap<string, BotProfile>>(new Map())
   const [avatars, setAvatars] = useState<Map<string, string>>(new Map())
   const [activeCall, setActiveCall] = useState<CallInfo | null>(null)
   const [lastCallEnd, setLastCallEnd] = useState<{ reason: string; origin: string; detail: string | null; at: number } | null>(null)
@@ -169,7 +173,8 @@ export function SessionProvider({ children }: Props) {
     if (eventsWired.current) return
     eventsWired.current = true
 
-    bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string }) => {
+    bareClient.on('presence', (msg: { userId: string; online: boolean; nickname?: string; avatar?: string; bot?: string }) => {
+      setBots((prev) => withBotPresence(prev, msg))
       if (msg.online) {
         setOnlineUsers((prev) => new Set(prev).add(msg.userId))
       } else {
@@ -445,6 +450,7 @@ export function SessionProvider({ children }: Props) {
     onlineUsers,
     nicknames,
     avatars,
+    bots,
     activeCall,
     incomingCall,
     callDuration,
@@ -472,6 +478,7 @@ export function SessionProvider({ children }: Props) {
     onlineUsers,
     nicknames,
     avatars,
+    bots,
     activeCall,
     incomingCall,
     callDuration,

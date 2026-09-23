@@ -211,6 +211,10 @@ program needs and a person does not — every new message handed over once, `/co
 contact requests accepted, and read positions remembered across restarts, so a bot that was offline
 answers what it missed.
 
+The apps know a bot when they meet one: it announces itself and its commands, so both desktop and
+mobile put a **BOT** badge next to its name and, when you type `/` in a room it is in, list its
+commands — pick one to send it. That is the bot's own claim about itself, like a nickname.
+
 ```ts
 const bot = await LindaBot.start({ storageDir: './my-bot', passphrase: process.env.PASS!, nickname: 'Echo' })
 bot.command('echo', (ctx) => ctx.reply(ctx.command!.args))

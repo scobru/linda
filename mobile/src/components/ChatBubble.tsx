@@ -39,6 +39,8 @@ interface Props {
   /** In multi-select mode, whether this message can be selected (own messages only — batch delete is protocol-restricted to your own). */
   selectable?: boolean
   selected?: boolean
+  /** The author has announced itself as a bot — see `bot-profile.ts`. */
+  authorIsBot?: boolean
 }
 
 
@@ -63,7 +65,7 @@ function splitOnInviteLinks(text: string): Array<{ text: string; link?: string }
   )
 }
 
-function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected }: Props) {
+function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPress, onPress, onReactionPress, onFilePress, onFileSave, onHashtagPress, fileDownloading, isAudioPlaying, isAudioLoading, selectable, selected, authorIsBot }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   const { privateMode } = usePrivateMode()
@@ -102,7 +104,10 @@ function ChatBubbleInner({ message, isSelf, authorName, replyPreview, onLongPres
         >
         {/* Author name (other's messages only) */}
         {!isSelf && (
-          <Text style={styles.authorName}>{privateMode ? redact(authorName) : authorName}</Text>
+          <View style={styles.authorLine}>
+            <Text style={styles.authorName}>{privateMode ? redact(authorName) : authorName}</Text>
+            {authorIsBot && <Text style={styles.botBadge}>BOT</Text>}
+          </View>
         )}
 
         {/* Reply preview */}
@@ -326,11 +331,27 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: typography.sm,
     fontStyle: 'italic',
   },
+  authorLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 3,
+  },
   authorName: {
     color: colors.cyan,
     fontSize: typography.xs,
     fontWeight: typography.bold,
-    marginBottom: 3,
+  },
+  botBadge: {
+    color: '#fff',
+    backgroundColor: '#7c3aed',
+    fontSize: 9,
+    fontWeight: typography.bold,
+    letterSpacing: 0.4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   replyBar: {
     borderLeftWidth: 3,

@@ -13,6 +13,7 @@ import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import type { RootStackParamList } from '../navigation'
 import { useSession } from '../hooks/useSession'
+import { botsAmong, type BotProfile } from '@core/bot/bot-profile'
 import { useRoom } from '../hooks/useRoom'
 import { downloadFile, type RoomState } from '../bare/room-proxy'
 import type { ChatMessage, RoomFile } from '@core/rooms/room'
@@ -60,6 +61,7 @@ interface MessageRowProps {
   item: ChatMessage
   isSelf: boolean
   authorName: string
+  authorIsBot: boolean
   replyPreview?: string
   selectionMode: boolean
   selected: boolean
@@ -79,7 +81,7 @@ interface MessageRowProps {
  * when something about that bubble changed.
  */
 const MessageRow = React.memo(function MessageRow({
-  item, isSelf, authorName, replyPreview, selectionMode, selected, fileDownloading,
+  item, isSelf, authorName, authorIsBot, replyPreview, selectionMode, selected, fileDownloading,
   isAudioPlaying, isAudioLoading, actions,
 }: MessageRowProps) {
   const selectable = selectionMode && isSelf
@@ -88,6 +90,7 @@ const MessageRow = React.memo(function MessageRow({
       message={item}
       isSelf={isSelf}
       authorName={authorName}
+      authorIsBot={authorIsBot}
       replyPreview={replyPreview}
       onLongPress={() => actions.onLongPress(item)}
       onPress={selectable ? () => actions.onPress(item) : undefined}
@@ -125,6 +128,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     identity,
     nicknames,
     avatars,
+    bots,
     bookmarks,
     contacts,
     startCall,
@@ -404,12 +408,14 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const [isOwner, setIsOwner] = useState(false)
   const [isModerator, setIsModerator] = useState(false)
   const [directPeerId, setDirectPeerId] = useState<string | null>(null)
+  const [memberIds, setMemberIds] = useState<string[]>([])
 
   useEffect(() => {
     if (!room) return
     void room.listMembers().then((res) => {
       if (res?.members) {
         setMemberCount(res.members.length)
+        setMemberIds(res.members.map((m) => m.identityId))
         if (res.members.length === 2) {
           const other = res.members.find((m) => m.identityId !== identityId)
           if (other) setDirectPeerId(other.identityId)
@@ -536,6 +542,13 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       ),
     })
   }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, isVault, colors, styles, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete, callPeerId, activeCall, startCall])
+
+  // The bots in this room, for the commands the composer offers. Members as listed when the room
+  // opened, plus anyone who has written since — a bot let in later shows up once it answers.
+  const roomBots = useMemo(() => {
+    if (bots.size === 0) return new Map<string, BotProfile>()
+    return botsAmong(bots, [...memberIds, ...messages.map((m) => m.authorId)])
+  }, [bots, memberIds, messages])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'
@@ -775,6 +788,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       item={item}
       isSelf={item.authorId === identityId}
       authorName={getAuthorName(item.authorId)}
+      authorIsBot={bots.has(item.authorId)}
       replyPreview={getReplyPreview(item.replyTo)}
       selectionMode={selectionMode}
       selected={selectedIds.has(item.id)}
@@ -783,7 +797,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       isAudioLoading={loadingAudioId === item.id}
       actions={rowActions}
     />
-  ), [identityId, getAuthorName, getReplyPreview, selectionMode, selectedIds, downloadingId, playingAudioId, loadingAudioId, rowActions])
+  ), [identityId, getAuthorName, bots, getReplyPreview, selectionMode, selectedIds, downloadingId, playingAudioId, loadingAudioId, rowActions])
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -1198,6 +1212,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               onSend={handleSend}
               onAttach={handleAttach}
               onChangeText={notifyTyping}
+              commandBots={roomBots}
+              botName={getAuthorName}
               replyTo={replyTo}
               editingMessage={editingMessage}
               placeholder={isVault ? "Write a private note to yourself..." : "Message"}

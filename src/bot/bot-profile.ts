@@ -94,3 +94,38 @@ export function commandSuggestions(text: string, bots: ReadonlyMap<string, BotPr
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit)
 }
+
+/**
+ * The bots known so far, after one more presence message: added or updated when it carries a
+ * profile, dropped when it does not (the same identity running as a person again). The same map
+ * back when nothing changed, so a UI holding it as state is not re-rendered for every presence
+ * ping.
+ *
+ * What an app knows is what it has heard since it started: a bot that has not been online since
+ * then has no badge yet.
+ */
+export function withBotPresence(
+  bots: ReadonlyMap<string, BotProfile>,
+  presence: { userId: string; bot?: string | null }
+): ReadonlyMap<string, BotProfile> {
+  const profile = parseBotProfile(presence.bot)
+  const known = bots.get(presence.userId)
+  if (!profile) {
+    if (!known) return bots
+    const next = new Map(bots)
+    next.delete(presence.userId)
+    return next
+  }
+  if (known && encodeBotProfile(known) === encodeBotProfile(profile)) return bots
+  return new Map(bots).set(presence.userId, profile)
+}
+
+/** The bots among `ids` — a room's members, for the commands to offer in that room. */
+export function botsAmong(bots: ReadonlyMap<string, BotProfile>, ids: Iterable<string>): Map<string, BotProfile> {
+  const out = new Map<string, BotProfile>()
+  for (const id of ids) {
+    const profile = bots.get(id)
+    if (profile) out.set(id, profile)
+  }
+  return out
+}
