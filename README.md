@@ -217,6 +217,20 @@ bot.command('echo', (ctx) => ctx.reply(ctx.command!.args))
 console.log(await bot.createContactLink()) // open in Linda for a direct chat with the bot
 ```
 
+For an assistant — an LLM behind the bot — a handler can show "typing…" while it works, stream its
+answer (it goes out a paragraph or so at a time, as several messages, never one wall of text), and
+read or send files:
+
+```ts
+bot.onMessage(async (ctx) => {
+  if (ctx.command) return
+  const answer = ctx.stream()                      // "typing…" until end()
+  for await (const token of llm.generate(ctx.message.body)) await answer.write(token)
+  await answer.end()
+})
+// ctx.reply(longText) splits too; ctx.file + ctx.download() read an attachment; ctx.replyFile() sends one.
+```
+
 To keep a bot to yourself, give it an allowed list: it answers only those identities, only in
 those rooms (and in direct chats with them), refuses to join anything else, and declines everyone
 else's contact requests.
