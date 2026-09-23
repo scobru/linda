@@ -32,7 +32,7 @@ if (!passphrase) {
 
 const openClawUrl = (process.env.OPENCLAW_URL || 'http://127.0.0.1:18789').replace(/\/+$/, '')
 const openClawToken = process.env.OPENCLAW_TOKEN || ''
-const openClawModel = process.env.OPENCLAW_MODEL || 'openclaw'
+const openClawModel = process.env.OPENCLAW_MODEL || 'openclaw/default'
 
 /** Session epochs per room: allows /reset or /new to start a fresh conversation context */
 const roomSessions = new Map<string, number>()
