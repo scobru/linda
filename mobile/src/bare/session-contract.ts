@@ -15,36 +15,69 @@ type MethodNames<T> = {
   [K in keyof T]: T[K] extends (...args: never[]) => unknown ? K : never
 }[keyof T]
 
+/** Every method of `Session`, public by construction: `keyof` does not see private members. */
+export type SessionMethod = MethodNames<Session>
+
+// The buckets are the desktop contract's words (`src/app/session-contract.ts`), so the two can be
+// compared — `test/session-surface-parity.test.ts` does. This list used to be one `NotForwarded`
+// type that put "written out by hand", "used inside the worklet" and "not on mobile at all" under
+// one name, and from the list alone the last could not be told from the first two. That is the
+// same silent missing capability this contract exists to prevent.
+
 /**
- * Methods that cannot be forwarded as-is, each for a reason:
+ * Members the app reaches through code written out by hand, each for a reason:
  *
- * - `close`, `fileStore`, `createFileStream`, `statFile` — worklet-internal lifecycle and streams;
- *   nothing here survives JSON.
- * - `downloadFile` — returns bytes, which ride the binary channel (`files.download`) instead.
  * - `getRoom` — returns a live `Room`; the proxy hands back a `RoomProxy` keyed by id.
- * - `createRoom`, `joinRoomByKey`, `acceptContactInvite`, `reopenBookmarkedRooms` — must call
- *   `wireRoom` on what they return, which is what connects the room's events to the UI. Hiding that
- *   behind a generic forward is exactly the bug where a rebuilt room stopped emitting state.
+ * - `createRoom`, `ensurePersonalVault`, `joinRoomByKey`, `acceptContactInvite`,
+ *   `reopenBookmarkedRooms` — must call `wireRoom` on what they return, which is what connects the
+ *   room's events to the UI. Hiding that behind a generic forward is exactly the bug where a
+ *   rebuilt room stopped emitting state.
  * - `listPeerAvatars` — returns a `Map`, which JSON flattens to `{}`.
+ * - `downloadFile` — returns bytes, which ride the binary channel (`files.download`) instead.
+ * - `mediaUrl` — starts the worklet's loopback media server on first use (`media.url`).
  */
-type NotForwarded =
-  | 'close'
-  | 'fileStore'
-  | 'createFileStream'
-  | 'statFile'
-  | 'downloadFile'
-  | 'getRoom'
-  | 'createRoom'
-  | 'joinRoomByKey'
-  | 'acceptContactInvite'
-  | 'reopenBookmarkedRooms'
-  | 'listPeerAvatars'
-  | 'mediaUrl'
-  | 'getAppBackground'
-  | 'setAppBackground'
-  | 'getPairingSnapshot'
-  | 'importPairingSnapshot'
-  | 'ensurePersonalVault'
+export const ADAPTED = [
+  'getRoom',
+  'createRoom',
+  'ensurePersonalVault',
+  'joinRoomByKey',
+  'acceptContactInvite',
+  'reopenBookmarkedRooms',
+  'listPeerAvatars',
+  'downloadFile',
+  'mediaUrl'
+] as const satisfies readonly SessionMethod[]
+
+/**
+ * Members only the worklet itself uses, never the app:
+ *
+ * - `close` — the session's lifetime is the worklet's.
+ * - `fileStore`, `createFileStream`, `statFile` — files are added (`room.sendFile`) and streamed
+ *   (the media server) inside the worklet; nothing here survives JSON.
+ * - `getPairingSnapshot`, `importPairingSnapshot` — device pairing runs in the worklet's own login
+ *   flow, before and after the session it pairs.
+ */
+export const INTERNAL = [
+  'close',
+  'fileStore',
+  'createFileStream',
+  'statFile',
+  'getPairingSnapshot',
+  'importPairingSnapshot'
+] as const satisfies readonly SessionMethod[]
+
+/**
+ * Members of `Session` the phone does not offer at all — declared gaps, not forgotten ones.
+ *
+ * - `getAppBackground`, `setAppBackground` — the desktop's app-wide background picture; the
+ *   mobile app has no such setting.
+ */
+export const NOT_EXPOSED = [
+  'getAppBackground',
+  'setAppBackground'
+] as const satisfies readonly SessionMethod[]
+
+type NotForwarded = (typeof ADAPTED)[number] | (typeof INTERNAL)[number] | (typeof NOT_EXPOSED)[number]
 
 export type ForwardedSessionMethod = Exclude<MethodNames<Session>, NotForwarded>
 
@@ -105,7 +138,7 @@ export const FORWARDED_SESSION_METHODS = [
 type MissingFromList = Exclude<ForwardedSessionMethod, (typeof FORWARDED_SESSION_METHODS)[number]>
 const _everyMethodIsListed: [MissingFromList] extends [never]
   ? true
-  : { error: 'add these to FORWARDED_SESSION_METHODS, or to NotForwarded'; missing: MissingFromList } = true
+  : { error: 'add these to FORWARDED_SESSION_METHODS, or to ADAPTED, INTERNAL or NOT_EXPOSED'; missing: MissingFromList } = true
 void _everyMethodIsListed
 
 /**

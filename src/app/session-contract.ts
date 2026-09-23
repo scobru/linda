@@ -12,14 +12,18 @@ import type { Session } from './session.js'
  * The mobile side had already hit the same class of bug twice in one week and solved it by deriving
  * its list from `Session` itself; see `mobile/src/bare/session-contract.ts`.
  *
- * So every member of `Session` lands in exactly one of three buckets, and the compiler enforces
- * that it lands in one. Adding a method to `Session` and forgetting it here fails the build with
+ * So every member of `Session` lands in exactly one bucket, and the compiler enforces that it
+ * lands in one. The buckets — forwarded, mirrored, adapted, internal, not exposed — are the same
+ * words the mobile contract uses, and `test/session-surface-parity.test.ts` compares the two. Adding a method to `Session` and forgetting it here fails the build with
  * its own name in the error, which is the whole point.
  */
 
 type MethodNames<T> = {
   [K in keyof T]: T[K] extends (...args: never[]) => unknown ? K : never
 }[keyof T]
+
+/** Every method of `Session`, public by construction: `keyof` does not see private members. */
+export type SessionMethod = MethodNames<Session>
 
 /**
  * What the worker republishes once the call has returned. These are the four shapes the 25
@@ -48,58 +52,79 @@ export type Effect = 'none' | 'roomState' | 'bookmarks' | 'roomState+bookmarks'
  * generic forwards without changing every call site. `WorkerDispatcher.extractSessionState` seeds
  * them and the pushed events keep them current.
  */
-type Mirrored =
-  | 'getNickname'
-  | 'getAvatar'
-  | 'getWallpaper'
-  | 'getAppBackground'
-  | 'getPeerAvatar'
-  | 'listPeerAvatars'
-  | 'listBookmarks'
-  | 'listContacts'
-  | 'listDirectory'
-  | 'getNetworkStatus'
-  | 'isRoomFavorite'
-  | 'inviteLinkFor'
-  | 'getActiveCall'
+export const MIRRORED = [
+  'getNickname',
+  'getAvatar',
+  'getWallpaper',
+  'getAppBackground',
+  'getPeerAvatar',
+  'listPeerAvatars',
+  'listBookmarks',
+  'listContacts',
+  'listDirectory',
+  'getNetworkStatus',
+  'isRoomFavorite',
+  'inviteLinkFor',
+  'getActiveCall',
   // The client is the side that declares this — it owns the media pipeline whose capability it
   // describes — so it can answer from what it last sent without a round trip.
-  | 'getAudioCodecs'
+  'getAudioCodecs'
+] as const satisfies readonly SessionMethod[]
 
 /**
- * Members a generic forward would break, each for a reason:
+ * Members the UI reaches, but through code written out by hand because a generic forward would
+ * break them, each for a reason:
  *
  * - `createRoom`, `ensurePersonalVault`, `joinRoomByKey`, `acceptContactInvite`,
  *   `reopenBookmarkedRooms` — return a live `Room` that must be wired to the event stream before
  *   the client hears about it. Hiding that behind a forward is exactly the bug where a rebuilt
  *   room stopped emitting state.
  * - `getRoom` — hands back a live `Room`; the client gets a `RemoteRoomView` keyed by id instead.
- * - `downloadFile`, `fileStore`, `createFileStream`, `statFile` — bytes and streams, which travel
- *   on the frame's binary tail rather than through the JSON header.
+ * - `downloadFile`, `fileStore` — bytes, which travel on the frame's binary tail rather than
+ *   through the JSON header, and a store the client rebuilds from its key.
  * - `sendCallFrame` — same reason: the payload rides the tail.
  * - `regenerateInvite` — its reply wraps the new link, which the client stores in its invite-link
  *   mirror rather than returning to the caller.
  * - `mediaUrl` — starts a loopback media server inside the worker on first use.
  * - `close` — worker lifecycle, torn down with the media server rather than forwarded.
  */
-type Adapted =
-  | 'createRoom'
-  | 'ensurePersonalVault'
-  | 'joinRoomByKey'
-  | 'acceptContactInvite'
-  | 'reopenBookmarkedRooms'
-  | 'getRoom'
-  | 'downloadFile'
-  | 'fileStore'
-  | 'createFileStream'
-  | 'statFile'
-  | 'sendCallFrame'
-  | 'regenerateInvite'
-  | 'mediaUrl'
-  | 'close'
+export const ADAPTED = [
+  'createRoom',
+  'ensurePersonalVault',
+  'joinRoomByKey',
+  'acceptContactInvite',
+  'reopenBookmarkedRooms',
+  'getRoom',
+  'downloadFile',
+  'fileStore',
+  'sendCallFrame',
+  'regenerateInvite',
+  'mediaUrl',
+  'close'
+] as const satisfies readonly SessionMethod[]
+
+/**
+ * Members only the worker itself uses, never the UI: the loopback media server streams files
+ * through them inside the worker.
+ */
+export const INTERNAL = [
+  'createFileStream',
+  'statFile'
+] as const satisfies readonly SessionMethod[]
+
+/**
+ * Members of `Session` this platform does not offer at all. None on the desktop worker path — the
+ * bucket exists so both contracts speak the same vocabulary (see `mobile/src/bare/session-contract.ts`).
+ */
+export const NOT_EXPOSED = [] as const satisfies readonly SessionMethod[]
+
+type Mirrored = (typeof MIRRORED)[number]
+type Adapted = (typeof ADAPTED)[number]
+type Internal = (typeof INTERNAL)[number]
+type NotExposed = (typeof NOT_EXPOSED)[number]
 
 /** Every `Session` member that crosses the boundary as a plain forward. */
-export type ForwardedMethod = Exclude<MethodNames<Session>, Mirrored | Adapted>
+export type ForwardedMethod = Exclude<SessionMethod, Mirrored | Adapted | Internal | NotExposed>
 
 /**
  * The single declaration. The key is the method name, so an unclassified member makes this
