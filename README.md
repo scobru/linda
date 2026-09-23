@@ -203,6 +203,24 @@ as a running notes log without a separate feature for it.
 - Shared logic in [hashtag.ts](src/util/hashtag.ts): desktop renders it as inline HTML spans,
   mobile splits the message into text/tag parts since React Native renders text as nodes.
 
+### 🤖 Bots (a peer with no screen)
+
+Linda has no servers, so a bot is what every other participant is: an identity running a
+`Session`, a member of the rooms it has been let into. [`LindaBot`](src/bot/bot.ts) adds what a
+program needs and a person does not — every new message handed over once, `/commands` parsed,
+contact requests accepted, and read positions remembered across restarts, so a bot that was offline
+answers what it missed.
+
+```ts
+const bot = await LindaBot.start({ storageDir: './my-bot', passphrase: process.env.PASS!, nickname: 'Echo' })
+bot.command('echo', (ctx) => ctx.reply(ctx.command!.args))
+console.log(await bot.createContactLink()) // open in Linda for a direct chat with the bot
+```
+
+`npm run bot:example` runs a small bot (`/ping`, `/echo`, `/link`, `/join`) — see
+[example.ts](src/bot/example.ts). A bot reads what is written in the rooms it is in, like any
+member does: end-to-end encryption protects a room from outsiders, not from its members.
+
 ## Desktop
 
 The same UI runs under two desktop runtimes. Both load `src/` — only the shell around it differs.
