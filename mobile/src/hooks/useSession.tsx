@@ -4,12 +4,12 @@ import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
 import { NOTIFICATION_CHANNEL_ID } from '../notifications'
 import { startBackgroundConnection, stopBackgroundConnection } from '../foreground-service'
-import { createAppStateHandler } from '../app-lifecycle'
+import { watchConnectivity } from '../connectivity'
 import { getDhtPort } from '../dht-port'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
 import type { Identity } from '../bare/identity-client'
-import type { ContactEntry, NetworkResyncCause } from '@core/app/session'
+import type { ContactEntry } from '@core/app/session'
 import type { ChatMessage } from '@core/rooms/room'
 import { applyRemoteControl, type CallInfo, type CallMediaOptions } from '@core/call/call-session'
 import { isHistoricalMessage, isRoomUnread, notificationBody } from '@core/rooms/room-rules'
@@ -193,50 +193,20 @@ export function SessionProvider({ children }: Props) {
     bareClient.on('contactsChange', () => setTimeout(() => setTick((t) => t + 1), 0))
     bareClient.on('directoryChange', () => setTick((t) => t + 1))
 
-    // The swarm's socket stays bound to whatever network was active when it was created — a
-    // wifi <-> cellular switch otherwise leaves it trying to talk over an interface that no
-    // longer routes anywhere, and peers silently stop connecting until the app is restarted.
-    // Debounced: turning wifi off fires several type changes in quick succession (wifi -> none ->
-    // cellular as the radio actually switches over) — waiting for it to settle avoids resyncing
-    // against the momentary "none" state in between.
-    //
-    // The cause travels with it because a resync closes every connection, the call's included: the
-    // core skips a foreground one while a call is up — see `Session.resumeNetwork`. Within one
-    // debounce window a network change outranks a foreground return, since it is the one that
-    // says the old socket routes nowhere.
-    let lastNetworkType: string | null = null
-    let resyncTimer: ReturnType<typeof setTimeout> | null = null
-    let resyncCause: NetworkResyncCause | null = null
-    const scheduleResync = (cause: NetworkResyncCause) => {
-      if (resyncCause !== 'network-change') resyncCause = cause
-      if (resyncTimer) clearTimeout(resyncTimer)
-      resyncTimer = setTimeout(() => {
-        const settled = resyncCause ?? cause
-        resyncTimer = null
-        resyncCause = null
-        void sessionRef.current?.resumeNetwork(settled)
-      }, 800)
-    }
-    NetInfo.addEventListener((state) => {
-      if (lastNetworkType === null) { lastNetworkType = state.type; return }
-      if (state.type === lastNetworkType) return
-      lastNetworkType = state.type
-      scheduleResync('network-change')
-    })
-
-    // A phone left backgrounded for a while can have its NAT's UDP mapping expire on the
-    // router's own idle timeout even though it never left wifi — NetInfo reports no type change,
-    // so the listener above never fires. Peers already connected before that stay connected, but
-    // a fresh hole-punch to anyone new fails silently until the socket rebinds. Resync on every
-    // foreground return to cover it.
-    // The background connection is only worth holding the process up for while there is a
-    // session to keep connected. See `app-lifecycle.ts` for the ordering this relies on.
-    AppState.addEventListener('change', createAppStateHandler(AppState.currentState, {
+    // Network resyncs and the background connection — see `connectivity.ts`. Registered once for
+    // the life of the app, like the listeners above.
+    watchConnectivity({
+      initialAppState: AppState.currentState,
+      onAppStateChange: (listener) => {
+        const subscription = AppState.addEventListener('change', listener)
+        return () => subscription.remove()
+      },
+      onNetworkType: (listener) => NetInfo.addEventListener((state) => listener(state.type)),
       hasSession: () => sessionRef.current !== null,
-      onForeground: () => scheduleResync('foreground'),
+      resumeNetwork: (cause) => { void sessionRef.current?.resumeNetwork(cause) },
       startBackgroundConnection,
       stopBackgroundConnection
-    }))
+    })
 
     // Debounced refresh for room summaries: replication on startup or peer connect delivers
     // messages in bursts. Coalesce them to avoid dozens of parallel IPC queries.

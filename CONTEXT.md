@@ -49,6 +49,11 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
   - In Mobile: proxy IPC asincrono tramite BareKit verso il worklet C++/Bare.
 - **`SessionView`:** L'interfaccia/seam polimorfa comune a cui fa riferimento l'interfaccia utente (`AppShell` e `CallOverlay`).
 
+### `Connectivity` (mobile)
+- **Definizione:** Cosa fa il telefono con la propria connessione quando cambia la rete o il suo posto sullo schermo, in [connectivity.ts](mobile/src/connectivity.ts) (`watchConnectivity`). Due decisioni: quando fare il resync dello swarm e con quale causa, e quando tenere in vita il processo con il servizio di connessione in background.
+- **Adapter:** AppState, NetInfo, la sessione (`resumeNetwork`) e il servizio in background (`P2pForegroundService`).
+- **Invariante:** I resync entro `RESYNC_DEBOUNCE_MS` sono uno solo, ed è un `network-change` se uno di loro lo era: è la causa che il core non salta durante una chiamata (vedi *Riconnessione*). Il primo tipo di rete riportato è solo il punto di partenza. Avvio e arresto del servizio si alternano sempre, a cominciare da un avvio, e il ritorno in primo piano ferma solo ciò che era stato avviato: un arresto che scavalcava il proprio avvio chiudeva l'app (`ForegroundServiceDidNotStartInTimeException`).
+
 ### `SessionContract`
 - **Stato:** Implementato per il percorso worker desktop in [session-contract.ts](src/app/session-contract.ts). Il dispatcher costruisce da lì i suoi inoltri; il proxy (`RemoteSessionView`) resta scritto a mano ma è **enumerato** dai test, che falliscono se un membro manca o se dichiara meno parametri di `Session`. Non ancora convergente: `mobile/src/bare/session-contract.ts` deriva tuttora il proprio elenco per conto suo.
 - **Bucket:** Ogni membro di `Session` cade in esattamente uno dei tre — inoltrato (con il suo `Effect`), servito dal mirror, o adattato — e il compilatore lo esige.
