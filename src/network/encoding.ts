@@ -21,13 +21,16 @@ export interface PresenceMessage {
   online: boolean
   nickname: string
   avatar?: string
+  /** Present only for a bot: its `BotProfile` as JSON — see `bot/bot-profile.ts`. */
+  bot?: string
 }
 
 export const presenceEncoding = messageEncoding<PresenceMessage>([
   ['userId', 'string'],
   ['online', 'bool'],
   ['nickname', 'string'],
-  ['avatar', 'optionalString']
+  ['avatar', 'optionalString'],
+  ['bot', 'optionalString']
 ])
 
 export interface ReadReceiptMessage {

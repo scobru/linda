@@ -14,6 +14,7 @@ import type { SwarmTransport } from '../src/network/swarm.js'
 import { encodeInvite, decodeInvite } from '../src/ui/qr-core.js'
 import { LindaBot } from '../src/bot/bot.js'
 import { parseCommand } from '../src/bot/commands.js'
+import { parseBotProfile } from '../src/bot/bot-profile.js'
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -146,6 +147,70 @@ test('a bot that was offline answers what it missed once, and nothing twice', as
     'the answer to the message sent while it was offline')
   await new Promise((resolve) => setTimeout(resolve, 1500))
   assert.equal((await messages(session, room.id)).filter((m) => m.authorId === second.id).length, 2)
+})
+
+test('a bot announces itself and its commands to the people it meets', async (t) => {
+  const net = await transport()
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-bot-presence-'))
+  let announced: string | undefined
+  const person = makeIdentity()
+  const session = await Session.create(person, path.join(base, 'person'), {
+    transport: net,
+    events: { onPresence: (m) => { if (m.bot) announced = m.bot } }
+  })
+  const bot = await LindaBot.start({ storageDir: path.join(base, 'bot'), passphrase: 'test', nickname: 'Ping Bot', transport: net })
+  bot.command('ping', (ctx) => ctx.reply('pong').then(() => {}), 'Checks the bot is there')
+  t.after(async () => {
+    await bot.close()
+    await session.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+
+  // Meeting is what sends presence: a room in common.
+  const room = await session.createRoom('meet')
+  await bot.join(encodeInvite({ name: 'meet', key: session.inviteLinkFor(room.id) }))
+  await waitFor(() => announced !== undefined && parseBotProfile(announced).commands.length > 0, "the bot's presence, with its commands")
+  assert.deepEqual(parseBotProfile(announced)!.commands, [{ name: 'ping', description: 'Checks the bot is there' }])
+})
+
+test('a bot with an allowed list answers the people on it, and nobody else', async (t) => {
+  const net = await transport()
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-bot-access-'))
+  const alice = makeIdentity()
+  const stranger = makeIdentity()
+  const aliceSession = await Session.create(alice, path.join(base, 'alice'), { transport: net })
+  const strangerSession = await Session.create(stranger, path.join(base, 'stranger'), { transport: net })
+  const room = await aliceSession.createRoom('home')
+  const link = encodeInvite({ name: 'home', key: aliceSession.inviteLinkFor(room.id) })
+  const bot = await LindaBot.start({
+    storageDir: path.join(base, 'bot'), passphrase: 'test', transport: net,
+    access: { users: [alice.id], rooms: [link] }
+  })
+  bot.command('ping', (ctx) => ctx.reply('pong').then(() => {}))
+  t.after(async () => {
+    await bot.close()
+    await aliceSession.close()
+    await strangerSession.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+
+  await joined(bot, aliceSession, link, room.id)
+  const strangerRoom = await strangerSession.joinRoomByKey('home', aliceSession.inviteLinkFor(room.id))
+  await waitFor(() => strangerRoom.writable && strangerRoom.hasKey, 'the stranger to be able to write')
+
+  await strangerRoom.send(stranger.id, '/ping')
+  await room.send(alice.id, '/ping')
+  await waitFor(async () => (await messages(aliceSession, room.id)).some((m) => m.authorId === bot.id), "the bot's answer to Alice")
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const answers = (await messages(aliceSession, room.id)).filter((m) => m.authorId === bot.id)
+  assert.equal(answers.length, 1, 'one answer: to Alice, not to the stranger')
+  const answered = await room.getMessage((await messages(aliceSession, room.id)).findIndex((m) => m.id === answers[0]!.replyTo))
+  assert.equal(answered.authorId, alice.id)
+
+  // A room off the list is refused before the bot joins anything.
+  const other = await aliceSession.createRoom('elsewhere')
+  await assert.rejects(bot.join(encodeInvite({ name: 'elsewhere', key: aliceSession.inviteLinkFor(other.id) })), /not on this bot's allowed list/)
+  assert.equal(bot.session.getRoom(other.id), undefined)
 })
 
 test('a contact link from the bot opens a direct chat it answers in', async (t) => {

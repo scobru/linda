@@ -104,12 +104,16 @@ export const ADAPTED = [
 ] as const satisfies readonly SessionMethod[]
 
 /**
- * Members only the worker itself uses, never the UI: the loopback media server streams files
- * through them inside the worker.
+ * Members only the runtime hosting the session uses, never the UI:
+ *
+ * - `createFileStream`, `statFile` — the loopback media server streams files through them inside
+ *   the worker.
+ * - `setBotProfile` — only `LindaBot` announces itself as a bot, and it runs the core in-process.
  */
 export const INTERNAL = [
   'createFileStream',
-  'statFile'
+  'statFile',
+  'setBotProfile'
 ] as const satisfies readonly SessionMethod[]
 
 /**

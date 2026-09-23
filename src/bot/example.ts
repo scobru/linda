@@ -7,6 +7,8 @@ import { LindaBot } from './bot.js'
 //   LINDA_BOT_PASSPHRASE  encrypts the identity at rest          (required)
 //   LINDA_BOT_NAME        its nickname                           (default "Linda Bot")
 //   LINDA_BOT_JOIN        a linda-pear:// link to join on start  (optional)
+//   LINDA_BOT_ALLOWED_USERS  identity ids it listens to, comma-separated (optional: everyone)
+//   LINDA_BOT_ALLOWED_ROOMS  room ids or invite links it may be in, comma-separated (optional: any)
 //
 // On first start it prints its recovery phrase — keep it, it is the bot's identity — and on every
 // start a contact link: open it in Linda to get a direct chat with the bot. To add it to a room,
@@ -22,8 +24,18 @@ if (!passphrase) {
 const bot = await LindaBot.start({
   storageDir: process.env.LINDA_BOT_DIR || './.bot-storage',
   passphrase,
-  nickname: process.env.LINDA_BOT_NAME || 'Linda Bot'
+  nickname: process.env.LINDA_BOT_NAME || 'Linda Bot',
+  access: {
+    users: list(process.env.LINDA_BOT_ALLOWED_USERS),
+    rooms: list(process.env.LINDA_BOT_ALLOWED_ROOMS)
+  }
 })
+
+/** A comma-separated variable as a list, or undefined when it is not set. */
+function list(value: string | undefined): string[] | undefined {
+  if (!value?.trim()) return undefined
+  return value.split(',').map((item) => item.trim()).filter(Boolean)
+}
 
 if (bot.createdMnemonic) {
   console.log('New bot identity. Recovery phrase — store it somewhere safe:\n')
@@ -41,10 +53,10 @@ const help = [
 ].join('\n')
 
 bot
-  .command('ping', (ctx) => ctx.reply('pong').then(() => {}))
-  .command('echo', (ctx) => ctx.reply(ctx.command?.args || '(nothing to echo)').then(() => {}))
-  .command('help', (ctx) => ctx.reply(help).then(() => {}))
-  .command('link', async (ctx) => { await ctx.reply(await bot.createContactLink()) })
+  .command('ping', (ctx) => ctx.reply('pong').then(() => {}), 'Checks the bot is there')
+  .command('echo', (ctx) => ctx.reply(ctx.command?.args || '(nothing to echo)').then(() => {}), 'Says your text back')
+  .command('help', (ctx) => ctx.reply(help).then(() => {}), 'Lists the commands')
+  .command('link', async (ctx) => { await ctx.reply(await bot.createContactLink()) }, 'A contact link for one more person')
   .command('join', async (ctx) => {
     const link = ctx.command?.args
     if (!link) return void (await ctx.reply('Usage: /join <linda-pear:// link>'))
@@ -54,7 +66,7 @@ bot
     } catch (err) {
       await ctx.reply(`Could not join: ${(err as Error).message}`)
     }
-  })
+  }, 'Joins a room from its invite link')
   .onMessage((ctx) => {
     console.log(`[${ctx.roomId.slice(0, 8)}] ${ctx.message.authorId.slice(0, 8)}: ${ctx.message.body}`)
   })

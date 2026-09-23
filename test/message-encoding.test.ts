@@ -39,7 +39,9 @@ test('every chat message survives a round trip with its values intact', () => {
 
   assert.deepEqual(
     roundTrip(presenceEncoding, { userId: 'u1', online: true, nickname: 'Ada', avatar: 'data:x' }),
-    { userId: 'u1', online: true, nickname: 'Ada', avatar: 'data:x' }
+    // A person: no bot profile, which the wire reads back as the empty string, like any absent
+    // trailing field.
+    { userId: 'u1', online: true, nickname: 'Ada', avatar: 'data:x', bot: '' }
   )
 
   assert.deepEqual(

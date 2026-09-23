@@ -56,6 +56,7 @@ export const ADAPTED = [
  *   (the media server) inside the worklet; nothing here survives JSON.
  * - `getPairingSnapshot`, `importPairingSnapshot` — device pairing runs in the worklet's own login
  *   flow, before and after the session it pairs.
+ * - `setBotProfile` — only `LindaBot` announces itself as a bot, and a phone is not one.
  */
 export const INTERNAL = [
   'close',
@@ -63,7 +64,8 @@ export const INTERNAL = [
   'createFileStream',
   'statFile',
   'getPairingSnapshot',
-  'importPairingSnapshot'
+  'importPairingSnapshot',
+  'setBotProfile'
 ] as const satisfies readonly SessionMethod[]
 
 /**
