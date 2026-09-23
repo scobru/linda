@@ -41,10 +41,10 @@ const help = [
 ].join('\n')
 
 bot
-  .command('ping', (ctx) => ctx.reply('pong').then(() => {}))
-  .command('echo', (ctx) => ctx.reply(ctx.command?.args || '(nothing to echo)').then(() => {}))
-  .command('help', (ctx) => ctx.reply(help).then(() => {}))
-  .command('link', async (ctx) => { await ctx.reply(await bot.createContactLink()) })
+  .command('ping', (ctx) => ctx.reply('pong').then(() => {}), 'Checks the bot is there')
+  .command('echo', (ctx) => ctx.reply(ctx.command?.args || '(nothing to echo)').then(() => {}), 'Says your text back')
+  .command('help', (ctx) => ctx.reply(help).then(() => {}), 'Lists the commands')
+  .command('link', async (ctx) => { await ctx.reply(await bot.createContactLink()) }, 'A contact link for one more person')
   .command('join', async (ctx) => {
     const link = ctx.command?.args
     if (!link) return void (await ctx.reply('Usage: /join <linda-pear:// link>'))
@@ -54,7 +54,7 @@ bot
     } catch (err) {
       await ctx.reply(`Could not join: ${(err as Error).message}`)
     }
-  })
+  }, 'Joins a room from its invite link')
   .onMessage((ctx) => {
     console.log(`[${ctx.roomId.slice(0, 8)}] ${ctx.message.authorId.slice(0, 8)}: ${ctx.message.body}`)
   })

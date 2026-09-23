@@ -22,6 +22,7 @@ import { CallDesk } from '../call/call-desk.js'
 import { DEFAULT_AUDIO_CODEC } from '../call/audio-codec.js'
 import type { MediaFrameMessage } from '../call/call-encoding.js'
 import { DEFAULT_CHANNELS } from '../ui/qr-core.js'
+import { encodeBotProfile, parseBotProfile, type BotProfile } from '../bot/bot-profile.js'
 
 export type { RoomBookmark, ContactEntry, CallInfo, CallState, CallEndReason, CallMediaOptions, MediaFrameMessage }
 
@@ -125,6 +126,8 @@ export class Session {
   private readonly remoteDrives = new Map<string, Promise<Hyperdrive>>()
   private nickname = ''
   private avatar = ''
+  /** Set only when this session is a bot — see `setBotProfile`. */
+  private botProfile: string | undefined
   private wallpaper = ''
   private appBackground = ''
   private readonly peerAvatars = new Map<string, string>()
@@ -173,6 +176,11 @@ export class Session {
           } else {
             message.avatar = undefined
           }
+        }
+        // A peer's claim to be a bot, kept only in the canonical form the apps can rely on.
+        if (message.bot !== undefined) {
+          const profile = parseBotProfile(message.bot)
+          message.bot = profile ? encodeBotProfile(profile) : undefined
         }
         if (message.nickname) {
           this.peerNicknames.set(message.userId, message.nickname)
@@ -376,7 +384,7 @@ export class Session {
         // A call held open across this peer's last connection carries on over this one — and a
         // call that ended while it could not hear is finally said to have ended. See `CallDesk`.
         this.calls.peerBack(remoteId, peer)
-        peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar })
+        peer.rpc.sendPresence({ userId: this.identity.id, online: true, nickname: this.nickname, avatar: this.avatar, bot: this.botProfile })
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
           this.requestWriteIfNeeded(room, peer)
@@ -569,8 +577,18 @@ export class Session {
 
   broadcastPresence(online: boolean): void {
     for (const peer of this.peers.values()) {
-      peer.rpc.sendPresence({ userId: this.identity.id, online, nickname: this.nickname, avatar: this.avatar })
+      peer.rpc.sendPresence({ userId: this.identity.id, online, nickname: this.nickname, avatar: this.avatar, bot: this.botProfile })
     }
+  }
+
+  /**
+   * Announces this session as a bot, with the commands it answers, in every presence it sends from
+   * now on — or, with null, as a person again. Only `LindaBot` calls this; not persisted, because a
+   * bot declares its commands each time it starts.
+   */
+  setBotProfile(profile: BotProfile | null): void {
+    this.botProfile = profile ? encodeBotProfile(profile) : undefined
+    this.broadcastPresence(true)
   }
 
   /** Fans a typing indicator out to every connected peer. The loop lives here rather than in the

@@ -14,6 +14,7 @@ import type { SwarmTransport } from '../src/network/swarm.js'
 import { encodeInvite, decodeInvite } from '../src/ui/qr-core.js'
 import { LindaBot } from '../src/bot/bot.js'
 import { parseCommand } from '../src/bot/commands.js'
+import { parseBotProfile } from '../src/bot/bot-profile.js'
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -146,6 +147,30 @@ test('a bot that was offline answers what it missed once, and nothing twice', as
     'the answer to the message sent while it was offline')
   await new Promise((resolve) => setTimeout(resolve, 1500))
   assert.equal((await messages(session, room.id)).filter((m) => m.authorId === second.id).length, 2)
+})
+
+test('a bot announces itself and its commands to the people it meets', async (t) => {
+  const net = await transport()
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-bot-presence-'))
+  let announced: string | undefined
+  const person = makeIdentity()
+  const session = await Session.create(person, path.join(base, 'person'), {
+    transport: net,
+    events: { onPresence: (m) => { if (m.bot) announced = m.bot } }
+  })
+  const bot = await LindaBot.start({ storageDir: path.join(base, 'bot'), passphrase: 'test', nickname: 'Ping Bot', transport: net })
+  bot.command('ping', (ctx) => ctx.reply('pong').then(() => {}), 'Checks the bot is there')
+  t.after(async () => {
+    await bot.close()
+    await session.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+
+  // Meeting is what sends presence: a room in common.
+  const room = await session.createRoom('meet')
+  await bot.join(encodeInvite({ name: 'meet', key: session.inviteLinkFor(room.id) }))
+  await waitFor(() => announced !== undefined && parseBotProfile(announced).commands.length > 0, "the bot's presence, with its commands")
+  assert.deepEqual(parseBotProfile(announced)!.commands, [{ name: 'ping', description: 'Checks the bot is there' }])
 })
 
 test('a contact link from the bot opens a direct chat it answers in', async (t) => {

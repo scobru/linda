@@ -6,6 +6,7 @@ import { createIdentity, identityExists, recoverIdentity, unlockIdentity, type I
 import type { SwarmTransport } from '../network/swarm.js'
 import { decodeInvite, encodeInvite } from '../ui/qr-core.js'
 import { parseCommand, type BotCommand } from './commands.js'
+import type { BotCommandInfo } from './bot-profile.js'
 
 // ---------------------------------------------------------------------------
 // A Linda bot: a peer with no screen.
@@ -80,6 +81,8 @@ export class LindaBot {
   readonly createdMnemonic: string | null
 
   private readonly commands = new Map<string, BotHandler>()
+  private readonly descriptions = new Map<string, string>()
+  private profileQueued = false
   private readonly handlers: BotHandler[] = []
   private readonly cursors: Map<string, Cursor>
   /** One pass per room at a time; a pass asked for while one runs is folded into a single follow-up. */
@@ -133,6 +136,8 @@ export class LindaBot {
       await session.close().catch(() => {})
       throw err
     }
+    // A bot with no commands yet is still a bot: the badge should not wait for the first `command()`.
+    bot.publishProfile()
     bot.scheduleAll()
     bot.sweepTimer = setInterval(() => bot?.scheduleAll(), SWEEP_INTERVAL_MS)
     bot.sweepTimer.unref?.()
@@ -143,10 +148,33 @@ export class LindaBot {
     return this.identity.id
   }
 
-  /** Handles `/name …`. Registering a name twice replaces the first handler. */
-  command(name: string, handler: BotHandler): this {
-    this.commands.set(name.replace(/^\//, '').toLowerCase(), handler)
+  /**
+   * Handles `/name …`. Registering a name twice replaces the first handler.
+   *
+   * The command is also announced: the apps show it when someone types `/` in a room the bot is
+   * in, with `description` as its one line — see `bot/bot-profile.ts`.
+   */
+  command(name: string, handler: BotHandler, description = ''): this {
+    const key = name.replace(/^\//, '').toLowerCase()
+    this.commands.set(key, handler)
+    this.descriptions.set(key, description)
+    this.publishProfile()
     return this
+  }
+
+  /** The commands as announced to peers, in the order they were registered. */
+  get announcedCommands(): BotCommandInfo[] {
+    return [...this.descriptions].map(([name, description]) => ({ name, description }))
+  }
+
+  /** Tells every peer, once per burst of `command()` calls, that this is a bot and what it answers. */
+  private publishProfile(): void {
+    if (this.profileQueued || this.closed) return
+    this.profileQueued = true
+    queueMicrotask(() => {
+      this.profileQueued = false
+      if (!this.closed) this.session.setBotProfile({ commands: this.announcedCommands })
+    })
   }
 
   /** Handles every message, commands included, after any command handler has run. */
