@@ -1,4 +1,4 @@
-# Runs the test suite on every push and pull request.
+# Runs the test suite, and compiles the mobile app, on every push and pull request.
 #
 # The repo had no workflow running tests at all, so the suite only ever ran when someone
 # remembered to type `npm test` — which is how a complete two-Session integration harness sat in
@@ -30,3 +30,42 @@ jobs:
       - run: npm run typecheck
 
       - run: npm test
+
+  # The mobile app, which the job above skips. Without this, nothing on a pull request compiled the
+  # Kotlin or typechecked mobile/: the Android app was first built when a release was published, so
+  # a native change reached main untested.
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # Same preparation as android-release.yml: the mobile workspace, the native addons linked into
+      # react-native-bare-kit, and the worklet bundle that mobile/src/bare/client.ts imports.
+      - run: npm ci --include-workspace-root
+
+      - run: node node_modules/react-native-bare-kit/android/link.mjs
+
+      - run: npm run worklet
+        working-directory: mobile
+
+      - run: npm run typecheck
+        working-directory: mobile
+
+      # Compiles the app's Kotlin (and everything it depends on) without packaging an APK: the
+      # errors this is here for are compile errors, and assembling a release is minutes more.
+      - name: Compile the Android app's Kotlin
+        working-directory: mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:compileDebugKotlin --no-daemon -PreactNativeArchitectures=arm64-v8a
