@@ -32,7 +32,15 @@ if (!passphrase) {
 
 const openClawUrl = (process.env.OPENCLAW_URL || 'http://127.0.0.1:18789').replace(/\/+$/, '')
 const openClawToken = process.env.OPENCLAW_TOKEN || ''
-const openClawModel = process.env.OPENCLAW_MODEL || 'openclaw/default'
+const openClawModel = process.env.OPENCLAW_MODEL || ''
+const defaultAgent = process.env.OPENCLAW_AGENT || process.env.OPENCLAW_AGENT_ID || 'coordinator'
+
+/** Active agent per room: defaults to coordinator, changeable with /agent <id> */
+const roomAgents = new Map<string, string>()
+
+function getRoomAgent(roomId: string): string {
+  return roomAgents.get(roomId) || defaultAgent
+}
 
 /** Session epochs per room: allows /reset or /new to start a fresh conversation context */
 const roomSessions = new Map<string, number>()
@@ -84,9 +92,13 @@ try {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-openclaw-agent-id': defaultAgent,
         ...(openClawToken ? { Authorization: `Bearer ${openClawToken}` } : {})
       },
-      body: JSON.stringify({ messages: [] })
+      body: JSON.stringify({
+        model: openClawModel || `openclaw:${defaultAgent}`,
+        messages: [{ role: 'user', content: 'ping' }]
+      })
     }).catch(() => null)
 
     if (completionsCheck?.status === 404) {
@@ -103,7 +115,7 @@ try {
         console.warn(`[OpenClaw] ⚠️ Gateway authentication failed. Check that OPENCLAW_TOKEN in .env is correct.\n`)
       }
     } else {
-      console.log(`[OpenClaw] Ready to handle chat completions ✅`)
+      console.log(`[OpenClaw] Ready to handle chat completions (default agent: ${defaultAgent}) ✅`)
     }
   } else {
     console.log(`[OpenClaw] Note: Gateway not detected at ${openClawUrl}. Make sure 'openclaw gateway' is running.`)
@@ -126,21 +138,24 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
 
   const stream = ctx.stream()
   const sessionKey = getSessionKey(ctx.roomId)
+  const agentId = getRoomAgent(ctx.roomId)
 
   try {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'x-openclaw-session-key': sessionKey
+      'x-openclaw-session-key': sessionKey,
+      'x-openclaw-agent-id': agentId
     }
     if (openClawToken) {
       headers.Authorization = `Bearer ${openClawToken}`
     }
 
+    const modelTarget = openClawModel || `openclaw:${agentId}`
     const res = await fetch(`${openClawUrl}/v1/chat/completions`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: openClawModel,
+        model: modelTarget,
         messages: [
           { role: 'user', content: trimmed }
         ],
@@ -223,6 +238,7 @@ const helpText = [
   '',
   'Commands:',
   '/ask <prompt> — Send a prompt to OpenClaw (required in group rooms)',
+  '/agent <id> — Switch or view the active OpenClaw agent for this room (e.g. coordinator, openclaw, researcher, reviewer, writer)',
   '/new or /reset — Start a fresh conversation session in this room',
   '/link — Create a new one-time Linda contact link',
   '/join <link> — Join a room or contact invite',
@@ -241,6 +257,16 @@ bot
     }
     await queryOpenClaw(ctx, prompt)
   }, 'Ask OpenClaw AI a question or give a task')
+  .command('agent', async (ctx) => {
+    const target = ctx.command?.args?.trim()
+    const current = getRoomAgent(ctx.roomId)
+    if (!target) {
+      await ctx.reply(`Active OpenClaw agent in this room: ${current}\nTo switch: /agent <id> (e.g. /agent coordinator, /agent openclaw, /agent researcher, /agent reviewer, /agent writer)`)
+      return
+    }
+    roomAgents.set(ctx.roomId, target)
+    await ctx.reply(`Switched active OpenClaw agent for this room to: ${target}`)
+  }, 'Show or switch active OpenClaw agent for this room')
   .command('new', async (ctx) => {
     resetSession(ctx.roomId)
     await ctx.reply('🔄 OpenClaw conversation context cleared for this room. What would you like to do next?')
