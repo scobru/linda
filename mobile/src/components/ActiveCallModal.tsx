@@ -13,9 +13,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera'
 import { requestRecordingPermissionsAsync } from 'expo-audio'
 import { bareClient } from '../bare/client'
-import { frameDataUri, VIDEO_FRAME, AUDIO_FRAME, type WireMediaFrame } from '../bare/media-frame'
-import { callAudio, NATIVE_CALL_AUDIO_ENABLED } from '../call-audio'
-import { MediaBackpressure } from '@core/call/media-backpressure'
+import { callAudioAvailable, nativeCallAudio } from '../call-audio'
+import { CallMedia, type CameraPort } from '../call/call-media'
 import { pickCaptureSize } from '@core/call/capture-size'
 import { useSession } from '../hooks/useSession'
 import { useTheme } from '../theme-context'
@@ -95,8 +94,8 @@ export default function ActiveCallModal() {
    * What the camera is told to capture at.
    *
    * Undefined until the device has been asked what it offers, which is the only state in which the
-   * old full-sensor behaviour still applies — and `isCameraReadyRef` keeps the capture loop from
-   * taking a frame before then, so in practice nothing is ever captured unconstrained.
+   * old full-sensor behaviour still applies — and the camera is not handed to `CallMedia` before
+   * then, so in practice nothing is ever captured unconstrained.
    */
   const [pictureSize, setPictureSize] = useState<string | undefined>(undefined)
 
@@ -111,146 +110,49 @@ export default function ActiveCallModal() {
   const localCameraOn = !isCallVideoOff && !!permission?.granted
 
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null)
-  const isCameraReadyRef = useRef(false)
-  const lastFrameTimeRef = useRef(0)
-  // A ref, not state: this gates a `setInterval` and must never cause a re-render of a screen that
-  // is already rendering video frames.
-  const backpressureRef = useRef(new MediaBackpressure())
 
-  // What the wire says it can carry. Every JPEG this screen sends costs a base64 encode, a JSON
-  // stringify and a trip across the bridge before it even reaches the socket, so a frame the wire
-  // cannot take yet is worth more here than on the desktop.
+  // Everything this call captures and plays lives in `CallMedia`: this screen tells it what the
+  // call wants and hands it the camera once the camera is ready, and draws what comes back.
   const sendCallFrameRef = useRef(sendCallFrame)
   sendCallFrameRef.current = sendCallFrame
-
+  const mediaRef = useRef<CallMedia | null>(null)
   useEffect(() => {
-    const gate = backpressureRef.current
-    return bareClient.on('callMediaPressure', (payload: { wantsMore: boolean }) => {
-      gate.update(payload.wantsMore, Date.now())
+    const media = new CallMedia({
+      audio: nativeCallAudio,
+      frames: {
+        send: (frame) => sendCallFrameRef.current(frame),
+        onFrame: (listener) => bareClient.on('callMediaFrame', listener),
+        onPressure: (listener) =>
+          bareClient.on('callMediaPressure', (payload: { wantsMore: boolean }) => listener(payload.wantsMore))
+      },
+      requestMicrophone: () => requestRecordingPermissionsAsync().then((perm) => perm.granted)
+    }, {
+      onRemoteVideo: setRemoteVideoFrame
     })
+    mediaRef.current = media
+    return () => {
+      media.dispose()
+      mediaRef.current = null
+    }
   }, [])
 
-  // Listen to incoming remote video frames locally without re-rendering the whole application
-  useEffect(() => {
-    if (!isConnected || !isVideo) {
-      setRemoteVideoFrame(null)
-      return
+  /** The camera view as `CallMedia` sees it: something that takes a picture. */
+  const cameraPort = useMemo<CameraPort>(() => ({
+    capture: async () => {
+      const pic = await cameraRef.current?.takePictureAsync({ quality: 0.25, base64: true, shutterSound: false })
+      return pic?.base64 ?? null
     }
+  }), [])
 
-    return bareClient.on('callMediaFrame', (frame: WireMediaFrame) => {
-      const now = Date.now()
-      // Throttle to ~12 fps (80ms) to ensure smooth React Native bridge rendering and prevent stutter
-      if (now - lastFrameTimeRef.current < 80) return
-      const uri = frameDataUri(frame)
-      if (!uri) return
-      lastFrameTimeRef.current = now
-      setRemoteVideoFrame(uri)
-    })
-  }, [isConnected, isVideo])
-
-  // Synchronize mute state with native audio module
   useEffect(() => {
-    callAudio.setMuted(isCallMuted)
-  }, [isCallMuted])
-
-  // Bidirectional real-time audio capture and streaming playback
-  useEffect(() => {
-    if (!isConnected) {
-      callAudio.stopAll()
-      return
-    }
-
-    callAudio.startPlayback()
-
-    // `cancelled` closes a window that leaked a live microphone: the permission request is async,
-    // so a call that ended — or a state change that re-ran this effect — while it was in flight ran
-    // the cleanup first and then let the late `.then()` start capture anyway. Nothing was scheduled
-    // to stop that capture, so the `AudioRecord` and its thread outlived the call, the audio mode
-    // stayed in-communication, and the next call's `startCapture` returned early against the stale
-    // one it could not see.
-    let cancelled = false
-
-    void requestRecordingPermissionsAsync()
-      .then((perm) => {
-        if (cancelled) return
-        if (perm.granted) {
-          callAudio.startCapture()
-        }
-      })
-      .catch(() => {})
-
-    // 1. Play received audio frames through native speaker / earpiece
-    const unsubMedia = bareClient.on('callMediaFrame', (frame: WireMediaFrame) => {
-      if (frame.kind === AUDIO_FRAME && frame.payload) {
-        callAudio.playChunk(frame.payload)
-      }
-    })
-
-    // 2. Stream captured microphone chunks over Protomux linda-call channel
-    const unsubCapture = callAudio.onAudioCaptureChunk((base64Chunk: string) => {
-      sendCallFrameRef.current({
-        kind: AUDIO_FRAME,
-        payload: base64Chunk,
-        keyframe: true
-      })
-    })
-
-    return () => {
-      cancelled = true
-      unsubMedia()
-      unsubCapture()
-      callAudio.stopAll()
-    }
-  }, [isConnected])
-
-  // Periodic video frame capture & transmission from mobile camera
-  useEffect(() => {
-    if (!isConnected || !isVideo || !localCameraOn) return
-    let isMounted = true
-    let isCapturing = false
-    let consecutiveErrors = 0
-    let errorCooldownUntil = 0
-
-    const interval = setInterval(async () => {
-      const now = Date.now()
-      if (now < errorCooldownUntil) return
-      if (isCapturing || !isMounted || !cameraRef.current || !isCameraReadyRef.current) return
-      // Asked before the camera is, because `takePictureAsync` is the expensive half of this loop.
-      if (!backpressureRef.current.allowsVideo(now)) return
-      isCapturing = true
-      try {
-        const pic = await cameraRef.current.takePictureAsync({
-          quality: 0.25,
-          base64: true,
-          shutterSound: false
-        })
-        consecutiveErrors = 0
-        if (isMounted && pic?.base64) {
-          sendCallFrameRef.current({
-            kind: VIDEO_FRAME,
-            payload: pic.base64,
-            keyframe: true
-          })
-        }
-      } catch {
-        consecutiveErrors++
-        if (consecutiveErrors >= 3) {
-          // Camera hardware busy or transitioning; back off to let Camera2 recover
-          errorCooldownUntil = Date.now() + 1500
-          consecutiveErrors = 0
-        }
-      } finally {
-        isCapturing = false
-      }
-    }, 500)
-
-    return () => {
-      isMounted = false
-      isCameraReadyRef.current = false
-      backpressureRef.current.reset()
-      clearInterval(interval)
-    }
-  }, [isConnected, isVideo, localCameraOn])
+    const media = mediaRef.current
+    if (!media) return
+    // The camera view is only mounted on a video call with the camera on; once it goes, the port
+    // goes with it, and it comes back through `onCameraReady` — not before, or the first frame of
+    // a reopened camera would be taken at full sensor size.
+    if (!isVideo || !localCameraOn) media.attachCamera(null)
+    media.update({ connected: isConnected, muted: isCallMuted, video: Boolean(isVideo), cameraOn: localCameraOn })
+  }, [isConnected, isCallMuted, isVideo, localCameraOn])
 
   // The notice is the only thing this component shows once a call is over, so it clears itself
   // rather than waiting for a screen the user may never open.
@@ -300,7 +202,7 @@ export default function ActiveCallModal() {
   }
 
   const toggleFacing = () => {
-    isCameraReadyRef.current = false
+    mediaRef.current?.attachCamera(null)
     setFacing((prev) => (prev === 'front' ? 'back' : 'front'))
   }
 
@@ -374,15 +276,15 @@ export default function ActiveCallModal() {
                     enableTorch={false}
                     onMountError={(err) => {
                       console.warn('[active-call] camera mount error:', err)
-                      isCameraReadyRef.current = false
+                      mediaRef.current?.attachCamera(null)
                     }}
                     pictureSize={pictureSize}
                     onCameraReady={() => {
                       // Asked here rather than on mount: the list is only available once the camera
                       // has actually opened.
                       //
-                      // `isCameraReadyRef` is set in `finally`, after the answer, rather than before
-                      // asking — that flag is what lets the capture loop take a picture, and a frame
+                      // The camera is handed to `CallMedia` in `finally`, after the answer, rather than
+                      // before asking — that is what lets it take a picture, and a frame
                       // taken in the gap would be the full-sensor one this whole change exists to
                       // stop. `finally` and not `then`, so a device that refuses to list its sizes
                       // still gets a video call, unconstrained as it was before.
@@ -395,7 +297,7 @@ export default function ActiveCallModal() {
                           console.warn('[active-call] could not read camera picture sizes:', err)
                         })
                         .finally(() => {
-                          isCameraReadyRef.current = true
+                          mediaRef.current?.attachCamera(cameraPort)
                         })
                     }}
                   />
@@ -440,11 +342,11 @@ export default function ActiveCallModal() {
                 {isReconnecting
                   ? 'Connection lost — reconnecting...'
                   : isConnected
-                    ? (!NATIVE_CALL_AUDIO_ENABLED
-                        // A build with the native audio module switched off would otherwise claim to
-                        // be streaming audio while sending and playing none — see `call-audio.ts`.
-                        ? 'Audio off — diagnostic build'
-                        : '16 kHz HD Audio Stream')
+                    ? (callAudioAvailable
+                        ? '16 kHz HD Audio Stream'
+                        // No native module (not Android): the call connects, but this side neither
+                        // sends nor plays audio, and the screen should not claim otherwise.
+                        : 'Audio unavailable on this device')
                     : 'Ringing remote peer...'}
               </Text>
               {remoteMuted && (
