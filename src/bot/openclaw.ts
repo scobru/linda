@@ -176,6 +176,30 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
       return
     }
 
+    const contentType = res.headers.get('content-type') || ''
+
+    // Case 1: Standard non-streaming JSON response
+    if (contentType.includes('application/json')) {
+      const data = (await res.json()) as Record<string, any>
+      if (data.error) {
+        await ctx.reply(`⚠️ OpenClaw error: ${data.error.message || JSON.stringify(data.error)}`)
+        return
+      }
+      const choices = data.choices as Array<Record<string, any>> | undefined
+      const text = choices?.[0]?.message?.content
+        ?? choices?.[0]?.delta?.content
+        ?? choices?.[0]?.text
+        ?? data.content
+        ?? data.text
+      if (text) {
+        await ctx.reply(String(text))
+      } else {
+        await ctx.reply('(OpenClaw executed the task with no text output)')
+      }
+      return
+    }
+
+    // Case 2: Streaming SSE response
     if (!res.body) {
       await ctx.reply('No response stream received from OpenClaw.')
       return
@@ -185,6 +209,7 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
     const decoder = new TextDecoder()
     let buffer = ''
     let receivedAnyText = false
+    const rawLines: string[] = []
 
     while (true) {
       const { value, done } = await reader.read()
@@ -196,26 +221,49 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
 
       for (const line of lines) {
         const lineTrimmed = line.trim()
-        if (!lineTrimmed.startsWith('data:')) continue
-        const data = lineTrimmed.slice(5).trim()
-        if (data === '[DONE]') break
+        if (!lineTrimmed) continue
+
+        let payload = lineTrimmed
+        if (lineTrimmed.startsWith('data:')) {
+          payload = lineTrimmed.slice(5).trim()
+        }
+        if (payload === '[DONE]') break
 
         try {
-          const parsed = JSON.parse(data)
-          const content = parsed.choices?.[0]?.delta?.content
+          const parsed = JSON.parse(payload) as Record<string, any>
+
+          if (parsed.error) {
+            const errStr = parsed.error.message || JSON.stringify(parsed.error)
+            await stream.write(`⚠️ OpenClaw error: ${errStr}`)
+            receivedAnyText = true
+            continue
+          }
+
+          const choices = parsed.choices as Array<Record<string, any>> | undefined
+          const choice = choices?.[0]
+          const delta = choice?.delta as Record<string, any> | undefined
+          const message = choice?.message as Record<string, any> | undefined
+
+          const content = delta?.content
+            ?? delta?.reasoning_content
+            ?? message?.content
+            ?? choice?.text
+            ?? parsed.content
+            ?? parsed.text
+
           if (content) {
             receivedAnyText = true
-            await stream.write(content)
+            await stream.write(String(content))
           }
         } catch {
-          // Non-JSON SSE event or comment
+          rawLines.push(lineTrimmed)
         }
       }
     }
 
     if (!receivedAnyText) {
-      // In case OpenClaw returned an empty completion or tool execution without text
-      await stream.write('(OpenClaw executed the task with no text output)')
+      console.log(`[OpenClaw] No text extracted. Sample lines received:`, rawLines.slice(0, 5))
+      await stream.write('(OpenClaw executed the task with no text output. Try /agent openclaw or check openclaw logs)')
     }
   } catch (err) {
     const errorMsg = (err as Error).message || String(err)
