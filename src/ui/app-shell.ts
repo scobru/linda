@@ -27,6 +27,9 @@ import { APP_BACKGROUNDS, appBackgroundById, DEFAULT_APP_BACKGROUND } from './ap
 import { desktopHost, type UpdateEvent } from './desktop-host.js'
 import { MediaPipeline } from '../call/media-pipeline.js'
 import { CallOverlay } from './call-overlay.js'
+import { aiAgentStore } from '../ai/agent-store.js'
+import { PROVIDER_PRESETS, type AIAgentConfig, type AIAgentProvider } from '../ai/agent-types.js'
+import { queryAIAgent, type ChatMessageContext } from '../ai/agent-runner.js'
 
 function storageDir(): string {
   // Pear hands every app its own storage directory, keyed to the app link; under Electron there
@@ -195,7 +198,8 @@ const ICONS = {
   mail: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
   document: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
   vault: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="7" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="17"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="17" y2="12"/></svg>`,
-  arrowLeft: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`
+  arrowLeft: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
+  bot: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -235,7 +239,9 @@ export class AppShell extends HTMLElement {
   private sidebarSearchQuery = ''
   private isProfileDrawerOpen = false
   private privateMode = false
-  private activeModal: 'none' | 'new-group' | 'join-room' = 'none'
+  private activeModal: 'none' | 'new-group' | 'join-room' | 'new-agent' = 'none'
+  private aiStreamingPreview = new Map<string, string>()
+  private aiGeneratingRooms = new Set<string>()
 
   // P2P Call Overlay Module (Holepunch Protomux)
   private callOverlay = new CallOverlay()
@@ -285,7 +291,7 @@ export class AppShell extends HTMLElement {
   private renderedRoomId: string | null = null
   private renderedRoomWritable: boolean | null = null
   private renderedActiveTab: 'chat' | 'mailbox' | 'document' | 'files' = 'chat'
-  private renderedModal: 'none' | 'new-group' | 'join-room' = 'none'
+  private renderedModal: 'none' | 'new-group' | 'join-room' | 'new-agent' = 'none'
 
   disconnectedCallback(): void {
     this.callOverlay.destroy()
@@ -1046,6 +1052,9 @@ export class AppShell extends HTMLElement {
                 <span class="search-icon">${ICONS.search}</span>
                 <input id="sidebarSearch" placeholder="Search or join with a link" value="${escapeHtml(this.sidebarSearchQuery)}" />
               </div>
+              <button class="compose-icon-btn" id="openAgentBtn" title="New AI Agent (Ollama, OpenRouter, Custom)">
+                ${ICONS.bot}
+              </button>
               <button class="compose-icon-btn" id="composeBtn" title="New group chat">
                 ${ICONS.edit}
               </button>
@@ -1343,6 +1352,57 @@ export class AppShell extends HTMLElement {
       `
     }
 
+    if (this.activeModal === 'new-agent') {
+      const ollama = PROVIDER_PRESETS.ollama
+      return `
+        <div class="modal-overlay" id="modalOverlay">
+          <div class="keet-modal-card" style="max-width:480px;">
+            <div class="keet-modal-header">
+              <button class="modal-back-arrow" id="closeModalArrow">←</button>
+              <h2>🤖 Create AI Agent</h2>
+            </div>
+            <p class="keet-modal-subtitle">Connect a sovereign agent to Ollama, OpenRouter, or any OpenAI-compatible provider.</p>
+
+            <div class="form-group">
+              <label>Agent Name *</label>
+              <input class="keet-input" id="newAgentName" placeholder="e.g. Buzz, Code Mentor, Llama" autofocus />
+            </div>
+
+            <div class="form-group">
+              <label>Provider</label>
+              <select class="keet-input" id="newAgentProvider" style="cursor:pointer;">
+                <option value="ollama" selected>Ollama (Local)</option>
+                <option value="openrouter">OpenRouter (Cloud / Free & Paid)</option>
+                <option value="custom">Custom OpenAI-compatible</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Base URL *</label>
+              <input class="keet-input" id="newAgentBaseUrl" value="${escapeHtml(ollama.baseUrl)}" placeholder="http://localhost:11434/v1" />
+            </div>
+
+            <div class="form-group">
+              <label>Model *</label>
+              <input class="keet-input" id="newAgentModel" value="${escapeHtml(ollama.defaultModel)}" placeholder="llama3:latest" />
+            </div>
+
+            <div class="form-group" id="newAgentApiKeyGroup" style="display:none;">
+              <label>API Key</label>
+              <input class="keet-input" id="newAgentApiKey" type="password" placeholder="sk-or-v1-... or your API key" />
+            </div>
+
+            <div class="form-group">
+              <label>System Prompt (Personality & Instructions)</label>
+              <textarea class="keet-input" id="newAgentSystemPrompt" rows="3" style="resize:vertical;font-family:inherit;min-height:75px;" placeholder="Instructions for your AI agent...">You are a helpful, sovereign AI assistant inside Linda.</textarea>
+            </div>
+
+            <button class="keet-pill-btn active" id="createAgentSubmit" style="margin-top:0.5rem;">Create Agent & Start Chat</button>
+          </div>
+        </div>
+      `
+    }
+
     return ''
   }
 
@@ -1470,6 +1530,12 @@ export class AppShell extends HTMLElement {
       this.renderApp()
     })
 
+    // AI Agent Button -> Opens "New AI Agent" modal
+    this.querySelector('#openAgentBtn')?.addEventListener('click', () => {
+      this.activeModal = 'new-agent'
+      this.renderApp()
+    })
+
     // Join button -> Opens "Join with a link" modal
     this.querySelector('#openJoinBtn')?.addEventListener('click', () => {
       this.activeModal = 'join-room'
@@ -1520,6 +1586,7 @@ export class AppShell extends HTMLElement {
       this.dismissRoomContextMenu()
       if (!confirm(`Leave "${roomName}"? You'll need a new invite to rejoin.`)) return
       void (async () => {
+        aiAgentStore.deleteByRoomId(roomId)
         await this.session!.deleteRoom(roomId)
         // If the user is currently viewing this room, clear it
         if (this.activeRoom?.id === roomId) {
@@ -1598,6 +1665,53 @@ export class AppShell extends HTMLElement {
       const keyInput = this.querySelector('#joinRoomKey') as HTMLInputElement
       if (nameInput) nameInput.value = invite.name
       if (keyInput) keyInput.value = invite.key
+    })
+
+    // AI Agent Provider Switcher
+    const providerSelect = this.querySelector('#newAgentProvider') as HTMLSelectElement | null
+    providerSelect?.addEventListener('change', () => {
+      const selected = (providerSelect.value as AIAgentProvider) || 'ollama'
+      const preset = PROVIDER_PRESETS[selected]
+      const urlInput = this.querySelector('#newAgentBaseUrl') as HTMLInputElement | null
+      const modelInput = this.querySelector('#newAgentModel') as HTMLInputElement | null
+      const keyGroup = this.querySelector('#newAgentApiKeyGroup') as HTMLElement | null
+      if (urlInput && preset) urlInput.value = preset.baseUrl
+      if (modelInput && preset) modelInput.value = preset.defaultModel
+      if (keyGroup) keyGroup.style.display = preset.requiresKey ? 'flex' : 'none'
+    })
+
+    // Create AI Agent Submit
+    this.querySelector('#createAgentSubmit')?.addEventListener('click', async () => {
+      const name = (this.querySelector('#newAgentName') as HTMLInputElement)?.value.trim()
+      const provider = ((this.querySelector('#newAgentProvider') as HTMLSelectElement)?.value as AIAgentProvider) || 'ollama'
+      const baseUrl = (this.querySelector('#newAgentBaseUrl') as HTMLInputElement)?.value.trim()
+      const model = (this.querySelector('#newAgentModel') as HTMLInputElement)?.value.trim()
+      const apiKey = (this.querySelector('#newAgentApiKey') as HTMLInputElement)?.value.trim() || undefined
+      const systemPrompt = (this.querySelector('#newAgentSystemPrompt') as HTMLTextAreaElement)?.value.trim() || 'You are a helpful, sovereign AI assistant inside Linda.'
+
+      if (!name) return alert('Please enter an agent name')
+      if (!baseUrl) return alert('Please enter a valid base URL')
+      if (!model) return alert('Please enter a model name')
+
+      try {
+        const room = await this.session!.createRoom(name, false, '🤖', `AI Agent: ${name}`, false)
+        const agent: AIAgentConfig = {
+          id: `agent-${Date.now()}`,
+          name,
+          provider,
+          baseUrl,
+          model,
+          apiKey,
+          systemPrompt,
+          roomId: room.id,
+          createdAt: Date.now()
+        }
+        aiAgentStore.save(agent)
+        this.activeModal = 'none'
+        this.openRoom(room.id, name)
+      } catch (err) {
+        alert((err as Error).message || 'Failed to create agent')
+      }
     })
   }
 
@@ -2066,6 +2180,26 @@ export class AppShell extends HTMLElement {
         const prev = visible[i - 1]
         const next = visible[i + 1]
         htmlChunks.push(this.renderMessageRow(msg, prev, next, byId))
+      }
+      const streamText = this.aiStreamingPreview.get(room.id)
+      if (streamText) {
+        const agent = aiAgentStore.getByRoomId(room.id)
+        const agentName = agent ? agent.name : 'AI Agent'
+        htmlChunks.push(`
+          <div class="msg-row streaming-ai-bubble">
+            <div class="msg-row-avatar">
+              <div class="avatar sm" style="background:var(--accent,#0ea5e9);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1rem;">🤖</div>
+            </div>
+            <div class="msg-group">
+              <div class="msg-header-line">
+                <span class="msg-author">${escapeHtml(agentName)}</span>
+                <span class="member-role-badge bot" style="font-size:0.6rem;padding:0.05rem 0.35rem;">AI</span>
+                <span class="msg-time">generating…</span>
+              </div>
+              <div class="bubble"><span class="bubble-text">${escapeHtml(streamText)}<span class="cursor-blink">▍</span></span></div>
+            </div>
+          </div>
+        `)
       }
       newHtml = htmlChunks.join('')
     }
@@ -2596,8 +2730,14 @@ export class AppShell extends HTMLElement {
     const isSameAuthor = prev !== undefined && prev.authorId === message.authorId && (Math.abs(message.timestamp - prev.timestamp) < 5 * 60 * 1000)
     const fileHtml = this.renderAttachmentCard(message)
 
-    const senderAvatar = this.avatars.get(message.authorId) || this.session?.getPeerAvatar(message.authorId) || (mine ? this.avatar : '')
-    const avatar = !mine && !isSameAuthor ? avatarHtml(message.authorId, 'sm', this.displayName(message.authorId), senderAvatar) : '<div style="width:32px;flex-shrink:0;"></div>'
+    const isAgent = message.authorId.startsWith('agent:')
+    const agent = isAgent ? aiAgentStore.get(message.authorId.slice(6)) : null
+    const senderAvatar = (isAgent && agent?.avatar) || this.avatars.get(message.authorId) || this.session?.getPeerAvatar(message.authorId) || (mine ? this.avatar : '')
+    const avatar = !mine && !isSameAuthor
+      ? (isAgent && !senderAvatar
+          ? '<div class="avatar sm" style="background:var(--accent,#0ea5e9);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1rem;">🤖</div>'
+          : avatarHtml(message.authorId, 'sm', this.displayName(message.authorId), senderAvatar))
+      : '<div style="width:32px;flex-shrink:0;"></div>'
     const authorName = this.displayName(message.authorId)
     const timeFormatted = formatMessageTime(message.timestamp)
 
@@ -2655,7 +2795,7 @@ export class AppShell extends HTMLElement {
             <div class="msg-header-line">
               <span class="msg-author">${escapeHtml(authorName)}</span>
               ${authorRoleBadge}
-              ${this.bots.has(message.authorId) ? BOT_BADGE : ''}
+              ${this.bots.has(message.authorId) || isAgent ? BOT_BADGE : ''}
               <span class="msg-time">${timeFormatted}</span>
             </div>
           ` : ''}
@@ -2708,11 +2848,59 @@ export class AppShell extends HTMLElement {
       } else {
         await room.send(this.identity!.id, body, this.replyingTo?.id)
         this.replyingTo = null
+        void this.handleAIAgentResponse(room)
       }
     } catch (err) {
       const current = this.querySelector('#body') as HTMLInputElement | null
       if (current) current.value = body
       throw err
+    }
+  }
+
+  private async handleAIAgentResponse(room: RoomView): Promise<void> {
+    const agent = aiAgentStore.getByRoomId(room.id)
+    if (!agent) return
+    if (this.aiGeneratingRooms.has(room.id)) return
+
+    this.aiGeneratingRooms.add(room.id)
+    const agentAuthorId = 'agent:' + agent.id
+    this.onTyping(room.id, agentAuthorId, true)
+
+    try {
+      const history: ChatMessageContext[] = []
+      for await (const m of room.messages()) {
+        if (m.deleted || !m.body) continue
+        const role = m.authorId.startsWith('agent:') ? 'assistant' : 'user'
+        history.push({ role, content: m.body })
+      }
+      const recent = history.slice(-20)
+
+      this.aiStreamingPreview.set(room.id, '')
+      let streamed = ''
+
+      const finalReply = await queryAIAgent(agent, recent, (chunk) => {
+        streamed += chunk
+        this.aiStreamingPreview.set(room.id, streamed)
+        if (this.activeRoom?.id === room.id) {
+          void this.renderMessages()
+        }
+      })
+
+      this.aiStreamingPreview.delete(room.id)
+
+      if (finalReply.trim()) {
+        await room.send(agentAuthorId, finalReply.trim())
+      }
+    } catch (err) {
+      this.aiStreamingPreview.delete(room.id)
+      const msg = (err as Error).message || 'Failed to get AI response'
+      await room.send(agentAuthorId, `⚠️ ${msg}`)
+    } finally {
+      this.aiGeneratingRooms.delete(room.id)
+      this.onTyping(room.id, agentAuthorId, false)
+      if (this.activeRoom?.id === room.id) {
+        void this.renderMessages()
+      }
     }
   }
 
@@ -3144,6 +3332,11 @@ export class AppShell extends HTMLElement {
   }
 
   private displayName(userId: string): string {
+    if (userId.startsWith('agent:')) {
+      const agent = aiAgentStore.get(userId.slice(6))
+      if (agent) return agent.name
+      return 'AI Agent'
+    }
     return peerName(userId, { live: this.nicknames.get(userId) })
   }
 

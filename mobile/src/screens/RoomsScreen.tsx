@@ -15,6 +15,8 @@ import RoomListItem from '../components/RoomListItem'
 import Avatar from '../components/Avatar'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
+import { aiAgentStore } from '@core/ai/agent-store'
+import { PROVIDER_PRESETS, type AIAgentConfig, type AIAgentProvider } from '@core/ai/agent-types'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Rooms'>
 
@@ -101,6 +103,50 @@ export default function RoomsScreen({ navigation }: Props) {
     }
     setLoading(false)
   }, [session, roomName, roomDescription, newRoomPublic, newRoomBroadcast, refresh, navigation])
+
+  const [showAgentModal, setShowAgentModal] = useState(false)
+  const [agentName, setAgentName] = useState('')
+  const [agentProvider, setAgentProvider] = useState<AIAgentProvider>('ollama')
+  const [agentBaseUrl, setAgentBaseUrl] = useState(PROVIDER_PRESETS.ollama.baseUrl)
+  const [agentModel, setAgentModel] = useState(PROVIDER_PRESETS.ollama.defaultModel)
+  const [agentApiKey, setAgentApiKey] = useState('')
+  const [agentSystemPrompt, setAgentSystemPrompt] = useState('You are a helpful, sovereign AI assistant inside Linda.')
+
+  const handleSelectProvider = (prov: AIAgentProvider) => {
+    setAgentProvider(prov)
+    const preset = PROVIDER_PRESETS[prov]
+    setAgentBaseUrl(preset.baseUrl)
+    setAgentModel(preset.defaultModel)
+  }
+
+  const handleCreateAgent = useCallback(async () => {
+    if (!session || !agentName.trim() || !agentBaseUrl.trim() || !agentModel.trim()) return
+    setLoading(true)
+    try {
+      const room = await session.createRoom(agentName.trim(), false, '🤖', `AI Agent: ${agentName.trim()}`, false)
+      const agent: AIAgentConfig = {
+        id: `agent-${Date.now()}`,
+        name: agentName.trim(),
+        provider: agentProvider,
+        baseUrl: agentBaseUrl.trim(),
+        model: agentModel.trim(),
+        apiKey: agentApiKey.trim() || undefined,
+        systemPrompt: agentSystemPrompt.trim() || 'You are a helpful, sovereign AI assistant inside Linda.',
+        roomId: room.id,
+        createdAt: Date.now()
+      }
+      aiAgentStore.save(agent)
+      refresh()
+      setShowAgentModal(false)
+      setAgentName('')
+      navigation.navigate('RoomChat', { roomId: room.id, roomName: agentName.trim() })
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message || 'Failed to create agent')
+    } finally {
+      setLoading(false)
+    }
+  }, [session, agentName, agentProvider, agentBaseUrl, agentModel, agentApiKey, agentSystemPrompt, refresh, navigation])
+
 
   // Navigates immediately and lets RoomChatScreen run the actual join in the background —
   // joinRoomByKey can block for up to ~30s waiting on the swarm (see session.ts's
@@ -314,6 +360,12 @@ export default function RoomsScreen({ navigation }: Props) {
           <Ionicons name="link-outline" size={20} color={colors.textPrimary} />
         </Pressable>
         <Pressable
+          onPress={() => setShowAgentModal(true)}
+          style={({ pressed }) => [styles.fabSecondary, pressed && styles.fabPressed]}
+        >
+          <Ionicons name="hardware-chip-outline" size={20} color={colors.textPrimary} />
+        </Pressable>
+        <Pressable
           onPress={() => setShowCreate(true)}
           style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
         >
@@ -362,6 +414,97 @@ export default function RoomsScreen({ navigation }: Props) {
                 style={({ pressed }) => [styles.modalConfirm, pressed && styles.buttonPressed]}
               >
                 <Text style={styles.modalConfirmText}>{loading ? 'Creating...' : 'Create'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create AI Agent Modal */}
+      <Modal visible={showAgentModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>🤖 Create AI Agent</Text>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Agent Name (e.g. Buzz, Llama)"
+              placeholderTextColor={colors.textTertiary}
+              value={agentName}
+              onChangeText={setAgentName}
+              autoFocus
+            />
+
+            <View style={styles.providerChipsRow}>
+              {(['ollama', 'openrouter', 'custom'] as const).map((prov) => (
+                <Pressable
+                  key={prov}
+                  onPress={() => handleSelectProvider(prov)}
+                  style={[styles.providerChip, agentProvider === prov && styles.providerChipActive]}
+                >
+                  <Text style={[styles.providerChipText, agentProvider === prov && styles.providerChipTextActive]}>
+                    {prov === 'ollama' ? 'Ollama' : prov === 'openrouter' ? 'OpenRouter' : 'Custom'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Base URL"
+              placeholderTextColor={colors.textTertiary}
+              value={agentBaseUrl}
+              onChangeText={setAgentBaseUrl}
+              autoCapitalize="none"
+            />
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Model (e.g. llama3:latest)"
+              placeholderTextColor={colors.textTertiary}
+              value={agentModel}
+              onChangeText={setAgentModel}
+              autoCapitalize="none"
+            />
+
+            {agentProvider !== 'ollama' && (
+              <TextInput
+                style={styles.modalInput}
+                placeholder="API Key"
+                placeholderTextColor={colors.textTertiary}
+                value={agentApiKey}
+                onChangeText={setAgentApiKey}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            )}
+
+            <TextInput
+              style={[styles.modalInput, styles.modalInputMultiline]}
+              placeholder="System Prompt (Instructions)"
+              placeholderTextColor={colors.textTertiary}
+              value={agentSystemPrompt}
+              onChangeText={setAgentSystemPrompt}
+              multiline
+              maxLength={500}
+            />
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => {
+                  setShowAgentModal(false)
+                  setAgentName('')
+                }}
+                style={styles.modalCancel}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleCreateAgent}
+                disabled={loading || !agentName.trim() || !agentBaseUrl.trim() || !agentModel.trim()}
+                style={({ pressed }) => [styles.modalConfirm, pressed && styles.buttonPressed]}
+              >
+                <Text style={styles.modalConfirmText}>{loading ? 'Creating...' : 'Create Agent'}</Text>
               </Pressable>
             </View>
           </View>
@@ -602,4 +745,30 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   buttonPressed: { transform: [{ scale: 0.98 }] },
   modalConfirmText: { color: '#061e27', fontSize: typography.md, fontWeight: typography.bold },
+  providerChipsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  providerChip: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    backgroundColor: colors.bgTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  providerChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  providerChipText: {
+    fontSize: typography.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.medium,
+  },
+  providerChipTextActive: {
+    color: '#ffffff',
+    fontWeight: typography.bold,
+  },
 })

@@ -11,6 +11,7 @@ import { ensureNotificationChannel } from './src/notifications'
 import { reportLastCrash } from './src/crash-report'
 import IncomingCallModal from './src/components/IncomingCallModal'
 import ActiveCallModal from './src/components/ActiveCallModal'
+import './src/ai/init'
 
 // Without this, a push arriving while the app is foregrounded is silently swallowed —
 // Expo requires an explicit handler to opt into showing it as a banner/alert.

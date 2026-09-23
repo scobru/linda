@@ -27,6 +27,8 @@ import Avatar from '../components/Avatar'
 import { extractHashtags, hasHashtag } from '@core/util/hashtag'
 import { attachmentKind, isAudio, isVideo } from '@core/rooms/attachment-kind'
 import { FILE_NOT_YET_AVAILABLE, PERSONAL_VAULT_DESCRIPTION, canDeleteMessage, composerBlock, countHashtags, groupMessagesByDay, mailboxSnippet, mailboxSubject, survivingHashtag, type ComposerBlock } from '@core/rooms/room-rules'
+import { aiAgentStore } from '@core/ai/agent-store'
+import { queryAIAgent } from '@core/ai/agent-runner'
 import { spacing, radii, typography, shadows, type ThemeColors } from '../theme'
 import { useTheme } from '../theme-context'
 import { usePrivateMode, redact } from '../private-mode'
@@ -552,6 +554,11 @@ export default function RoomChatScreen({ route, navigation }: Props) {
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'
+    if (authorId.startsWith('agent:')) {
+      const agent = aiAgentStore.get(authorId.slice(6))
+      if (agent) return agent.name
+      return 'AI Agent'
+    }
     return nicknames.get(authorId) || authorId.slice(0, 8)
   }, [identityId, nicknames])
 
@@ -623,7 +630,33 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     await sendMessage(text, replyTo?.id)
     setReplyTo(null)
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-  }, [sendMessage, replyTo])
+
+    if (roomId && room) {
+      const agent = aiAgentStore.getByRoomId(roomId)
+      if (agent) {
+        void (async () => {
+          try {
+            const history: { role: 'system' | 'user' | 'assistant'; content: string }[] = []
+            for (const m of messages) {
+              if (m.body && !m.failed) {
+                const role = m.authorId.startsWith('agent:') ? 'assistant' : 'user'
+                history.push({ role, content: m.body })
+              }
+            }
+            history.push({ role: 'user', content: text })
+            const recent = history.slice(-20)
+
+            const reply = await queryAIAgent(agent, recent)
+            if (reply.trim()) {
+              await room.send('agent:' + agent.id, reply.trim())
+            }
+          } catch (err) {
+            await room.send('agent:' + agent.id, `⚠️ ${(err as Error).message || 'AI response failed'}`)
+          }
+        })()
+      }
+    }
+  }, [sendMessage, replyTo, roomId, room, messages])
 
   const handleAttach = useCallback(async (name: string, mimeType: string, base64: string, thumbnail?: string) => {
     await sendFile(name, mimeType, base64, thumbnail)
@@ -788,7 +821,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       item={item}
       isSelf={item.authorId === identityId}
       authorName={getAuthorName(item.authorId)}
-      authorIsBot={bots.has(item.authorId)}
+      authorIsBot={bots.has(item.authorId) || item.authorId.startsWith('agent:')}
       replyPreview={getReplyPreview(item.replyTo)}
       selectionMode={selectionMode}
       selected={selectedIds.has(item.id)}
