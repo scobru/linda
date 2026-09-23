@@ -7,6 +7,7 @@ import type { SwarmTransport } from '../network/swarm.js'
 import { decodeInvite, encodeInvite } from '../ui/qr-core.js'
 import { parseCommand, type BotCommand } from './commands.js'
 import type { BotCommandInfo } from './bot-profile.js'
+import { BotAccessPolicy, roomIdOf, type BotAccess } from './access.js'
 
 // ---------------------------------------------------------------------------
 // A Linda bot: a peer with no screen.
@@ -31,8 +32,11 @@ export interface BotOptions {
   mnemonic?: string
   /** Set on start when it differs from the stored one. */
   nickname?: string
-  /** Accept every contact request, so anyone can start a direct chat with the bot. Default true. */
+  /** Accept contact requests, so people can start a direct chat with the bot. Default true. Only
+   * from `access.users`, when that is set. */
   acceptContacts?: boolean
+  /** Who the bot listens to, and where — see `BotAccess`. Absent: everyone, everywhere. */
+  access?: BotAccess
   /** Test seam: which DHT to bootstrap from — see `SwarmTransport`. */
   transport?: SwarmTransport
 }
@@ -90,6 +94,7 @@ export class LindaBot {
   private readonly pending = new Set<string>()
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private closed = false
+  private readonly access: BotAccessPolicy
 
   private constructor(
     readonly session: Session,
@@ -99,10 +104,14 @@ export class LindaBot {
   ) {
     this.createdMnemonic = createdMnemonic
     this.cursors = readCursors(options.storageDir)
+    this.access = new BotAccessPolicy(options.access)
   }
 
   /** Opens (or creates) the bot's identity, starts its session and begins handling messages. */
   static async start(options: BotOptions): Promise<LindaBot> {
+    // A malformed room list fails here, before anything is created, rather than after the session
+    // is up.
+    new BotAccessPolicy(options.access)
     fs.mkdirSync(options.storageDir, { recursive: true })
     let identity: Identity
     let createdMnemonic: string | null = null
@@ -194,10 +203,19 @@ export class LindaBot {
     return encodeInvite({ kind: 'contact', name: this.session.getNickname() || this.id.slice(0, 8), key, from: this.id })
   }
 
-  /** Joins a room from a `linda-pear://` link — a room invite or a contact link. Returns the room id. */
+  /**
+   * Joins a room from a `linda-pear://` link — a room invite or a contact link. Returns the room id.
+   * Refuses, before joining anything, a room or a contact that `access` rules out.
+   */
   async join(link: string): Promise<string> {
     const invite = decodeInvite(link)
     if (!invite) throw new Error('not a Linda invite link')
+    if (invite.kind === 'contact' && invite.from) {
+      if (!this.access.allowsUser(invite.from)) throw new Error('that contact is not on this bot\'s allowed list')
+    } else {
+      const roomId = roomIdOf(invite.key)
+      if (!roomId || !this.access.allowsRoom(roomId, null)) throw new Error('that room is not on this bot\'s allowed list')
+    }
     const room = invite.kind === 'contact' && invite.from
       ? await this.session.acceptContactInvite({ from: invite.from, name: invite.name, key: invite.key })
       : await this.session.joinRoomByKey(invite.name, invite.key)
@@ -266,6 +284,8 @@ export class LindaBot {
       }
       if (handled.has(message.id)) continue
       if (!message.authorId || message.authorId === this.id || message.deleted || message.timestamp < cursor.since) continue
+      // Passed over for good, like history: a user or room allowed later starts from then on.
+      if (!this.access.allowsMessage(message.authorId, roomId, this.directChatWith(roomId))) continue
       handled.add(message.id)
       cursor.recent = [...cursor.recent, message.id].slice(-REREAD_WINDOW * 2)
       changed = true
@@ -300,14 +320,22 @@ export class LindaBot {
   // ── Contacts ────────────────────────────────────────────────────────────
 
   private async onContactsChange(): Promise<void> {
-    if (this.options.acceptContacts === false || this.closed) return
+    if (this.closed) return
     for (const contact of this.session.listContacts()) {
       if (contact.status !== 'incoming') continue
-      await this.session.respondToContact(contact.userId, true).catch((err) => {
-        console.warn(`[bot] accepting ${contact.userId} failed:`, (err as Error).message)
+      const allowed = this.access.allowsUser(contact.userId)
+      // Declined, not left pending: someone the bot will never listen to should hear so.
+      if (allowed && this.options.acceptContacts === false) continue
+      await this.session.respondToContact(contact.userId, allowed).catch((err) => {
+        console.warn(`[bot] answering ${contact.userId}'s contact request failed:`, (err as Error).message)
       })
     }
     this.scheduleAll()
+  }
+
+  /** The contact a room is a direct chat with, if it is one. */
+  private directChatWith(roomId: string): string | null {
+    return this.session.listContacts().find((c) => c.status === 'accepted' && c.roomId === roomId)?.userId ?? null
   }
 }
 

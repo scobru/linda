@@ -217,8 +217,17 @@ bot.command('echo', (ctx) => ctx.reply(ctx.command!.args))
 console.log(await bot.createContactLink()) // open in Linda for a direct chat with the bot
 ```
 
+To keep a bot to yourself, give it an allowed list: it answers only those identities, only in
+those rooms (and in direct chats with them), refuses to join anything else, and declines everyone
+else's contact requests.
+
+```ts
+await LindaBot.start({ …, access: { users: ['<your identity id>'], rooms: ['<room invite link or id>'] } })
+```
+
 `npm run bot:example` runs a small bot (`/ping`, `/echo`, `/link`, `/join`) — see
-[example.ts](src/bot/example.ts). A bot reads what is written in the rooms it is in, like any
+[example.ts](src/bot/example.ts); `LINDA_BOT_ALLOWED_USERS` and `LINDA_BOT_ALLOWED_ROOMS`
+(comma-separated) set its allowed list. A bot reads what is written in the rooms it is in, like any
 member does: end-to-end encryption protects a room from outsiders, not from its members.
 
 ## Desktop
