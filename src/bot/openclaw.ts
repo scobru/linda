@@ -45,9 +45,9 @@ function getRoomAgent(roomId: string): string {
 /** Session epochs per room: allows /reset or /new to start a fresh conversation context */
 const roomSessions = new Map<string, number>()
 
-function getSessionKey(roomId: string): string {
+function getSessionKey(roomId: string, agentId: string): string {
   const epoch = roomSessions.get(roomId) ?? 0
-  return `linda:${roomId}:${epoch}`
+  return `agent:${agentId}:linda:${roomId.slice(0, 16)}:${epoch}`
 }
 
 function resetSession(roomId: string): void {
@@ -136,9 +136,9 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
   const trimmed = prompt.trim()
   if (!trimmed) return
 
-  const stream = ctx.stream()
-  const sessionKey = getSessionKey(ctx.roomId)
   const agentId = getRoomAgent(ctx.roomId)
+  const sessionKey = getSessionKey(ctx.roomId, agentId)
+  const stream = ctx.stream()
 
   try {
     const headers: Record<string, string> = {
