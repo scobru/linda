@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  encodeBotProfile, parseBotProfile, commandSuggestions, MAX_BOT_COMMANDS, MAX_BOT_PROFILE_BYTES,
+  encodeBotProfile, parseBotProfile, commandSuggestions, withBotPresence, botsAmong, MAX_BOT_COMMANDS, MAX_BOT_PROFILE_BYTES,
   type BotProfile
 } from '../src/bot/bot-profile.js'
 import { presenceEncoding } from '../src/network/encoding.js'
@@ -78,4 +78,26 @@ test('presence with a bot field reads back, and one without it still decodes', (
   const decoded = c.decode(presenceEncoding, person)
   assert.equal(decoded.nickname, 'Ann')
   assert.ok(!decoded.bot)
+})
+
+test('the apps keep one profile per bot heard from, and drop one that comes back as a person', () => {
+  const none: ReadonlyMap<string, BotProfile> = new Map()
+  const ping = encodeBotProfile({ commands: [{ name: 'ping', description: '' }] })
+
+  const one = withBotPresence(none, { userId: 'bot', bot: ping })
+  assert.deepEqual([...one.keys()], ['bot'])
+  assert.equal(withBotPresence(one, { userId: 'bot', bot: ping }), one, 'unchanged: the same map, nothing to re-render')
+  assert.equal(withBotPresence(one, { userId: 'ann' }), one, 'a person who was never a bot changes nothing')
+
+  const more = withBotPresence(one, { userId: 'bot', bot: encodeBotProfile({ commands: [{ name: 'help', description: '' }] }) })
+  assert.notEqual(more, one)
+  assert.deepEqual(more.get('bot')!.commands.map((c) => c.name), ['help'])
+
+  assert.equal(withBotPresence(more, { userId: 'bot', bot: '' }).size, 0)
+  assert.equal(withBotPresence(more, { userId: 'bot', bot: 'garbage' }).size, 0, 'an unreadable profile is no badge')
+})
+
+test("a room's bots are the known bots among its members", () => {
+  const bots = new Map<string, BotProfile>([['a', { commands: [] }], ['b', { commands: [] }]])
+  assert.deepEqual([...botsAmong(bots, ['b', 'ann', 'c']).keys()], ['b'])
 })

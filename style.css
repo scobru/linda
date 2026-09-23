@@ -2242,6 +2242,11 @@ input:checked + .keet-slider:before {
   background: #0284c7;
   color: #fff;
 }
+.member-role-badge.bot {
+  background: #7c3aed;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
 .member-role-badge.member {
   background: var(--bg-subtle);
   color: var(--text-dim);
@@ -3916,3 +3921,50 @@ input:checked + .keet-slider:before {
 
 
 
+
+/* Commands the room's bots answer, above the composer while a `/word` is being typed. */
+.command-suggestions {
+  display: flex;
+  flex-direction: column;
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+}
+.command-suggestions[hidden] {
+  display: none;
+}
+.command-suggestion {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.command-suggestion:hover,
+.command-suggestion:focus-visible {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}
+.command-name {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.command-description {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-bot {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
