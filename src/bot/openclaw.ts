@@ -42,6 +42,13 @@ function getRoomAgent(roomId: string): string {
   return roomAgents.get(roomId) || defaultAgent
 }
 
+/** Active model per room: defaults to openClawModel or openclaw:<agentId>, changeable with /model <id> */
+const roomModels = new Map<string, string>()
+
+function getRoomModel(roomId: string, agentId: string): string {
+  return roomModels.get(roomId) || openClawModel || `openclaw:${agentId}`
+}
+
 /** Session epochs per room: allows /reset or /new to start a fresh conversation context */
 const roomSessions = new Map<string, number>()
 
@@ -150,7 +157,7 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
       headers.Authorization = `Bearer ${openClawToken}`
     }
 
-    const modelTarget = openClawModel || `openclaw:${agentId}`
+    const modelTarget = getRoomModel(ctx.roomId, agentId)
     const res = await fetch(`${openClawUrl}/v1/chat/completions`, {
       method: 'POST',
       headers,
@@ -286,7 +293,9 @@ const helpText = [
   '',
   'Commands:',
   '/ask <prompt> — Send a prompt to OpenClaw (required in group rooms)',
-  '/agent <id> — Switch or view the active OpenClaw agent for this room (e.g. coordinator, openclaw, researcher, reviewer, writer)',
+  '/agent <id> — Switch or view the active OpenClaw agent for this room',
+  '/models — List all available models/agents exposed by OpenClaw',
+  '/model <id> — Switch or view the active model for this room',
   '/new or /reset — Start a fresh conversation session in this room',
   '/link — Create a new one-time Linda contact link',
   '/join <link> — Join a room or contact invite',
@@ -315,6 +324,36 @@ bot
     roomAgents.set(ctx.roomId, target)
     await ctx.reply(`Switched active OpenClaw agent for this room to: ${target}`)
   }, 'Show or switch active OpenClaw agent for this room')
+  .command('models', async (ctx) => {
+    const stopTyping = ctx.typing()
+    try {
+      const res = await fetch(`${openClawUrl}/v1/models`, {
+        headers: openClawToken ? { Authorization: `Bearer ${openClawToken}` } : {}
+      })
+      if (!res.ok) {
+        await ctx.reply(`⚠️ Could not fetch models from OpenClaw (HTTP ${res.status}: ${res.statusText})`)
+        return
+      }
+      const data = (await res.json()) as { data?: Array<{ id: string }> }
+      const models = data.data?.map((m) => `• \`${m.id}\``).join('\n') || 'No models returned.'
+      const current = getRoomModel(ctx.roomId, getRoomAgent(ctx.roomId))
+      await ctx.reply(`📋 Available OpenClaw Models / Agents:\n\n${models}\n\nActive in this room: \`${current}\`\nTo switch model: \`/model <id>\`\nTo switch agent: \`/agent <id>\``)
+    } catch (err) {
+      await ctx.reply(`⚠️ Error fetching models: ${(err as Error).message}`)
+    } finally {
+      stopTyping()
+    }
+  }, 'List available models and agents from OpenClaw')
+  .command('model', async (ctx) => {
+    const target = ctx.command?.args?.trim()
+    const current = getRoomModel(ctx.roomId, getRoomAgent(ctx.roomId))
+    if (!target) {
+      await ctx.reply(`Active model for this room: \`${current}\`\nTo switch: \`/model <id>\` (type \`/models\` to see the list)`)
+      return
+    }
+    roomModels.set(ctx.roomId, target)
+    await ctx.reply(`Switched active model for this room to: \`${target}\``)
+  }, 'Show or switch the active model for this room')
   .command('new', async (ctx) => {
     resetSession(ctx.roomId)
     await ctx.reply('🔄 OpenClaw conversation context cleared for this room. What would you like to do next?')
