@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications'
 import NetInfo from '@react-native-community/netinfo'
 import { NOTIFICATION_CHANNEL_ID } from '../notifications'
 import { startBackgroundConnection, stopBackgroundConnection } from '../foreground-service'
+import { createAppStateHandler } from '../app-lifecycle'
 import { getDhtPort } from '../dht-port'
 import { bareClient } from '../bare/client'
 import { SessionProxy, type RoomSummary } from '../bare/session-proxy'
@@ -228,17 +229,14 @@ export function SessionProvider({ children }: Props) {
     // so the listener above never fires. Peers already connected before that stay connected, but
     // a fresh hole-punch to anyone new fails silently until the socket rebinds. Resync on every
     // foreground return to cover it.
-    let lastAppState = AppState.currentState
-    AppState.addEventListener('change', (next) => {
-      if (next === 'active' && lastAppState !== 'active') {
-        scheduleResync('foreground')
-        stopBackgroundConnection()
-      } else if (next !== 'active' && lastAppState === 'active') {
-        // Only worth holding the process up while there is a session to keep connected.
-        if (sessionRef.current) startBackgroundConnection()
-      }
-      lastAppState = next
-    })
+    // The background connection is only worth holding the process up for while there is a
+    // session to keep connected. See `app-lifecycle.ts` for the ordering this relies on.
+    AppState.addEventListener('change', createAppStateHandler(AppState.currentState, {
+      hasSession: () => sessionRef.current !== null,
+      onForeground: () => scheduleResync('foreground'),
+      startBackgroundConnection,
+      stopBackgroundConnection
+    }))
 
     // Debounced refresh for room summaries: replication on startup or peer connect delivers
     // messages in bursts. Coalesce them to avoid dozens of parallel IPC queries.
