@@ -64,6 +64,11 @@ Tutti i moduli e le interfacce devono aderire a questi termini e alle loro invar
   - `Adapted` — i membri che un inoltro generico romperebbe: quelli che richiedono `wireRoom` sul valore di ritorno, quelli che restituiscono un `Room` vivo, binario/stream, o una `Map` che JSON appiattisce.
 - **Invariante:** La chiave del `Record` è il nome del metodo, quindi un membro aggiunto a `Session` e non classificato fa fallire la build nominandolo. Il dispatcher e il proxy sono **costruiti** dal contratto, mai scritti a mano: l'inoltro generico è `(...args) => call(name, ...args)`, per cui una divergenza di arità è impossibile per i membri inoltrati e resta possibile solo per gli `Adapted` — che sono il bersaglio del test di parità.
 
+### `LindaBot`
+- **Definizione:** Un bot di Linda, in [bot.ts](src/bot/bot.ts): un peer senza schermo. Linda non ha server, quindi un bot è ciò che è ogni altro partecipante — un'identità che fa girare una `Session` ed è membro delle stanze in cui è stato fatto entrare.
+- **Interfaccia:** `LindaBot.start({ storageDir, passphrase, … })`, `command(nome, handler)`, `onMessage(handler)`, `createContactLink()`, `join(link)`, `send(roomId, testo)`, `close()`. Ogni handler riceve un `BotContext` con il messaggio, il comando già letto (`parseCommand`: `/nome argomenti`, solo all'inizio del messaggio) e `reply`.
+- **Invariante:** Ogni messaggio nuovo di un altro autore viene consegnato agli handler **una volta sola**, in ordine, anche attraverso i riavvii: la posizione di lettura per stanza (`bot-cursors.json`) ricorda l'indice e gli id degli ultimi messaggi gestiti, perché Autobase può riordinare la vista e far ricomparire un messaggio a un indice già superato. La storia precedente al momento in cui il bot ha visto la stanza non viene mai gestita. È la forma di un canale — messaggi in ingresso, risposte in uscita — che serve anche a collegare in futuro un assistente come OpenClaw.
+
 ### `Room` & `Autobase`
 - **Definizione:** Struttura decentralizzata per le conversazioni di gruppo o dirette, supportata da Autobase (append-only log multi-writer con linearizzazione deterministica e risoluzione automatica dei conflitti).
 - **Storage:** Corestore / Hypercore con crittografia delle chiavi e sincronizzazione su DHT Hyperswarm.

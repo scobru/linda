@@ -1,7 +1,7 @@
 {
   "name": "linda-pear",
   "productName": "linda",
-  "version": "1.14.86",
+  "version": "1.14.87",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -32,6 +32,7 @@
     "typecheck:worklet": "tsc --noEmit -p tsconfig.worklet.json",
     "test": "node test.js",
     "test:call": "npx tsx --test test/media-pipeline.test.ts",
+    "bot:example": "esbuild src/bot/example.ts --bundle --platform=node --packages=external --format=esm --target=node22 --outfile=dist/bot-example.mjs --log-level=warning && node dist/bot-example.mjs",
     "clean-storage": "node -e \"const fs=require('fs');fs.rmSync('./.dev-storage',{recursive:true,force:true});console.log('Storage cleaned.');\"",
     "start": "node build.js && electron ./electron/main.cjs",
     "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
