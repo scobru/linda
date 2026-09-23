@@ -60,6 +60,9 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string, t
   }
 }
 
+/** Text with its whitespace collapsed, for comparing what was said rather than how it was cut. */
+const words = (text: string) => text.replace(/\s+/g, ' ').trim()
+
 async function messages(session: Session, roomId: string) {
   const room = session.getRoom(roomId)!
   const out = []
@@ -211,6 +214,80 @@ test('a bot with an allowed list answers the people on it, and nobody else', asy
   const other = await aliceSession.createRoom('elsewhere')
   await assert.rejects(bot.join(encodeInvite({ name: 'elsewhere', key: aliceSession.inviteLinkFor(other.id) })), /not on this bot's allowed list/)
   assert.equal(bot.session.getRoom(other.id), undefined)
+})
+
+test('a long answer arrives as several messages, the first a reply; a stream too, with typing shown', async (t) => {
+  const net = await transport()
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-bot-long-'))
+  const person = makeIdentity()
+  const typing: boolean[] = []
+  const session = await Session.create(person, path.join(base, 'person'), {
+    transport: net,
+    events: { onTyping: (m) => { if (m.userId !== person.id) typing.push(m.typing) } }
+  })
+  const bot = await LindaBot.start({ storageDir: path.join(base, 'bot'), passphrase: 'test', transport: net })
+  const paragraphs = Array.from({ length: 8 }, (_, i) => `Paragraph ${i}: ${'lorem ipsum '.repeat(60)}`)
+  bot.command('long', (ctx) => ctx.reply(paragraphs.join('\n\n')).then(() => {}))
+  bot.command('stream', async (ctx) => {
+    const out = ctx.stream()
+    for (const p of paragraphs) {
+      for (const word of `${p}\n\n`.split(/(?<= )/)) await out.write(word)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    await out.end()
+  })
+  t.after(async () => {
+    await bot.close()
+    await session.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+  const room = await session.createRoom('long')
+  await joined(bot, session, encodeInvite({ name: 'long', key: session.inviteLinkFor(room.id) }), room.id)
+
+  const ask = await room.send(person.id, '/long')
+  await waitFor(async () => (await messages(session, room.id)).filter((m) => m.authorId === bot.id).length >= 2, 'the answer, in parts')
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const parts = (await messages(session, room.id)).filter((m) => m.authorId === bot.id)
+  assert.ok(parts.length >= 2, `${parts.length} parts`)
+  assert.equal(parts[0]!.replyTo, ask.id, 'the first part is the reply')
+  assert.ok(parts.slice(1).every((m) => !m.replyTo), 'the rest follow it')
+  assert.ok(parts.every((m) => m.body.length <= 3000))
+  // Parts are trimmed at their edges, so compare the words, not the whitespace between parts.
+  assert.equal(words(parts.map((m) => m.body).join(' ')), words(paragraphs.join(' ')))
+
+  const before = parts.length
+  await room.send(person.id, '/stream')
+  await waitFor(() => typing.includes(true), 'the bot to show it is typing')
+  await waitFor(() => typing.at(-1) === false, 'typing to be withdrawn at the end')
+  await waitFor(async () => words((await messages(session, room.id)).filter((m) => m.authorId === bot.id).map((m) => m.body).join(' ')).endsWith(words(paragraphs.at(-1)!)),
+    'the whole streamed answer')
+  const streamed = (await messages(session, room.id)).filter((m) => m.authorId === bot.id).slice(before)
+  assert.ok(streamed.length >= 2, `streamed as ${streamed.length} messages`)
+  assert.equal(words(streamed.map((m) => m.body).join(' ')), words(paragraphs.join(' ')))
+})
+
+test('a file sent to the bot can be read, and the bot can answer with one', async (t) => {
+  const { session, person, room, link, startBot } = await setup(t)
+  const bot = await startBot()
+  bot.onMessage(async (ctx) => {
+    if (!ctx.file) return
+    const bytes = await ctx.download()
+    await ctx.replyFile({ name: 'reversed.bin', data: Uint8Array.from(bytes ?? []).reverse(), mimeType: 'application/octet-stream' }, `got ${bytes?.length ?? 0} bytes`)
+  })
+  await joined(bot, session, link, room.id)
+
+  const store = await session.fileStore()
+  const data = Buffer.from([1, 2, 3, 4, 5])
+  const shared = await store.addBuffer(`/${room.id}/in.bin`, data)
+  await room.sendFile(person.id, { driveKey: b4a.toString(store.key, 'hex'), path: shared.path, size: shared.size, name: 'in.bin' })
+
+  await waitFor(async () => (await messages(session, room.id)).some((m) => m.authorId === bot.id && m.file), "the bot's file", 45_000)
+  const answer = (await messages(session, room.id)).find((m) => m.authorId === bot.id && m.file)!
+  assert.equal(answer.body, 'got 5 bytes')
+  assert.equal(answer.file!.name, 'reversed.bin')
+  let back: Buffer | null = null
+  await waitFor(async () => (back = await session.downloadFile(answer.file!.driveKey, answer.file!.path)) !== null, "the bot's file to download", 45_000)
+  assert.deepEqual([...back!], [5, 4, 3, 2, 1])
 })
 
 test('a contact link from the bot opens a direct chat it answers in', async (t) => {

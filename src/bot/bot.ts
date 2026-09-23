@@ -1,7 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Session } from '../app/session.js'
-import type { ChatMessage, Room } from '../rooms/room.js'
+import b4a from 'b4a'
+import type { ChatMessage, FileAttachment, Room } from '../rooms/room.js'
+import { TYPING_PING_MS } from '../rooms/room-rules.js'
+import { MessageSegmenter, splitMessage } from './chunks.js'
 import { createIdentity, identityExists, recoverIdentity, unlockIdentity, type Identity } from '../identity/index.js'
 import type { SwarmTransport } from '../network/swarm.js'
 import { decodeInvite, encodeInvite } from '../ui/qr-core.js'
@@ -47,8 +50,33 @@ export interface BotContext {
   message: ChatMessage
   /** The command the message is, if it starts with one — see `parseCommand`. */
   command: BotCommand | null
-  /** Answers in the same room, as a reply to this message. */
-  reply(text: string): Promise<ChatMessage>
+  /** The file attached to the message, if there is one. Its bytes are behind `download()`. */
+  file: FileAttachment | null
+  /**
+   * Answers in the same room. A long text goes out as several messages, cut between paragraphs
+   * (see `splitMessage`); the first is a reply to this message. Resolves with what was sent.
+   */
+  reply(text: string): Promise<ChatMessage[]>
+  /**
+   * An answer produced piece by piece — an LLM's tokens as they arrive. Each `write` adds text;
+   * whole messages go out a paragraph or so at a time; `end` sends the rest. "Typing…" shows from
+   * the first write until the end.
+   */
+  stream(): BotReplyStream
+  /**
+   * Shows "typing…" in the room until the returned function is called or the handler returns —
+   * for an answer that takes a while to work out.
+   */
+  typing(): () => void
+  /** The attached file's bytes, fetched from its sender; null when there is none or it cannot be reached. */
+  download(): Promise<Uint8Array | null>
+  /** Answers with a file, and an optional caption. */
+  replyFile(file: { name: string; data: Uint8Array; mimeType?: string }, caption?: string): Promise<ChatMessage>
+}
+
+export interface BotReplyStream {
+  write(fragment: string): Promise<void>
+  end(): Promise<void>
 }
 
 export type BotHandler = (ctx: BotContext) => void | Promise<void>
@@ -297,11 +325,77 @@ export class LindaBot {
 
   private async dispatch(room: Room, message: ChatMessage): Promise<void> {
     const command = parseCommand(message.body)
+
+    // "Typing…" is sticky on the other side for `TYPING_STOP_MS`, so it is re-asserted every
+    // `TYPING_PING_MS` for as long as the bot is working, and withdrawn as soon as it is not.
+    let typingTimer: ReturnType<typeof setInterval> | null = null
+    const setTyping = (typing: boolean) => this.session.sendTyping(room.id, this.id, typing)
+    const stopTyping = () => {
+      if (!typingTimer) return
+      clearInterval(typingTimer)
+      typingTimer = null
+      setTyping(false)
+    }
+    const startTyping = () => {
+      if (!typingTimer) {
+        setTyping(true)
+        typingTimer = setInterval(() => setTyping(true), TYPING_PING_MS)
+        typingTimer.unref?.()
+      }
+      return stopTyping
+    }
+
+    /** Sends parts in order; only the first of the whole answer is a reply to the message. */
+    let answered = false
+    const sendParts = async (parts: string[]): Promise<ChatMessage[]> => {
+      const sent: ChatMessage[] = []
+      for (const part of parts) {
+        sent.push(await room.send(this.id, part, answered ? undefined : message.id))
+        answered = true
+      }
+      return sent
+    }
+
     const ctx: BotContext = {
       roomId: room.id,
       message,
       command,
-      reply: (text) => room.send(this.id, text, message.id)
+      file: message.file ?? null,
+      reply: (text) => sendParts(splitMessage(text)),
+      stream: () => {
+        const segmenter = new MessageSegmenter()
+        let chain: Promise<unknown> = Promise.resolve()
+        return {
+          write: (fragment) => {
+            startTyping()
+            chain = chain.then(() => sendParts(segmenter.push(fragment)))
+            return chain.then(() => {})
+          },
+          end: async () => {
+            chain = chain.then(() => sendParts(segmenter.flush()))
+            await chain
+            stopTyping()
+          }
+        }
+      },
+      typing: startTyping,
+      download: async () => {
+        if (!message.file) return null
+        return this.session.downloadFile(message.file.driveKey, message.file.path)
+      },
+      replyFile: async (file, caption = '') => {
+        // The same path the apps take: the bytes go into this identity's own drive, and the
+        // message carries where to fetch them from.
+        const store = await this.session.fileStore()
+        const shared = await store.addBuffer(`/${room.id}/${Date.now()}-${file.name}`, b4a.from(file.data))
+        return room.sendFile(this.id, {
+          driveKey: b4a.toString(store.key, 'hex'),
+          path: shared.path,
+          size: shared.size,
+          name: file.name,
+          mimeType: file.mimeType
+        }, caption)
+      }
     }
     const handlers = [
       ...(command && this.commands.has(command.name) ? [this.commands.get(command.name)!] : []),
@@ -315,6 +409,7 @@ export class LindaBot {
         console.warn(`[bot] handler failed on message ${message.id}:`, (err as Error).message)
       }
     }
+    stopTyping()
   }
 
   // ── Contacts ────────────────────────────────────────────────────────────
