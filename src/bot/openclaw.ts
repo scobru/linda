@@ -182,7 +182,7 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
     if (contentType.includes('application/json')) {
       const data = (await res.json()) as Record<string, any>
       if (data.error) {
-        await ctx.reply(`⚠️ OpenClaw error: ${data.error.message || JSON.stringify(data.error)}`)
+        await stream.write(`⚠️ OpenClaw error: ${data.error.message || JSON.stringify(data.error)}`)
         return
       }
       const choices = data.choices as Array<Record<string, any>> | undefined
@@ -192,9 +192,9 @@ async function queryOpenClaw(ctx: BotContext, prompt: string): Promise<void> {
         ?? data.content
         ?? data.text
       if (text) {
-        await ctx.reply(String(text))
+        await stream.write(String(text))
       } else {
-        await ctx.reply('(OpenClaw executed the task with no text output)')
+        await stream.write('(OpenClaw executed the task with no text output)')
       }
       return
     }
