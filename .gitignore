@@ -43,3 +43,5 @@ Thumbs.db
 # Graphify
 graphify-out/
 .bot-storage/
+
+.env
