@@ -248,6 +248,46 @@ await LindaBot.start({ …, access: { users: ['<your identity id>'], rooms: ['<r
 (comma-separated) set its allowed list. A bot reads what is written in the rooms it is in, like any
 member does: end-to-end encryption protects a room from outsiders, not from its members.
 
+### 🤖 In-App Sovereign AI Agents (Desktop & Mobile)
+
+Starting from **v1.15.0**, Linda includes native support for creating and chatting with **custom AI Agents** directly within the app on both Desktop and Mobile:
+
+- **Sovereign Room-Binding**: Every agent lives in its own private, end-to-end encrypted Autobase room. Your conversation history is stored locally in your Corestore, completely private and cryptographically sovereign.
+- **Provider Presets**:
+  - **Ollama (Local)**: Connects to your local machine (`http://localhost:11434/v1`, e.g. `llama3:latest`, `deepseek-r1`, `mistral`) with zero API keys required and 100% offline privacy.
+  - **OpenRouter (Cloud)**: Access hundreds of open-source and proprietary models (e.g. `meta-llama/llama-3.3-70b-instruct:free`, Claude, GPT-4o) using your API key.
+  - **Custom OpenAI-Compatible**: Connect to any custom OpenAI-compatible server (vLLM, LM Studio, Ollama remote, LocalAI).
+- **Custom System Prompts**: Define custom instructions, roles, or personas (e.g. code mentor, language tutor, sovereign privacy assistant).
+- **Real-Time Streaming**: Responses stream token-by-token with a live typing bubble and cursor, committing permanently to the Autobase log once finished.
+- **How to create an Agent**:
+  - **Desktop**: Click the `🤖` button next to Compose in the sidebar header.
+  - **Mobile**: Tap the chip `🤖` button in the Floating Action Button row on the Rooms screen.
+
+### 🦞 OpenClaw Bot Gateway Bridge
+
+Linda includes a headless bot bridge to [OpenClaw](https://openclaw.ai) agents ([`src/bot/openclaw.ts`](src/bot/openclaw.ts)), enabling OpenClaw multi-agent workflows inside Linda rooms:
+
+```bash
+# Start the OpenClaw Linda bot
+npm run bot:openclaw
+```
+
+**Configuration via `.env`**:
+- `OPENCLAW_GATEWAY_URL`: Gateway HTTP endpoint (default: `http://127.0.0.1:18789`).
+- `OPENCLAW_GATEWAY_TOKEN`: Gateway authentication token.
+- `OPENCLAW_DEFAULT_AGENT`: Target agent ID (default: `main`).
+- `OPENCLAW_FALLBACK_MODEL`: Model identifier for standard `/v1/chat/completions`.
+- `OPENCLAW_SYSTEM_PROMPT`: Base instructions passed to the agent.
+- `LINDA_BOT_ALLOWED_USERS`: Comma-separated Linda identity IDs to restrict access.
+- `LINDA_BOT_ALLOWED_ROOMS`: Comma-separated room IDs or invite codes.
+
+**Interactive Bot Commands**:
+- `/agent <agentId>`: Switch active OpenClaw agent for the current conversation.
+- `/models`: List available models from the OpenClaw gateway.
+- `/model <modelId>`: Switch active model for completions.
+- `/status`: Show current gateway URL, session key, and agent ID.
+- `/help`: Display available bot commands.
+
 ## Desktop
 
 The same UI runs under two desktop runtimes. Both load `src/` — only the shell around it differs.

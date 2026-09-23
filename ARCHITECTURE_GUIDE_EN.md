@@ -144,6 +144,23 @@ socket, so it inherits the DHT's NAT traversal and encryption for free.
 
 ---
 
+#### 🤖 `src/ai/` (In-App Sovereign AI Agents)
+- [agent-types.ts](src/ai/agent-types.ts): Configuration schemas, preset providers (`ollama` local, `openrouter` cloud, and `custom` OpenAI-compatible), and agent metadata definitions.
+- [agent-store.ts](src/ai/agent-store.ts): Cross-platform polymorphic persistence adapter (`AIAgentStoreAdapter`) supporting browser `localStorage` on Desktop and encrypted `SecureStore` on React Native Mobile.
+- [agent-runner.ts](src/ai/agent-runner.ts): Streaming HTTP client with dual-path SSE parser (native `ReadableStream` reader on desktop, buffered line-by-line fallback on React Native) delivering real-time tokens directly to chat bubbles.
+
+---
+
+#### 🦞 `src/bot/` (Headless Bots & OpenClaw Gateway Bridge)
+- [bot.ts](src/bot/bot.ts): Headless peer runner. Runs a full headless `Session` as a cryptographic peer without a screen; receives messages, parses slash commands, and replies over Autobase.
+- [access.ts](src/bot/access.ts): Granular access control middleware restricting bot interaction to specific identity IDs (`access.users`) and specific rooms (`access.rooms`).
+- [chunks.ts](src/bot/chunks.ts): Smart paragraph/line splitter for long responses respecting `MAX_MESSAGE_CHARS` and streaming paragraphs with live typing indicators.
+- [commands.ts](src/bot/commands.ts) & [bot-profile.ts](src/bot/bot-profile.ts): Slash-command registration and command discovery broadcasting over `linda-rpc/1`.
+- [openclaw.ts](src/bot/openclaw.ts): Autonomous bridge to OpenClaw multi-agent gateways (`http://127.0.0.1:18789`). Routes session context per-room (`agent:<agentId>:linda:<roomId>`), proxies chat completions, and supports in-room slash commands (`/agent`, `/models`, `/model`, `/status`, `/help`).
+- [example.ts](src/bot/example.ts): Reference implementation of a standalone headless bot.
+
+---
+
 #### ⚙️ `src/worker/` & `src/transport/` (Session Out-of-Process)
 
 The session can run outside the UI process — the mobile app has always worked this way, with `src/`
@@ -284,4 +301,26 @@ Run with `npm test`, or `LINDA_TEST_DHT=public npm test` to put the same asserti
    - The user's 12-word BIP39 mnemonic and Ed25519 identity keypairs remain strictly inside the browser (IndexedDB protected via WebCrypto).
    - The web client compiles cryptographic primitives to WASM (`libsodium-wrappers`), encrypting and decrypting all messages locally on the client device.
    - The WebSocket bridge exclusively transports encrypted ciphertext frames and Hypercore replication streams, with zero visibility into message payloads or capability to forge signatures.
+
+### L. In-App Sovereign AI Agents (Desktop & Mobile)
+1. **Agent Provisioning**: The user clicks the `🤖` button (sidebar header on Desktop, FAB row on Mobile), chooses a preset provider (Ollama local, OpenRouter, or Custom OpenAI-compatible), sets model parameters and instructions (System Prompt), and binds the agent to an encrypted Autobase room.
+2. **Cryptographic Sovereignty**: Every conversation is recorded in a private, end-to-end encrypted room. Messages reside strictly within the local device's Corestore; no central server, proxy, or telemetry captures the chat history.
+3. **Dual-Mode Streaming Pipeline**:
+   - When a user submits a prompt, `queryAIAgent` (`src/ai/agent-runner.ts`) connects to the specified provider endpoint using Server-Sent Events (SSE).
+   - On Desktop (Electron / Pear), chunks stream via native `ReadableStream.getReader()` into a real-time reactive bubble (`<div class="chat-bubble streaming">`) featuring a typing indicator and blinking cursor.
+   - On Mobile (Expo / React Native Hermes), an incremental text-buffered reader parses incoming chunks without blocking the UI thread.
+4. **Append-Only Attribution**: Upon completion of the generation, the response is committed to the local Autobase log with `authorId` formatted as `agent:<agentId>`. The renderer surfaces a custom `BOT` badge alongside the configured agent name and avatar.
+
+### M. Headless OpenClaw Multi-Agent Gateway Bridge
+1. **Headless Peer Node**: Running `npm run bot:openclaw` initializes a headless `LindaBot` peer with its own sovereign Ed25519 identity keypair and joins configured rooms or accepts contact requests.
+2. **Gateway Health & Session Scoping**: The bridge connects to the local or remote OpenClaw Gateway (`OPENCLAW_GATEWAY_URL`, default `http://127.0.0.1:18789`). It maps each Linda room to an isolated OpenClaw session key: `agent:<agentId>:linda:<roomId>`.
+3. **Message Dispatch & Streaming Chunks**:
+   - Inbound messages from authorized users (`LINDA_BOT_ALLOWED_USERS`) trigger SSE streaming completions from the OpenClaw Gateway.
+   - The bot emits live typing indicators via Protomux RPC and flushes paragraph chunks (`chunks.ts`) as they arrive.
+4. **Dynamic In-Room Commands**:
+   - `/agent <agentId>`: Switches the target OpenClaw agent for the current conversation.
+   - `/models`: Queries the gateway's `/v1/models` endpoint and returns available LLMs formatted in a tidy markdown table.
+   - `/model <modelId>`: Overrides the active model for subsequent completions.
+   - `/status`: Displays current gateway health, latency, session key, and active agent ID.
+
 
