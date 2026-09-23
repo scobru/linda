@@ -33,6 +33,7 @@
     "test": "node test.js",
     "test:call": "npx tsx --test test/media-pipeline.test.ts",
     "bot:example": "esbuild src/bot/example.ts --bundle --platform=node --packages=external --format=esm --target=node22 --outfile=dist/bot-example.mjs --log-level=warning && node dist/bot-example.mjs",
+    "bot:openclaw": "esbuild src/bot/openclaw.ts --bundle --platform=node --packages=external --format=esm --target=node22 --outfile=dist/bot-openclaw.mjs --log-level=warning && node dist/bot-openclaw.mjs",
     "clean-storage": "node -e \"const fs=require('fs');fs.rmSync('./.dev-storage',{recursive:true,force:true});console.log('Storage cleaned.');\"",
     "start": "node build.js && electron ./electron/main.cjs",
     "start:a": "node build.js && cross-env LINDA_PEAR_STORAGE_DIR=./.dev-storage/a electron ./electron/main.cjs",
