@@ -72,16 +72,44 @@ console.log(`OpenClaw Gateway endpoint: ${openClawUrl}`)
 
 // Check gateway connection
 try {
-  const check = await fetch(`${openClawUrl}/v1/models`, {
+  const rootCheck = await fetch(`${openClawUrl}/`, {
     headers: openClawToken ? { Authorization: `Bearer ${openClawToken}` } : {}
   }).catch(() => null)
-  if (check && (check.ok || check.status === 401 || check.status === 403)) {
-    console.log(`[OpenClaw] Gateway reachable at ${openClawUrl}`)
+
+  if (rootCheck) {
+    console.log(`[OpenClaw] Gateway detected at ${openClawUrl} (HTTP ${rootCheck.status})`)
+
+    // Check if chatCompletions endpoint is active
+    const completionsCheck = await fetch(`${openClawUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(openClawToken ? { Authorization: `Bearer ${openClawToken}` } : {})
+      },
+      body: JSON.stringify({ messages: [] })
+    }).catch(() => null)
+
+    if (completionsCheck?.status === 404) {
+      console.warn(`[OpenClaw] ⚠️ ChatCompletions endpoint is disabled in OpenClaw.`)
+      console.warn(`[OpenClaw] Run on your OpenClaw machine:`)
+      console.warn(`  openclaw config set gateway.http.endpoints.chatCompletions.enabled true`)
+      console.warn(`  openclaw gateway restart\n`)
+    } else if (completionsCheck?.status === 401 || completionsCheck?.status === 403) {
+      if (!openClawToken) {
+        console.warn(`[OpenClaw] ⚠️ Gateway requires authentication but OPENCLAW_TOKEN is not set in .env.`)
+        console.warn(`[OpenClaw] Run: openclaw config get gateway.auth.token and add it to .env:`)
+        console.warn(`  OPENCLAW_TOKEN=<your-token>\n`)
+      } else {
+        console.warn(`[OpenClaw] ⚠️ Gateway authentication failed. Check that OPENCLAW_TOKEN in .env is correct.\n`)
+      }
+    } else {
+      console.log(`[OpenClaw] Ready to handle chat completions ✅`)
+    }
   } else {
-    console.log(`[OpenClaw] Note: Gateway not yet detected at ${openClawUrl}. Make sure 'openclaw gateway' is running.`)
+    console.log(`[OpenClaw] Note: Gateway not detected at ${openClawUrl}. Make sure 'openclaw gateway' is running.`)
   }
 } catch {
-  console.log(`[OpenClaw] Note: Gateway not yet detected at ${openClawUrl}. Make sure 'openclaw gateway' is running.`)
+  console.log(`[OpenClaw] Note: Gateway not detected at ${openClawUrl}. Make sure 'openclaw gateway' is running.`)
 }
 
 console.log(`\nContact link (paste in Linda -> Join to start a direct chat):\n${await bot.createContactLink()}\n`)
@@ -225,10 +253,10 @@ bot
     const stopTyping = ctx.typing()
     let gatewayStatus = 'unknown'
     try {
-      const res = await fetch(`${openClawUrl}/v1/models`, {
+      const res = await fetch(`${openClawUrl}/`, {
         headers: openClawToken ? { Authorization: `Bearer ${openClawToken}` } : {}
       }).catch(() => null)
-      gatewayStatus = res ? (res.ok ? 'connected ✅' : `HTTP ${res.status}`) : 'offline ❌'
+      gatewayStatus = res ? `connected (HTTP ${res.status}) ✅` : 'offline ❌'
     } catch {
       gatewayStatus = 'offline ❌'
     } finally {
