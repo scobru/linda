@@ -1,0 +1,2928 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="meta.title">Linda >> Parla in Libertà. Davvero.</title>
+  <meta name="description" content="Dì 'ciao' a un'esperienza di messaggistica diversa. Zero server, zero cloud, zero WebRTC, zero relay TURN. Costruito sullo stack Holepunch (Autobase, Hyperswarm, Corestore).">
+  <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
+  <link rel="icon" type="image/png" href="./assets/icon.png">
+  <link rel="apple-touch-icon" href="./assets/icon.png">
+
+  <!-- Inter typography matching Signal's exact brand standards -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================================
+       LINDA × SIGNAL AESTHETICS - ULTRAMARINE SOVEREIGN DESIGN SYSTEM
+       ========================================================================== */
+    :root {
+      /* Signal Signature Palette */
+      --signal-blue: #2c6bed;
+      --signal-blue-hover: #1d56cf;
+      --signal-ultramarine: #3b45fd;
+      --signal-blue-light: #eef2ff;
+      --signal-blue-tint: #e3e8fe;
+      --signal-blue-border: rgba(44, 107, 237, 0.2);
+
+      --bg-main: #ffffff;
+      --bg-secondary: #f6f8fa;
+      --bg-card: #ffffff;
+      --bg-bubble-theirs: #f1f3f5;
+      --bg-bubble-mine: #2c6bed;
+      --bg-navbar: rgba(255, 255, 255, 0.94);
+
+      --text-main: #12151a;
+      --text-body: #4a5568;
+      --text-muted: #718096;
+      --text-white: #ffffff;
+
+      --border-subtle: #e2e8f0;
+      --border-card: #e2e8f0;
+      --border-focus: #2c6bed;
+
+      --gold-vault: #d97706;
+      --gold-vault-bg: #fef3c7;
+      --emerald-online: #10b981;
+      --emerald-bg: #ecfdf5;
+      --danger: #ef4444;
+
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+      --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.06), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+      --shadow-floating: 0 25px 50px -12px rgba(44, 107, 237, 0.25), 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 32px;
+      --radius-pill: 9999px;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --ease-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    [data-theme="dark"] {
+      --bg-main: #0c0f17;
+      --bg-secondary: #121722;
+      --bg-card: #161c28;
+      --bg-bubble-theirs: #1e2638;
+      --bg-bubble-mine: #2c6bed;
+      --bg-navbar: rgba(12, 15, 23, 0.94);
+
+      --text-main: #ffffff;
+      --text-body: #94a3b8;
+      --text-muted: #64748b;
+
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-card: rgba(255, 255, 255, 0.1);
+      --border-focus: #38bdf8;
+
+      --signal-blue-light: rgba(44, 107, 237, 0.15);
+      --signal-blue-tint: rgba(44, 107, 237, 0.25);
+      --gold-vault-bg: rgba(217, 119, 6, 0.2);
+      --emerald-bg: rgba(16, 185, 129, 0.15);
+
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.6);
+      --shadow-floating: 0 25px 60px -12px rgba(0, 0, 0, 0.9), 0 0 30px rgba(44, 107, 237, 0.25);
+    }
+
+    /* Reset & Base */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      font-size: 16px;
+      scroll-behavior: smooth;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      line-height: 1.6;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      position: relative;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* Stealth Privacy Mode */
+    body.stealth-mode .redactable {
+      filter: blur(6px) !important;
+      user-select: none !important;
+      transition: filter 0.25s ease;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+      box-sizing: border-box;
+    }
+
+    /* ==========================================================================
+       SIGNAL-STYLE NAVBAR
+       ========================================================================== */
+    .signal-navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      height: 72px;
+      background: var(--bg-navbar);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      transition: all 0.3s ease;
+    }
+    .nav-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+    .brand-logo-img {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+    }
+    .brand-text {
+      font-weight: 800;
+      font-size: 1.4rem;
+      letter-spacing: -0.03em;
+      color: var(--text-main);
+    }
+    .brand-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      background: var(--signal-blue-light);
+      color: var(--signal-blue);
+      border-radius: var(--radius-pill);
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      list-style: none;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .nav-links a {
+      color: var(--text-body);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.88rem;
+      padding: 6px 10px;
+      border-radius: var(--radius-pill);
+      white-space: nowrap;
+      line-height: 1;
+      display: inline-block;
+      transition: color 0.2s ease, background 0.2s ease;
+    }
+    .nav-links a:hover {
+      color: var(--signal-blue);
+      background: var(--signal-blue-light);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .btn-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: var(--radius-pill);
+      font-weight: 700;
+      font-size: 0.88rem;
+      text-decoration: none;
+      transition: all 0.25s var(--ease-snappy);
+      cursor: pointer;
+      border: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+      line-height: 1.2;
+    }
+    .btn-primary {
+      background: var(--signal-blue);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(44, 107, 237, 0.35);
+    }
+    .btn-primary:hover {
+      background: var(--signal-blue-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(44, 107, 237, 0.45);
+    }
+    .btn-outline {
+      background: transparent;
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+    }
+    .btn-outline:hover {
+      background: var(--bg-secondary);
+      border-color: var(--signal-blue);
+      color: var(--signal-blue);
+    }
+
+    .icon-action-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-body);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+    .icon-action-btn:hover {
+      border-color: var(--signal-blue);
+      color: var(--signal-blue);
+      transform: scale(1.05);
+    }
+
+    /* Signal-Style Language Selector */
+    .btn-lang-selector {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-lang-selector:hover {
+      border-color: var(--signal-blue);
+      color: var(--signal-blue);
+      background: var(--signal-blue-light);
+    }
+
+    /* ==========================================================================
+       HERO SECTION - SIGNAL ULTRA-CLEAN 2-COLUMN LAYOUT
+       ========================================================================== */
+    .hero-section {
+      padding-top: 135px;
+      padding-bottom: 70px;
+      background: radial-gradient(circle at 80% 20%, var(--signal-blue-light) 0%, transparent 60%);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .hero-left {
+      text-align: left;
+    }
+    .hero-badge-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--signal-blue-light);
+      border: 1px solid var(--signal-blue-border);
+      border-radius: var(--radius-pill);
+      color: var(--signal-blue);
+      font-weight: 700;
+      font-size: 0.8rem;
+      margin-bottom: 24px;
+    }
+    .pulse-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald-online);
+      box-shadow: 0 0 10px var(--emerald-online);
+    }
+
+    .hero-headline {
+      font-size: clamp(2.6rem, 5.2vw, 4.2rem);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.08;
+      color: var(--text-main);
+      margin-bottom: 22px;
+    }
+    .hero-headline span.signal-color {
+      color: var(--signal-blue);
+    }
+
+    .hero-description {
+      font-size: 1.15rem;
+      line-height: 1.65;
+      color: var(--text-body);
+      margin-bottom: 32px;
+      max-width: 520px;
+    }
+    .hero-description strong {
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    .hero-cta-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+    .hero-platform-chips {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      flex-wrap: wrap;
+    }
+    .hero-platform-chips span {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* Hero Right: Interactive Floating Device Mockup */
+    .hero-right {
+      position: relative;
+    }
+    .device-shadow-underlay {
+      position: absolute;
+      inset: 10px 20px -20px 20px;
+      background: radial-gradient(ellipse at center, rgba(44, 107, 237, 0.35), transparent 70%);
+      filter: blur(40px);
+      z-index: 0;
+    }
+
+    .device-mockup-frame {
+      position: relative;
+      z-index: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-floating);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 580px;
+      transition: all 0.3s ease;
+    }
+
+    /* Device Top Bar */
+    .device-topbar {
+      height: 48px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      user-select: none;
+    }
+    .device-dots {
+      display: flex;
+      gap: 7px;
+    }
+    .device-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+
+    .device-room-pill {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: var(--signal-blue);
+      background: var(--signal-blue-light);
+      padding: 3px 12px;
+      border-radius: var(--radius-pill);
+    }
+    .device-status {
+      font-size: 0.74rem;
+      color: var(--emerald-online);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* Device App Shell Layout */
+    .device-shell {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      background: var(--bg-main);
+    }
+    .device-sidebar {
+      width: 200px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+    }
+    .device-user-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 10px;
+    }
+    .user-avatar-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--signal-blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.8rem;
+    }
+    .user-name-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-align: left;
+    }
+    .user-sub-label {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Gold Vault Item */
+    .vault-pill-item {
+      background: var(--gold-vault-bg);
+      border: 1px solid rgba(217, 119, 6, 0.3);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      color: var(--gold-vault);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      transition: transform 0.2s ease;
+    }
+    .vault-pill-item:hover {
+      transform: scale(1.02);
+    }
+    .vault-tag-mini {
+      font-size: 0.62rem;
+      background: #d97706;
+      color: #fff;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .sidebar-channels-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-align: left;
+      font-weight: 700;
+    }
+    .sidebar-channel-row {
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      text-align: left;
+    }
+    .sidebar-channel-row:hover {
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .sidebar-channel-row.active {
+      background: var(--signal-blue-light);
+      color: var(--signal-blue);
+    }
+
+    /* Device Main Stage */
+    .device-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-main);
+      position: relative;
+    }
+
+    /* 4-Views Segmented Selector Bar */
+    .stage-view-selector-bar {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .view-segmented-wrap {
+      display: inline-flex;
+      background: var(--bg-secondary);
+      padding: 3px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-subtle);
+    }
+    .view-seg-btn {
+      background: transparent;
+      border: none;
+      padding: 5px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .view-seg-btn:hover {
+      color: var(--text-main);
+    }
+    .view-seg-btn.active {
+      background: var(--signal-blue);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(44, 107, 237, 0.35);
+    }
+
+    .btn-call-zero-turn {
+      background: var(--emerald-bg);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--emerald-online);
+      font-weight: 700;
+      font-size: 0.74rem;
+      padding: 5px 12px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+    .btn-call-zero-turn:hover {
+      background: var(--emerald-online);
+      color: #fff;
+    }
+
+    /* Stage Panes */
+    .mock-pane {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      text-align: left;
+    }
+    .mock-pane.active {
+      display: flex;
+    }
+
+    /* Chat View */
+    .mock-chat-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      justify-content: flex-end;
+      flex: 1;
+    }
+    .mock-bubble-row {
+      display: flex;
+      gap: 8px;
+      max-width: 82%;
+    }
+    .mock-bubble-row.mine {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    .mock-bubble {
+      background: var(--bg-bubble-theirs);
+      color: var(--text-main);
+      padding: 9px 14px;
+      border-radius: var(--radius-lg);
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .mock-bubble-row.mine .mock-bubble {
+      background: var(--bg-bubble-mine);
+      color: #ffffff;
+    }
+    .mock-bubble-author {
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-bottom: 2px;
+      color: var(--signal-blue);
+    }
+    .mock-bubble-meta {
+      font-size: 0.65rem;
+      opacity: 0.7;
+      text-align: right;
+      margin-top: 3px;
+      font-family: var(--font-mono);
+    }
+
+    /* Audio wave simulation inside chat */
+    .mock-voice-note {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.08);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      margin-top: 6px;
+    }
+    .mock-voice-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #ffffff;
+      color: var(--signal-blue);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .mock-voice-bars {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      height: 18px;
+      flex: 1;
+    }
+    .m-bar {
+      width: 3px;
+      background: #ffffff;
+      border-radius: 2px;
+      height: 6px;
+      transition: height 0.15s ease;
+    }
+    .m-bar.playing {
+      animation: barJump 0.8s infinite alternate;
+    }
+    @keyframes barJump {
+      0% { height: 4px; }
+      100% { height: 18px; }
+    }
+
+    /* Mock Chat Input */
+    .mock-composer-bar {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mock-composer-input {
+      flex: 1;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-pill);
+      padding: 8px 16px;
+      font-size: 0.82rem;
+      outline: none;
+      color: var(--text-main);
+    }
+    .mock-composer-input:focus {
+      border-color: var(--signal-blue);
+    }
+    .mock-send-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--signal-blue);
+      color: #fff;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* Mailbox View */
+    .mock-mailbox-container {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      height: 100%;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .mock-mail-list {
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-subtle);
+      overflow-y: auto;
+    }
+    .mock-mail-item {
+      padding: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      cursor: pointer;
+    }
+    .mock-mail-item.selected {
+      background: var(--signal-blue-light);
+      border-left: 3px solid var(--signal-blue);
+    }
+    .mock-mail-item-sender {
+      font-weight: 700;
+      font-size: 0.74rem;
+    }
+    .mock-mail-item-subj {
+      font-size: 0.72rem;
+      color: var(--text-body);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mock-mail-reader {
+      padding: 14px;
+      background: var(--bg-card);
+      overflow-y: auto;
+    }
+    .mock-mail-header {
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+    }
+    .mock-mail-title {
+      font-weight: 800;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .mock-mail-meta {
+      font-size: 0.68rem;
+      color: var(--emerald-online);
+      font-family: var(--font-mono);
+    }
+    .mock-mail-body {
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: var(--text-body);
+    }
+
+    /* Notes View */
+    .mock-notes-container {
+      max-width: 520px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .mock-note-card {
+      background: var(--bg-secondary);
+      border-left: 3px solid var(--signal-blue);
+      padding: 12px 14px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+    .mock-note-h {
+      font-weight: 700;
+      font-size: 0.88rem;
+      margin-bottom: 4px;
+    }
+    .mock-note-p {
+      font-size: 0.78rem;
+      color: var(--text-body);
+      line-height: 1.55;
+    }
+
+    /* Files View */
+    .mock-files-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .mock-file-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+    }
+    .mock-file-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mock-file-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .mock-file-sub {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Vault View */
+    .mock-vault-container {
+      padding: 16px;
+      height: 100%;
+      background: radial-gradient(circle at 50% 10%, var(--gold-vault-bg), transparent 70%);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .mock-vault-banner {
+      background: var(--gold-vault-bg);
+      border: 1px solid rgba(217, 119, 6, 0.4);
+      padding: 14px;
+      border-radius: var(--radius-md);
+      color: var(--gold-vault);
+    }
+    .mock-vault-banner h4 {
+      font-size: 0.95rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .mock-vault-banner p {
+      font-size: 0.76rem;
+      color: var(--text-body);
+    }
+
+    /* Call Overlay Mockup */
+    .mock-call-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(18, 21, 26, 0.95);
+      z-index: 10;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .mock-call-overlay.active {
+      display: flex;
+    }
+    .call-avatar-circle {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: var(--emerald-online);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      margin-bottom: 12px;
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.4);
+    }
+    .call-peer-title {
+      color: #fff;
+      font-size: 1.15rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .call-meta-chip {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald-online);
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      padding: 2px 10px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 16px;
+    }
+    .call-timer {
+      font-family: var(--font-mono);
+      color: #fff;
+      font-size: 1rem;
+      margin-bottom: 20px;
+    }
+    .call-actions-row {
+      display: flex;
+      gap: 14px;
+    }
+    .btn-call-hangup {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--danger);
+      color: #fff;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1.1rem;
+    }
+
+    /* ==========================================================================
+       SECTION: WHY USE LINDA? (SIGNAL INSPIRED)
+       ========================================================================== */
+    .section-standard {
+      padding: 90px 0;
+    }
+    .section-standard.alt-bg {
+      background-color: var(--bg-secondary);
+    }
+    .section-header-center {
+      text-align: center;
+      max-width: 720px;
+      margin: 0 auto 60px;
+    }
+    .section-h2 {
+      font-size: clamp(2rem, 3.8vw, 3rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 14px;
+      color: var(--text-main);
+    }
+    .section-subtitle {
+      font-size: 1.12rem;
+      color: var(--text-body);
+      line-height: 1.6;
+    }
+
+    /* 4 Feature Boxes (Signal Style) */
+    .features-grid-2x2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+    .feature-signal-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-lg);
+      padding: 36px 32px;
+      text-align: left;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.25s ease;
+    }
+    .feature-signal-box:hover {
+      box-shadow: var(--shadow-card);
+      transform: translateY(-3px);
+      border-color: var(--signal-blue);
+    }
+    .feature-box-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-md);
+      background: var(--signal-blue-light);
+      color: var(--signal-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+    }
+    .feature-box-h3 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+    }
+    .feature-box-p {
+      font-size: 0.95rem;
+      color: var(--text-body);
+      line-height: 1.65;
+    }
+
+    /* ==========================================================================
+       SECTION: ZIG-ZAG SPOTLIGHT SECTIONS (SIGNAL "SHARE WITHOUT INSECURITY")
+       ========================================================================== */
+    .zigzag-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 56px;
+      align-items: center;
+      margin-bottom: 80px;
+    }
+    .zigzag-row:last-child {
+      margin-bottom: 0;
+    }
+    .zigzag-row.reverse {
+      grid-template-columns: 1fr 1fr;
+    }
+    .zigzag-row.reverse .zigzag-left {
+      order: 2;
+    }
+    .zigzag-row.reverse .zigzag-right {
+      order: 1;
+    }
+
+    .spotlight-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-xl);
+      padding: 32px;
+      box-shadow: var(--shadow-card);
+    }
+
+    /* Interactive UDP Holepunch Simulator inside Spotlight */
+    #holepunchCanvas {
+      width: 100%;
+      height: 200px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      display: block;
+      margin-bottom: 14px;
+    }
+    .holepunch-terminal {
+      background: #0d121c;
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #38bdf8;
+      height: 80px;
+      overflow-y: auto;
+      text-align: left;
+    }
+
+    /* ==========================================================================
+       SECTION: NO ADS, NO SERVERS, NO TRACKERS (SIGNAL SIGNATURE SECTION)
+       ========================================================================== */
+    .no-ads-card {
+      background: linear-gradient(135deg, var(--signal-blue-tint) 0%, var(--bg-card) 60%);
+      border: 1px solid var(--signal-blue-border);
+      border-radius: var(--radius-xl);
+      padding: 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: center;
+      text-align: left;
+    }
+    .pill-matrix-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .pill-matrix-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .pill-check-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--emerald-online);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    /* ==========================================================================
+       SECTION: DOWNLOAD & PLATFORMS (SIGNAL GET-SIGNAL STYLE)
+       ========================================================================== */
+    .download-platforms-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 40px;
+    }
+    .platform-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-lg);
+      padding: 28px 20px;
+      text-align: center;
+      text-decoration: none;
+      color: var(--text-main);
+      box-shadow: var(--shadow-sm);
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .platform-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-card);
+      border-color: var(--signal-blue);
+    }
+    .platform-icon {
+      font-size: 2.2rem;
+      margin-bottom: 12px;
+    }
+    .platform-title {
+      font-weight: 800;
+      font-size: 1.1rem;
+      margin-bottom: 4px;
+    }
+    .platform-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    /* Code Terminal Copy Snippet */
+    .quick-pear-box {
+      margin-top: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      flex-wrap: wrap;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .quick-pear-box span {
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+
+    /* Platform chip links in Hero */
+    .platform-chip-link {
+      color: var(--text-body);
+      text-decoration: none;
+      transition: color 0.2s ease;
+      font-weight: 600;
+    }
+    .platform-chip-link:hover {
+      color: var(--signal-blue);
+      text-decoration: underline;
+    }
+
+    /* GitHub Release Hub Showcase Card */
+    .gh-hub-card {
+      margin-top: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-xl);
+      padding: 36px 40px;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 36px;
+      align-items: center;
+      box-shadow: var(--shadow-card);
+      position: relative;
+      overflow: hidden;
+    }
+    .gh-hub-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 5px;
+      height: 100%;
+      background: var(--signal-blue);
+    }
+    .gh-hub-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--signal-blue-light);
+      color: var(--signal-blue);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 12px;
+      font-family: var(--font-mono);
+    }
+    .gh-hub-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+    .gh-hub-p {
+      color: var(--text-body);
+      font-size: 0.94rem;
+      line-height: 1.65;
+      margin-bottom: 18px;
+    }
+    .gh-clone-box {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--text-main);
+      flex-wrap: wrap;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .gh-clone-box span {
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .gh-hub-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ==========================================================================
+       SIGNAL-STYLE FOOTER
+       ========================================================================== */
+    .signal-footer {
+      background-color: var(--bg-secondary);
+      border-top: 1px solid var(--border-subtle);
+      padding: 80px 0 40px;
+      font-size: 0.9rem;
+    }
+    .footer-columns {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      text-align: left;
+      margin-bottom: 60px;
+    }
+    .footer-col h5 {
+      font-size: 0.95rem;
+      font-weight: 800;
+      margin-bottom: 18px;
+      color: var(--text-main);
+    }
+    .footer-col ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .footer-col a {
+      color: var(--text-body);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+    .footer-col a:hover {
+      color: var(--signal-blue);
+    }
+    .footer-bottom-bar {
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* Toast */
+    .toast-popup {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--signal-blue);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+      font-size: 0.88rem;
+      box-shadow: 0 10px 25px rgba(44, 107, 237, 0.4);
+      z-index: 9999;
+      transform: translateY(20px);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s var(--ease-snappy);
+    }
+    .toast-popup.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* ==========================================================================
+       RESPONSIVE SYSTEM (DESKTOP -> TABLET -> MOBILE -> SMALL MOBILE)
+       ========================================================================== */
+    @media (max-width: 1080px) {
+      .nav-links { gap: 4px; }
+      .nav-links a { font-size: 0.82rem; padding: 4px 6px; }
+      .brand-tag { display: none; }
+    }
+
+    @media (max-width: 960px) {
+      .nav-links { display: none; }
+      .hero-grid { 
+        grid-template-columns: 1fr; 
+        text-align: center; 
+        gap: 36px;
+      }
+      .hero-left { text-align: center; }
+      .hero-headline { font-size: clamp(2.2rem, 7vw, 3.4rem); }
+      .hero-description { margin: 0 auto 32px; max-width: 100%; }
+      .hero-cta-bar { justify-content: center; }
+      .hero-platform-chips { justify-content: center; }
+      
+      .zigzag-row { 
+        grid-template-columns: 1fr; 
+        gap: 36px; 
+        text-align: center; 
+      }
+      .zigzag-row.reverse .zigzag-left { order: 1; }
+      .zigzag-row.reverse .zigzag-right { order: 2; }
+      
+      .features-grid-2x2 { grid-template-columns: 1fr; gap: 20px; }
+      .no-ads-card { 
+        grid-template-columns: 1fr; 
+        gap: 32px; 
+        padding: 36px 28px;
+        text-align: left;
+      }
+      .gh-hub-card { 
+        grid-template-columns: 1fr; 
+        padding: 28px 24px; 
+        gap: 24px;
+      }
+      .footer-columns { 
+        grid-template-columns: 1fr 1fr; 
+        gap: 36px; 
+      }
+    }
+
+    @media (max-width: 768px) {
+      .device-sidebar { display: none; }
+      .section-standard { padding: 64px 0; }
+    }
+
+    @media (max-width: 640px) {
+      .signal-navbar {
+        height: 60px;
+      }
+      .nav-container {
+        padding: 0 14px;
+      }
+      .brand-text {
+        font-size: 1.25rem;
+      }
+      .brand-logo-img {
+        width: 28px;
+        height: 28px;
+      }
+      .nav-actions {
+        gap: 6px;
+      }
+      /* Hide redundant GitHub icon in navbar on mobile - already featured in Hero & Download */
+      .nav-actions a[title*="GitHub"] {
+        display: none !important;
+      }
+      .icon-action-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 0.85rem;
+      }
+      .btn-lang-selector {
+        padding: 5px 10px;
+        font-size: 0.76rem;
+        gap: 4px;
+      }
+      .nav-actions .btn-pill {
+        padding: 7px 14px;
+        font-size: 0.8rem;
+      }
+
+      .hero-section {
+        padding-top: 90px;
+        padding-bottom: 40px;
+      }
+      .hero-headline {
+        font-size: clamp(1.9rem, 8vw, 2.5rem);
+        line-height: 1.15;
+        word-break: break-word;
+      }
+      .hero-description {
+        font-size: 0.98rem;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+      .hero-cta-bar {
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+      }
+      .hero-cta-bar .btn-pill {
+        width: 100%;
+        justify-content: center;
+        padding: 13px 20px;
+      }
+      .hero-platform-chips {
+        gap: 8px 10px;
+        font-size: 0.76rem;
+        justify-content: center;
+      }
+      .hero-platform-chips span:not(.platform-chip-link) {
+        display: none; /* Hide dots on mobile */
+      }
+      .platform-chip-link {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        padding: 5px 12px;
+        border-radius: var(--radius-pill);
+        display: inline-block;
+      }
+
+      /* Mockup mobile adaptations */
+      .device-mockup-frame {
+        height: 520px;
+        border-radius: var(--radius-lg);
+      }
+      .device-topbar {
+        padding: 0 12px;
+        height: 42px;
+      }
+      .device-room-pill {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+      }
+      .stage-view-selector-bar {
+        padding: 8px 10px;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .view-segmented-wrap {
+        width: 100%;
+        justify-content: space-around;
+        padding: 2px;
+      }
+      .view-seg-btn {
+        padding: 5px 8px;
+        font-size: 0.72rem;
+        flex: 1;
+        justify-content: center;
+      }
+      .btn-call-zero-turn {
+        width: 100%;
+        justify-content: center;
+        padding: 6px 12px;
+        font-size: 0.74rem;
+      }
+      .mock-bubble-row {
+        max-width: 95%;
+      }
+      .mock-bubble {
+        padding: 8px 12px;
+        font-size: 0.82rem;
+      }
+      .mock-composer-bar {
+        padding: 8px 10px;
+      }
+      .mock-composer-input {
+        padding: 7px 12px;
+        font-size: 0.8rem;
+      }
+      .mock-mailbox-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: 95px 1fr;
+      }
+      .mock-mail-list {
+        display: flex;
+        overflow-x: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+      .mock-mail-item {
+        min-width: 140px;
+        border-bottom: none;
+        border-right: 1px solid var(--border-subtle);
+        padding: 8px 10px;
+      }
+
+      /* Sections & Cards */
+      .section-standard {
+        padding: 50px 0;
+      }
+      .section-header-center {
+        margin-bottom: 36px;
+      }
+      .section-h2 {
+        font-size: 1.85rem;
+      }
+      .section-subtitle {
+        font-size: 0.96rem;
+      }
+      .feature-signal-box {
+        padding: 24px 20px;
+      }
+      .spotlight-card {
+        padding: 20px 16px;
+      }
+      .no-ads-card {
+        padding: 24px 18px;
+        gap: 24px;
+      }
+      .pill-matrix-list {
+        gap: 12px;
+      }
+      .pill-matrix-item {
+        font-size: 0.88rem;
+      }
+
+      /* Platforms & Downloads */
+      .download-platforms-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .platform-card {
+        padding: 18px 12px;
+      }
+      .platform-icon {
+        font-size: 1.8rem;
+        margin-bottom: 8px;
+      }
+      .platform-title {
+        font-size: 0.95rem;
+      }
+      .platform-card .btn-pill {
+        width: 100%;
+        padding: 6px 10px;
+        font-size: 0.76rem;
+      }
+
+      /* Quick boxes */
+      .quick-pear-box {
+        padding: 14px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+      .quick-pear-box div {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 4px !important;
+      }
+      .quick-pear-box button {
+        align-self: flex-start;
+      }
+      .gh-clone-box {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+      .gh-clone-box button {
+        align-self: flex-start;
+      }
+      .gh-hub-actions .btn-pill {
+        width: 100%;
+        justify-content: center;
+      }
+
+      /* Footer */
+      .signal-footer {
+        padding: 50px 0 30px;
+      }
+      .footer-columns {
+        grid-template-columns: 1fr;
+        gap: 28px;
+      }
+      .footer-bottom-bar {
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 0 12px;
+      }
+      #langCurrentLabel {
+        display: none;
+      }
+      .btn-lang-selector {
+        padding: 6px;
+        min-width: 34px;
+        height: 34px;
+        justify-content: center;
+      }
+      .download-platforms-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero-headline {
+        font-size: 1.8rem;
+      }
+    }
+  </style>
+</head>
+<body id="linda-app">
+
+  <!-- ==========================================================================
+       SIGNAL-INSPIRED FIXED NAVBAR WITH LANGUAGE SELECTOR
+       ========================================================================== -->
+  <header class="signal-navbar">
+    <div class="container nav-container">
+      <a href="#hero" class="brand-link">
+        <img src="./assets/logo.svg" alt="Linda Logo" class="brand-logo-img">
+        <span class="brand-text">Linda</span>
+        <span class="brand-tag">HOLEPUNCH CORE</span>
+      </a>
+
+      <nav class="nav-links">
+        <a href="#why-linda" data-i18n="nav.why">Perché Linda?</a>
+        <a href="#zero-turn" data-i18n="nav.zero_turn">Zero TURN</a>
+        <a href="#four-views" data-i18n="nav.views">4 Viste</a>
+        <a href="#sovereign-ai" data-i18n="nav.ai">AI Sovrana</a>
+        <a href="#download" data-i18n="nav.download">Download</a>
+      </nav>
+
+      <div class="nav-actions">
+        <!-- Language Switcher (Signal Globe Style) -->
+        <button class="btn-lang-selector" id="btnLanguageSelector" title="Cambia Lingua / Switch Language">
+          <span>🌐</span>
+          <span id="langCurrentLabel">Italiano</span>
+        </button>
+
+        <!-- Stealth Mode Toggle -->
+        <button class="icon-action-btn" id="btnStealthToggle" title="Modalità Privacy Stealth">
+          <span>👁️</span>
+        </button>
+
+        <!-- GitHub Repo Button -->
+        <a href="https://github.com/scobru/linda" target="_blank" rel="noopener noreferrer" class="icon-action-btn" title="GitHub - scobru/linda">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+        </a>
+
+        <!-- Theme Toggle (Light / Dark) -->
+        <button class="icon-action-btn" id="btnThemeToggle" title="Cambia Tema">
+          <span id="themeIcon">🌙</span>
+        </button>
+
+        <!-- Download CTA Button (Signal Style Pill) -->
+        <a href="#download" class="btn-pill btn-primary">
+          <span data-i18n="nav.get_linda">Scarica Linda</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       HERO: SIGNAL "SPEAK FREELY" LAYOUT
+       ========================================================================== -->
+  <main>
+    <section class="hero-section" id="hero">
+      <div class="container">
+        <div class="hero-grid">
+          
+          <!-- Left Column (Signal Speak Freely style) -->
+          <div class="hero-left">
+            <div class="hero-badge-row">
+              <span class="pulse-indicator"></span>
+              <span data-i18n="hero.badge">100% P2P • Zero Relay • Zero Cloud</span>
+            </div>
+
+            <h1 class="hero-headline" data-i18n="hero.headline">
+              Parla in Libertà.<br>
+              <span class="signal-color">Davvero.</span>
+            </h1>
+
+            <p class="hero-description" data-i18n="hero.desc">
+              Dì <strong>"ciao"</strong> a un'esperienza di messaggistica diversa. Un focus inaspettato sulla <strong>sovranità assoluta</strong>, combinato con tutte le funzionalità che ti aspetti: chat veloce, chiamate video cristalline, allegati infiniti e AI locale.
+            </p>
+
+            <div class="hero-cta-bar">
+              <a href="#download" class="btn-pill btn-primary" style="padding: 14px 32px; font-size: 1rem;">
+                <span data-i18n="hero.cta_main">Scarica Linda</span>
+                <span style="margin-left: 4px;">→</span>
+              </a>
+              <a href="https://github.com/scobru/linda" target="_blank" rel="noopener noreferrer" class="btn-pill btn-outline" style="padding: 14px 22px; font-size: 0.95rem;" title="Repository GitHub (Codice Open Source)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle; margin-right:4px;">
+                  <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                </svg>
+                <span>GitHub</span>
+              </a>
+            </div>
+
+            <div class="hero-platform-chips">
+              <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="platform-chip-link">🪟 Windows (.msix)</a>
+              <span>•</span>
+              <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="platform-chip-link">🤖 Android (.apk)</a>
+              <span>•</span>
+              <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="platform-chip-link">🐧 Linux (.AppImage)</a>
+              <span>•</span>
+              <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="platform-chip-link">🍏 macOS (.dmg)</a>
+              <span>•</span>
+              <a href="#download" class="platform-chip-link">🍐 Pear Runtime</a>
+            </div>
+          </div>
+
+          <!-- Right Column: Interactive Linda Client Device Mockup -->
+          <div class="hero-right">
+            <div class="device-shadow-underlay"></div>
+
+            <div class="device-mockup-frame" id="interactiveLindaWindow">
+              <!-- Window Top Bar -->
+              <div class="device-topbar">
+                <div class="device-dots">
+                  <div class="device-dot dot-red"></div>
+                  <div class="device-dot dot-yellow"></div>
+                  <div class="device-dot dot-green"></div>
+                </div>
+                <div class="device-room-pill redactable" id="activeRoomPill">#cypherpunk-core</div>
+                <div class="device-status">
+                  <span class="pulse-indicator"></span>
+                  <span data-i18n="sim.p2p_active">P2P Swarm</span>
+                </div>
+              </div>
+
+              <!-- Window Shell Body -->
+              <div class="device-shell">
+                
+                <!-- Sidebar -->
+                <aside class="device-sidebar">
+                  <div class="device-user-badge">
+                    <div class="user-avatar-circle">A</div>
+                    <div>
+                      <div class="user-name-label redactable" data-i18n="sim.user_name">Alice (Tu)</div>
+                      <div class="user-sub-label redactable">ed25519:7f8a...</div>
+                    </div>
+                  </div>
+
+                  <!-- Personal Vault Pill -->
+                  <div class="vault-pill-item" id="btnOpenVaultView" title="Apri Personal Vault Sovrano">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span>🔐</span>
+                      <span data-i18n="sim.vault">VAULT</span>
+                    </div>
+                    <span class="vault-tag-mini">SOLO</span>
+                  </div>
+
+                  <div class="sidebar-channels-title" data-i18n="sim.rooms_title">Stanze Autobase</div>
+                  <div class="sidebar-channel-row active" data-room="core">
+                    <span class="redactable"># cypherpunk-core</span>
+                    <span style="font-size: 0.68rem; color: var(--signal-blue);">3 peer</span>
+                  </div>
+                  <div class="sidebar-channel-row" data-room="bob">
+                    <span class="redactable">👤 Bob (1:1 P2P)</span>
+                  </div>
+                  <div class="sidebar-channel-row" data-room="ai">
+                    <span>🤖 Ollama Llama-3</span>
+                  </div>
+                  <div class="sidebar-channel-row" data-room="files">
+                    <span class="redactable">📁 Shared Drive</span>
+                  </div>
+                </aside>
+
+                <!-- Stage -->
+                <section class="device-stage">
+                  
+                  <!-- Top Segmented View Selector -->
+                  <div class="stage-view-selector-bar">
+                    <div class="view-segmented-wrap">
+                      <button class="view-seg-btn active" data-view="chat" data-i18n="view.chat">💬 Chat</button>
+                      <button class="view-seg-btn" data-view="mailbox" data-i18n="view.mail">✉️ Mail</button>
+                      <button class="view-seg-btn" data-view="notes" data-i18n="view.notes">📄 Note</button>
+                      <button class="view-seg-btn" data-view="files" data-i18n="view.files">📁 File</button>
+                    </div>
+
+                    <button class="btn-call-zero-turn" id="btnStartCallMock">
+                      <span>📞</span>
+                      <span data-i18n="sim.call_btn">Chiama P2P</span>
+                    </button>
+                  </div>
+
+                  <!-- 1. CHAT PANE -->
+                  <div class="mock-pane active" id="paneChatMock">
+                    <div class="mock-chat-stream" id="mockChatStream">
+                      <div class="mock-bubble-row">
+                        <div class="mock-bubble">
+                          <div class="mock-bubble-author redactable">Bob</div>
+                          <div class="redactable" data-i18n="sim.bob_msg">Ho testato la chiamata 1:1 su Linda: nessun server STUN o TURN! I frame VP8 e audio viaggiano direttamente su Protomux linda-call/1 multiplexato sulla connessione Noise della chat.</div>
+                          <div class="mock-bubble-meta">10:14 • Autobase #124</div>
+                        </div>
+                      </div>
+
+                      <div class="mock-bubble-row mine">
+                        <div class="mock-bubble">
+                          <div class="mock-bubble-author redactable" style="color:#fff;">Alice</div>
+                          <div class="redactable" data-i18n="sim.alice_msg">Incredibile, significa zero bollette cloud per il relay e zero registri di metadati. Ti invio una nota vocale registrata in streaming:</div>
+                          
+                          <!-- Audio note preview -->
+                          <div class="mock-voice-note">
+                            <button class="mock-voice-btn" id="btnPlayVoiceMock">▶</button>
+                            <div class="mock-voice-bars" id="voiceWaveBarsMock">
+                              <div class="m-bar" style="height: 6px;"></div>
+                              <div class="m-bar" style="height: 14px;"></div>
+                              <div class="m-bar" style="height: 10px;"></div>
+                              <div class="m-bar" style="height: 16px;"></div>
+                              <div class="m-bar" style="height: 8px;"></div>
+                              <div class="m-bar" style="height: 12px;"></div>
+                              <div class="m-bar" style="height: 18px;"></div>
+                              <div class="m-bar" style="height: 6px;"></div>
+                            </div>
+                            <span style="font-size:0.68rem; font-family:var(--font-mono); color:#fff;">0:14</span>
+                          </div>
+                          <div class="mock-bubble-meta" data-i18n="sim.local_append">10:16 • Append Locale ✓✓</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Composer -->
+                    <div class="mock-composer-bar">
+                      <input type="text" class="mock-composer-input" id="mockComposerInput" placeholder="Invia un messaggio sovrano (es: 'Ciao Bob #p2p')..." data-i18n-ph="sim.composer_ph">
+                      <button class="mock-send-btn" id="btnSendMockMsg">→</button>
+                    </div>
+                  </div>
+
+                  <!-- 2. MAILBOX PANE -->
+                  <div class="mock-pane" id="paneMailboxMock">
+                    <div class="mock-mailbox-container">
+                      <div class="mock-mail-list">
+                        <div class="mock-mail-item selected">
+                          <div class="mock-mail-item-sender redactable">Bob (Core)</div>
+                          <div class="mock-mail-item-subj redactable">Zero-TURN Protocol</div>
+                        </div>
+                        <div class="mock-mail-item">
+                          <div class="mock-mail-item-sender redactable">Alice</div>
+                          <div class="mock-mail-item-subj redactable">Epoch Keys Resync</div>
+                        </div>
+                      </div>
+                      <div class="mock-mail-reader">
+                        <div class="mock-mail-header">
+                          <div class="mock-mail-title redactable">Zero-TURN Protocol Spec</div>
+                          <div class="mock-mail-meta" data-i18n="sim.mail_sig">Firma: Valida ED25519 • Noise Protocol E2EE</div>
+                        </div>
+                        <div class="mock-mail-body redactable" data-i18n="sim.mail_body">
+                          La vera sovranità richiede che nessuna chiamata audio/video debba mai transitare attraverso server terzi. Linda riutilizza il canale autenticato già aperto per la chat per trasmettere media WebCodecs in tempo reale.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 3. NOTES PANE -->
+                  <div class="mock-pane" id="paneNotesMock">
+                    <div class="mock-notes-container">
+                      <div class="mock-note-card">
+                        <div class="mock-note-h" data-i18n="sim.note1_h">Autobase Linearization</div>
+                        <div class="mock-note-p" data-i18n="sim.note1_p">
+                          Ogni messaggio e file è un'operazione in un log append-only immutabile. La vista a note rimuove le bolle per offrire una lettura continuativa e pulita.
+                        </div>
+                      </div>
+                      <div class="mock-note-card">
+                        <div class="mock-note-h" data-i18n="sim.note2_h">Multi-Admin Governance</div>
+                        <div class="mock-note-p" data-i18n="sim.note2_p">
+                          I co-admin ammettono nuovi peer con addWriter anche se il creatore originale della stanza è offline.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 4. FILES PANE -->
+                  <div class="mock-pane" id="paneFilesMock">
+                    <div class="mock-files-container">
+                      <div class="mock-file-card">
+                        <div class="mock-file-left">
+                          <span style="font-size:1.3rem;">📄</span>
+                          <div>
+                            <div class="mock-file-title redactable">whitepaper-linda.pdf</div>
+                            <div class="mock-file-sub">4.2 MB • Hyperdrive P2P</div>
+                          </div>
+                        </div>
+                        <span style="font-size:0.75rem; color:var(--emerald-online); font-weight:700;">3 Seeder</span>
+                      </div>
+                      <div class="mock-file-card">
+                        <div class="mock-file-left">
+                          <span style="font-size:1.3rem;">🎙️</span>
+                          <div>
+                            <div class="mock-file-title redactable">audio-meeting-memo.opus</div>
+                            <div class="mock-file-sub">340 KB • Range Streaming</div>
+                          </div>
+                        </div>
+                        <span style="font-size:0.75rem; color:var(--emerald-online); font-weight:700;">2 Seeder</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 5. VAULT PANE -->
+                  <div class="mock-pane" id="paneVaultMock">
+                    <div class="mock-vault-container">
+                      <div class="mock-vault-banner">
+                        <h4 data-i18n="sim.vault_h">🔐 Personal Sovereign Vault</h4>
+                        <p data-i18n="sim.vault_p">Autobase a singolo scrittore: le tue password, note private e chiavi mnemonici senza server di sincronizzazione.</p>
+                      </div>
+                      <div style="background:var(--bg-secondary); padding:12px; border-radius:8px; border:1px solid var(--border-subtle);">
+                        <div style="font-size:0.75rem; font-weight:700; color:var(--gold-vault); margin-bottom:4px;" data-i18n="sim.vault_seed_title">BIP39 Seed Phrase Backup</div>
+                        <div class="redactable" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-body);">shield velvet matrix cipher pulse quantum bunker neon orbit</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- CALL OVERLAY -->
+                  <div class="mock-call-overlay" id="mockCallOverlay">
+                    <div class="call-avatar-circle">📞</div>
+                    <div class="call-peer-title redactable">Bob</div>
+                    <div class="call-meta-chip" data-i18n="sim.call_meta">Protomux linda-call/1 • Zero TURN Relays</div>
+                    <div class="call-timer" id="mockCallTimer">00:08</div>
+                    <div class="call-actions-row">
+                      <button class="btn-call-hangup" id="btnHangupMock">📵</button>
+                    </div>
+                  </div>
+
+                </section>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+       SECTION: WHY USE LINDA? (SIGNAL'S 2x2 FEATURE GRID)
+       ========================================================================== -->
+    <section class="section-standard alt-bg" id="why-linda">
+      <div class="container">
+        
+        <div class="section-header-center">
+          <h2 class="section-h2" data-i18n="why.title">Perché usare Linda?</h2>
+          <p class="section-subtitle" data-i18n="why.desc">
+            Esplora qui sotto per scoprire perché Linda è la piattaforma di comunicazione peer-to-peer più avanzata, sovrana e sicura mai costruita.
+          </p>
+        </div>
+
+        <div class="features-grid-2x2">
+          
+          <!-- Box 1 -->
+          <div class="feature-signal-box">
+            <div class="feature-box-icon">💬</div>
+            <h3 class="feature-box-h3" data-i18n="feat1.title">Dì Tutto Quello Che Vuoi</h3>
+            <p class="feature-box-p" data-i18n="feat1.desc">
+              Invia messaggi di testo, note vocali con forma d'onda in tempo reale, immagini, file giganti e documenti. Tutto viaggia crittografato end-to-end senza passare per un solo server centrale.
+            </p>
+          </div>
+
+          <!-- Box 2 -->
+          <div class="feature-signal-box">
+            <div class="feature-box-icon">📞</div>
+            <h3 class="feature-box-h3" data-i18n="feat2.title">Parla in Libertà (Senza Relay)</h3>
+            <p class="feature-box-p" data-i18n="feat2.desc">
+              Effettua chiamate vocali e video 4K ad alta fedeltà con chiunque. Nessun server STUN o TURN aziendale, nessun costo di transito, nessun registro dei metadati su chi chiama chi.
+            </p>
+          </div>
+
+          <!-- Box 3 -->
+          <div class="feature-signal-box">
+            <div class="feature-box-icon">🎛️</div>
+            <h3 class="feature-box-h3" data-i18n="feat3.title">4 Viste, 1 Solo Flusso</h3>
+            <p class="feature-box-p" data-i18n="feat3.desc">
+              Passa senza soluzione di continuità tra <strong>Chat a bolle</strong>, <strong>Mailbox formale a due pannelli</strong>, <strong>Note continue</strong> e <strong>File Hyperdrive</strong>. La medesima cronologia Autobase, visualizzata esattamente come vuoi.
+            </p>
+          </div>
+
+          <!-- Box 4 -->
+          <div class="feature-signal-box">
+            <div class="feature-box-icon">🔐</div>
+            <h3 class="feature-box-h3" data-i18n="feat4.title">Il Tuo Caveau Personale</h3>
+            <p class="feature-box-p" data-i18n="feat4.desc">
+              Ogni identità riceve automaticamente un <strong>Personal Vault</strong> a singolo scrittore. Uno spazio privato per note, password e memorie che si sincronizza tra i tuoi dispositivi tramite un QR code effimero.
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+       SPOTLIGHT ROW 1: "SHARE WITHOUT INSECURITY"
+       ========================================================================== -->
+    <section class="section-standard" id="zero-turn">
+      <div class="container">
+        
+        <div class="zigzag-row">
+          <div class="zigzag-left">
+            <div class="spotlight-card">
+              <div style="font-size:0.75rem; font-family:var(--font-mono); color:var(--signal-blue); font-weight:700; margin-bottom:8px;">
+                HYPERSWARM UDP HOLEPUNCH ENGINE
+              </div>
+              <canvas id="holepunchCanvas"></canvas>
+              <div class="holepunch-terminal" id="holepunchTerminalLogs">
+                <div>[00:00.000] Hyperswarm DHT bootstrapped via distributed seeds.</div>
+                <div>[00:00.120] Querying topic hash on DHT... Peer coordination ready.</div>
+              </div>
+              <button class="btn-pill btn-primary" id="btnTriggerHolepunchCanvas" style="width: 100%; margin-top: 14px;">
+                <span data-i18n="spotlight1.btn">Testa Foratura NAT in Tempo Reale</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="zigzag-right">
+            <h2 class="section-h2" data-i18n="spotlight1.title">Condividi Senza Inquietudini</h2>
+            <p class="section-subtitle" style="margin-bottom: 20px;" data-i18n="spotlight1.subtitle">
+              Lo stack Holepunch all'avanguardia (Autobase, Hyperbee, Hyperswarm) mantiene le tue conversazioni protette dalla crittografia Noise XK.
+            </p>
+            <p style="color:var(--text-body); line-height:1.7; font-size: 0.98rem;" data-i18n="spotlight1.desc">
+              Nessuno può leggere i tuoi messaggi né ascoltare le tue chiamate: <strong>perché non c'è nessun server in mezzo su cui intercettarli</strong>. La privacy in Linda non è un'opzione o un'impostazione da attivare: è la sola e unica modalità operativa possibile del protocollo.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+       SPOTLIGHT ROW 2: NO ADS, NO SERVERS, NO TRACKERS (SIGNAL SIGNATURE SECTION)
+       ========================================================================== -->
+    <section class="section-standard alt-bg" id="four-views">
+      <div class="container">
+        
+        <div class="no-ads-card">
+          <div>
+            <h2 class="section-h2" style="margin-bottom: 16px;" data-i18n="noads.title">Zero pubblicità.<br>Zero server.<br>Zero scuse.</h2>
+            <p style="color:var(--text-body); line-height:1.7; font-size:1.05rem;" data-i18n="noads.desc">
+              Non ci sono pubblicità, nessun tracciamento di marketing e nessun database centrale da cui estrarre i tuoi contatti. Concentrati unicamente sul comunicare con le persone che contano per te.
+            </p>
+          </div>
+
+          <div>
+            <ul class="pill-matrix-list">
+              <li class="pill-matrix-item">
+                <span class="pill-check-icon">✓</span>
+                <span data-i18n="matrix.item1">Nessun numero di telefono o email richiesto</span>
+              </li>
+              <li class="pill-matrix-item">
+                <span class="pill-check-icon">✓</span>
+                <span data-i18n="matrix.item2">Zero server STUN/TURN aziendali per le chiamate</span>
+              </li>
+              <li class="pill-matrix-item">
+                <span class="pill-check-icon">✓</span>
+                <span data-i18n="matrix.item3">Causal log deterministico Autobase immune ai conflitti</span>
+              </li>
+              <li class="pill-matrix-item">
+                <span class="pill-check-icon">✓</span>
+                <span data-i18n="matrix.item4">Pairing da dispositivo a dispositivo tramite QR effimero</span>
+              </li>
+              <li class="pill-matrix-item">
+                <span class="pill-check-icon">✓</span>
+                <span data-i18n="matrix.item5">Codice 100% open source e verificabile crittograficamente</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+       SECTION: SOVEREIGN IN-APP AI AGENTS
+       ========================================================================== -->
+    <section class="section-standard" id="sovereign-ai">
+      <div class="container">
+        
+        <div class="zigzag-row reverse">
+          <div class="zigzag-left">
+            <h2 class="section-h2" data-i18n="ai.title">L'AI sul tuo ferro, non sul cloud di altri</h2>
+            <p class="section-subtitle" style="margin-bottom: 18px;" data-i18n="ai.subtitle">
+              A partire da Linda v1.15.0, puoi creare agenti intelligenti direttamente dentro l'app che risiedono come membri crittografici sovrani nelle tue stanze.
+            </p>
+            <p style="color:var(--text-body); line-height:1.7; font-size: 0.98rem; margin-bottom: 24px;" data-i18n="ai.desc">
+              Collega la tua istanza locale di <strong>Ollama</strong> (Llama 3, DeepSeek, Mistral) con zero token cloud e privacy 100% offline, oppure utilizza il bridge verso il gateway <strong>OpenClaw</strong>. Le risposte fluiscono in streaming token-by-token.
+            </p>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button class="btn-pill btn-outline" onclick="window.testAiPrompt('turn')" data-i18n="ai.chip1">Perché zero TURN?</button>
+              <button class="btn-pill btn-outline" onclick="window.testAiPrompt('autobase')" data-i18n="ai.chip2">Come funziona Autobase?</button>
+            </div>
+          </div>
+
+          <div class="zigzag-right">
+            <div class="spotlight-card" style="background:#0c1017; color:#fff; border-color:var(--border-subtle);">
+              <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:10px; margin-bottom:12px;">
+                <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--signal-blue);">🤖 linda-bot@ollama-local</span>
+                <span style="font-size:0.72rem; color:var(--emerald-online);">SSE Token Stream</span>
+              </div>
+              <div id="aiStreamingOutput" style="font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; min-height:160px; color:#e2e8f0; text-align:left;" data-i18n="ai.placeholder">
+                Clicca su uno dei prompt a sinistra per vedere la generazione dei token in tempo reale dall'agente sovrano...
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+       SECTION: DOWNLOAD LINDA (SIGNAL DOWNLOAD STYLE)
+       ========================================================================== -->
+    <section class="section-standard alt-bg" id="download">
+      <div class="container" style="text-align:center;">
+        
+        <div class="section-header-center">
+          <h2 class="section-h2" data-i18n="dl.title">Ottieni Linda</h2>
+          <p class="section-subtitle" data-i18n="dl.desc">
+            Scegli la tua piattaforma preferita. Desktop, mobile o runtime ultraleggero Pear: condividono tutti lo stesso motore crittografico.
+          </p>
+        </div>
+
+        <div class="download-platforms-grid">
+          
+          <div class="platform-card">
+            <div class="platform-icon">🪟</div>
+            <div class="platform-title" data-i18n="dl.win_title">Windows</div>
+            <div class="platform-sub" data-i18n="dl.win_sub">MSIX & Installer Desktop</div>
+            <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="btn-pill btn-primary" style="margin-top:16px; font-size:0.82rem; padding:8px 18px;" data-i18n="dl.win_btn">
+              Scarica (.msix)
+            </a>
+          </div>
+
+          <div class="platform-card">
+            <div class="platform-icon">🤖</div>
+            <div class="platform-title" data-i18n="dl.android_title">Android</div>
+            <div class="platform-sub" data-i18n="dl.android_sub">APK Nativo (BareKit C++)</div>
+            <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="btn-pill btn-primary" style="margin-top:16px; font-size:0.82rem; padding:8px 18px;" data-i18n="dl.android_btn">
+              Scarica APK
+            </a>
+          </div>
+
+          <div class="platform-card">
+            <div class="platform-icon">🐧</div>
+            <div class="platform-title" data-i18n="dl.linux_title">Linux</div>
+            <div class="platform-sub" data-i18n="dl.linux_sub">AppImage & Tarball</div>
+            <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="btn-pill btn-outline" style="margin-top:16px; font-size:0.82rem; padding:8px 18px;" data-i18n="dl.linux_btn">
+              Scarica AppImage
+            </a>
+          </div>
+
+          <div class="platform-card">
+            <div class="platform-icon">🍏</div>
+            <div class="platform-title" data-i18n="dl.mac_title">macOS</div>
+            <div class="platform-sub" data-i18n="dl.mac_sub">Apple Silicon & Intel DMG</div>
+            <a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer" class="btn-pill btn-outline" style="margin-top:16px; font-size:0.82rem; padding:8px 18px;" data-i18n="dl.mac_btn">
+              Scarica DMG
+            </a>
+          </div>
+
+          <div class="platform-card">
+            <div class="platform-icon">🍐</div>
+            <div class="platform-title">Pear Runtime</div>
+            <div class="platform-sub" data-i18n="dl.pear_sub">Aggiornamenti P2P istantanei</div>
+            <a href="javascript:void(0)" onclick="window.copyPearCmd(this)" class="btn-pill btn-outline" style="margin-top:16px; font-size:0.82rem; padding:8px 18px;" data-i18n="dl.btn_copy">
+              Copia Comando
+            </a>
+          </div>
+
+        </div>
+
+        <!-- Quick Terminal Snippet Box -->
+        <div class="quick-pear-box">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color:var(--signal-blue); font-weight:700;"># Pear:</span>
+            <span style="color:var(--text-body);">npx pear run pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno</span>
+          </div>
+          <button class="btn-pill btn-outline" onclick="window.copyPearCmd(this)" style="font-size:0.78rem; padding:6px 14px;" data-i18n="dl.btn_copy">
+            Copia
+          </button>
+        </div>
+
+        <!-- Open Source GitHub Hub Card -->
+        <div class="gh-hub-card">
+          <div>
+            <div class="gh-hub-badge" data-i18n="dl.hub_badge">💻 Open Source & GitHub</div>
+            <h3 class="gh-hub-title" data-i18n="dl.hub_title">Codice Trasparente e Verificabile</h3>
+            <p class="gh-hub-p" data-i18n="dl.hub_desc">
+              Tutto il codice di Linda è trasparente, verificabile crittograficamente e open source sotto licenza ISC. Ispeziona i protocolli di crittografia, compila l'app direttamente dai sorgenti o unisciti allo sviluppo.
+            </p>
+            <div class="gh-clone-box">
+              <span style="color:var(--signal-blue); font-weight:700;">git clone:</span>
+              <span style="color:var(--text-body);">https://github.com/scobru/linda.git</span>
+              <button class="btn-pill btn-outline" onclick="window.copyGitCmd(this)" style="font-size:0.75rem; padding:4px 10px;" data-i18n="dl.btn_copy">
+                Copia
+              </button>
+            </div>
+          </div>
+          <div class="gh-hub-actions">
+            <a href="https://github.com/scobru/linda" target="_blank" rel="noopener noreferrer" class="btn-pill btn-primary" style="padding:14px 24px; font-size:0.95rem;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+              </svg>
+              <span data-i18n="dl.btn_repo">Repository GitHub (scobru/linda)</span>
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ==========================================================================
+       SIGNAL-STYLE MULTI-COLUMN FOOTER
+       ========================================================================== -->
+  <footer class="signal-footer">
+    <div class="container">
+      <div class="footer-columns">
+        
+        <div class="footer-col">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+            <img src="./assets/logo.svg" alt="Linda Logo" style="width:24px; height:24px;">
+            <span style="font-size:1.4rem; font-weight:800; color:var(--text-main);">Linda</span>
+          </div>
+          <p style="color:var(--text-body); font-size:0.9rem; line-height:1.6; max-width:320px; margin-bottom:16px;" data-i18n="footer.about">
+            La piattaforma di messaggistica sovrana peer-to-peer che nessun server può spegnere. Costruito con orgoglio sullo stack Holepunch.
+          </p>
+          <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">
+            <a href="https://github.com/scobru/linda" target="_blank" rel="noopener noreferrer" style="color:var(--signal-blue); font-weight:600; text-decoration:none;">github.com/scobru/linda</a><br>
+            Versione 1.15.0 • Licenza Open Source ISC
+          </div>
+        </div>
+
+        <div class="footer-col">
+          <h5 data-i18n="footer.arch">Architettura</h5>
+          <ul>
+            <li><a href="#why-linda">Autobase Multi-Writer</a></li>
+            <li><a href="#zero-turn">Hyperswarm DHT</a></li>
+            <li><a href="#zero-turn">Protomux linda-call/1</a></li>
+            <li><a href="#four-views">4 Viste Adattive</a></li>
+            <li><a href="#sovereign-ai">Personal Vault</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5 data-i18n="footer.dl">Download</h5>
+          <ul>
+            <li><a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer">Windows (.msix)</a></li>
+            <li><a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer">Android APK</a></li>
+            <li><a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer">Linux AppImage</a></li>
+            <li><a href="https://github.com/scobru/linda/releases/latest" target="_blank" rel="noopener noreferrer">macOS (.dmg)</a></li>
+            <li><a href="#download">Pear Runtime Key</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5 data-i18n="footer.comm">Community</h5>
+          <ul>
+            <li><a href="https://github.com/scobru/linda" target="_blank" rel="noopener noreferrer" data-i18n="footer.source_repo">Repository GitHub</a></li>
+            <li><a href="https://github.com/scobru/linda/issues" target="_blank" rel="noopener noreferrer" data-i18n="footer.issues">Segnala Bug (Issues)</a></li>
+            <li><a href="https://holepunch.to" target="_blank" rel="noopener noreferrer">Stack Holepunch</a></li>
+            <li><a href="https://docs.pears.com" target="_blank" rel="noopener noreferrer">Pear Runtime Docs</a></li>
+            <li><a href="#hero">Manifesto Cypherpunk</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom-bar">
+        <span data-i18n="footer.copy">© 2026 Linda Project. Sovranità digitale per individui liberi.</span>
+        <span data-i18n="footer.tagline">Zero server. Zero relay. Zero compromessi.</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Element -->
+  <div class="toast-popup" id="signalToast">Operazione completata</div>
+
+  <!-- ==========================================================================
+       INTERACTIVE SCRIPTS (TRANSLATIONS, WEB AUDIO, CANVAS, SIMULATOR)
+       ========================================================================== -->
+  <script>
+    (function() {
+      'use strict';
+
+      // --- 1. FULL BILINGUAL TRANSLATION ENGINE (IT / EN) ---
+      let currentLang = 'it';
+
+      const translations = {
+        it: {
+          'meta.title': 'Linda >> Parla in Libertà. Davvero.',
+          'nav.why': 'Perché Linda?',
+          'nav.zero_turn': 'Zero TURN',
+          'nav.views': '4 Viste',
+          'nav.ai': 'AI Sovrana',
+          'nav.download': 'Download',
+          'nav.get_linda': 'Scarica Linda',
+          'hero.badge': '100% P2P • Zero Relay • Zero Cloud',
+          'hero.headline': 'Parla in Libertà.<br><span class="signal-color">Davvero.</span>',
+          'hero.desc': 'Dì <strong>"ciao"</strong> a un\'esperienza di messaggistica diversa. Un focus inaspettato sulla <strong>sovranità assoluta</strong>, combinato con tutte le funzionalità che ti aspetti: chat veloce, chiamate video cristalline, allegati infiniti e AI locale.',
+          'hero.cta_main': 'Scarica Linda',
+          'hero.cta_sim': 'Simula Holepunch DHT',
+          'sim.p2p_active': 'P2P Swarm',
+          'sim.user_name': 'Alice (Tu)',
+          'sim.vault': 'VAULT',
+          'sim.rooms_title': 'Stanze Autobase',
+          'sim.call_btn': 'Chiama P2P',
+          'view.chat': '💬 Chat',
+          'view.mail': '✉️ Mail',
+          'view.notes': '📄 Note',
+          'view.files': '📁 File',
+          'sim.bob_msg': 'Ho testato la chiamata 1:1 su Linda: nessun server STUN o TURN! I frame VP8 e audio viaggiano direttamente su Protomux linda-call/1 multiplexato sulla connessione Noise della chat.',
+          'sim.alice_msg': 'Incredibile, significa zero bollette cloud per il relay e zero registri di metadati. Ti invio una nota vocale registrata in streaming:',
+          'sim.local_append': '10:16 • Append Locale ✓✓',
+          'sim.composer_ph': 'Invia un messaggio sovrano (es: \'Ciao Bob #p2p\')...',
+          'sim.mail_sig': 'Firma: Valida ED25519 • Noise Protocol E2EE',
+          'sim.mail_body': 'La vera sovranità richiede che nessuna chiamata audio/video debba mai transitare attraverso server terzi. Linda riutilizza il canale autenticato già aperto per la chat per trasmettere media WebCodecs in tempo reale.',
+          'sim.note1_h': 'Autobase Linearization',
+          'sim.note1_p': 'Ogni messaggio e file è un\'operazione in un log append-only immutabile. La vista a note rimuove le bolle per offrire una lettura continuativa e pulita.',
+          'sim.note2_h': 'Multi-Admin Governance',
+          'sim.note2_p': 'I co-admin ammettono nuovi peer con addWriter anche se il creatore originale della stanza è offline.',
+          'sim.vault_h': '🔐 Personal Sovereign Vault',
+          'sim.vault_p': 'Autobase a singolo scrittore: le tue password, note private e chiavi mnemonici senza server di sincronizzazione.',
+          'sim.vault_seed_title': 'BIP39 Seed Phrase Backup',
+          'sim.call_meta': 'Protomux linda-call/1 • Zero TURN Relays',
+          'why.title': 'Perché usare Linda?',
+          'why.desc': 'Esplora qui sotto per scoprire perché Linda è la piattaforma di comunicazione peer-to-peer più avanzata, sovrana e sicura mai costruita.',
+          'feat1.title': 'Dì Tutto Quello Che Vuoi',
+          'feat1.desc': 'Invia messaggi di testo, note vocali con forma d\'onda in tempo reale, immagini, file giganti e documenti. Tutto viaggia crittografato end-to-end senza passare per un solo server centrale.',
+          'feat2.title': 'Parla in Libertà (Senza Relay)',
+          'feat2.desc': 'Effettua chiamate vocali e video 4K ad alta fedeltà con chiunque. Nessun server STUN o TURN aziendale, nessun costo di transito, nessun registro dei metadati su chi chiama chi.',
+          'feat3.title': '4 Viste, 1 Solo Flusso',
+          'feat3.desc': 'Passa senza soluzione di continuità tra <strong>Chat a bolle</strong>, <strong>Mailbox formale a due pannelli</strong>, <strong>Note continue</strong> e <strong>File Hyperdrive</strong>. La medesima cronologia Autobase, visualizzata esattamente come vuoi.',
+          'feat4.title': 'Il Tuo Caveau Personale',
+          'feat4.desc': 'Ogni identità riceve automaticamente un <strong>Personal Vault</strong> a singolo scrittore. Uno spazio privato per note, password e memorie che si sincronizza tra i tuoi dispositivi tramite un QR code effimero.',
+          'spotlight1.title': 'Condividi Senza Inquietudini',
+          'spotlight1.subtitle': 'Lo stack Holepunch all\'avanguardia (Autobase, Hyperbee, Hyperswarm) mantiene le tue conversazioni protette dalla crittografia Noise XK.',
+          'spotlight1.desc': 'Nessuno può leggere i tuoi messaggi né ascoltare le tue chiamate: <strong>perché non c\'è nessun server in mezzo su cui intercettarli</strong>. La privacy in Linda non è un\'opzione o un\'impostazione da attivare: è la sola e unica modalità operativa possibile del protocollo.',
+          'spotlight1.btn': 'Testa Foratura NAT in Tempo Reale',
+          'noads.title': 'Zero pubblicità.<br>Zero server.<br>Zero scuse.',
+          'noads.desc': 'Non ci sono pubblicità, nessun tracciamento di marketing e nessun database centrale da cui estrarre i tuoi contatti. Concentrati unicamente sul comunicare con le persone che contano per te.',
+          'matrix.item1': 'Nessun numero di telefono o email richiesto',
+          'matrix.item2': 'Zero server STUN/TURN aziendali per le chiamate',
+          'matrix.item3': 'Causal log deterministico Autobase immune ai conflitti',
+          'matrix.item4': 'Pairing da dispositivo a dispositivo tramite QR effimero',
+          'matrix.item5': 'Codice 100% open source e verificabile crittograficamente',
+          'ai.title': 'L\'AI sul tuo ferro, non sul cloud di altri',
+          'ai.subtitle': 'A partire da Linda v1.15.0, puoi creare agenti intelligenti direttamente dentro l\'app che risiedono come membri crittografici sovrani nelle tue stanze.',
+          'ai.desc': 'Collega la tua istanza locale di <strong>Ollama</strong> (Llama 3, DeepSeek, Mistral) con zero token cloud e privacy 100% offline, oppure utilizza il bridge verso il gateway <strong>OpenClaw</strong>. Le risposte fluiscono in streaming token-by-token.',
+          'ai.chip1': 'Perché zero TURN?',
+          'ai.chip2': 'Come funziona Autobase?',
+          'ai.placeholder': 'Clicca su uno dei prompt a sinistra per vedere la generazione dei token in tempo reale dall\'agente sovrano...',
+          'dl.title': 'Ottieni Linda',
+          'dl.desc': 'Scegli la tua piattaforma preferita. Desktop, mobile o runtime ultraleggero Pear: condividono tutti lo stesso motore crittografico.',
+          'dl.win_title': 'Windows',
+          'dl.win_sub': 'MSIX & Installer Desktop',
+          'dl.win_btn': 'Scarica (.msix)',
+          'dl.android_title': 'Android',
+          'dl.android_sub': 'APK Nativo (BareKit C++)',
+          'dl.android_btn': 'Scarica APK',
+          'dl.linux_title': 'Linux',
+          'dl.linux_sub': 'AppImage & Tarball',
+          'dl.linux_btn': 'Scarica AppImage',
+          'dl.mac_title': 'macOS',
+          'dl.mac_sub': 'Apple Silicon & Intel DMG',
+          'dl.mac_btn': 'Scarica DMG',
+          'dl.pear_sub': 'Aggiornamenti P2P istantanei',
+          'dl.btn_copy': 'Copia',
+          'dl.hub_badge': '💻 Open Source & GitHub',
+          'dl.hub_title': 'Codice Trasparente e Verificabile',
+          'dl.hub_desc': 'Tutto il codice di Linda è trasparente, verificabile crittograficamente e open source sotto licenza ISC. Ispeziona i protocolli di crittografia, compila l\'app direttamente dai sorgenti o unisciti allo sviluppo.',
+          'dl.btn_repo': 'Repository GitHub (scobru/linda)',
+          'footer.about': 'La piattaforma di messaggistica sovrana peer-to-peer che nessun server può spegnere. Costruito con orgoglio sullo stack Holepunch.',
+          'footer.arch': 'Architettura',
+          'footer.dl': 'Download',
+          'footer.comm': 'Community',
+          'footer.issues': 'Segnala Bug (Issues)',
+          'footer.source_repo': 'Repository GitHub',
+          'footer.copy': '© 2026 Linda Project. Sovranità digitale per individui liberi.',
+          'footer.tagline': 'Zero server. Zero relay. Zero compromessi.'
+        },
+        en: {
+          'meta.title': 'Linda >> Speak Freely. For Real.',
+          'nav.why': 'Why Linda?',
+          'nav.zero_turn': 'Zero TURN',
+          'nav.views': '4 Views',
+          'nav.ai': 'Sovereign AI',
+          'nav.download': 'Download',
+          'nav.get_linda': 'Get Linda',
+          'hero.badge': '100% P2P • Zero Relays • Zero Cloud',
+          'hero.headline': 'Speak Freely.<br><span class="signal-color">For Real.</span>',
+          'hero.desc': 'Say <strong>"hello"</strong> to a different messaging experience. An unexpected focus on <strong>absolute sovereignty</strong>, combined with all of the features you expect: fast chat, crystal-clear video calls, unlimited attachments, and local AI.',
+          'hero.cta_main': 'Get Linda',
+          'hero.cta_sim': 'Simulate DHT Holepunch',
+          'sim.p2p_active': 'P2P Swarm',
+          'sim.user_name': 'Alice (You)',
+          'sim.vault': 'VAULT',
+          'sim.rooms_title': 'Autobase Rooms',
+          'sim.call_btn': 'P2P Call',
+          'view.chat': '💬 Chat',
+          'view.mail': '✉️ Mail',
+          'view.notes': '📄 Notes',
+          'view.files': '📁 Files',
+          'sim.bob_msg': 'Tested 1:1 calling on Linda: zero STUN or TURN servers! VP8 frames and audio stream directly on Protomux linda-call/1 multiplexed over the chat\'s Noise socket.',
+          'sim.alice_msg': 'Incredible, that means zero relay cloud bills and zero metadata logging. Sending you a voice note recorded live with range-seek streaming:',
+          'sim.local_append': '10:16 • Local Append ✓✓',
+          'sim.composer_ph': 'Send a sovereign message (e.g. \'Hello Bob #p2p\')...',
+          'sim.mail_sig': 'Signature: Valid ED25519 • Noise Protocol E2EE',
+          'sim.mail_body': 'True sovereignty demands that no voice or video call should ever route through third-party relays. Linda multiplexes real-time WebCodecs media directly over the existing Noise connection.',
+          'sim.note1_h': 'Autobase Linearization',
+          'sim.note1_p': 'Every message and file is an immutable append-only log operation. Notes view drops bubbles for clean, continuous reading.',
+          'sim.note2_h': 'Multi-Admin Governance',
+          'sim.note2_p': 'Co-admins admit new peers via addWriter grants even if the room\'s original creator is completely offline.',
+          'sim.vault_h': '🔐 Personal Sovereign Vault',
+          'sim.vault_p': 'Single-writer Autobase: your private passwords, notes, and seed phrases without any sync servers.',
+          'sim.vault_seed_title': 'BIP39 Seed Phrase Backup',
+          'sim.call_meta': 'Protomux linda-call/1 • Zero TURN Relays',
+          'why.title': 'Why use Linda?',
+          'why.desc': 'Explore below to see why Linda is the most advanced, sovereign, and secure peer-to-peer communication platform ever built.',
+          'feat1.title': 'Say Anything',
+          'feat1.desc': 'Share text, real-time waveform voice notes, photos, giant files, and documents. Everything travels end-to-end encrypted without touching a single central server.',
+          'feat2.title': 'Speak Freely (Zero Relays)',
+          'feat2.desc': 'Make crystal-clear voice and 4K video calls with anyone. No corporate STUN or TURN servers, no transit costs, and zero metadata logging of who calls whom.',
+          'feat3.title': '4 Views, 1 Single Stream',
+          'feat3.desc': 'Seamlessly switch between <strong>Bubble Chat</strong>, <strong>Dual-Pane Mailbox</strong>, <strong>Continuous Notes</strong>, and <strong>Hyperdrive Files</strong>. The exact same Autobase log, projected however you want.',
+          'feat4.title': 'Your Personal Vault',
+          'feat4.desc': 'Every identity automatically receives a single-writer <strong>Personal Vault</strong>. A sovereign private space for notes, passwords, and memos that syncs across devices via an ephemeral QR code.',
+          'spotlight1.title': 'Share Without Insecurity',
+          'spotlight1.subtitle': 'State-of-the-art Holepunch stack (Autobase, Hyperbee, Hyperswarm) keeps your conversations protected by Noise XK encryption.',
+          'spotlight1.desc': 'No one can read your messages or listen to your calls: <strong>because there is no server in the middle to intercept them</strong>. Privacy in Linda isn\'t an optional mode — it\'s the only way the protocol operates.',
+          'spotlight1.btn': 'Test Real-Time NAT Traversal',
+          'noads.title': 'No ads.<br>No servers.<br>No kidding.',
+          'noads.desc': 'There are no ads, no marketing trackers, and no central database to harvest your contacts. Just focus on sharing the moments that matter with the people who matter to you.',
+          'matrix.item1': 'No phone numbers or email addresses required',
+          'matrix.item2': 'Zero corporate STUN/TURN relay servers for calls',
+          'matrix.item3': 'Deterministic Autobase causal log immune to conflicts',
+          'matrix.item4': 'Device-to-device pairing via ephemeral P2P QR',
+          'matrix.item5': '100% open source and cryptographically verifiable',
+          'ai.title': 'AI on your hardware, not someone else\'s cloud',
+          'ai.subtitle': 'Starting with Linda v1.15.0, you can create in-app intelligent agents that live as sovereign cryptographic peers in your rooms.',
+          'ai.desc': 'Connect your local <strong>Ollama</strong> instance (Llama 3, DeepSeek, Mistral) with zero cloud tokens and 100% offline privacy, or use the <strong>OpenClaw</strong> gateway bridge. Responses stream token-by-token.',
+          'ai.chip1': 'Why zero TURN?',
+          'ai.chip2': 'How does Autobase work?',
+          'ai.placeholder': 'Click one of the prompt chips on the left to watch live token streaming from the sovereign agent...',
+          'dl.title': 'Get Linda',
+          'dl.desc': 'Choose your favorite platform. Desktop, mobile, or ultra-lightweight Pear runtime: they all share the exact same cryptographic core.',
+          'dl.win_title': 'Windows',
+          'dl.win_sub': 'MSIX & Desktop Installer',
+          'dl.win_btn': 'Download (.msix)',
+          'dl.android_title': 'Android',
+          'dl.android_sub': 'Native APK (BareKit C++)',
+          'dl.android_btn': 'Download APK',
+          'dl.linux_title': 'Linux',
+          'dl.linux_sub': 'AppImage & Tarball',
+          'dl.linux_btn': 'Download AppImage',
+          'dl.mac_title': 'macOS',
+          'dl.mac_sub': 'Apple Silicon & Intel DMG',
+          'dl.mac_btn': 'Download DMG',
+          'dl.pear_sub': 'Instant P2P updates',
+          'dl.btn_copy': 'Copy',
+          'dl.hub_badge': '💻 Open Source & GitHub',
+          'dl.hub_title': 'Transparent & Verifiable Code',
+          'dl.hub_desc': 'Every line of Linda\'s code is transparent, cryptographically verifiable, and open source under the ISC license. Inspect encryption protocols, compile directly from source, or join development.',
+          'dl.btn_repo': 'GitHub Repository (scobru/linda)',
+          'footer.about': 'The sovereign peer-to-peer messaging platform that no server can shut down. Proudly built on the Holepunch stack.',
+          'footer.arch': 'Architecture',
+          'footer.dl': 'Download',
+          'footer.comm': 'Community',
+          'footer.issues': 'Report an Issue (Bugs)',
+          'footer.source_repo': 'GitHub Repository',
+          'footer.copy': '© 2026 Linda Project. Digital sovereignty for free individuals.',
+          'footer.tagline': 'Zero servers. Zero relays. Zero compromises.'
+        }
+      };
+
+      const btnLanguageSelector = document.getElementById('btnLanguageSelector');
+      const langCurrentLabel = document.getElementById('langCurrentLabel');
+
+      function setLanguage(lang) {
+        currentLang = lang;
+        document.documentElement.setAttribute('lang', lang);
+        langCurrentLabel.textContent = lang === 'it' ? 'Italiano' : 'English';
+
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+          const key = el.getAttribute('data-i18n');
+          if (translations[lang] && translations[lang][key]) {
+            el.innerHTML = translations[lang][key];
+          }
+        });
+
+        document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+          const key = el.getAttribute('data-i18n-ph');
+          if (translations[lang] && translations[lang][key]) {
+            el.setAttribute('placeholder', translations[lang][key]);
+          }
+        });
+      }
+
+      btnLanguageSelector.addEventListener('click', () => {
+        const nextLang = currentLang === 'it' ? 'en' : 'it';
+        setLanguage(nextLang);
+        triggerToast(nextLang === 'en' ? 'Language switched to English!' : 'Lingua impostata: Italiano!');
+      });
+
+      // Stealth Mode Toggle
+      const btnStealthToggle = document.getElementById('btnStealthToggle');
+      btnStealthToggle.addEventListener('click', () => {
+        document.body.classList.toggle('stealth-mode');
+        const isStealth = document.body.classList.contains('stealth-mode');
+        triggerToast(isStealth ? 'Modalità Stealth Signal Attiva: privacy aumentata!' : 'Modalità Stealth disattivata.');
+      });
+
+      // Theme Toggle (Light / Dark)
+      const btnThemeToggle = document.getElementById('btnThemeToggle');
+      const themeIcon = document.getElementById('themeIcon');
+      btnThemeToggle.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', nextTheme);
+        themeIcon.textContent = nextTheme === 'dark' ? '☀️' : '🌙';
+        triggerToast(`Tema: ${nextTheme.toUpperCase()}`);
+      });
+
+      // Toast Utility
+      const toastEl = document.getElementById('signalToast');
+      let toastT = null;
+      window.triggerToast = function(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('visible');
+        if (toastT) clearTimeout(toastT);
+        toastT = setTimeout(() => toastEl.classList.remove('visible'), 2800);
+      };
+
+      // 4-Views Segmented Selector inside Mockup
+      const viewButtons = document.querySelectorAll('.view-seg-btn');
+      const mockPanes = {
+        chat: document.getElementById('paneChatMock'),
+        mailbox: document.getElementById('paneMailboxMock'),
+        notes: document.getElementById('paneNotesMock'),
+        files: document.getElementById('paneFilesMock')
+      };
+      const paneVaultMock = document.getElementById('paneVaultMock');
+
+      function switchMockView(viewId) {
+        paneVaultMock.classList.remove('active');
+        viewButtons.forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-view') === viewId);
+        });
+        Object.keys(mockPanes).forEach(k => {
+          mockPanes[k].classList.toggle('active', k === viewId);
+        });
+      }
+
+      viewButtons.forEach(btn => {
+        btn.addEventListener('click', () => switchMockView(btn.getAttribute('data-view')));
+      });
+
+      // Open Vault view from pill
+      document.getElementById('btnOpenVaultView').addEventListener('click', () => {
+        viewButtons.forEach(b => b.classList.remove('active'));
+        Object.values(mockPanes).forEach(p => p.classList.remove('active'));
+        paneVaultMock.classList.add('active');
+        triggerToast('Personal Vault: Autobase Single-Writer');
+      });
+
+      // Mock Chat Send
+      const mockComposerInput = document.getElementById('mockComposerInput');
+      const btnSendMockMsg = document.getElementById('btnSendMockMsg');
+      const mockChatStream = document.getElementById('mockChatStream');
+
+      function sendMockChatMessage() {
+        const text = mockComposerInput.value.trim();
+        if (!text) return;
+
+        const row = document.createElement('div');
+        row.className = 'mock-bubble-row mine';
+        row.innerHTML = `
+          <div class="mock-bubble">
+            <div class="mock-bubble-author redactable" style="color:#fff;">Alice</div>
+            <div class="redactable">${text}</div>
+            <div class="mock-bubble-meta">${currentLang === 'it' ? 'Adesso • Append Locale ✓✓' : 'Now • Local Append ✓✓'}</div>
+          </div>
+        `;
+        mockChatStream.appendChild(row);
+        mockComposerInput.value = '';
+        document.getElementById('paneChatMock').scrollTop = document.getElementById('paneChatMock').scrollHeight;
+
+        setTimeout(() => {
+          const reply = document.createElement('div');
+          reply.className = 'mock-bubble-row';
+          const replyText = currentLang === 'it' 
+            ? "Ricevuto direttamente su socket Noise UDP! Nessun server ha visto il payload."
+            : "Received directly on Noise UDP socket! No servers saw the payload.";
+          reply.innerHTML = `
+            <div class="mock-bubble">
+              <div class="mock-bubble-author redactable">Bob</div>
+              <div class="redactable">${replyText}</div>
+              <div class="mock-bubble-meta">${currentLang === 'it' ? 'Adesso • Autobase #125 ✓✓' : 'Now • Autobase #125 ✓✓'}</div>
+            </div>
+          `;
+          mockChatStream.appendChild(reply);
+          document.getElementById('paneChatMock').scrollTop = document.getElementById('paneChatMock').scrollHeight;
+        }, 800);
+      }
+
+      btnSendMockMsg.addEventListener('click', sendMockChatMessage);
+      mockComposerInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendMockChatMessage();
+      });
+
+      // Voice note simulation
+      const btnPlayVoiceMock = document.getElementById('btnPlayVoiceMock');
+      const voiceWaveBarsMock = document.querySelectorAll('#voiceWaveBarsMock .m-bar');
+      let isPlayingVoice = false;
+      btnPlayVoiceMock.addEventListener('click', () => {
+        if (isPlayingVoice) return;
+        isPlayingVoice = true;
+        btnPlayVoiceMock.textContent = '⏸';
+        voiceWaveBarsMock.forEach(b => b.classList.add('playing'));
+
+        setTimeout(() => {
+          isPlayingVoice = false;
+          btnPlayVoiceMock.textContent = '▶';
+          voiceWaveBarsMock.forEach(b => b.classList.remove('playing'));
+        }, 2500);
+      });
+
+      // Mock Call Overlay
+      const btnStartCallMock = document.getElementById('btnStartCallMock');
+      const mockCallOverlay = document.getElementById('mockCallOverlay');
+      const btnHangupMock = document.getElementById('btnHangupMock');
+      const mockCallTimer = document.getElementById('mockCallTimer');
+      let callSecs = 0;
+      let callInterval = null;
+
+      btnStartCallMock.addEventListener('click', () => {
+        mockCallOverlay.classList.add('active');
+        triggerToast(currentLang === 'it' ? 'Chiamata 1:1 avviata su Protomux linda-call/1 (Zero TURN)!' : '1:1 call started on Protomux linda-call/1 (Zero TURN)!');
+        callSecs = 0;
+        mockCallTimer.textContent = '00:00';
+        if (callInterval) clearInterval(callInterval);
+        callInterval = setInterval(() => {
+          callSecs++;
+          const m = String(Math.floor(callSecs / 60)).padStart(2, '0');
+          const s = String(callSecs % 60).padStart(2, '0');
+          mockCallTimer.textContent = `${m}:${s}`;
+        }, 1000);
+      });
+
+      btnHangupMock.addEventListener('click', () => {
+        mockCallOverlay.classList.remove('active');
+        if (callInterval) { clearInterval(callInterval); callInterval = null; }
+        triggerToast(currentLang === 'it' ? 'Chiamata P2P terminata.' : 'P2P Call ended.');
+      });
+
+      // P2P Holepunch Canvas Engine
+      const canvas = document.getElementById('holepunchCanvas');
+      const ctx = canvas ? canvas.getContext('2d') : null;
+      let isHolepunched = false;
+      let packets = [];
+
+      function resizeCanvas() {
+        if (!canvas) return;
+        canvas.width = canvas.clientWidth || (canvas.parentElement ? canvas.parentElement.clientWidth : 300);
+        canvas.height = 200;
+      }
+      window.addEventListener('resize', resizeCanvas);
+      setTimeout(resizeCanvas, 100);
+
+      function renderCanvas() {
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const w = canvas.width;
+        const h = canvas.height;
+        const pAY = h / 2;
+        const pAX = 60;
+        const pBY = h / 2;
+        const pBX = w - 60;
+        const dhtX = w / 2;
+        const dhtY = 35;
+
+        // Peer A
+        ctx.beginPath();
+        ctx.arc(pAX, pAY, 20, 0, Math.PI * 2);
+        ctx.fillStyle = '#2c6bed';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentLang === 'it' ? 'Tu (A)' : 'You (A)', pAX, pAY + 3);
+
+        // Peer B
+        ctx.beginPath();
+        ctx.arc(pBX, pBY, 20, 0, Math.PI * 2);
+        ctx.fillStyle = '#10b981';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('Bob (B)', pBX, pBY + 3);
+
+        // DHT Seed
+        ctx.beginPath();
+        ctx.arc(dhtX, dhtY, 16, 0, Math.PI * 2);
+        ctx.fillStyle = '#4a5568';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '9px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('DHT', dhtX, dhtY + 3);
+
+        // Connections
+        if (isHolepunched) {
+          ctx.beginPath();
+          ctx.moveTo(pAX + 20, pAY);
+          ctx.lineTo(pBX - 20, pBY);
+          ctx.strokeStyle = '#2c6bed';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+
+          ctx.fillStyle = '#2c6bed';
+          ctx.font = '10px JetBrains Mono';
+          ctx.fillText('DIRECT NOISE UDP (0 TURN Relays • 12ms)', dhtX, pAY - 10);
+        } else {
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(pAX, pAY - 20);
+          ctx.lineTo(dhtX, dhtY + 16);
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(pBX, pBY - 20);
+          ctx.lineTo(dhtX, dhtY + 16);
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Packets
+        for (let i = packets.length - 1; i >= 0; i--) {
+          const p = packets[i];
+          p.x += (p.tx - p.x) * 0.08;
+          p.y += (p.ty - p.y) * 0.08;
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+
+          if (Math.abs(p.x - p.tx) < 2 && Math.abs(p.y - p.ty) < 2) {
+            packets.splice(i, 1);
+          }
+        }
+
+        requestAnimationFrame(renderCanvas);
+      }
+      renderCanvas();
+
+      function triggerHolepunchTest() {
+        isHolepunched = false;
+        packets = [];
+
+        const logEl = document.getElementById('holepunchTerminalLogs');
+        logEl.innerHTML = currentLang === 'it' 
+          ? '<div>[00:00.000] Inizializzazione query Hyperswarm DHT...</div>'
+          : '<div>[00:00.000] Initializing Hyperswarm DHT query...</div>';
+
+        const w = canvas.width;
+        const h = canvas.height;
+
+        packets.push({ x: 60, y: h/2, tx: w/2, ty: 35, color: '#2c6bed' });
+
+        setTimeout(() => {
+          logEl.innerHTML += currentLang === 'it'
+            ? '<div>[00:00.140] Coordinate NAT scambiate con il peer Bob.</div>'
+            : '<div>[00:00.140] NAT coordinates exchanged with peer Bob.</div>';
+          packets.push({ x: w/2, y: 35, tx: w - 60, ty: h/2, color: '#10b981' });
+        }, 400);
+
+        setTimeout(() => {
+          logEl.innerHTML += currentLang === 'it'
+            ? '<div>[00:00.320] Invio pacchetti probe UDP simultanei sui rispettivi firewall...</div>'
+            : '<div>[00:00.320] Sending simultaneous UDP probe packets to punch firewalls...</div>';
+          packets.push({ x: 60, y: h/2, tx: w - 60, ty: h/2, color: '#f59e0b' });
+          packets.push({ x: w - 60, y: h/2, tx: 60, ty: h/2, color: '#f59e0b' });
+        }, 900);
+
+        setTimeout(() => {
+          isHolepunched = true;
+          logEl.innerHTML += currentLang === 'it'
+            ? '<div style="color:#10b981;">[00:00.510] FORATURA NAT RIUSCITA! Canale Noise aperto. Relè utilizzati: 0.</div>'
+            : '<div style="color:#10b981;">[00:00.510] NAT TRAVERSAL SUCCESSFUL! Direct Noise socket open. Relays used: 0.</div>';
+          triggerToast(currentLang === 'it' ? 'Holepunch P2P riuscito: Canale diretto attivo senza relè!' : 'P2P Holepunch successful: Direct socket open without relays!');
+        }, 1500);
+      }
+
+      document.getElementById('btnTriggerHolepunchCanvas').addEventListener('click', triggerHolepunchTest);
+      document.getElementById('btnTestHolepunchHero').addEventListener('click', () => {
+        document.getElementById('zero-turn').scrollIntoView({ behavior: 'smooth' });
+        setTimeout(triggerHolepunchTest, 600);
+      });
+
+      // AI Token Stream Playground
+      const aiStreamingOutput = document.getElementById('aiStreamingOutput');
+      let streamTimer = null;
+      const aiReplies = {
+        turn: {
+          it: "I server TURN costituiscono una grave debolezza della privacy. Per gestire audio e video nelle chiamate WebRTC tradizionali (come su Signal o WhatsApp), i pacchetti transitano attraverso relè centrali che registrano chi chiama chi, a che ora e per quanti minuti. Linda elimina i TURN multiplexando le chiamate direttamente su Protomux linda-call/1.",
+          en: "TURN servers represent a serious architectural privacy risk. In traditional WebRTC calling apps (like Signal or WhatsApp), packets route through corporate relays that can log who calls whom, duration, timestamps, and IP addresses. Linda eliminates TURN servers entirely by multiplexing calls on Protomux linda-call/1."
+        },
+        autobase: {
+          it: "Autobase consente a più nodi di scrivere contemporaneamente su log append-only locali (Hypercore). Un algoritmo di linearizzazione deterministico ordina gli eventi esattamente allo stesso modo su tutti i nodi, garantendo convergenza causale istantanea a zero conflitti.",
+          en: "Autobase allows multiple peers to append concurrently to local immutable logs (Hypercore). A deterministic linearization algorithm orders operations identically across all nodes, guaranteeing instant causal convergence with zero conflicts."
+        }
+      };
+
+      window.testAiPrompt = function(key) {
+        if (!aiReplies[key]) return;
+        const text = aiReplies[key][currentLang] || aiReplies[key].it;
+        aiStreamingOutput.innerHTML = '';
+        let i = 0;
+        if (streamTimer) clearInterval(streamTimer);
+
+        streamTimer = setInterval(() => {
+          if (i < text.length) {
+            aiStreamingOutput.textContent = text.slice(0, i + 1);
+            i++;
+          } else {
+            clearInterval(streamTimer);
+            streamTimer = null;
+          }
+        }, 18);
+      };
+
+      // Copy Pear Command Helper
+      window.copyPearCmd = function(btn) {
+        const cmd = "npx pear run pear://fe1g7q7wqqjundb7t3pdz93tz7n9cm7sakr46mdg6ipg4tk15xno";
+        navigator.clipboard.writeText(cmd).then(() => {
+          const old = btn.textContent;
+          btn.textContent = currentLang === 'it' ? "Copiato! ✓" : "Copied! ✓";
+          triggerToast(currentLang === 'it' ? "Comando Pear copiato negli appunti!" : "Pear command copied to clipboard!");
+          setTimeout(() => btn.textContent = old, 2000);
+        });
+      };
+
+      // Copy Git Clone Command Helper
+      window.copyGitCmd = function(btn) {
+        const cmd = "git clone https://github.com/scobru/linda.git";
+        navigator.clipboard.writeText(cmd).then(() => {
+          const old = btn.textContent;
+          btn.textContent = currentLang === 'it' ? "Copiato! ✓" : "Copied! ✓";
+          triggerToast(currentLang === 'it' ? "Comando git clone copiato negli appunti!" : "git clone command copied to clipboard!");
+          setTimeout(() => btn.textContent = old, 2000);
+        });
+      };
+
+      console.log('Linda x Signal design with full bilingual support initialized.');
+    })();
+  </script>
+</body>
+</html>

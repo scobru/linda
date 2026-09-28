@@ -1,5 +1,10 @@
 # Linda
 
+[![Website](https://img.shields.io/badge/website-linda.scobrudot.dev-2c6bed?style=flat&logo=safari&logoColor=white)](https://linda.scobrudot.dev/)
+[![GitHub Release](https://img.shields.io/github/v/release/scobru/linda?color=3b45fd)](https://github.com/scobru/linda/releases/latest)
+
+> 🌐 **Official Website & Downloads**: [https://linda.scobrudot.dev/](https://linda.scobrudot.dev/)
+
 P2P, serverless encrypted messenger built on the [Holepunch](https://holepunch.to) stack (autobase, hyperbee, hyperswarm, corestore). Desktop (Electron _or_ the [Pear](https://docs.pears.com) runtime) and mobile (Expo + [react-native-bare-kit](https://github.com/holepunchto/react-native-bare-kit)) clients share one core in [`src/`](src/).
 
 Same architecture Keet (Holepunch's own flagship app) uses under the hood — same `react-native-bare-kit` version, same primitives.

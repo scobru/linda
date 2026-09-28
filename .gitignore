@@ -45,3 +45,5 @@ graphify-out/
 .bot-storage/
 
 .env
+.vercel
+
