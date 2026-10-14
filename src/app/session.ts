@@ -16,6 +16,7 @@ import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
 import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
+import { RoomDirectory } from './directory.js'
 import { ContactBook, type ContactHost } from './contacts.js'
 import { syncKeyIfAdmin, revokeWrite, rotateAndDistribute, type KeyContext } from './room-keys.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
@@ -66,7 +67,6 @@ function drivePath(filePath: string): string {
 }
 
 const BOOKMARKS_FILE = 'rooms.json'
-const DIRECTORY_FILE = 'directory.json'
 const CONTACTS_FILE = 'contacts.json'
 const PROFILE_FILE = 'profile.json'
 
@@ -116,7 +116,7 @@ export class Session {
   private readonly swarm: Hyperswarm
   private readonly lan: LanDiscoveryHandle | null
   private readonly rooms = new Map<string, Room>()
-  private readonly directory = new Map<string, RoomAnnounceMessage>()
+  private readonly directory: RoomDirectory
   private readonly contacts: ContactBook
   private readonly bookmarks = new Map<string, RoomBookmark>()
   private readonly invites = new Map<string, InviteToken>()
@@ -152,6 +152,7 @@ export class Session {
     this.profileStore = profileStore
     this.events = events
     this.contacts = new ContactBook(this.contactHost())
+    this.directory = new RoomDirectory(storageDir, () => this.events.onDirectoryChange?.())
     this.calls = new CallDesk(identity.id, {
       onIncomingCall: (info) => events.onIncomingCall?.(info),
       onCallStateChange: (info) => {
@@ -167,7 +168,6 @@ export class Session {
       onCallRemoteControl: (callId, action) => events.onCallRemoteControl?.(callId, action),
       onCallMediaFrame: (frame) => events.onCallMediaFrame?.(frame)
     }, () => randomId(), () => this.audioCodecs)
-    for (const announce of this.loadDirectory()) this.directory.set(announce.roomId, announce)
 
     const swarmHandlers: SwarmHandlers = {
       onTyping: events.onTyping,
@@ -258,23 +258,7 @@ export class Session {
         void this.profileStore.saveRoomKey(room.id, message.epoch, message.key)
       },
       onRoomAnnounce: (message) => {
-        const announce: RoomAnnounceMessage = {
-          roomId: message.roomId,
-          name: message.name,
-          bootstrapKey: message.bootstrapKey,
-          authorId: message.authorId ?? '',
-          inviteCode: message.inviteCode ?? '',
-          avatar: message.avatar ?? '',
-          description: message.description ?? ''
-        }
-        for (const [id, a] of this.directory.entries()) {
-          if (a.bootstrapKey === message.bootstrapKey) {
-            this.directory.delete(id)
-          }
-        }
-        this.directory.set(announce.roomId, announce)
-        this.saveDirectory()
-        events.onDirectoryChange?.()
+        this.directory.receive(message)
       },
       onContactRequest: (message) => this.contacts.handleRequest(message),
       onContactResponse: (message) => {
@@ -486,14 +470,7 @@ export class Session {
     }
     // Self-heal directory entries orphaned by leaving/deleting a room you announced yourself,
     // from before deleteRoom() retracted its own announce on the way out.
-    let prunedDirectory = false
-    for (const [roomId, announce] of session.directory) {
-      if (announce.authorId === identity.id && !session.bookmarks.has(roomId)) {
-        session.directory.delete(roomId)
-        prunedDirectory = true
-      }
-    }
-    if (prunedDirectory) session.saveDirectory()
+    session.directory.pruneOrphans(identity.id, (roomId) => session.bookmarks.has(roomId))
     for (const contact of await profileStore.listContacts()) session.contacts.set(contact.userId, contact)
     for (const token of await profileStore.listInviteTokens()) {
       session.invites.set(token.roomId, {
@@ -780,8 +757,7 @@ export class Session {
     if (isPublic) {
       const inviteCode = this.invites.get(roomId)?.code ?? ''
       const announce: RoomAnnounceMessage = { roomId, name: trimmed, bootstrapKey, authorId: this.identity.id, inviteCode, avatar, description }
-      this.directory.set(roomId, announce)
-      this.saveDirectory()
+      this.directory.set(announce)
       for (const peer of this.peers.values()) peer.rpc.sendRoomAnnounce(announce)
     }
     return room
@@ -928,27 +904,20 @@ export class Session {
         avatar: opts.avatar !== undefined ? opts.avatar : announce.avatar,
         description: opts.description !== undefined ? opts.description : announce.description
       }
-      this.directory.set(roomId, updatedAnnounce)
-      this.saveDirectory()
+      this.directory.set(updatedAnnounce)
       for (const peer of this.peers.values()) peer.rpc.sendRoomAnnounce(updatedAnnounce)
     }
   }
 
   listDirectory(): RoomAnnounceMessage[] {
-    const unique = new Map<string, RoomAnnounceMessage>()
-    for (const a of this.directory.values()) {
-      unique.set(a.bootstrapKey, a)
-    }
-    return [...unique.values()]
+    return this.directory.list()
   }
 
   /** Hides a Discover entry from this device only — for announces from a peer/identity you
    * don't own and can't retract (e.g. dead rooms from an old test identity). Reappears if that
    * author re-announces (they're still out there gossiping it), unlike deleteRoom's real retraction. */
   removeFromDirectory(roomId: string): void {
-    if (!this.directory.delete(roomId)) return
-    this.saveDirectory()
-    this.events.onDirectoryChange?.()
+    this.directory.remove(roomId)
   }
 
   listContacts(): ContactEntry[] {
@@ -1021,10 +990,7 @@ export class Session {
     // directory too — otherwise Discover keeps offering a room whose data you just purged,
     // and Join can never succeed since nothing is left to open. Peers who already gossiped
     // the announce keep their stale copy; there's no retraction broadcast, only local cleanup.
-    if (this.directory.delete(roomId)) {
-      this.saveDirectory()
-      this.events.onDirectoryChange?.()
-    }
+    this.directory.remove(roomId)
 
     // The room's cores live under the namespace recorded on its bookmark. This used to purge
     // `namespace(roomId)` unconditionally, which is the right place only for rooms joined before
@@ -1530,26 +1496,6 @@ export class Session {
 
   isRoomFavorite(roomId: string): boolean {
     return this.bookmarks.get(roomId)?.favorite === true
-  }
-
-  private loadDirectory(): RoomAnnounceMessage[] {
-    const file = path.join(this.storageDir, DIRECTORY_FILE)
-    if (!fs.existsSync(file)) return []
-    const raw: Partial<RoomAnnounceMessage>[] = JSON.parse(fs.readFileSync(file, 'utf8'))
-    return raw.map((entry) => ({
-      roomId: entry.roomId ?? '',
-      name: entry.name ?? '',
-      bootstrapKey: entry.bootstrapKey ?? '',
-      authorId: entry.authorId ?? '',
-      inviteCode: entry.inviteCode ?? '',
-      avatar: entry.avatar ?? '',
-      description: entry.description ?? ''
-    }))
-  }
-
-  private saveDirectory(): void {
-    fs.mkdirSync(this.storageDir, { recursive: true })
-    fs.writeFileSync(path.join(this.storageDir, DIRECTORY_FILE), JSON.stringify([...this.directory.values()], null, 2))
   }
 
   private resumeNetworkPromise: Promise<void> | null = null
