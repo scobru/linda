@@ -16,6 +16,7 @@ import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
 import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
+import { ContactBook, type ContactHost } from './contacts.js'
 import { syncKeyIfAdmin, revokeWrite, rotateAndDistribute, type KeyContext } from './room-keys.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 import { type CallInfo, type CallState, type CallEndReason, type CallMediaOptions } from '../call/call-session.js'
@@ -116,7 +117,7 @@ export class Session {
   private readonly lan: LanDiscoveryHandle | null
   private readonly rooms = new Map<string, Room>()
   private readonly directory = new Map<string, RoomAnnounceMessage>()
-  private readonly contacts = new Map<string, ContactEntry>()
+  private readonly contacts: ContactBook
   private readonly bookmarks = new Map<string, RoomBookmark>()
   private readonly invites = new Map<string, InviteToken>()
   private readonly pendingInviteCodes = new Map<string, string>()
@@ -150,6 +151,7 @@ export class Session {
     this.store = store
     this.profileStore = profileStore
     this.events = events
+    this.contacts = new ContactBook(this.contactHost())
     this.calls = new CallDesk(identity.id, {
       onIncomingCall: (info) => events.onIncomingCall?.(info),
       onCallStateChange: (info) => {
@@ -187,7 +189,7 @@ export class Session {
           this.peerNicknames.set(message.userId, message.nickname)
           // A contact bound from a link starts with a placeholder name, because the join gives us
           // an identity id and nothing else. Presence is where the real name shows up.
-          void this.adoptPeerNickname(message.userId, message.nickname)
+          void this.contacts.adoptPeerNickname(message.userId, message.nickname)
         }
         events.onPresence?.(message)
       },
@@ -232,7 +234,7 @@ export class Session {
         })
         // Best-effort bookkeeping (renames the placeholder, records the contact) — must never be
         // able to block the write grant above, which is what actually unblocks the joiner.
-        this.claimContactInvite(room.id, message.identityId).catch((err) => {
+        this.contacts.claimContactInvite(room.id, message.identityId).catch((err) => {
           console.warn(`[session] could not record contact for room ${room.id}:`, (err as Error).message)
         })
       },
@@ -274,55 +276,7 @@ export class Session {
         this.saveDirectory()
         events.onDirectoryChange?.()
       },
-      onContactRequest: (message) => {
-        if (message.avatar && message.avatar.length <= ProfileStore.MAX_AVATAR_BYTES) {
-          this.peerAvatars.set(message.fromId, message.avatar)
-          void this.profileStore.setPeerAvatar(message.fromId, message.avatar)
-        }
-        const existing = this.contacts.get(message.fromId)
-
-        // Peers re-send their request on every reconnect while it's unanswered (see
-        // flushPendingContacts), so a request from someone we already accepted means our
-        // acceptance never landed — or they lost it. We're the room owner (accepting is what
-        // creates the room), so re-issue the same acceptance instead of ignoring them, which
-        // used to leave them stuck on 'outgoing' forever with no way back.
-        if (existing?.status === 'accepted') {
-          const room = existing.roomId ? this.rooms.get(existing.roomId) : undefined
-          if (room && room.isOwner(this.identity.id)) {
-            this.deliverContactResponse({
-              ...existing,
-              pendingResponse: {
-                accepted: true,
-                roomId: room.id,
-                name: this.nickname,
-                bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
-                inviteCode: this.invites.get(room.id)?.code ?? ''
-              }
-            })
-            return
-          }
-          // Their side is gone: they removed us (which purges their copy of the room) and asked
-          // again. We can't re-admit them to a room we don't own — only its owner can grant write
-          // access, and if they owned it, it died with their copy. Returning here left them stuck
-          // on 'outgoing' for good, so fall through and treat this as a fresh request instead:
-          // accepting creates a new room we own, which is the only room either of us can still use.
-        }
-
-        // Crossed requests: we each asked the other before either answer arrived. Both sides
-        // accepting would create two separate rooms, neither of which the other joins — so
-        // tie-break on identity id, lower id accepts and the higher one keeps waiting.
-        if (existing?.status === 'outgoing' && this.identity.id > message.fromId) return
-
-        const incoming: ContactEntry = { userId: message.fromId, nickname: message.nickname, status: 'incoming', avatar: message.avatar }
-        this.contacts.set(message.fromId, incoming)
-        void this.profileStore.saveContact(incoming)
-        events.onContactsChange?.()
-        if (existing?.status === 'outgoing') {
-          void this.respondToContact(message.fromId, true).catch((err) => {
-            console.warn('[session] auto-accept on crossed contact requests failed:', (err as Error).message)
-          })
-        }
-      },
+      onContactRequest: (message) => this.contacts.handleRequest(message),
       onContactResponse: (message) => {
         const contact = this.contacts.get(message.fromId)
         // 'incoming' is reachable too: our own request crossed theirs and the tie-break made
@@ -398,7 +352,7 @@ export class Session {
           this.requestWriteIfNeeded(room, peer)
           syncKeyIfAdmin(this.keyContext, room, peer)
         }
-        this.flushPendingContacts(peer)
+        this.contacts.flushPendingContacts(peer)
         events.onPeerConnected?.(peer)
       },
       onCallOffer: (message) => {
@@ -434,6 +388,31 @@ export class Session {
       : null
 
     this.trackDiscovery(LOBBY_TOPIC)
+  }
+
+  /** What `ContactBook` needs from the session. Getters, so it always sees the current values. */
+  private contactHost(): ContactHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const s = this
+    return {
+      get identityId() { return s.identity.id },
+      get nickname() { return s.nickname },
+      get avatar() { return s.avatar },
+      peers: this.peers,
+      rooms: this.rooms,
+      bookmarks: this.bookmarks,
+      invites: this.invites,
+      peerAvatars: this.peerAvatars,
+      peerNicknames: this.peerNicknames,
+      profileStore: this.profileStore,
+      onContactsChange: () => this.events.onContactsChange?.(),
+      createRoom: (name, isPublic, avatar) => this.createRoom(name, isPublic, avatar),
+      joinRoomByKey: (name, invite) => this.joinRoomByKey(name, invite),
+      inviteLinkFor: (roomId) => this.inviteLinkFor(roomId),
+      saveBookmark: (bookmark) => this.saveBookmark(bookmark),
+      listBookmarks: () => this.listBookmarks(),
+      deleteRoom: (roomId) => this.deleteRoom(roomId)
+    }
   }
 
   private get keyContext(): KeyContext {
@@ -973,188 +952,29 @@ export class Session {
   }
 
   listContacts(): ContactEntry[] {
-    return [...this.contacts.values()].filter((c) => c.status !== 'declined')
+    return this.contacts.listContacts()
   }
 
-  async sendContactRequest(userId: string, nickname: string): Promise<boolean> {
-    const existing = this.contacts.get(userId)
-    // They already asked us: accepting is what the user means here, and firing a competing
-    // request instead would have both sides create a room the other never joins.
-    if (existing?.status === 'incoming') {
-      await this.respondToContact(userId, true)
-      return true
-    }
-    const peer = this.peers.get(userId)
-    if (!peer) return false
-    peer.rpc.sendContactRequest({ fromId: this.identity.id, nickname: this.nickname, avatar: this.avatar })
-    const contact: ContactEntry = { userId, nickname, status: 'outgoing', avatar: this.peerAvatars.get(userId) }
-    this.contacts.set(userId, contact)
-    void this.profileStore.saveContact(contact)
-    return true
+  sendContactRequest(userId: string, nickname: string): Promise<boolean> {
+    return this.contacts.sendContactRequest(userId, nickname)
   }
 
-  /**
-   * Creates the room behind a contact link and returns its `bootstrapKey:inviteCode`. The room is
-   * a placeholder until someone opens the link — see `claimContactInvite`.
-   *
-   * Contact requests need the other person online *right now* (`sendContactRequest` gives up
-   * without a live peer) and can only be sent from a room you already share, which leaves two
-   * strangers with no way to reach each other at all. A link works while they are offline and
-   * travels through any other app.
-   */
-  async createContactInvite(): Promise<{ key: string; roomId: string }> {
-    const room = await this.createRoom(this.uniqueRoomName('New direct chat'), false)
-    const bookmark = this.bookmarks.get(room.id)
-    if (bookmark) await this.saveBookmark({ ...bookmark, contactInvite: true })
-    return { key: this.inviteLinkFor(room.id), roomId: room.id }
+  /** Creates the room behind a contact link and returns its `bootstrapKey:inviteCode` — see `ContactBook.createContactInvite`. */
+  createContactInvite(): Promise<{ key: string; roomId: string }> {
+    return this.contacts.createContactInvite()
   }
 
   /** Joins the room a contact link points at and records its issuer as an accepted contact. */
-  async acceptContactInvite(invite: { from: string; name: string; key: string }): Promise<Room> {
-    if (invite.from === this.identity.id) throw new Error('That is your own contact link')
-    const nickname = invite.name || invite.from.slice(0, 8)
-    const room = await this.joinRoomByKey(this.uniqueRoomName(nickname), invite.key)
-    const contact: ContactEntry = {
-      userId: invite.from,
-      nickname,
-      status: 'accepted',
-      roomId: room.id,
-      avatar: this.peerAvatars.get(invite.from)
-    }
-    this.contacts.set(invite.from, contact)
-    await this.profileStore.saveContact(contact)
-    this.events.onContactsChange?.()
-    return room
+  acceptContactInvite(invite: { from: string; name: string; key: string }): Promise<Room> {
+    return this.contacts.acceptContactInvite(invite)
   }
 
-  /**
-   * The other half of `createContactInvite`, run on the issuer when someone asks to write to the
-   * placeholder room. That request is the first and only proof of who took the link up.
-   *
-   * Only the first claimant binds: the link doubles as an ordinary room invite, so a second joiner
-   * would otherwise overwrite the contact and quietly repoint it at a room now holding three people.
-   */
-  private async claimContactInvite(roomId: string, identityId: string): Promise<void> {
-    const bookmark = this.bookmarks.get(roomId)
-    if (!bookmark?.contactInvite || identityId === this.identity.id) return
-    const nickname = this.peerNicknames.get(identityId) || identityId.slice(0, 8)
-    const contact: ContactEntry = {
-      userId: identityId,
-      nickname,
-      status: 'accepted',
-      roomId,
-      avatar: this.peerAvatars.get(identityId)
-    }
-    this.contacts.set(identityId, contact)
-    await this.profileStore.saveContact(contact)
-    await this.saveBookmark({ ...bookmark, name: this.uniqueRoomName(nickname), contactInvite: undefined })
-    this.events.onContactsChange?.()
+  respondToContact(userId: string, accept: boolean): Promise<void> {
+    return this.contacts.respondToContact(userId, accept)
   }
 
-  /** Replaces the placeholder name a link-bound contact starts with once presence reveals the real one. */
-  private async adoptPeerNickname(userId: string, nickname: string): Promise<void> {
-    const contact = this.contacts.get(userId)
-    if (!contact || contact.nickname === nickname) return
-    if (contact.nickname !== userId.slice(0, 8)) return
-    const updated: ContactEntry = { ...contact, nickname }
-    this.contacts.set(userId, updated)
-    await this.profileStore.saveContact(updated)
-    this.events.onContactsChange?.()
-  }
-
-  async respondToContact(userId: string, accept: boolean): Promise<void> {
-    const contact = this.contacts.get(userId)
-    if (!contact || contact.status !== 'incoming') return
-    if (!accept) {
-      const declined: ContactEntry = { ...contact, status: 'declined', pendingResponse: { accepted: false, roomId: '', name: '', bootstrapKey: '', inviteCode: '' } }
-      this.contacts.set(userId, declined)
-      await this.profileStore.saveContact(declined)
-      this.deliverContactResponse(declined)
-      this.events.onContactsChange?.()
-      return
-    }
-    // Never let room creation abort the accept: `createRoom` rejects a blank or already-used
-    // name, and a peer with no nickname set — or a second room already named after them — is
-    // exactly the case that used to throw here and leave both sides desynced.
-    const room = await this.createRoom(this.uniqueRoomName(contact.nickname || userId.slice(0, 8)), false, contact.avatar)
-    const updated: ContactEntry = {
-      ...contact,
-      status: 'accepted',
-      roomId: room.id,
-      pendingResponse: {
-        accepted: true,
-        roomId: room.id,
-        name: this.nickname,
-        bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'),
-        inviteCode: this.invites.get(room.id)?.code ?? ''
-      }
-    }
-    this.contacts.set(userId, updated)
-    await this.profileStore.saveContact(updated)
-    this.deliverContactResponse(updated)
-    this.events.onContactsChange?.()
-  }
-
-  /** `createRoom` throws on a blank or duplicate name; contact nicknames are neither unique nor
-   * guaranteed non-empty, so derive one that always passes. */
-  private uniqueRoomName(base: string): string {
-    const trimmed = base.trim() || 'Contact'
-    const taken = new Set(this.listBookmarks().map((b) => b.name.trim().toLowerCase()))
-    if (!taken.has(trimmed.toLowerCase())) return trimmed
-    for (let i = 2; ; i++) {
-      const candidate = `${trimmed} (${i})`
-      if (!taken.has(candidate.toLowerCase())) return candidate
-    }
-  }
-
-  /**
-   * Hands a contact response to the peer if it's reachable right now. Delivery isn't acked, so
-   * the pending copy is dropped once written and the peer's own re-sent request (it keeps
-   * re-sending while stuck on 'outgoing') is what recovers a response lost in flight.
-   */
-  private deliverContactResponse(contact: ContactEntry): void {
-    const pending = contact.pendingResponse
-    if (!pending) return
-    const peer = this.peers.get(contact.userId)
-    if (!peer) return
-    peer.rpc.sendContactResponse({
-      fromId: this.identity.id,
-      accepted: pending.accepted,
-      roomId: pending.roomId,
-      name: pending.name,
-      bootstrapKey: pending.bootstrapKey,
-      inviteCode: pending.inviteCode,
-      avatar: this.avatar
-    })
-    if (!pending.accepted) {
-      this.contacts.delete(contact.userId)
-      void this.profileStore.removeContact(contact.userId)
-      return
-    }
-    const cleared: ContactEntry = { ...contact, pendingResponse: undefined }
-    this.contacts.set(contact.userId, cleared)
-    void this.profileStore.saveContact(cleared)
-  }
-
-  /** Contact handshakes are fire-and-forget over a live socket, and mobile peers drop off
-   * whenever the app backgrounds — replay whatever is still owed to this peer now it's back. */
-  private flushPendingContacts(peer: PeerConnection): void {
-    const contact = this.contacts.get(b4a.toString(peer.remotePublicKey, 'hex'))
-    if (!contact) return
-    if (contact.pendingResponse) {
-      this.deliverContactResponse(contact)
-      return
-    }
-    if (contact.status === 'outgoing') {
-      peer.rpc.sendContactRequest({ fromId: this.identity.id, nickname: this.nickname, avatar: this.avatar })
-    }
-  }
-
-  async deleteContact(userId: string): Promise<void> {
-    const contact = this.contacts.get(userId)
-    this.contacts.delete(userId)
-    await this.profileStore.removeContact(userId)
-    if (contact?.roomId) await this.deleteRoom(contact.roomId)
+  deleteContact(userId: string): Promise<void> {
+    return this.contacts.deleteContact(userId)
   }
 
   /** Leaves the swarm topic, purges every hypercore stored under the room's corestore namespace (system/view/writer cores), and drops the bookmark. Irreversible. */
