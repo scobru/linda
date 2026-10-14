@@ -439,6 +439,13 @@ export class Session {
     room.onKeyChange((epoch, keyHex) => {
       void this.profileStore.saveRoomKey(room.id, epoch, keyHex)
     })
+    // Moderators hold no key-distribution rights, so the owner rotates for them. `keyEpoch >= ours`
+    // means no rotation has followed that ban yet, which also makes this safe to see again on replay.
+    room.onModBan((identityId, keyEpoch) => {
+      if (room.ownerId !== this.identity.id || !room.writable || !room.hasKey) return
+      if (keyEpoch !== undefined && keyEpoch < room.keyEpoch) return
+      this.rotateAndDistribute(room, identityId)
+    })
     const initialKeyHex = room.currentKeyHex
     if (initialKeyHex) {
       void this.profileStore.saveRoomKey(room.id, room.keyEpoch, initialKeyHex)
@@ -1569,7 +1576,7 @@ export class Session {
     if (keyHex) peer.rpc.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
   }
 
-  /** Revokes write access. If the caller is a room admin, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban still revokes write access immediately (real, replicated, enforced in `Room.apply()`) but the content key isn't rotated: mods aren't key-holders in this design (only admins distribute room keys, see `onRequestWrite`/`syncKeyIfOwner` below), so a mod-banned member could still decrypt messages sent before an admin next rotates. Same accepted trade-off as the existing offline-owner addWriter gap. */
+  /** Revokes write access. If the caller is a room admin, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban revokes write access immediately (replicated, enforced in `Room.apply()`); mods hold no key-distribution rights, so the owner rotates when it applies that ban (`setupRoomKeyPersistence`) — at once if online, otherwise the next time it syncs. */
   private async revokeWrite(room: Room, writerKeyHex: string): Promise<void> {
     // Revoke the person, not the key. One identity can hold several writer keys — a rejoin issues
     // a new one (see joinRoomByKey), and a second device brings its own — so removing only the key
@@ -1582,13 +1589,18 @@ export class Session {
     for (const key of keysToRemove) await room.removeWriter(b4a.from(key, 'hex'))
 
     if (!room.isAdmin(this.identity.id)) return
+    this.rotateAndDistribute(room, removedIdentity)
+  }
+
+  /** Rotates the content key and sends it to every connected member except `excludedIdentity`. */
+  private rotateAndDistribute(room: Room, excludedIdentity: string | undefined): void {
     const { epoch, keyHex } = room.rotateKey()
 
     // `listMembers()` can still list the member just removed: removal is a log entry and apply()
     // has not necessarily linearized it yet. Excluding them explicitly is what actually stops the
     // rotation from handing the fresh key straight back to the person it was rotated away from.
     const remainingIds = new Set(room.listMembers().map((m) => m.identityId))
-    if (removedIdentity) remainingIds.delete(removedIdentity)
+    if (excludedIdentity) remainingIds.delete(excludedIdentity)
 
     for (const peer of this.peers.values()) {
       const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')

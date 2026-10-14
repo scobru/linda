@@ -62,7 +62,8 @@ type RoomEntry =
   | { type: 'init'; ownerKey: string; ownerIdentityId: string }
   | { type: 'mute'; identityId: string }
   | { type: 'unmute'; identityId: string }
-  | { type: 'ban'; identityId: string }
+  /** `keyEpoch`: the content key the banner held. Lets the owner tell a moderator ban that still needs a rotation from one a rotation already followed. */
+  | { type: 'ban'; identityId: string; keyEpoch?: number }
   | { type: 'unban'; identityId: string }
   | { type: 'promote'; identityId: string }
   | { type: 'demote'; identityId: string }
@@ -261,6 +262,8 @@ function makeApply(
   onMessageMutation: (messageId?: string) => void,
   onMetaChange: () => void,
   onFilesChange: () => void,
+  /** A ban was applied. Fired for moderator bans only: an admin's own `revokeWrite` already rotates the key. */
+  onModBan: (identityId: string, keyEpoch: number | undefined) => void,
   /** Reloads the in-memory mirror if Autobase rewound the state view under it. Awaited before any
    * entry is processed, so a reorg can never land halfway through a re-apply. */
   refreshState: (state: Hyperbee<RoomStateRecord>) => Promise<void>
@@ -416,6 +419,7 @@ function makeApply(
         bannedIdentities.add(entry.identityId)
         await persist()
         onMessageMutation()
+        if (role === 'mod') onModBan(entry.identityId, entry.keyEpoch)
       } else if (entry.type === 'unban') {
         if (roleOf(authorKey) === 'member') continue
         bannedIdentities.delete(entry.identityId)
@@ -633,7 +637,7 @@ export class Room {
     const base = new Autobase<RoomEntry, RoomView>(store, bootstrapKey, {
       valueEncoding: 'json',
       open: openView,
-      apply: makeApply(owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (state) => room.refreshState(state))
+      apply: makeApply(owner, meta, mode, writerIdentities, adminIdentities, adminWriterKeys, inviteCodes, mutedIdentities, bannedIdentities, moderatorIdentities, seededOwnerKey, (messageId) => room.notifyMutation(messageId), () => room.notifyMetaChange(), () => room.notifyFilesChange(), (identityId, keyEpoch) => room.events.emit('modBan', identityId, keyEpoch), (state) => room.refreshState(state))
     })
     room.base = base
     // The mirror starts empty, and Autobase never replays checkpointed entries that would refill
@@ -809,6 +813,11 @@ export class Room {
     this.events.emit('key', epoch, keyHex)
   }
 
+  onModBan(listener: (identityId: string, keyEpoch: number | undefined) => void): () => void {
+    this.events.on('modBan', listener)
+    return () => { this.events.off('modBan', listener) }
+  }
+
   onKeyChange(listener: (epoch: number, keyHex: string) => void): () => void {
     this.events.on('key', listener)
     return () => { this.events.off('key', listener) }
@@ -920,7 +929,7 @@ export class Room {
   }
 
   async banMember(identityId: string): Promise<void> {
-    await this.base.append({ type: 'ban', identityId })
+    await this.base.append({ type: 'ban', identityId, keyEpoch: this.hasKey ? this.currentEpoch : undefined })
   }
 
   async unbanMember(identityId: string): Promise<void> {
