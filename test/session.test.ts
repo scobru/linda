@@ -252,3 +252,30 @@ test('a room key pushed by a non-admin member is ignored', async (t) => {
   assert.equal(roomA.keyEpoch, epochBefore, 'a member cannot move the room to a key of its choosing')
   assert.equal(roomA.currentKeyHex, keyBefore)
 })
+
+test('a moderator ban makes the owner rotate the room key, and the banned member does not get it', async (t) => {
+  const { sessionA, sessionB, identityB, roomId, invite } = await joinedPair(t)
+  const roomA = sessionA.getRoom(roomId)!
+  const roomB = sessionB.getRoom(roomId)!
+
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-session-test-'))
+  const identityC = makeIdentity()
+  const sessionC = await Session.create(identityC, path.join(base, 'c'), { transport: await transport() })
+  t.after(async () => {
+    await sessionC.close()
+    fs.rmSync(base, { recursive: true, force: true })
+  })
+  const roomC = await sessionC.joinRoomByKey('test-room', invite)
+  await waitFor(() => roomC.writable && roomC.hasKey, 'C to be granted write access and the room key')
+
+  await sessionA.promoteToModerator(roomId, identityB.id)
+  await waitFor(() => roomB.isModerator(identityB.id), 'B to see itself promoted')
+
+  const epochBefore = roomA.keyEpoch
+  await sessionB.banMember(roomId, b4a.toString(roomC.localWriterKey, 'hex'), identityC.id)
+
+  await waitFor(() => roomA.keyEpoch > epochBefore, 'the owner to rotate after the moderator ban')
+  await waitFor(() => roomB.keyEpoch === roomA.keyEpoch, 'the remaining moderator to receive the new key')
+  await new Promise((resolve) => setTimeout(resolve, 1000))
+  assert.equal(roomC.keyEpoch, epochBefore, 'the banned member is left on the old key')
+})

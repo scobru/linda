@@ -551,7 +551,7 @@ forgotten bump fails the workflow instead of reaching the downloads page.
 
 - Release APK is unsigned beyond the RN debug keystore — fine for beta distribution, not for a Play Store submission.
 - Calls are 1:1 only and require both peers to be connected at that moment (`startCall` fails with *Peer is not connected*) — there is no server to hold a ring for an offline device.
-- Message content is encrypted per room under epoch keys, and an admin-issued ban rotates the key, but it only protects *future* messages: a removed member keeps whatever they already replicated. A moderator-issued ban revokes write access without rotating the key (mods do not hold room keys) until an admin next rotates.
+- Message content is encrypted per room under epoch keys, and a ban rotates the key, but only for *future* messages: a removed member keeps whatever they already replicated. An admin's ban rotates at once; a moderator's ban is rotated by the room owner, so until the owner is online and has synced it the removed member can still read new messages.
 - Push notifications only fire while the app process is alive (foreground or backgrounded, not force-quit) — there's no server, so nothing can wake a fully-killed app. A relay to fix that would need to be opt-in and content-blind to keep the P2P privacy model.
 
 ## Testing
