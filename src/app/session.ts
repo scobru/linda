@@ -16,6 +16,7 @@ import { Room, type ChatMessage } from '../rooms/room.js'
 import { FileStore } from '../files/drive.js'
 import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
+import { syncKeyIfAdmin, revokeWrite, rotateAndDistribute, type KeyContext } from './room-keys.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
 import { type CallInfo, type CallState, type CallEndReason, type CallMediaOptions } from '../call/call-session.js'
 import { CallDesk } from '../call/call-desk.js'
@@ -395,7 +396,7 @@ export class Session {
         for (const announce of this.directory.values()) peer.rpc.sendRoomAnnounce(announce)
         for (const room of this.rooms.values()) {
           this.requestWriteIfNeeded(room, peer)
-          this.syncKeyIfAdmin(room, peer)
+          syncKeyIfAdmin(this.keyContext, room, peer)
         }
         this.flushPendingContacts(peer)
         events.onPeerConnected?.(peer)
@@ -435,6 +436,10 @@ export class Session {
     this.trackDiscovery(LOBBY_TOPIC)
   }
 
+  private get keyContext(): KeyContext {
+    return { identityId: this.identity.id, peers: this.peers }
+  }
+
   private setupRoomKeyPersistence(room: Room): void {
     room.onKeyChange((epoch, keyHex) => {
       void this.profileStore.saveRoomKey(room.id, epoch, keyHex)
@@ -444,7 +449,7 @@ export class Session {
     room.onModBan((identityId, keyEpoch) => {
       if (room.ownerId !== this.identity.id || !room.writable || !room.hasKey) return
       if (keyEpoch !== undefined && keyEpoch < room.keyEpoch) return
-      this.rotateAndDistribute(room, identityId)
+      rotateAndDistribute(this.keyContext, room, identityId)
     })
     const initialKeyHex = room.currentKeyHex
     if (initialKeyHex) {
@@ -1566,53 +1571,11 @@ export class Session {
     peer.rpc.sendRequestWrite({ bootstrapKey: b4a.toString(room.bootstrapKey, 'hex'), writerKey: b4a.toString(room.localWriterKey, 'hex'), identityId: this.identity.id, inviteCode })
   }
 
-  /** Pushes the room's current content key to a reconnecting member who might have missed a rotation while offline. Any admin (not just the creator) can sync the key. `peer.remotePublicKey` is the same swarm keypair as the remote's `identity.id` (both derive from the one public key), so it doubles as their app identity here. */
-  private syncKeyIfAdmin(room: Room, peer: PeerConnection): void {
-    if (!room.isAdmin(this.identity.id)) return
-    const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
-    if (!room.listMembers().some((m) => m.identityId === peerIdentityId)) return
-    if (room.isBanned(peerIdentityId)) return
-    const keyHex = room.currentKeyHex
-    if (keyHex) peer.rpc.sendRoomKey({ roomId: room.id, epoch: room.keyEpoch, key: keyHex })
-  }
-
-  /** Revokes write access. If the caller is a room admin, also rotates the content key and pushes it to every currently-connected remaining member (offline members catch up via `syncKeyIfOwner` on reconnect) — this is what actually stops the removed member from reading future messages. A moderator-issued ban revokes write access immediately (replicated, enforced in `Room.apply()`); mods hold no key-distribution rights, so the owner rotates when it applies that ban (`setupRoomKeyPersistence`) — at once if online, otherwise the next time it syncs. */
-  private async revokeWrite(room: Room, writerKeyHex: string): Promise<void> {
-    // Revoke the person, not the key. One identity can hold several writer keys — a rejoin issues
-    // a new one (see joinRoomByKey), and a second device brings its own — so removing only the key
-    // that happened to be clicked left the member writing happily through another of theirs.
-    const members = room.listMembers()
-    const removedIdentity = members.find((m) => m.writerKey === writerKeyHex)?.identityId
-    const keysToRemove = removedIdentity
-      ? members.filter((m) => m.identityId === removedIdentity).map((m) => m.writerKey)
-      : [writerKeyHex]
-    for (const key of keysToRemove) await room.removeWriter(b4a.from(key, 'hex'))
-
-    if (!room.isAdmin(this.identity.id)) return
-    this.rotateAndDistribute(room, removedIdentity)
-  }
-
-  /** Rotates the content key and sends it to every connected member except `excludedIdentity`. */
-  private rotateAndDistribute(room: Room, excludedIdentity: string | undefined): void {
-    const { epoch, keyHex } = room.rotateKey()
-
-    // `listMembers()` can still list the member just removed: removal is a log entry and apply()
-    // has not necessarily linearized it yet. Excluding them explicitly is what actually stops the
-    // rotation from handing the fresh key straight back to the person it was rotated away from.
-    const remainingIds = new Set(room.listMembers().map((m) => m.identityId))
-    if (excludedIdentity) remainingIds.delete(excludedIdentity)
-
-    for (const peer of this.peers.values()) {
-      const peerIdentityId = b4a.toString(peer.remotePublicKey, 'hex')
-      if (remainingIds.has(peerIdentityId)) peer.rpc.sendRoomKey({ roomId: room.id, epoch, key: keyHex })
-    }
-  }
-
   /** Owner or moderator (enforced in `Room.apply()`; a mod can't target the owner or another mod): revokes the member's write access (see `revokeWrite`) AND blocks any future write-grant for their identity, even with a valid invite code. The ban itself is a replicated `Room` log entry (see `room.ts`), not owner-local state, so any moderator's ban is visible to the owner's `onRequestWrite` gate too. Reversible only via `unbanMember` plus a fresh invite. */
   async banMember(roomId: string, writerKeyHex: string, identityId: string): Promise<void> {
     const room = this.rooms.get(roomId)
     if (!room) return
-    await this.revokeWrite(room, writerKeyHex)
+    await revokeWrite(this.keyContext, room, writerKeyHex)
     await room.banMember(identityId)
   }
 
