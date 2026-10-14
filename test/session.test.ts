@@ -279,3 +279,41 @@ test('a moderator ban makes the owner rotate the room key, and the banned member
   await new Promise((resolve) => setTimeout(resolve, 1000))
   assert.equal(roomC.keyEpoch, epochBefore, 'the banned member is left on the old key')
 })
+
+test('a contact request is accepted into a shared 1:1 room', async (t) => {
+  const { sessionA, sessionB, identityA, identityB } = await joinedPair(t)
+
+  assert.equal(await sessionA.sendContactRequest(identityB.id, 'B'), true)
+  await waitFor(() => sessionB.listContacts().some((c) => c.userId === identityA.id && c.status === 'incoming'), 'B to see the incoming request')
+
+  await sessionB.respondToContact(identityA.id, true)
+  await waitFor(
+    () => sessionA.listContacts().some((c) => c.userId === identityB.id && c.status === 'accepted' && !!c.roomId),
+    'A to see the request accepted, with a room'
+  )
+  assert.equal(sessionB.listContacts().find((c) => c.userId === identityA.id)?.status, 'accepted')
+})
+
+test('a declined contact request is dropped on both sides', async (t) => {
+  const { sessionA, sessionB, identityA, identityB } = await joinedPair(t)
+
+  await sessionA.sendContactRequest(identityB.id, 'B')
+  await waitFor(() => sessionB.listContacts().some((c) => c.userId === identityA.id), 'B to see the request')
+
+  await sessionB.respondToContact(identityA.id, false)
+  await waitFor(() => !sessionA.listContacts().some((c) => c.userId === identityB.id), 'A to drop the declined request')
+  assert.equal(sessionB.listContacts().some((c) => c.userId === identityA.id), false)
+})
+
+test('a contact link binds its issuer and its first claimant as contacts', async (t) => {
+  const { sessionA, sessionB, identityA, identityB } = await joinedPair(t)
+
+  const { key } = await sessionA.createContactInvite()
+  const room = await sessionB.acceptContactInvite({ from: identityA.id, name: 'A', key })
+  assert.equal(sessionB.listContacts().find((c) => c.userId === identityA.id)?.roomId, room.id)
+
+  await waitFor(
+    () => sessionA.listContacts().some((c) => c.userId === identityB.id && c.status === 'accepted'),
+    'the issuer to bind the first claimant as a contact'
+  )
+})
