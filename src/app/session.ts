@@ -235,7 +235,7 @@ export class Session {
           console.warn(`[session] could not record contact for room ${room.id}:`, (err as Error).message)
         })
       },
-      onRoomKey: (message) => {
+      onRoomKey: (message, channel) => {
         let room = this.rooms.get(message.roomId)
         if (!room) {
           room = [...this.rooms.values()].find((r) => 
@@ -244,8 +244,15 @@ export class Session {
             b4a.toString(r.bootstrapKey, 'hex') === message.roomId
           )
         }
-        room?.receiveKey(message.epoch, message.key)
-        if (room) void this.profileStore.saveRoomKey(room.id, message.epoch, message.key)
+        if (!room) return
+        // Keys are only trusted from a room admin: otherwise any connected peer, a banned member
+        // included, could push a higher-epoch key it knows and have everyone encrypt to it.
+        // A room with no key yet takes the first one (a joiner may not have replicated the admin list).
+        const sender = [...this.peers.values()].find((p) => p.rpc === channel)
+        const senderId = sender && b4a.toString(sender.remotePublicKey, 'hex')
+        if (room.hasKey && !(senderId && room.isAdmin(senderId))) return
+        room.receiveKey(message.epoch, message.key)
+        void this.profileStore.saveRoomKey(room.id, message.epoch, message.key)
       },
       onRoomAnnounce: (message) => {
         const announce: RoomAnnounceMessage = {

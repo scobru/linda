@@ -237,3 +237,18 @@ test('a member left holding write access but no room key asks for it again', asy
 
   await waitFor(() => roomB.hasKey, 'the owner to send the room key again')
 })
+
+test('a room key pushed by a non-admin member is ignored', async (t) => {
+  const { sessionA, sessionB, roomId } = await joinedPair(t)
+  const roomA = sessionA.getRoom(roomId)!
+  const epochBefore = roomA.keyEpoch
+  const keyBefore = roomA.currentKeyHex
+
+  const toA = [...sessionB.peers.values()][0]!
+  toA.rpc.sendRoomKey({ roomId, epoch: epochBefore + 5, key: 'ab'.repeat(32) })
+
+  // Nothing to poll for: the assertion is that nothing happens, so give the message time to land.
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  assert.equal(roomA.keyEpoch, epochBefore, 'a member cannot move the room to a key of its choosing')
+  assert.equal(roomA.currentKeyHex, keyBefore)
+})
