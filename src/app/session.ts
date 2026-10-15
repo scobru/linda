@@ -17,6 +17,7 @@ import { FileStore } from '../files/drive.js'
 import type { MediaServerFactory, MediaServerHandle } from '../files/media-server.js'
 import { randomId } from '../util/id.js'
 import { RoomDirectory } from './directory.js'
+import { InviteBook } from './invites.js'
 import { ContactBook, type ContactHost } from './contacts.js'
 import { syncKeyIfAdmin, revokeWrite, rotateAndDistribute, type KeyContext } from './room-keys.js'
 import { ProfileStore, type RoomBookmark, type ContactEntry } from './profile-store.js'
@@ -85,12 +86,6 @@ interface CoreDeleteStorage {
   core: unknown
 }
 
-/** Access-control token gating write grants for a room; owner-held, in-memory only (lost on restart — reissued invite links must be re-shared, which is fine since it's the "revoke a leaked link" path anyway). */
-interface InviteToken {
-  code: string
-  usedCount: number
-}
-
 /**
  * hypercore@11.35.1's own `Hypercore.purge()` is broken upstream (calls
  * `this._closeAllSessions`, which doesn't exist — should be `closeAllSessions`
@@ -119,7 +114,7 @@ export class Session {
   private readonly directory: RoomDirectory
   private readonly contacts: ContactBook
   private readonly bookmarks = new Map<string, RoomBookmark>()
-  private readonly invites = new Map<string, InviteToken>()
+  private readonly invites: InviteBook
   private readonly pendingInviteCodes = new Map<string, string>()
   private readonly joiningContactRooms = new Set<string>()
   private fileStoreInstance: FileStore | null = null
@@ -151,6 +146,7 @@ export class Session {
     this.store = store
     this.profileStore = profileStore
     this.events = events
+    this.invites = new InviteBook(profileStore)
     this.contacts = new ContactBook(this.contactHost())
     this.directory = new RoomDirectory(storageDir, () => this.events.onDirectoryChange?.())
     this.calls = new CallDesk(identity.id, {
@@ -204,7 +200,7 @@ export class Session {
         //
         // "Currently listed" is load-bearing: it must not become "was ever a member". A ban or a
         // self-leave removes the writer entry, and getting back in after either is deliberately
-        // gated on presenting a valid invite code (redeemInvite, unlimited-use but still required) —
+        // gated on presenting a valid invite code (`InviteBook.redeem`, unlimited-use but still required) —
         // the UI says as much ("You'll need a new invite to rejoin"). A once-known-forever bypass
         // here means a removed member who simply stays connected gets silently re-admitted by the
         // background write-request retry (see startWriteRequestRetry) within one retry interval,
@@ -217,7 +213,7 @@ export class Session {
           const code = sep === -1 ? '' : ch.key.slice(sep + 1)
           return b4a.toString(room.bootstrapKey, 'hex') === bootstrap && (!code || message.inviteCode === code)
         })
-        const hasValidInvite = isDefaultChannel || room.isValidInvite(message.inviteCode) || this.redeemInvite(room.id, message.inviteCode)
+        const hasValidInvite = isDefaultChannel || room.isValidInvite(message.inviteCode) || this.invites.redeem(room.id, message.inviteCode)
         if (!isCurrentMember && !hasValidInvite) return
         const isExistingWriter = room.listMembers().some((m) => m.writerKey === message.writerKey)
         void (async () => {
@@ -473,10 +469,7 @@ export class Session {
     session.directory.pruneOrphans(identity.id, (roomId) => session.bookmarks.has(roomId))
     for (const contact of await profileStore.listContacts()) session.contacts.set(contact.userId, contact)
     for (const token of await profileStore.listInviteTokens()) {
-      session.invites.set(token.roomId, {
-        code: token.code,
-        usedCount: token.usedCount
-      })
+      session.invites.restore(token.roomId, token)
     }
     session.startWriteRequestRetry()
     session.wallpaper = await profileStore.getWallpaper()
@@ -748,7 +741,7 @@ export class Session {
       await room.updateMeta({ name: trimmed, avatar, description })
     }
     if (broadcast) await room.setBroadcast(true)
-    const token = this.issueInvite(roomId, room)
+    const token = this.invites.issue(roomId, room, this.identity.id)
     await this.profileStore.saveInviteToken({ roomId, ...token })
     await this.joinTopic(room)
     this.trackRoom(room)
@@ -1411,37 +1404,18 @@ export class Session {
     await room.demoteAdmin(identityId)
   }
 
-  private issueInvite(roomId: string, targetRoom?: Room): InviteToken {
-    const token: InviteToken = { code: randomId(16), usedCount: 0 }
-    this.invites.set(roomId, token)
-    void this.profileStore.saveInviteToken({ roomId, ...token })
-    const room = targetRoom ?? this.rooms.get(roomId)
-    if (room && room.writable && room.isAdmin(this.identity.id)) {
-      void room.addInviteCode(token.code).catch(() => {})
-    }
-    return token
-  }
-
-  private redeemInvite(roomId: string, code: string): boolean {
-    const token = this.invites.get(roomId)
-    if (!token || token.code !== code) return false
-    token.usedCount++
-    void this.profileStore.saveInviteToken({ roomId, ...token })
-    return true
-  }
-
   /** Admin-only: the current shareable `bootstrapKeyHex:inviteCode` link for a room, issuing a token if none exists yet. */
   inviteLinkFor(roomId: string): string {
     const room = this.rooms.get(roomId)
     if (!room) throw new Error('room not open')
-    const token = this.invites.get(roomId) ?? this.issueInvite(roomId, room)
+    const token = this.invites.get(roomId) ?? this.invites.issue(roomId, room, this.identity.id)
     return `${b4a.toString(room.bootstrapKey, 'hex')}:${token.code}`
   }
 
   /** Admin-only: invalidates the previous invite link (any pending join requests using the old code will be rejected) and returns the new one. */
   regenerateInvite(roomId: string): string {
     const room = this.rooms.get(roomId)
-    this.issueInvite(roomId, room)
+    this.invites.issue(roomId, room, this.identity.id)
     return this.inviteLinkFor(roomId)
   }
 
