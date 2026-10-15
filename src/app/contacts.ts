@@ -13,7 +13,7 @@ export interface ContactHost {
   readonly peers: ReadonlyMap<string, PeerConnection>
   readonly rooms: ReadonlyMap<string, Room>
   readonly bookmarks: ReadonlyMap<string, RoomBookmark>
-  readonly invites: ReadonlyMap<string, { code: string }>
+  readonly invites: { get(roomId: string): { code: string } | undefined }
   readonly peerAvatars: Map<string, string>
   readonly peerNicknames: ReadonlyMap<string, string>
   readonly profileStore: ProfileStore
