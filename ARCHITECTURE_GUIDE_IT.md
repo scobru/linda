@@ -133,6 +133,12 @@ Protomux sullo stesso socket, ereditando gratis l'attraversamento NAT della DHT 
   - Gestisce il ciclo di vita: sblocco, apertura stanze, join tramite link di invito, autorizzazione di nuovi membri (delegata a qualsiasi admin online), invio messaggi e allegati, download file remoti.
   - **Gestione Cronologia Locale**: implementa `clearRoomHistory` (filtro locale `clearedAt` senza toccare il log distribuito) e `restoreRoomHistory` (ripristino istantaneo da storage locale senza riscaricare da rete).
   - **Device Pairing**: esporta e importa snapshot sicuri per clonare l'identità e sincronizzare contatti, stanze e chiavi epoch tra dispositivi.
+- Estratti da `session.ts`, ognuno riceve dalla sessione solo ciò che gli serve tramite una piccola interfaccia host:
+  - [room-keys.ts](src/app/room-keys.ts): chi riceve la chiave di contenuto di una stanza e quando ruota — la sincronizzazione alla riconnessione, la revoca di un membro, la rotazione con distribuzione. I moderatori non distribuiscono mai chiavi: è l'owner a ruotare quando applica il ban di un moderatore.
+  - [contacts.ts](src/app/contacts.ts): `ContactBook` — richieste e risposte di contatto, link di contatto e il rinvio degli handshake senza risposta quando un peer si riconnette.
+  - [directory.ts](src/app/directory.ts): `RoomDirectory` — la lista Discover, salvata in `directory.json`.
+  - [invites.ts](src/app/invites.ts): `InviteBook` — i token d'invito emessi da owner o admin.
+  - [drives.ts](src/app/drives.ts): `DriveAccess` — il nostro file store, un Hyperdrive di lunga durata per ogni chiave remota, e i percorsi di download, stat e stream.
 - [profile-store.ts](src/app/profile-store.ts): Gestione persistente su **Hyperbee** di:
   - Segnalibri delle stanze salvate (`bookmarks`).
   - Lista contatti e richieste pendenti (`contacts`).
@@ -178,6 +184,7 @@ confine, condiviso invece che reimplementato per piattaforma.
 
 #### 🖥️ `src/ui/` (Interfaccia Desktop)
 - [app-shell.ts](src/ui/app-shell.ts): Il Web Component principale `<app-shell>` che renderizza l'intera interfaccia desktop: schermata di sblocco/creazione account, lista stanze, area chat, invio messaggi vocali e file, modali di invito, gestione membri e impostazioni.
+  - Il set di icone, gli helper HTML e di testo, quelli per le immagini, le azioni su appunti e download, e le impostazioni di storage e localStorage stanno in `icons.ts`, `html.ts`, `image-files.ts`, `browser-actions.ts` e `app-settings.ts` accanto a lui.
 - [call-overlay.ts](src/ui/call-overlay.ts): Modulo profondo che governa l'intero ciclo di vita UI e multimediale di una chiamata 1:1 sul desktop: overlay di chiamata in arrivo, widget di chiamata attiva, `<video>` locale e `<canvas>` remoto, suoneria generata a oscillatori e cronometro della durata. L'interfaccia verso `AppShell` è minimale (`mount`, `setSession`, `setPeerLookup`, `startCall`, handler eventi), così una chiamata in corso sopravvive a un re-render globale dell'applicazione.
 - [qr.ts](src/ui/qr.ts) e [qr-core.ts](src/ui/qr-core.ts): Generazione e scansione dei QR code (per inviti stanze e pairing dispositivi).
 - [desktop-host.ts](src/ui/desktop-host.ts): I comandi finestra che servono alla shell (riduci, ingrandisci, chiudi, stato ingrandito) dietro un'unica interfaccia, con `ElectronHost`, `PearHost` e `WebHost` sotto: i due runtime desktop espongono API completamente diverse per gli stessi tre pulsanti.
