@@ -288,6 +288,8 @@ export class AppShell extends HTMLElement {
    * session, so leaving these attached meant every previously-visited room kept redrawing the UI,
    * multiplying the cost of every incoming message by the number of rooms opened so far. */
   private activeRoomUnsubscribes: Array<() => void> = []
+  /** One listener per bookmarked room that keeps its sidebar preview current — see `watchRoomPreviews`. */
+  private roomPreviewWatches = new Map<string, () => void>()
   private renderedRoomId: string | null = null
   private renderedRoomWritable: boolean | null = null
   private renderedActiveTab: 'chat' | 'mailbox' | 'document' | 'files' = 'chat'
@@ -745,11 +747,7 @@ export class AppShell extends HTMLElement {
         })
     }
 
-    // Pre-populate last messages from rooms
-    for (const b of this.session.listBookmarks()) {
-      const room = this.session.getRoom(b.id)
-      if (room) void this.refreshLastMessage(b.id, room)
-    }
+    this.watchRoomPreviews()
 
     window.addEventListener('beforeunload', () => this.session?.broadcastPresence(false))
     if (this.pendingInviteUrl) {
@@ -779,6 +777,31 @@ export class AppShell extends HTMLElement {
       // surfacing, the notification itself still appears.
       void this.notificationAudio.play().catch(() => {})
     } catch { /* no audio device */ }
+  }
+
+  /**
+   * Keeps every room's sidebar preview current, not just the open one. A message from this identity
+   * sent elsewhere (another device) or into a room that is not open never comes back as an
+   * "incoming" message, so the preview used to stay stale until a restart. Idempotent: it only
+   * adds a listener for a room that has none and drops the ones whose room is gone, so it is safe
+   * to call whenever the room list may have changed.
+   */
+  private watchRoomPreviews(): void {
+    if (!this.session) return
+    const live = new Set<string>()
+    for (const b of this.session.listBookmarks()) {
+      live.add(b.id)
+      if (this.roomPreviewWatches.has(b.id)) continue
+      const room = this.session.getRoom(b.id)
+      if (!room) continue
+      this.roomPreviewWatches.set(b.id, room.onMessage(() => { void this.refreshLastMessage(b.id, room) }))
+      void this.refreshLastMessage(b.id, room)
+    }
+    for (const [id, unwatch] of this.roomPreviewWatches) {
+      if (live.has(id)) continue
+      unwatch()
+      this.roomPreviewWatches.delete(id)
+    }
   }
 
   /**
@@ -852,6 +875,8 @@ export class AppShell extends HTMLElement {
 
   private renderApp(): void {
     if (!this.session || !this.identity) return
+    // A room created or joined since the last render needs its preview listener.
+    this.watchRoomPreviews()
 
     // renderApp() rebuilds the whole DOM below on every room event — a message, a typing
     // indicator, a read receipt (see the call-area comment further down) — which recreates
@@ -2076,9 +2101,6 @@ export class AppShell extends HTMLElement {
     this.activeRoomUnsubscribes = [
       room.onMessage(() => {
         this.session!.markRoomRead(roomId)
-        // Incoming messages already update the preview; ones sent from here do not come back as
-        // "incoming", so without this the sidebar kept the old text until a restart.
-        void this.refreshLastMessage(roomId, room)
         this.scheduleRenderApp()
       }),
       room.onWritableChange(() => this.scheduleRenderApp()),
