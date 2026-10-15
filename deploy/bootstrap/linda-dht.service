@@ -1,0 +1,15 @@
+[Unit]
+Description=Linda DHT bootstrap node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Replace 203.0.113.7 with the VPS public IPv4 and install the repo (or just this folder plus
+# `npm i hyperdht`) at /opt/linda-dht.
+ExecStart=/usr/bin/node /opt/linda-dht/node.mjs --host 203.0.113.7 --port 49737
+Restart=always
+RestartSec=5
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target

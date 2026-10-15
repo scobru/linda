@@ -420,6 +420,20 @@ Streaming is why videos are practical at all: the previous path read the whole f
 
 ## Roadmap
 
+### Running your own DHT node
+
+Discovery depends on the three public Holepunch bootstrap nodes. [`deploy/bootstrap/`](deploy/bootstrap/)
+has what you need to run one more of your own on a VPS with a public IPv4 and open UDP:
+
+```sh
+npm i hyperdht
+node deploy/bootstrap/node.mjs --host <public ipv4> --port 49737
+```
+
+`linda-dht.service` is a systemd unit for it. It joins the public DHT instead of starting an empty one
+(`HyperDHT.bootstrapper()` does the latter, and would form its own network), so a client that asks
+it for peers gets real answers. The client-side list is not wired to it yet: this only adds the node.
+
 ### Offline discovery on a local network
 
 **Status:** implemented, opt-in, **desktop only**. See `src/network/lan-discovery.ts`.
