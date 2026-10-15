@@ -317,3 +317,31 @@ test('a contact link binds its issuer and its first claimant as contacts', async
     'the issuer to bind the first claimant as a contact'
   )
 })
+
+test('a peer downloads, stats and streams a file from another session\'s file store, more than once', async (t) => {
+  const { sessionA, sessionB } = await joinedPair(t)
+
+  const store = await sessionA.fileStore()
+  const content = b4a.from('hello from the file store', 'utf8')
+  await store.addBuffer('/hello.txt', content)
+  const driveKey = b4a.toString(store.key, 'hex')
+
+  // The owner reads its own drive without going through the network.
+  assert.deepEqual(await sessionA.downloadFile(driveKey, 'hello.txt'), content)
+
+  // A second download of the same remote drive used to hang forever, so each one is raced against
+  // a timeout instead of being left to stall the run.
+  const withTimeout = <T>(promise: Promise<T>, label: string) => Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`timed out: ${label}`)), SETTLE_MS))
+  ])
+  assert.deepEqual(await withTimeout(sessionB.downloadFile(driveKey, '/hello.txt'), 'first download'), content)
+  assert.deepEqual(await withTimeout(sessionB.downloadFile(driveKey, 'hello.txt'), 'second download'), content)
+
+  assert.deepEqual(await withTimeout(sessionB.statFile(driveKey, 'hello.txt'), 'stat'), { size: content.length })
+
+  const chunks: Buffer[] = []
+  const stream = await withTimeout(sessionB.createFileStream(driveKey, '/hello.txt', { start: 0, end: 4 }), 'stream')
+  for await (const chunk of stream) chunks.push(chunk as Buffer)
+  assert.equal(b4a.toString(b4a.concat(chunks), 'utf8'), 'hello', 'a byte range comes back whole')
+})
