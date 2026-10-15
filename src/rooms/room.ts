@@ -1067,6 +1067,10 @@ export class Room {
   /** Fires only for genuinely new messages (view append), not edits/deletes/reactions — unlike `onMessage`, which fires for both. Used for desktop notifications, where a mutation to an old message shouldn't ping the user. */
   onNewMessage(listener: (message: ChatMessage) => void): () => void {
     const onAppend = () => {
+      // An append can leave the view with no message at all (the room's first entries are not
+      // messages); asking for index -1 then came back as the "unavailable" placeholder and was
+      // announced as a new message.
+      if (this.base.view.messages.length === 0) return
       void this.getMessage(this.base.view.messages.length - 1).then((msg) => {
         if (this.notifiedMessageIds.has(msg.id)) return
         this.notifiedMessageIds.add(msg.id)

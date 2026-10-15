@@ -164,6 +164,31 @@ test('messages survive reopen and decrypt correctly', async () => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test('onNewMessage stays silent for log entries that are not messages, then reports the first message', async () => {
+  const dir = tmpDir()
+  const store = new Corestore(dir)
+  const identityA = randomId(32)
+  const room = await Room.open(store, null, null, identityA, undefined, randomId(8))
+
+  const seen: string[] = []
+  room.onNewMessage((m) => { seen.push(m.body) })
+
+  // Entries that change room state but add no message to the view. Each used to come back as the
+  // "message unavailable" placeholder, announced as if it were a message.
+  await room.updateMeta({ name: 'renamed', avatar: '', description: 'd' })
+  await room.addInviteCode('code')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.deepEqual(seen, [], 'nothing to announce yet')
+
+  await room.send(identityA, 'first')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.deepEqual(seen, ['first'])
+
+  await room.close()
+  await store.close()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
 test('edits, deletes and reactions survive reopen (regression: overlay lost outside the view)', async () => {
   const dir = tmpDir()
   const identityA = randomId(32)

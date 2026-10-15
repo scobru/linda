@@ -748,25 +748,7 @@ export class AppShell extends HTMLElement {
     // Pre-populate last messages from rooms
     for (const b of this.session.listBookmarks()) {
       const room = this.session.getRoom(b.id)
-      if (room) {
-        void (async () => {
-          // Walk backward from the newest message instead of decrypting the room's whole
-          // history just to find its tail.
-          let lastMsg: ChatMessage | null = null
-          for (let i = room.messageCount - 1; i >= 0; i--) {
-            const m = await room.getMessage(i)
-            if (!m.deleted) { lastMsg = m; break }
-          }
-          if (lastMsg) {
-            this.lastMessages.set(b.id, {
-              author: this.displayName(lastMsg.authorId),
-              text: lastMessagePreview(lastMsg),
-              time: lastMsg.timestamp
-            })
-            this.scheduleRenderApp()
-          }
-        })()
-      }
+      if (room) void this.refreshLastMessage(b.id, room)
     }
 
     window.addEventListener('beforeunload', () => this.session?.broadcastPresence(false))
@@ -797,6 +779,26 @@ export class AppShell extends HTMLElement {
       // surfacing, the notification itself still appears.
       void this.notificationAudio.play().catch(() => {})
     } catch { /* no audio device */ }
+  }
+
+  /**
+   * Re-reads a room's newest message for the sidebar preview. Walks backward from the tail instead
+   * of decrypting the room's whole history, and skips deleted messages and the placeholder a failed
+   * read comes back as, so neither can become the preview.
+   */
+  private async refreshLastMessage(roomId: string, room: RoomView): Promise<void> {
+    let lastMsg: ChatMessage | null = null
+    for (let i = room.messageCount - 1; i >= 0; i--) {
+      const m = await room.getMessage(i)
+      if (!m.deleted && !m.id.startsWith('err-')) { lastMsg = m; break }
+    }
+    if (!lastMsg) return
+    this.lastMessages.set(roomId, {
+      author: this.displayName(lastMsg.authorId),
+      text: lastMessagePreview(lastMsg),
+      time: lastMsg.timestamp
+    })
+    this.scheduleRenderApp()
   }
 
   private notifyIncomingMessage(roomId: string, message: ChatMessage): void {
@@ -2074,6 +2076,9 @@ export class AppShell extends HTMLElement {
     this.activeRoomUnsubscribes = [
       room.onMessage(() => {
         this.session!.markRoomRead(roomId)
+        // Incoming messages already update the preview; ones sent from here do not come back as
+        // "incoming", so without this the sidebar kept the old text until a restart.
+        void this.refreshLastMessage(roomId, room)
         this.scheduleRenderApp()
       }),
       room.onWritableChange(() => this.scheduleRenderApp()),

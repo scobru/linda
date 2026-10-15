@@ -570,5 +570,3 @@ covers the join -> write-grant -> replicate path, which nothing else does. Every
 
 `npm run test:ui` starts the real desktop app in Electron, drives it with Playwright, and walks the main path once: create an identity, create a room, send a message, open the Mailbox, Notes and Files views and the profile drawer, then restart and unlock. It fails on any uncaught renderer error. It is separate from `npm test` because it opens a window: on a Linux machine with no display it runs under `xvfb-run`, and it needs the Electron binary (`node node_modules/electron/install.js` if `npm ci` skipped it). It is not wired into CI yet. It needs no network.
 
-One case in it is marked `todo` and documents a known bug: the sidebar shows "message unavailable" for a room until the app is restarted.
-
