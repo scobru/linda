@@ -150,6 +150,47 @@ test('the desktop app: first run, a room and a message, then a restart', { skip 
   })
 })
 
+// A message from this identity that does not come from this window (another device, or a send into
+// a room that is not open) is not reported as "incoming", so the sidebar preview only caught up on
+// restart. The test plays the other device by sending straight through the session.
+test('the sidebar preview follows a message sent into a room that is not open', { skip }, async (t) => {
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-ui-smoke-'))
+  const { app, page, errors } = await launch(storageDir)
+  t.after(async () => {
+    await app.close().catch(() => {})
+    fs.rmSync(storageDir, { recursive: true, force: true })
+  })
+  await page.waitForSelector('#pass')
+  await page.fill('#pass', PASSPHRASE)
+  await page.click('#submit')
+  await page.waitForSelector('#confirm', { timeout: 30_000 })
+  await page.check('#confirm')
+  await page.click('#continue')
+  await page.waitForSelector('#composeBtn', { timeout: 60_000 })
+  await page.click('#composeBtn')
+  await page.fill('#newGroupName', ROOM)
+  await page.click('#createGroupSubmit')
+  await page.waitForSelector('#body', { timeout: 30_000 })
+
+  // Open a different room, so the new one is no longer the active room.
+  await until(() => shellText(page), (text) => text.includes('Linda Welcome'), 'the default rooms')
+  await page.evaluate(() => {
+    const label = [...document.querySelectorAll('app-shell *')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Linda Welcome')
+    label.click()
+  })
+  await until(() => page.evaluate(() => document.querySelector('app-shell').activeRoomName), (name) => name === 'Linda Welcome', 'the other room to open')
+
+  const OTHER = 'sent while the room was closed'
+  await page.evaluate(async ({ room, text }) => {
+    const shell = document.querySelector('app-shell')
+    const bookmark = shell.session.listBookmarks().find((b) => b.name === room)
+    await shell.session.getRoom(bookmark.id).send(shell.identity.id, text)
+  }, { room: ROOM, text: OTHER })
+
+  await until(() => shellText(page), (text) => new RegExp(`\\w+: ${OTHER}`).test(text), 'the closed room preview to show the message')
+  assert.deepEqual(errors, [], 'no uncaught error in the renderer')
+})
+
 // The sidebar preview. It used to show "message unavailable" for the personal vault and for a new
 // room, and never picked up a message sent from this window until the app was restarted.
 test('the sidebar previews rooms correctly without a restart', { skip }, async (t) => {
