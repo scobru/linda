@@ -150,12 +150,11 @@ test('the desktop app: first run, a room and a message, then a restart', { skip 
   })
 })
 
-// Known bug, found by this test: until the app is restarted the sidebar shows "message unavailable"
-// for a room, including one whose only message the chat displays fine. Marked `todo` so it records
-// the bug without failing the run; turn it into a plain test when the bug is fixed.
-test('the sidebar previews the latest message without a restart', { skip, todo: 'sidebar shows "message unavailable" until restart' }, async (t) => {
+// The sidebar preview. It used to show "message unavailable" for the personal vault and for a new
+// room, and never picked up a message sent from this window until the app was restarted.
+test('the sidebar previews rooms correctly without a restart', { skip }, async (t) => {
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linda-ui-smoke-'))
-  const { app, page } = await launch(storageDir)
+  const { app, page, errors } = await launch(storageDir)
   t.after(async () => {
     await app.close().catch(() => {})
     fs.rmSync(storageDir, { recursive: true, force: true })
@@ -167,14 +166,21 @@ test('the sidebar previews the latest message without a restart', { skip, todo: 
   await page.check('#confirm')
   await page.click('#continue')
   await page.waitForSelector('#composeBtn', { timeout: 60_000 })
+  await until(() => shellText(page), (text) => text.includes('Linda Welcome'), 'the room list')
+
+  assert.doesNotMatch(await shellText(page), /message unavailable/, 'a room with no message has no placeholder preview')
+
   await page.click('#composeBtn')
   await page.fill('#newGroupName', ROOM)
   await page.click('#createGroupSubmit')
   await page.waitForSelector('#body', { timeout: 30_000 })
+  assert.doesNotMatch(await shellText(page), /message unavailable/, 'and neither does a room just created')
+
   await page.fill('#body', MESSAGE)
   await page.click('#send')
   await until(() => messagesText(page), (text) => text.includes(MESSAGE), 'the message in the chat')
-  const sidebar = await page.evaluate(() => document.querySelector('#roomList, .room-list, aside')?.textContent.replace(/\s+/g, ' ') ?? '')
-  const all = await shellText(page)
-  assert.ok(!(sidebar || all).includes('message unavailable'), 'the sidebar should not say the message is unavailable')
+  // The author's short id comes before the text in the preview; the chat bubble has no prefix.
+  await until(() => shellText(page), (text) => new RegExp(`\\w+: ${MESSAGE}`).test(text), 'the sent message as the room preview')
+  assert.doesNotMatch(await shellText(page), /message unavailable/)
+  assert.deepEqual(errors, [], 'no uncaught error in the renderer')
 })
