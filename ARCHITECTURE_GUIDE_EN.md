@@ -132,6 +132,12 @@ socket, so it inherits the DHT's NAT traversal and encryption for free.
   - Handles the full lifecycle: account unlock, opening rooms, joining via invites, delegating write authorizations to online admins, sending messages, attachments, and remote downloads.
   - **Local History Management**: Implements `clearRoomHistory` (device-local `clearedAt` filter leaving the distributed log intact) and `restoreRoomHistory` (instant local unhiding without network download).
   - **Device Pairing**: Exports and imports secure snapshots to clone identities and synchronize contacts, bookmarks, and epoch encryption keys across devices.
+- Split out of `session.ts`, each taking only what it needs from the session through a small host interface:
+  - [room-keys.ts](src/app/room-keys.ts): who gets a room's content key and when it rotates — the reconnect sync, revoking a member, and rotate-and-distribute. Moderators never distribute keys: the owner rotates when it applies a moderator's ban.
+  - [contacts.ts](src/app/contacts.ts): `ContactBook` — contact requests and answers, contact links, and the replay of unanswered handshakes when a peer reconnects.
+  - [directory.ts](src/app/directory.ts): `RoomDirectory` — the Discover list, kept in `directory.json`.
+  - [invites.ts](src/app/invites.ts): `InviteBook` — the invite tokens an owner or admin has issued.
+  - [drives.ts](src/app/drives.ts): `DriveAccess` — our own file store, one long-lived Hyperdrive per remote key, and the download, stat and stream paths.
 - [profile-store.ts](src/app/profile-store.ts): Local **Hyperbee** store containing:
   - Saved room bookmarks (`bookmarks`).
   - Contact book and pending requests (`contacts`).
@@ -177,6 +183,7 @@ shared rather than reimplemented per platform.
 
 #### 🖥️ `src/ui/` & `src/util/` (Desktop UI & Utilities)
 - [app-shell.ts](src/ui/app-shell.ts): Custom Web Component `<app-shell>` implementing the complete Electron GUI (authentication screens, room directory, chat stream, audio recorder, modals).
+  - Its icon set, HTML and text helpers, image helpers, clipboard and download actions, and the storage and localStorage settings live in `icons.ts`, `html.ts`, `image-files.ts`, `browser-actions.ts` and `app-settings.ts` next to it.
 - [call-overlay.ts](src/ui/call-overlay.ts): A deep module owning the whole UI and media lifecycle of a desktop 1:1 call — the incoming-call overlay, the active-call widget, the local `<video>` and remote `<canvas>`, an oscillator-generated ringtone and the duration timer. Its interface to `AppShell` is minimal (`mount`, `setSession`, `setPeerLookup`, `startCall`, event handlers) so a live call survives a global re-render of the app.
 - [qr.ts](src/ui/qr.ts) & [qr-core.ts](src/ui/qr-core.ts): QR code rendering and video stream scanning.
 - [desktop-host.ts](src/ui/desktop-host.ts): The window controls the shell needs (minimise, maximise, close, maximised-state), behind one interface with an `ElectronHost`, a `PearHost` and a `WebHost` behind it — the two desktop runtimes expose entirely different APIs for the same three buttons.
