@@ -89,6 +89,7 @@ rompe gli altri due in fase di *bundle* — vedi `SwarmTransport.createLanDiscov
 
 #### 🌐 `src/network/` (Networking P2P e Comunicazione in Tempo Reale)
 - [swarm.ts](src/network/swarm.ts): Configura e avvia **Hyperswarm**. Gestisce le connessioni in entrata/uscita e il bootstrap della DHT.
+  La DHT fa bootstrap dai tre nodi pubblici di Holepunch più quello di Linda (`LINDA_BOOTSTRAP_NODE`), tramite `resolveBootstrap`. In [deploy/bootstrap/](deploy/bootstrap/) c'è ciò che fa girare quel nodo (Docker, compose, systemd) e `check.mjs`, che lo prova da fuori.
 - [rpc.ts](src/network/rpc.ts): Protocollo RPC (`linda-rpc/1`) basato su **Protomux**. Gestisce i messaggi istantanei che non devono essere salvati nello storico (es. "sta scrivendo...", presenza online/offline, ricevute di lettura, richieste di scrittura per entrare in una stanza, annunci stanze pubbliche e scambio chiavi di crittografia).
 - [encoding.ts](src/network/encoding.ts): Serializzazione binaria compatta (`compact-encoding`) per tutti i messaggi RPC scambiati via socket.
 - [lobby.ts](src/network/lobby.ts): Topic globale ("lobby") su cui i nodi possono opzionalmente annunciare stanze pubbliche per la scoperta automatica.
