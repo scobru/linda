@@ -66,6 +66,7 @@
     "hyperbee": "^2.27.3",
     "hypercore": "^11.35.1",
     "hypercore-crypto": "^3.7.0",
+    "hyperdht": "^6.33.1",
     "hyperdrive": "^13.3.3",
     "hyperswarm": "^4.17.0",
     "jsqr": "^1.4.0",
