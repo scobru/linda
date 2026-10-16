@@ -88,6 +88,7 @@ see `SwarmTransport.createLanDiscovery` and `Session`'s `createMediaServer` for 
 
 #### 🌐 `src/network/` (P2P Swarm & Ephemeral RPC)
 - [swarm.ts](src/network/swarm.ts): Initializes **Hyperswarm**, connects to DHT topics, and performs NAT traversal.
+  The DHT bootstraps from the three public Holepunch nodes plus Linda's own (`LINDA_BOOTSTRAP_NODE`), via `resolveBootstrap`. [deploy/bootstrap/](deploy/bootstrap/) has what runs that node (Docker, compose, systemd) and `check.mjs`, which tests it from outside.
 - [rpc.ts](src/network/rpc.ts): Protomux-based RPC protocol (`linda-rpc/1`) for ephemeral interactions: typing indicators, presence, read receipts, room write-access requests, public announcements, and encryption key exchanges.
 - [encoding.ts](src/network/encoding.ts): Compact binary encoders and decoders (`compact-encoding`) for network RPC payloads.
 - [lobby.ts](src/network/lobby.ts): Global discovery topic for announcing and discovering public rooms.
