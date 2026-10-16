@@ -430,7 +430,17 @@ npm i hyperdht
 node deploy/bootstrap/node.mjs --host <public ipv4> --port 49737
 ```
 
-`linda-dht.service` is a systemd unit for it. It joins the public DHT instead of starting an empty one
+With Docker, from a checkout of this repo (the image takes the `hyperdht` version from `package-lock.json`):
+
+```sh
+DHT_HOST=<public ipv4> docker compose -f deploy/bootstrap/docker-compose.yml up -d --build
+```
+
+Open UDP `49737` (or `DHT_PORT`) on the VPS firewall. `DHT_HOST` is required and must be the address peers reach, not the container's.
+
+`captain-definition` at the repo root points CapRover at the same Dockerfile. Untested: CapRover runs apps as Docker Swarm services, and a published UDP port goes through Swarm's ingress, which can rewrite the source address a DHT node sees. If the node shows odd peer addresses there, use compose instead.
+
+`linda-dht.service` is the systemd equivalent. It joins the public DHT instead of starting an empty one
 (`HyperDHT.bootstrapper()` does the latter, and would form its own network), so a client that asks
 it for peers gets real answers. The client-side list is not wired to it yet: this only adds the node.
 
