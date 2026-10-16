@@ -22,8 +22,6 @@ const bootstrap = process.env.DHT_BOOTSTRAP ? process.env.DHT_BOOTSTRAP.split(',
 const dht = new HyperDHT({ port, anyPort: false, firewalled: false, bootstrap })
 await dht.ready()
 console.log('linda dht node on', dht.address(), 'ephemeral:', dht.ephemeral)
-// Only now does the node count as reachable: until this line shows up it is not serving as bootstrap.
-dht.on('persistent', () => console.log('persistent: reachable, serving as a bootstrap node'))
 
 process.once('SIGINT', () => dht.destroy())
 process.once('SIGTERM', () => dht.destroy())
