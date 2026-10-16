@@ -442,7 +442,13 @@ Open UDP `49737` (or `DHT_PORT`) on the VPS firewall. The node learns its public
 
 `linda-dht.service` is the systemd equivalent. It joins the public DHT instead of starting an empty one
 (`HyperDHT.bootstrapper()` does the latter, and would form its own network), so a client that asks
-it for peers gets real answers. Clients list it after the three public nodes (`LINDA_BOOTSTRAP_NODE` in `src/network/swarm.ts`). The log line `persistent: reachable...` means the network reached it; at start it only says `ephemeral: true`.
+it for peers gets real answers. Clients list it after the three public nodes (`LINDA_BOOTSTRAP_NODE` in `src/network/swarm.ts`). Its own log cannot tell you whether the network reaches it (`ephemeral: true` at start is normal). Check from outside, on another machine:
+
+```sh
+node deploy/bootstrap/check.mjs <ip>@<host>:49737
+```
+
+It bootstraps from that node alone and fails unless it learns other nodes through it.
 
 ### Offline discovery on a local network
 
