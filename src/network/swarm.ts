@@ -1,4 +1,5 @@
 import Hyperswarm from 'hyperswarm'
+import DHT from 'hyperdht'
 import b4a from 'b4a'
 import type { Duplex } from 'node:stream'
 import type { Keypair } from '../identity/keypair.js'
@@ -45,7 +46,7 @@ export interface LanDiscoveryHandle {
 
 export interface SwarmTransport {
   dhtPort?: number
-  bootstrap?: Array<{ host: string; port: number }>
+  bootstrap?: Array<string | { host: string; port: number }>
   /** Opt-in second discovery channel for a LAN with no internet — see `LanDiscovery`. Undefined
    * (the default) means off: announcing a room topic on the local network reveals that topic to
    * everyone on it.
@@ -60,9 +61,20 @@ export interface SwarmTransport {
   createLanDiscovery?: (onSocket: (socket: Duplex, remotePublicKey: Buffer) => void) => LanDiscoveryHandle
 }
 
+/** Linda's own DHT node (see `deploy/bootstrap/`), listed after the public Holepunch ones so a
+ * first launch does not depend on those alone. `IP@host` makes dht-rpc ping the IP first and only
+ * fall back to DNS, so it still works if the name is not a plain A record. */
+export const LINDA_BOOTSTRAP_NODE = '164.132.57.192@linda-bootstrap.scobrudot.dev:49737'
+
+/** hyperdht's `bootstrap` option replaces its default list rather than extending it, so the public
+ * nodes have to be spelled out here. An explicit list (tests) is used as given. */
+export function resolveBootstrap(explicit: SwarmTransport['bootstrap']): NonNullable<SwarmTransport['bootstrap']> {
+  return explicit ?? [...DHT.BOOTSTRAP, LINDA_BOOTSTRAP_NODE]
+}
+
 export function createSwarm(identity: Keypair, handlers: SwarmHandlers = {}, transport: SwarmTransport = {}): Hyperswarm {
   const port = transport.dhtPort || Number(globalThis.process?.env?.LINDA_DHT_PORT) || undefined
-  const swarm = new Hyperswarm({ keyPair: identity, port, bootstrap: transport.bootstrap })
+  const swarm = new Hyperswarm({ keyPair: identity, port, bootstrap: resolveBootstrap(transport.bootstrap) })
   swarm.on('connection', (socket, info) => handleConnection(socket, info.publicKey, handlers))
   return swarm
 }

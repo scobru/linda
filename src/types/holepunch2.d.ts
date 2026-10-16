@@ -13,7 +13,7 @@ declare module 'hyperswarm' {
     port?: number
     /** DHT nodes to bootstrap from instead of the public network. Tests point this at an
      * in-process testnet (hyperdht/testnet); production leaves it unset. */
-    bootstrap?: Array<{ host: string; port: number }>
+    bootstrap?: Array<string | { host: string; port: number }>
   }
 
   export interface JoinOptions {
@@ -104,4 +104,11 @@ declare module 'compact-encoding' {
   export const uint: Encoding<number>
   export const buffer: Encoding<Buffer>
   export const none: Encoding<undefined>
+}
+
+declare module 'hyperdht' {
+  export default class HyperDHT {
+    /** The public Holepunch bootstrap nodes, as `ip@host:port`. */
+    static BOOTSTRAP: string[]
+  }
 }
