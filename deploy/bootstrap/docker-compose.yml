@@ -1,4 +1,4 @@
-# From the repo root:  DHT_HOST=<vps public ipv4> docker compose -f deploy/bootstrap/docker-compose.yml up -d --build
+# From the repo root:  docker compose -f deploy/bootstrap/docker-compose.yml up -d --build
 services:
   linda-dht:
     build:
@@ -6,7 +6,6 @@ services:
       dockerfile: deploy/bootstrap/Dockerfile
     restart: unless-stopped
     environment:
-      DHT_HOST: ${DHT_HOST:?set DHT_HOST to the VPS public IPv4}
       DHT_PORT: ${DHT_PORT:-49737}
     ports:
       - "${DHT_PORT:-49737}:${DHT_PORT:-49737}/udp"
