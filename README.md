@@ -427,16 +427,16 @@ has what you need to run one more of your own on a VPS with a public IPv4 and op
 
 ```sh
 npm i hyperdht
-node deploy/bootstrap/node.mjs --host <public ipv4> --port 49737
+node deploy/bootstrap/node.mjs --port 49737
 ```
 
 With Docker, from a checkout of this repo (the image takes the `hyperdht` version from `package-lock.json`):
 
 ```sh
-DHT_HOST=<public ipv4> docker compose -f deploy/bootstrap/docker-compose.yml up -d --build
+docker compose -f deploy/bootstrap/docker-compose.yml up -d --build
 ```
 
-Open UDP `49737` (or `DHT_PORT`) on the VPS firewall. `DHT_HOST` is required and must be the address peers reach, not the container's.
+Open UDP `49737` (or `DHT_PORT`) on the VPS firewall. The node learns its public address from the nodes it talks to, so there is nothing to configure with the IP.
 
 `captain-definition` at the repo root points CapRover at the same Dockerfile. Untested: CapRover runs apps as Docker Swarm services, and a published UDP port goes through Swarm's ingress, which can rewrite the source address a DHT node sees. If the node shows odd peer addresses there, use compose instead.
 
